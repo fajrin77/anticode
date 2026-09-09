@@ -44,7 +44,21 @@ function createWindow(): void {
   }
 }
 
+// Two instances would share one userData dir and fight over the remote port,
+// so a second launch just focuses the first window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+}
+
 void app.whenReady().then(() => {
+  app.on('second-instance', () => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (window !== undefined) {
+      if (window.isMinimized()) window.restore()
+      window.focus()
+    }
+  })
+
   app.setAppUserModelId('com.anticode.app')
 
   // A packaged app takes its icon from the bundle; dev runs under Electron's
