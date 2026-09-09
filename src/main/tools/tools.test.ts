@@ -175,4 +175,16 @@ describe('run_command', () => {
       .execute(context)).text
     expect(output).toContain('killed after 1000 ms')
   })
+
+  it('does not hang when a background grandchild holds the stdio pipes', async () => {
+    const started = Date.now()
+    const output = (
+      await runCommandTool.prepare({ command: 'sleep 8 & echo started' }).execute(context)
+    ).text
+    const elapsed = Date.now() - started
+    expect(output).toContain('started')
+    // The 8-second sleeper inherits the stdio pipes; the grace period must
+    // return the result long before it exits, long before any timeout.
+    expect(elapsed).toBeLessThan(5_000)
+  })
 })

@@ -66,8 +66,24 @@ function execute(
     child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk.toString('utf8')))
     child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString('utf8')))
 
+    // A backgrounded grandchild (dev servers, watchers) inherits the shell's
+    // stdio pipes and can hold them open long after the shell itself is gone,
+    // so the 'close' event never fires and the tool hangs until its timeout.
+    // Once the shell has exited, only wait a short grace period for stragglers
+    // before force-closing the streams.
+    let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null
+    let streamGrace: NodeJS.Timeout | null = null
+    child.on('exit', (code, signal) => {
+      exitInfo = { code, signal }
+      streamGrace = setTimeout(() => {
+        child.stdout?.destroy()
+        child.stderr?.destroy()
+      }, 1_500)
+    })
+
     const cleanup = (): void => {
       clearTimeout(timer)
+      if (streamGrace !== null) clearTimeout(streamGrace)
       signal.removeEventListener('abort', onAbort)
     }
 
@@ -80,8 +96,8 @@ function execute(
       resolve({
         stdout: collect(stdout, MAX_STREAM_CHARS),
         stderr: collect(stderr, MAX_STREAM_CHARS),
-        code,
-        signal: closeSignal,
+        code: exitInfo?.code ?? code,
+        signal: exitInfo?.signal ?? closeSignal,
         timedOut
       })
     })

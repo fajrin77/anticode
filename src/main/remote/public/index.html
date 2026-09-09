@@ -17,20 +17,31 @@
   /* 16px+ on every control keeps Safari from zooming on focus. */
   input, textarea, select, button { font-size: 16px; }
   header {
-    position: sticky; top: 0; display: flex; align-items: center; gap: 8px;
+    position: sticky; top: 0; display: flex; justify-content: center;
     padding: 12px 16px; background: #202020; border-bottom: 1px solid #303030;
     font-weight: 600; z-index: 5;
   }
-  header button {
-    background: #2e2e2e; color: #ededed; border: 1px solid #303030;
-    border-radius: 8px; padding: 6px 12px;
+  header .menubtn {
+    display: flex; align-items: center; gap: 6px; background: none; border: none;
+    color: #ededed; font-weight: 600; font-size: 17px; padding: 4px 10px; border-radius: 8px;
+    max-width: 78vw;
   }
-  header #backBtn { display: none; padding: 6px 10px; }
-  header .spacer { flex: 1; }
-  header .modelchip {
-    font-size: 12.5px; color: #9a9a9a; font-weight: 500; max-width: 38vw;
+  header .menubtn .chev { color: #9a9a9a; font-size: 13px; }
+  header .menubtn span.title {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  #menuDrop {
+    position: fixed; top: 52px; left: 16px; right: 16px; z-index: 30;
+    background: #202020; border: 1px solid #303030; border-radius: 12px;
+    overflow: hidden; box-shadow: 0 12px 32px rgba(0,0,0,.5);
+  }
+  #menuDrop .mrow {
+    display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+    border-bottom: 1px solid #262626; cursor: pointer; font-weight: 500;
+  }
+  #menuDrop .mrow:last-child { border-bottom: none; }
+  #menuDrop .mrow:active { background: #2a2a2a; }
+  #menuDrop .mrow .ico { color: #9a9a9a; width: 20px; text-align: center; }
   main { padding: 12px 16px 120px; }
   .card {
     background: #202020; border: 1px solid #303030; border-radius: 12px;
@@ -81,11 +92,6 @@
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
-    animation: breathe 1.6s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    0%, 100% { background: #9a9a9a; box-shadow: 0 0 0 0 rgba(209,250,34,0); }
-    50% { background: #d1fa22; box-shadow: 0 0 10px 2px rgba(209,250,34,.5); }
   }
   .add { color: #5ac37f; }
   .del { color: #e06c6c; }
@@ -139,13 +145,16 @@
 </head>
 <body>
 <header>
-  <button id="backBtn" onclick="showDashboard()">←</button>
-  <span>anticode remote</span>
-  <span class="spacer"></span>
-  <span class="modelchip" id="modelChip"></span>
-  <button id="tabChat" onclick="showTab('chat')">Chat</button>
-  <button id="tabFiles" onclick="showTab('files')">Files</button>
+  <button class="menubtn" id="menuBtn" onclick="toggleMenu(event)">
+    <span class="title" id="menuTitle">anticode</span>
+    <span class="chev">▾</span>
+  </button>
 </header>
+<div id="menuDrop" class="hidden">
+  <div class="mrow" onclick="gotoNew()"><span class="ico">＋</span>New session</div>
+  <div class="mrow" onclick="gotoSessions()"><span class="ico">💬</span>Sessions</div>
+  <div class="mrow" onclick="gotoFiles()"><span class="ico">🗂</span>Files</div>
+</div>
 <main>
   <section id="viewChat">
     <div id="dashboard">
@@ -204,38 +213,89 @@ let openedFile = null;
 let folderReady = false;
 let phoneMode = 'code';
 let modelInfo = null;
+let lastSessions = [];
 
-/* ---------- Navigation ---------- */
+/* ---------- Navigation: one dropdown behind the session title ---------- */
 
-function showTab(tab) {
-  document.getElementById('viewChat').classList.toggle('hidden', tab !== 'chat');
-  document.getElementById('viewFiles').classList.toggle('hidden', tab !== 'files');
-  document.getElementById('inputRow').classList.toggle('hidden', tab !== 'chat' || currentSession === null);
-  document.getElementById('backBtn').style.display = currentSession !== null && tab === 'chat' ? 'block' : 'none';
-  document.getElementById('tabChat').style.borderColor = tab === 'chat' ? '#ededed' : '#303030';
-  document.getElementById('tabFiles').style.borderColor = tab === 'files' ? '#ededed' : '#303030';
-  if (tab === 'chat') { loadOverview(); void loadModels(); } else refreshFilesTab();
+function setMenuTitle(text) {
+  document.getElementById('menuTitle').textContent = text;
 }
 
-function showDashboard() {
+function titleFor(id) {
+  const s = lastSessions.find((entry) => entry.id === id);
+  if (s === undefined) return 'antichat';
+  return s.mode === 'code' && s.workspaceRoot
+    ? s.workspaceRoot.split(/[\\/]/).pop()
+    : 'antichat';
+}
+
+function toggleMenu(event) {
+  event?.stopPropagation();
+  document.getElementById('menuDrop').classList.toggle('hidden');
+}
+
+function closeMenu() {
+  document.getElementById('menuDrop').classList.add('hidden');
+}
+
+function showChatSection() {
+  document.getElementById('viewChat').classList.remove('hidden');
+  document.getElementById('viewFiles').classList.add('hidden');
+}
+
+function showFilesSection() {
+  document.getElementById('viewChat').classList.add('hidden');
+  document.getElementById('viewFiles').classList.remove('hidden');
+  document.getElementById('inputRow').classList.add('hidden');
+  void refreshFilesTab();
+}
+
+function gotoNew() {
+  closeMenu();
   currentSession = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
+  liveEl = null;
+  showChatSection();
   document.getElementById('chatView').classList.add('hidden');
   document.getElementById('dashboard').classList.remove('hidden');
-  document.getElementById('inputRow').classList.add('hidden');
-  document.getElementById('backBtn').style.display = 'none';
+  document.getElementById('sessionList').classList.add('hidden');
+  document.getElementById('newSessionCard').classList.remove('hidden');
+  setMenuTitle('anticode');
+  void loadModels();
+}
+
+function gotoSessions() {
+  closeMenu();
+  currentSession = null;
+  if (eventSource) { eventSource.close(); eventSource = null; }
   liveEl = null;
-  loadOverview();
+  showChatSection();
+  document.getElementById('chatView').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  document.getElementById('newSessionCard').classList.add('hidden');
+  document.getElementById('sessionList').classList.remove('hidden');
+  setMenuTitle('Sessions');
+  void loadOverview();
+}
+
+function gotoFiles() {
+  closeMenu();
+  currentSession = null;
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  liveEl = null;
+  setMenuTitle('Files');
+  showFilesSection();
 }
 
 /* ---------- Chat ---------- */
 
 async function loadOverview() {
   const { sessions } = await jfetch('/api/overview');
+  lastSessions = sessions;
   const list = document.getElementById('sessionList');
   list.innerHTML = '<div class="muted" style="padding:4px 2px">Sessions</div>';
   if (sessions.length === 0) {
-    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — start one above or type below.</div>';
+    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — start one from the menu.</div>';
   }
   for (const s of sessions) {
     const row = document.createElement('div');
@@ -259,10 +319,8 @@ async function loadModels() {
   try {
     modelInfo = await jfetch('/api/models');
   } catch { modelInfo = null; }
-  const chip = document.getElementById('modelChip');
   const select = document.getElementById('modelSelect');
   if (modelInfo !== null) {
-    chip.textContent = modelInfo.model || modelInfo.provider;
     select.innerHTML = '';
     const current = document.createElement('option');
     current.value = modelInfo.provider + '|' + modelInfo.model;
@@ -276,8 +334,6 @@ async function loadModels() {
       option.textContent = m;
       select.appendChild(option);
     }
-  } else {
-    chip.textContent = '';
   }
 }
 
@@ -310,10 +366,12 @@ async function openSession(id) {
   currentSession = id;
   const { messages } = await jfetch('/api/session/' + id);
   renderTranscript(messages);
+  closeMenu();
+  showChatSection();
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
-  document.getElementById('backBtn').style.display = 'block';
+  setMenuTitle(titleFor(id));
   listen(id);
   window.scrollTo(0, document.body.scrollHeight);
 }
@@ -520,7 +578,7 @@ async function sendPrompt() {
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
-  document.getElementById('backBtn').style.display = 'block';
+  setMenuTitle(titleFor(sessionId));
   listen(sessionId);
 }
 
@@ -658,7 +716,13 @@ async function gitAction(action) {
 document.getElementById('prompt').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
 });
-showTab('chat');
+document.addEventListener('click', (e) => {
+  const drop = document.getElementById('menuDrop');
+  if (!drop.classList.contains('hidden') && !drop.contains(e.target) && e.target.closest('#menuBtn') === null) {
+    closeMenu();
+  }
+});
+gotoSessions();
 </script>
 </body>
 </html>

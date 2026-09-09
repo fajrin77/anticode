@@ -37,7 +37,7 @@ function ToolGroup({ parts }: { parts: ToolPart[] }): JSX.Element {
         className="group flex w-full items-center gap-2.5 text-left"
       >
         {running ? (
-          <span className="h-2 w-2 shrink-0 animate-breathe rounded-full bg-dim" />
+          <span className="h-2 w-2 shrink-0 rounded-full bg-faint" />
         ) : (
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${failed > 0 ? 'bg-del' : 'bg-faint'}`}
@@ -104,7 +104,7 @@ function MessageView({ message }: { message: Message }): JSX.Element {
       )}
       {message.pending && !tailRunning && (
         <div className="mt-2 flex items-center gap-2.5 text-[14px] text-dim">
-          <span className="h-2.5 w-2.5 animate-breathe rounded-full bg-dim" />
+          <span className="h-2.5 w-2.5 rounded-full bg-faint" />
           working
         </div>
       )}
