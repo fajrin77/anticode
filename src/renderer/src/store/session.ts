@@ -512,6 +512,9 @@ export function useActiveSession(): Session | undefined {
   )
 }
 
+// Debugging hook: lets CDP inspect the live session state in packaged builds.
+window.__store = useSessionStore
+
 /**
  * Ordered glass gradients for session badges. Sessions take the next entry on
  * creation, so fresh sessions are visually distinct until the palette wraps.

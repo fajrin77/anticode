@@ -71,6 +71,18 @@ function ToolGroup({ parts }: { parts: ToolPart[] }): JSX.Element {
 }
 
 function MessageView({ message }: { message: Message }): JSX.Element {
+  if (message.role === 'user') {
+    return (
+      <div className="flex justify-end py-4">
+        <div className="max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
+          {message.parts.map((part, index) =>
+            part.kind === 'text' ? <span key={index}>{part.text}</span> : null
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const blocks = groupBlocks(message.parts)
   const tail = blocks.at(-1)
   const tailRunning =

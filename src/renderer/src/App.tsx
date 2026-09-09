@@ -85,12 +85,16 @@ export function App(): JSX.Element {
 
   // Sessions created on the phone land in the desktop immediately, with their
   // main-process transcript imported so the conversation is readable here.
+  // A session the desktop already owns is skipped: importing its (still nearly
+  // empty) main-process snapshot would wipe the live, streaming transcript.
   useEffect(() => {
     return window.anticode.onSessionCreated((spec) => {
       const store = useSessionStore.getState()
+      const known = store.sessions.some((session) => session.id === spec.sessionId)
       store.addExternalSession(spec)
+      if (known) return
       void window.anticode.getSessionSnapshot(spec.sessionId).then((messages) => {
-        if (messages !== null) store.importSnapshot(spec.sessionId, messages)
+        if (messages !== null) useSessionStore.getState().importSnapshot(spec.sessionId, messages)
       })
     })
   }, [])
