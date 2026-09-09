@@ -46,6 +46,8 @@ const api: AnticodeApi = {
   getRemoteStatus: () => ipcRenderer.invoke(IpcChannel.REMOTE_STATUS) as Promise<RemoteStatus>,
   onSessionCreated: (listener: (spec: SessionSpec) => void) =>
     subscribe<SessionSpec>(IpcChannel.SESSION_CREATED, listener),
+  onSessionClosed: (listener: (sessionId: string) => void) =>
+    subscribe<string>(IpcChannel.SESSION_CLOSED, listener),
   getSessionSnapshot: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<SnapshotMessage[] | null>,
   setRemoteEnabled: (enabled: boolean) =>

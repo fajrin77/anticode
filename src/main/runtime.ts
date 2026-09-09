@@ -128,10 +128,16 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
 }
 
 let sessionCreatedSink: ((spec: SessionSpec) => void) | null = null
+let sessionClosedSink: ((sessionId: string) => void) | null = null
 
 /** Called once by ipc registration; fans creations out to all windows. */
 export function setOnSessionCreated(sink: (spec: SessionSpec) => void): void {
   sessionCreatedSink = sink
+}
+
+/** Called once by ipc registration; fans deletions (from the phone) out. */
+export function setOnSessionClosed(sink: (sessionId: string) => void): void {
+  sessionClosedSink = sink
 }
 
 export function createSession(spec: SessionSpec): void {
@@ -139,8 +145,15 @@ export function createSession(spec: SessionSpec): void {
   sessionCreatedSink?.(spec)
 }
 
+/** Closing a desktop tab only archives it, so this stays silent. */
 export function closeSession(sessionId: string): void {
   sessions.delete(sessionId)
+}
+
+/** A hard delete (phone-initiated): the session is gone everywhere. */
+export function deleteSession(sessionId: string): void {
+  sessions.delete(sessionId)
+  sessionClosedSink?.(sessionId)
 }
 
 export function getStatus(): SessionStatus {
@@ -197,6 +210,15 @@ export interface SessionSummary {
   mode: SessionMode
   workspaceRoot: string | null
   messageCount: number
+  /** True while a run (desktop or phone) is executing in this session. */
+  running: boolean
+}
+
+/** Injected by ipc registration so summaries can flag live runs. */
+let runningProbe: ((sessionId: string) => boolean) | null = null
+
+export function setRunningProbe(probe: (sessionId: string) => boolean): void {
+  runningProbe = probe
 }
 
 export function listSessionSummaries(): SessionSummary[] {
@@ -204,7 +226,8 @@ export function listSessionSummaries(): SessionSummary[] {
     id: live.spec.sessionId,
     mode: live.spec.mode,
     workspaceRoot: live.spec.workspaceRoot,
-    messageCount: live.agent?.snapshot().messages.length ?? 0
+    messageCount: live.agent?.snapshot().messages.length ?? 0,
+    running: runningProbe?.(live.spec.sessionId) ?? false
   }))
 }
 

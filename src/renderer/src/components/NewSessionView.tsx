@@ -321,13 +321,15 @@ function SessionColumn({
   sessions,
   query,
   onSelect,
-  onDelete
+  onDelete,
+  runningIds
 }: {
   title: string
   sessions: Session[]
   query: string
   onSelect: (id: string) => void
   onDelete: (id: string) => void
+  runningIds: Set<string>
 }): JSX.Element {
   const needle = query.trim().toLowerCase()
   const visible = sessions.filter((session) => needle === '' || session.title.toLowerCase().includes(needle))
@@ -345,6 +347,7 @@ function SessionColumn({
               session={session}
               onSelect={onSelect}
               onDelete={onDelete}
+              spinning={runningIds.has(session.id)}
             />
           ))
         )}
@@ -371,6 +374,8 @@ export function NewSessionView({
   const [query, setQuery] = useState('')
   const sessions = useSessionStore((state) => state.sessions)
   const deleteSession = useSessionStore((state) => state.deleteSession)
+  const activeRun = useSessionStore((state) => state.activeRun)
+  const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
 
   // Deleting wipes the session everywhere: cancel its run if one is live,
   // free the main-process side, then drop it from the store.
@@ -392,6 +397,10 @@ export function NewSessionView({
   )
   const chatSessions = listed.filter((item) => item.mode === 'chat')
   const codeSessions = listed.filter((item) => item.mode === 'code')
+  const runningIds = new Set<string>([
+    ...(activeRun !== null ? [activeRun.sessionId] : []),
+    ...Object.values(mirrorRuns).map((entry) => entry.sessionId)
+  ])
 
   const searchButton = (
     <button
@@ -459,6 +468,7 @@ export function NewSessionView({
             query={query}
             onSelect={onSelectSession}
             onDelete={removeSession}
+            runningIds={runningIds}
           />
           <SessionColumn
             title="anticode"
@@ -466,6 +476,7 @@ export function NewSessionView({
             query={query}
             onSelect={onSelectSession}
             onDelete={removeSession}
+            runningIds={runningIds}
           />
         </div>
       </div>

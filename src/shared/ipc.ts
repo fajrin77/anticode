@@ -22,6 +22,7 @@ export const IpcChannel = {
   REMOTE_SET: 'remote:set',
   REMOTE_REGENERATE: 'remote:regenerate',
   SESSION_CREATED: 'session:created',
+  SESSION_CLOSED: 'session:closed',
   SESSION_SNAPSHOT: 'session:snapshot'
 } as const
 
@@ -205,6 +206,8 @@ export interface AnticodeApi {
   regenerateRemoteToken: () => Promise<RemoteStatus>
   /** Fires for sessions created anywhere — desktop or remote phone. */
   onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
+  /** Fires when a session is deleted from the remote phone. */
+  onSessionClosed: (listener: (sessionId: string) => void) => () => void
   getSessionSnapshot: (sessionId: string) => Promise<SnapshotMessage[] | null>
   getAppInfo: () => Promise<AppInfo>
   getStatus: () => Promise<SessionStatus>

@@ -115,3 +115,14 @@ body {
 .animate-breathe {
   animation: anticode-breathe 1.6s ease-in-out infinite;
 }
+
+/* Session badges spin while their session is running. */
+@keyframes badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.badge-spin {
+  animation: badge-spin 1.4s linear infinite;
+}

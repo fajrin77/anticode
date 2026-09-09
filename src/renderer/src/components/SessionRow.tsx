@@ -15,11 +15,13 @@ export function badgeLabel(session: Session): string {
 export function SessionRow({
   session,
   onSelect,
-  onDelete
+  onDelete,
+  spinning = false
 }: {
   session: Session
   onSelect: (id: string) => void
   onDelete?: (id: string) => void
+  spinning?: boolean
 }): JSX.Element {
   return (
     <div className="group relative flex w-full items-start">
@@ -29,7 +31,7 @@ export function SessionRow({
         className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-raised"
       >
         <span className="mt-0.5">
-          <Badge label={badgeLabel(session)} colour={session.colour} size="md" />
+          <Badge label={badgeLabel(session)} colour={session.colour} size="md" spinning={spinning} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13.5px] text-text">{session.title}</div>

@@ -99,6 +99,41 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  // A phone-initiated delete removes the tab here too; a run it owned is
+  // cancelled first so it does not keep streaming into a dead session.
+  useEffect(() => {
+    return window.anticode.onSessionClosed((sessionId) => {
+      const store = useSessionStore.getState()
+      const run = store.activeRun
+      if (run !== null && run.sessionId === sessionId) {
+        void window.anticode.cancelRun(run.runId)
+        store.setActiveRun(null)
+      }
+      store.deleteSession(sessionId)
+    })
+  }, [])
+
+  /** A snapshot import must never race a live run on the same session — it
+   * would wipe the streamed transcript and the just-typed prompt. */
+  const sessionBusy = (sessionId: string): boolean => {
+    const state = useSessionStore.getState()
+    if (state.activeRun?.sessionId === sessionId) return true
+    return Object.values(state.mirrorRuns).some((entry) => entry.sessionId === sessionId)
+  }
+
+  const importWhenQuiet = (
+    sessionId: string,
+    summary?: { model: string; durationMs: number }
+  ): void => {
+    if (sessionBusy(sessionId)) return
+    void window.anticode.getSessionSnapshot(sessionId).then((messages) => {
+      if (messages !== null) useSessionStore.getState().importSnapshot(sessionId, messages)
+      if (summary !== undefined) {
+        useSessionStore.getState().stampLastSummary(sessionId, summary)
+      }
+    })
+  }
+
   useEffect(() => {
     return window.anticode.onAgentEvent((event) => {
       const store = useSessionStore.getState()
@@ -172,12 +207,7 @@ export function App(): JSX.Element {
             `\n${event.message}`
           )
           store.mirrorSettle(event.runId, summary)
-          void window.anticode.getSessionSnapshot(event.sessionId).then((messages) => {
-            if (messages !== null) useSessionStore.getState().importSnapshot(event.sessionId, messages)
-            if (summary !== undefined) {
-              useSessionStore.getState().stampLastSummary(event.sessionId, summary)
-            }
-          })
+          importWhenQuiet(event.sessionId, summary)
           break
         }
         case 'end': {
@@ -185,12 +215,7 @@ export function App(): JSX.Element {
           const summary =
             entry !== undefined ? summaryOf(event.sessionId, entry.startedAt) : undefined
           store.mirrorSettle(event.runId, summary)
-          void window.anticode.getSessionSnapshot(event.sessionId).then((messages) => {
-            if (messages !== null) useSessionStore.getState().importSnapshot(event.sessionId, messages)
-            if (summary !== undefined) {
-              useSessionStore.getState().stampLastSummary(event.sessionId, summary)
-            }
-          })
+          importWhenQuiet(event.sessionId, summary)
           break
         }
       }

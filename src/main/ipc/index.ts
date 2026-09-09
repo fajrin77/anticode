@@ -25,7 +25,9 @@ import {
   policy,
   resetProviderSelection,
   selectProvider,
+  setOnSessionClosed,
   setOnSessionCreated,
+  setRunningProbe,
   setWorkspaceRoot
 } from '../runtime'
 import { listProviders } from '../providers'
@@ -34,11 +36,12 @@ import { AttachmentError, prepareAttachment, toContentBlocks } from '../attachme
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
 import { forgetRun, forward, registerRun } from '../remote/bus'
-import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
+import { getRemoteStatus, hasRemoteRun, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
 
 const activeRuns = new Map<string, AbortController>()
+const activeRunSessions = new Map<string, string>()
 const attachments = new Map<string, AttachmentInfo>()
 
 let lastSender: WebContents | null = null
@@ -197,6 +200,19 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  setRunningProbe(
+    (sessionId) =>
+      [...activeRunSessions.values()].includes(sessionId) || hasRemoteRun(sessionId)
+  )
+
+  setOnSessionClosed((sessionId) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IpcChannel.SESSION_CLOSED, sessionId)
+      }
+    }
+  })
+
   ipcMain.handle(IpcChannel.SESSION_CLOSE, (_event, sessionId: string): void => {
     closeSession(sessionId)
   })
@@ -207,6 +223,18 @@ export function registerIpcHandlers(): void {
     // Events only travel through the bus, so the run must be registered even
     // when the send is refused — the error has to reach the windows.
     registerRun(req.runId, req.sessionId)
+
+    // Two interleaved runs would corrupt one agent's replayed history.
+    for (const [runId, owner] of activeRunSessions) {
+      if (owner === req.sessionId && runId !== req.runId) {
+        emit(
+          { type: 'error', runId: req.runId, message: 'A run is already active in this session' },
+          req.sessionId
+        )
+        forgetRun(req.runId)
+        return
+      }
+    }
 
     const status = getStatus()
     if (!status.providerReady) {
@@ -225,6 +253,7 @@ export function registerIpcHandlers(): void {
     if (activeRuns.has(req.runId)) return
     const controller = new AbortController()
     activeRuns.set(req.runId, controller)
+    activeRunSessions.set(req.runId, req.sessionId)
 
     void (async () => {
       try {
@@ -248,6 +277,7 @@ export function registerIpcHandlers(): void {
         for (const id of req.attachmentIds) attachments.delete(id)
         forgetRun(req.runId)
         activeRuns.delete(req.runId)
+        activeRunSessions.delete(req.runId)
       }
     })()
   })

@@ -97,6 +97,7 @@ export function TabBar({
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const closeSession = useSessionStore((state) => state.closeSession)
   const activeRun = useSessionStore((state) => state.activeRun)
+  const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
   )
@@ -134,6 +135,9 @@ export function TabBar({
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
         {sessions.filter((session) => !session.closed).map((session) => {
           const isActive = session.id === activeSessionId
+          const running =
+            activeRun?.sessionId === session.id ||
+            Object.values(mirrorRuns).some((entry) => entry.sessionId === session.id)
           return (
             <div
               key={session.id}
@@ -141,7 +145,11 @@ export function TabBar({
                 isActive ? 'bg-hover' : 'hover:bg-raised'
               }`}
             >
-              <Badge label={badgeName(session)} colour={session.colour} />
+              <Badge
+                label={badgeName(session)}
+                colour={session.colour}
+                spinning={running}
+              />
               <button
                 type="button"
                 onClick={() => onSelectSession(session.id)}

@@ -12,6 +12,7 @@ import { listProviders } from '../providers'
 import {
   cachedCatalogue,
   createRemoteSession,
+  deleteSession,
   getSession,
   getStatus,
   listSessionSummaries,
@@ -175,6 +176,15 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, { messages })
     }
 
+    if (req.method === 'DELETE' && sessionMatch !== null) {
+      const id = sessionMatch[1] ?? ''
+      for (const [runId, owner] of remoteRunSessions) {
+        if (owner === id) remoteRuns.get(runId)?.abort()
+      }
+      deleteSession(id)
+      return json(res, 200, { ok: true })
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/prompt') {
       return json(res, 200, await startPrompt(body))
     }
@@ -228,6 +238,15 @@ function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 const remoteRuns = new Map<string, AbortController>()
+const remoteRunSessions = new Map<string, string>()
+
+/** True while a phone-initiated run is executing in the session. */
+export function hasRemoteRun(sessionId: string): boolean {
+  for (const owner of remoteRunSessions.values()) {
+    if (owner === sessionId) return true
+  }
+  return false
+}
 
 /** Provider list plus the catalogue of the current provider, for the phone picker. */
 async function modelsPayload(): Promise<{
@@ -294,6 +313,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
 
   const agent = getSession(sessionId, approvals)
   registerRun(runId, sessionId)
+  remoteRunSessions.set(runId, sessionId)
   void agent
     .run({
       runId,
@@ -304,6 +324,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
     .finally(() => {
       forgetRun(runId)
       remoteRuns.delete(runId)
+      remoteRunSessions.delete(runId)
     })
 
   return { sessionId, runId }
