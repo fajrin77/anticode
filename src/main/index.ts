@@ -2,14 +2,16 @@ import { app, shell, BrowserWindow, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { loadEnvFile } from './config'
+import { initPersistedState } from './runtime'
+import { restoreRemoteServer } from './remote/server'
 import { closeBrowser } from './browser'
 
 function createWindow(): void {
   const window = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 960,
-    minHeight: 620,
+    width: 1100,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0b0e14',
@@ -26,7 +28,11 @@ function createWindow(): void {
   window.on('ready-to-show', () => window.show())
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    // Only real web links go to the system browser; anything else (file:, custom
+    // schemes) is dropped so renderer content cannot launch arbitrary handlers.
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      void shell.openExternal(url)
+    }
     return { action: 'deny' }
   })
 
@@ -48,7 +54,9 @@ void app.whenReady().then(() => {
     if (!icon.isEmpty()) app.dock?.setIcon(icon)
   }
   loadEnvFile()
+  initPersistedState()
   registerIpcHandlers()
+  void restoreRemoteServer()
   createWindow()
 
   app.on('activate', () => {

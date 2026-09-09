@@ -1,8 +1,20 @@
 import { resolve } from 'node:path'
+import { cpSync } from 'node:fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { Plugin } from 'vite'
+
+/** The remote UI ships as static files next to the compiled main process. */
+const copyRemoteUi: Plugin = {
+  name: 'anticode:copy-remote-ui',
+  apply: 'build',
+  closeBundle() {
+    cpSync(resolve('src/main/remote/public'), resolve('out/main/remote/public'), {
+      recursive: true
+    })
+  }
+}
 
 /**
  * Injected on build only: the dev server needs inline scripts for React Refresh.
@@ -30,7 +42,7 @@ const contentSecurityPolicy: Plugin = {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), copyRemoteUi],
     resolve: {
       alias: {
         '@shared': resolve('src/shared'),

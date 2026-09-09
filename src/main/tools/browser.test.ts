@@ -54,20 +54,20 @@ describe('fetch_url', () => {
   })
 
   it('rejects a non-http scheme', () => {
-    expect(() => fetchUrlTool.prepare({ url: 'file:///etc/passwd' })).toThrow(/Input tidak valid/)
+    expect(() => fetchUrlTool.prepare({ url: 'file:///etc/passwd' })).toThrow(/Invalid input/)
   })
 })
 
 describe('browser tools', () => {
   it('refuses to read before anything is open', async () => {
     await expect(browserGetTextTool.prepare({}).execute(context)).rejects.toThrow(
-      /Belum ada halaman/
+      /No page is open/
     )
   })
 
   it('navigates and reports the title', async () => {
     const output = (await browserNavigateTool.prepare({ url: origin }).execute(context)).text
-    expect(output).toContain('Judul: ')
+    expect(output).toContain('Title: ')
     expect(output).toContain('HTTP 200')
   })
 
@@ -85,7 +85,7 @@ describe('browser tools', () => {
   it('reports a selector that matches nothing', async () => {
     await expect(
       browserGetTextTool.prepare({ selector: '#tidak-ada' }).execute(context)
-    ).rejects.toThrow(/Tidak ada elemen/)
+    ).rejects.toThrow(/No element matches/)
   })
 
   it('records network requests made by the page', async () => {

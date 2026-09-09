@@ -28,8 +28,8 @@ async function ensurePage(): Promise<Page> {
     browser ??= await chromium.launch({ headless: true })
   } catch (error) {
     throw new BrowserError(
-      `Gagal menjalankan Chromium: ${(error as Error).message}. ` +
-        'Jalankan "npx playwright install chromium" sekali di project ini.'
+      `Failed to launch Chromium: ${(error as Error).message}. ` +
+        'Run "npx playwright install chromium" once in this project.'
     )
   }
 
@@ -64,7 +64,7 @@ export async function withPage<T>(action: (page: Page) => Promise<T>): Promise<T
 /** Throws when nothing has been navigated to yet, so tools can say so clearly. */
 export function requirePage(): Page {
   if (!page || page.isClosed()) {
-    throw new BrowserError('Belum ada halaman terbuka. Panggil browser_navigate lebih dulu.')
+    throw new BrowserError('No page is open. Call browser_navigate first.')
   }
   return page
 }

@@ -33,7 +33,11 @@ export interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  /** Read-only tools may run concurrently; mutating tools are serialised. */
+  /**
+   * True means the call touches nothing shared, so it may run concurrently
+   * with other such calls in one turn. Tools that mutate shared state — the
+   * browser page, the network log — must be false even when read-only.
+   */
   readOnly: boolean
   prepare: (rawInput: unknown) => PreparedCall
 }
@@ -73,7 +77,7 @@ export function defineTool<S extends z.ZodType>(spec: ToolSpec<S>): Tool {
         const detail = parsed.error.issues
           .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
           .join('; ')
-        throw new ToolError(`Input tidak valid — ${detail}`)
+        throw new ToolError(`Invalid input — ${detail}`)
       }
 
       const input = parsed.data as z.output<S>

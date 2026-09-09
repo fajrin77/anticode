@@ -5,6 +5,7 @@ import { editFileTool } from './editFile'
 import { listDirectoryTool } from './listDirectory'
 import { runCommandTool } from './runCommand'
 import { deleteFileTool } from './deleteFile'
+import { searchFilesTool } from './searchFiles'
 import { addExcelFormulaTool, readExcelTool, writeExcelCellTool } from './excel'
 import { readDocxTool, writeDocxTool } from './docx'
 import { fillPdfFormTool, readPdfTool } from './pdf'
@@ -24,6 +25,7 @@ export const tools: Tool[] = [
   writeFileTool,
   editFileTool,
   listDirectoryTool,
+  searchFilesTool,
   runCommandTool,
   deleteFileTool,
   readExcelTool,

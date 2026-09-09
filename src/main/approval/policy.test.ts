@@ -79,11 +79,18 @@ describe('ApprovalPolicy', () => {
     expect(policy.needsApproval('run_command', 'medium')).toBe(false)
   })
 
-  it('never lets auto-approve or always-allow bypass high risk', () => {
+  it('auto-approve covers every tier, including high risk', () => {
     const policy = new ApprovalPolicy()
     policy.setAutoApprove(true)
-    policy.allowAlways('run_command')
-    expect(policy.needsApproval('run_command', 'high')).toBe(true)
+    expect(policy.needsApproval('run_command', 'high')).toBe(false)
+    expect(policy.needsApproval('delete_file', 'high')).toBe(false)
+    expect(policy.needsApproval('edit_file', 'medium')).toBe(false)
+  })
+
+  it('always-allow still lifts a single tool without auto-approve', () => {
+    const policy = new ApprovalPolicy()
+    policy.allowAlways('edit_file')
+    expect(policy.needsApproval('edit_file', 'medium')).toBe(false)
     expect(policy.needsApproval('delete_file', 'high')).toBe(true)
   })
 })

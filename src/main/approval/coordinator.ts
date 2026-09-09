@@ -44,21 +44,23 @@ export class ApprovalCoordinator implements ApprovalGate {
     target: WebContents,
     signal: AbortSignal
   ): Promise<ApprovalDecision> {
+    if (target.isDestroyed()) return Promise.resolve('reject')
+
     return new Promise((resolve) => {
+      // A closed window must not leave the run waiting forever — on macOS the
+      // app keeps living after its last window closes.
+      const onDestroyed = (): void => settle('reject')
       const settle = (decision: ApprovalDecision): void => {
         this.pending.delete(payload.requestId)
         signal.removeEventListener('abort', onAbort)
+        target.off('destroyed', onDestroyed)
         resolve(decision)
       }
       const onAbort = (): void => settle('reject')
 
-      if (signal.aborted) {
-        resolve('reject')
-        return
-      }
-
       this.pending.set(payload.requestId, settle)
       signal.addEventListener('abort', onAbort, { once: true })
+      target.once('destroyed', onDestroyed)
       target.send(IpcChannel.APPROVAL_REQUEST, payload)
     })
   }

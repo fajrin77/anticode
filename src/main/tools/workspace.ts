@@ -6,7 +6,7 @@ function assertInside(root: string, candidate: string): void {
   const relative = path.relative(root, candidate)
   if (relative === '') return
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new ToolError(`Akses di luar workspace ditolak: ${candidate}`)
+    throw new ToolError(`Access outside the workspace is denied: ${candidate}`)
   }
 }
 

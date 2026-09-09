@@ -1,0 +1,328 @@
+import http from 'node:http'
+import os from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import type { AgentEvent } from '@shared/ipc'
+import type { RemoteStatus } from '@shared/ipc'
+import { isIgnoredEntry } from '../tools/ignore'
+import { resolveInWorkspace } from '../tools/workspace'
+import {
+  createRemoteSession,
+  getSession,
+  getStatus,
+  listSessionSummaries,
+  loadSessionMessages,
+  sessionWorkspaceRoot
+} from '../runtime'
+import { approvals } from '../ipc'
+import { forward, subscribe } from './bus'
+import { loadPersistedSettings, savePersistedSettings } from '../settings'
+
+const PORT = 8680
+
+let server: http.Server | null = null
+let lastError: string | null = null
+
+export function getRemoteStatus(): RemoteStatus {
+  const persisted = loadPersistedSettings().remote
+  if (persisted?.enabled !== true) {
+    return { enabled: false, url: null, token: null, error: null }
+  }
+  if (lastError !== null) {
+    return { enabled: true, url: null, token: null, error: lastError }
+  }
+  const ip = lanAddress() ?? '<your-mac-ip>'
+  return {
+    enabled: true,
+    url: `http://${ip}:${PORT}/?token=${persisted.token}`,
+    token: persisted.token,
+    error: null
+  }
+}
+
+function lanAddress(): string | null {
+  for (const interfaces of Object.values(os.networkInterfaces())) {
+    for (const entry of interfaces ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address
+    }
+  }
+  return null
+}
+
+export async function setRemoteEnabled(enabled: boolean): Promise<RemoteStatus> {
+  if (!enabled) {
+    await closeServer()
+    savePersistedSettings({
+      remote: { enabled: false, token: persistedToken(), port: PORT }
+    })
+    return getRemoteStatus()
+  }
+
+  lastError = null
+  const token = persistedToken()
+  savePersistedSettings({ remote: { enabled: true, token, port: PORT } })
+
+  server = http.createServer((req, res) => {
+    void handle(req, res)
+  })
+  const httpServer = server
+  httpServer.on('error', (error) => {
+    lastError = (error as Error).message
+  })
+  await new Promise<void>((resolve) => httpServer.listen(PORT, '0.0.0.0', resolve))
+  return getRemoteStatus()
+}
+
+async function closeServer(): Promise<void> {
+  const existing = server
+  if (existing === null) return
+  server = null
+  await new Promise<void>((resolve) => existing.close(() => resolve()))
+}
+
+/** Auto-start on boot when the persisted flag says so. */
+export async function restoreRemoteServer(): Promise<void> {
+  if (loadPersistedSettings().remote?.enabled === true) {
+    await setRemoteEnabled(true)
+  }
+}
+
+function persistedToken(): string {
+  const existing = loadPersistedSettings().remote?.token
+  if (existing !== undefined && existing !== '') return existing
+  const token = randomUUID().replace(/-/g, '')
+  savePersistedSettings({ remote: { enabled: false, token, port: PORT } })
+  return token
+}
+
+function authorised(url: URL, req: http.IncomingMessage): boolean {
+  const expected = loadPersistedSettings().remote?.token
+  if (expected === undefined) return false
+  const query = url.searchParams.get('token')
+  const header = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+  return query === expected || header === expected
+}
+
+function json(res: http.ServerResponse, code: number, body: unknown): void {
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' })
+  res.end(JSON.stringify(body))
+}
+
+async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+
+  try {
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      if (!authorised(url, req)) return deny(res)
+      const html = await readFile(
+        path.join(import.meta.dirname, 'remote/public/index.html'),
+        'utf8'
+      )
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      res.end(html)
+      return
+    }
+
+    if (!url.pathname.startsWith('/api/') || !authorised(url, req)) {
+      return deny(res)
+    }
+
+    const body = await readBody(req)
+
+    if (req.method === 'GET' && url.pathname === '/api/ping') {
+      return json(res, 200, { ok: true, status: getStatus() })
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/overview') {
+      return json(res, 200, { status: getStatus(), sessions: listSessionSummaries() })
+    }
+
+    const sessionMatch = /\/api\/session\/([\w-]+)$/.exec(url.pathname)
+    if (req.method === 'GET' && sessionMatch !== null) {
+      const messages = loadSessionMessages(sessionMatch[1] ?? '')
+      if (messages === null) return json(res, 404, { error: 'Unknown session' })
+      return json(res, 200, { messages })
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/prompt') {
+      return json(res, 200, await startPrompt(body))
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cancel') {
+      const runId = typeof body.runId === 'string' ? body.runId : ''
+      remoteRuns.get(runId)?.abort()
+      return json(res, 200, { ok: true })
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/events') {
+      return openEventStream(url, res)
+    }
+
+    const filesMatch = /\/api\/files$/.test(url.pathname)
+    if (filesMatch && req.method === 'GET') {
+      return json(res, 200, await readWorkspaceFile(String(body.sessionId ?? url.searchParams.get('sessionId') ?? ''), url.searchParams.get('path') ?? '.'))
+    }
+    if (filesMatch && req.method === 'POST') {
+      return json(res, 200, await writeWorkspaceFile(String(body.sessionId ?? ''), String(body.path ?? ''), typeof body.content === 'string' ? body.content : ''))
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/git') {
+      return json(res, 200, await runGit(String(body.sessionId ?? ''), String(body.action ?? ''), typeof body.message === 'string' ? body.message : ''))
+    }
+
+    return json(res, 404, { error: 'Not found' })
+  } catch (error) {
+    json(res, 400, { error: (error as Error).message })
+  }
+}
+
+function deny(res: http.ServerResponse): void {
+  res.writeHead(401, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ error: 'Unauthorised — open the pairing URL' }))
+}
+
+function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8')
+      try {
+        resolve(raw === '' ? {} : (JSON.parse(raw) as Record<string, unknown>))
+      } catch {
+        resolve({})
+      }
+    })
+  })
+}
+
+const remoteRuns = new Map<string, AbortController>()
+
+async function startPrompt(body: Record<string, unknown>): Promise<{
+  sessionId: string
+  runId: string
+}> {
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+  if (prompt === '') throw new Error('Prompt is empty')
+
+  let sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+  if (sessionId !== '' && loadSessionMessages(sessionId) === null) sessionId = ''
+
+  if (sessionId === '') {
+    const mode = body.mode === 'chat' ? 'chat' : 'code'
+    const folder = typeof body.folder === 'string' && body.folder !== '' ? body.folder : null
+    if (mode === 'code' && folder === null) {
+      throw new Error('anticode needs a project folder — send one as "folder"')
+    }
+    sessionId = createRemoteSession(mode, folder)
+    // No window round-trip exists for remote sessions; the desktop picks them
+    // up on its next restart of the renderer store.
+  }
+
+  const runId = randomUUID()
+  const controller = new AbortController()
+  remoteRuns.set(runId, controller)
+  controller.signal.addEventListener('abort', () => remoteRuns.delete(runId), { once: true })
+
+  const agent = getSession(sessionId, approvals)
+  void agent
+    .run({
+      runId,
+      prompt,
+      signal: controller.signal,
+      emit: (event: AgentEvent) => forward(event)
+    })
+    .finally(() => remoteRuns.delete(runId))
+
+  return { sessionId, runId }
+}
+
+function openEventStream(url: URL, res: http.ServerResponse): void {
+  const sessionId = url.searchParams.get('sessionId') ?? ''
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive'
+  })
+  const send = (event: AgentEvent): void => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`)
+  }
+  const unsubscribe = subscribe(sessionId, send)
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000)
+  res.on('close', () => {
+    clearInterval(heartbeat)
+    unsubscribe()
+  })
+}
+
+async function readWorkspaceFile(sessionId: string, relativePath: string): Promise<unknown> {
+  const root = sessionWorkspaceRoot(sessionId)
+  if (root === null) throw new Error('This session has no project folder')
+  const target = resolveInWorkspace(root, relativePath)
+  const info = await stat(target)
+  if (info.isDirectory()) {
+    const entries = await readdir(target, { withFileTypes: true })
+    return {
+      kind: 'directory',
+      path: relativePath,
+      entries: entries
+        .filter((entry) => !isIgnoredEntry(entry.name, entry.isDirectory()))
+        .map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name))
+        .sort((a, b) => a.localeCompare(b))
+    }
+  }
+  const content = await readFile(target, 'utf8')
+  return { kind: 'file', path: relativePath, content }
+}
+
+async function writeWorkspaceFile(sessionId: string, relativePath: string, content: string): Promise<unknown> {
+  const root = sessionWorkspaceRoot(sessionId)
+  if (root === null) throw new Error('This session has no project folder')
+  const target = resolveInWorkspace(root, relativePath)
+  await writeFile(target, content, 'utf8')
+  return { ok: true, path: relativePath, bytes: Buffer.byteLength(content) }
+}
+
+function runGit(sessionId: string, action: string, message: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const root = sessionWorkspaceRoot(sessionId)
+    if (root === null) {
+      reject(new Error('This session has no project folder'))
+      return
+    }
+    const args =
+      action === 'status'
+        ? ['status', '--porcelain', '-b']
+        : action === 'commit'
+          ? ['commit', '-m', message !== '' ? message : 'Update from anticode remote']
+          : action === 'push'
+            ? ['push']
+            : []
+    if (args.length === 0) {
+      reject(new Error('Unknown git action'))
+      return
+    }
+    const steps = action === 'commit' ? [['add', '-A'], ['commit', '-m', message !== '' ? message : 'Update from anticode remote']] : [args]
+    let output = ''
+    let index = 0
+    const next = (): void => {
+      if (index >= steps.length) {
+        resolve({ ok: true, action, output: output.trim() })
+        return
+      }
+      const step = steps[index]
+      index += 1
+      execFile('git', step, { cwd: root, timeout: 30_000 }, (error, stdout, stderr) => {
+        output += `${stdout}${stderr}`
+        if (error !== null) {
+          resolve({ ok: false, action, output: `${output}${stderr}${error.message}`.trim() })
+          return
+        }
+        next()
+      })
+    }
+    next()
+  })
+}

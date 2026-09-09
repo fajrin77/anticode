@@ -15,8 +15,15 @@ function subject(part: ToolPart): string {
   return ''
 }
 
+/**
+ * Tools fold into three work types so the transcript reads as a story:
+ * reading/searching/browsing is Explore, touching files is Edit, running
+ * commands is Code.
+ */
 function label(name: string): string {
-  return name === 'run_command' ? 'Shell' : name
+  if (name === 'run_command') return 'Code'
+  if (/^(write|edit|delete|add|fill)_/.test(name)) return 'Edit'
+  return 'Explore'
 }
 
 export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
@@ -29,7 +36,7 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-baseline gap-2.5 text-left"
+        className="group flex w-full items-baseline gap-2.5 text-left"
       >
         <span
           className={`shrink-0 text-[15px] ${
@@ -39,7 +46,11 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
           {label(part.name)}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-dim">{line}</span>
-        <span className="shrink-0 text-[11px] text-faint">
+        <span
+          className={`shrink-0 text-[11px] text-faint transition-opacity ${
+            part.status === 'running' || open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+        >
           {part.status === 'running' ? '···' : open ? '⌃' : '⌄'}
         </span>
       </button>
@@ -48,7 +59,7 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
         <div className="mt-2 overflow-hidden rounded-lg border border-line bg-surface">
           <pre className="max-h-96 overflow-auto px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-dim">
             {isShell ? `$ ${line}\n\n` : ''}
-            {part.output === '' ? '(belum ada keluaran)' : part.output}
+            {part.output === '' ? '(no output yet)' : part.output}
           </pre>
         </div>
       )}

@@ -1,16 +1,27 @@
+import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 const DEFAULT_MODEL = 'claude-opus-5'
 
-/** Dev convenience: keys live in the OS credential store once packaging lands. */
+/**
+ * Dev reads .env from the project root; a packaged app launched from Finder
+ * or the Dock runs with cwd = '/', so there the credentials live in the
+ * per-user application-data directory instead.
+ */
 export function loadEnvFile(): void {
-  const candidate = path.join(process.cwd(), '.env')
-  if (!existsSync(candidate)) return
-  try {
-    process.loadEnvFile(candidate)
-  } catch (error) {
-    console.warn(`Gagal membaca .env: ${(error as Error).message}`)
+  const candidates = app.isPackaged
+    ? [path.join(app.getPath('userData'), '.env')]
+    : [path.join(process.cwd(), '.env'), path.join(app.getPath('userData'), '.env')]
+
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue
+    try {
+      process.loadEnvFile(candidate)
+      return
+    } catch (error) {
+      console.warn(`Failed to read ${candidate}: ${(error as Error).message}`)
+    }
   }
 }
 

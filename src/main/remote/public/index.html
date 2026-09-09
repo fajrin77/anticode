@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>anticode remote</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #1a1a1a; color: #ededed;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    position: sticky; top: 0; display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; background: #202020; border-bottom: 1px solid #303030;
+    font-weight: 600; z-index: 5;
+  }
+  header button {
+    margin-left: auto; background: #2e2e2e; color: #ededed; border: 1px solid #303030;
+    border-radius: 8px; padding: 6px 12px; font-size: 13px;
+  }
+  main { padding: 12px 16px 96px; }
+  .card {
+    background: #202020; border: 1px solid #303030; border-radius: 12px;
+    padding: 10px 14px; margin-bottom: 8px;
+  }
+  .row {
+    display: flex; align-items: baseline; gap: 8px; padding: 10px 2px;
+    border-bottom: 1px solid #262626; cursor: pointer;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    flex: none; width: 20px; height: 20px; border-radius: 5px; display: inline-flex;
+    align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
+    color: rgba(255,255,255,.95); background: linear-gradient(135deg, #7a5cc4f2, #4f3a8fd9);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .badge.chat { background: linear-gradient(135deg, #3f8f86f2, #2c6b64d9); }
+  .muted { color: #9a9a9a; font-size: 13px; }
+  .faint { color: #6d6d6d; font-size: 12px; }
+  .msg { padding: 8px 0; border-bottom: 1px solid #262626; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { text-align: right; }
+  .msg.user .bubble {
+    display: inline-block; text-align: left; background: #272727; border-radius: 12px;
+    padding: 8px 12px; max-width: 85%;
+  }
+  .msg .tool { color: #9a9a9a; font-size: 12.5px; font-family: ui-monospace, Menlo, monospace; }
+  .composer {
+    position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #1a1a1a;
+    border-top: 1px solid #303030;
+  }
+  .composer textarea {
+    flex: 1; background: #202020; border: 1px solid #303030; border-radius: 10px;
+    color: #ededed; padding: 10px 12px; font: inherit; resize: none; min-height: 42px;
+  }
+  .composer button {
+    background: #2e2e2e; color: #ededed; border: none; border-radius: 10px;
+    padding: 0 16px; font-size: 16px;
+  }
+  .composer button:disabled { color: #6d6d6d; }
+  input.path {
+    width: 100%; background: #202020; border: 1px solid #303030; border-radius: 8px;
+    color: #ededed; padding: 8px 10px; font: 13px ui-monospace, Menlo, monospace; margin-bottom: 8px;
+  }
+  textarea.editor {
+    width: 100%; min-height: 45vh; background: #202020; border: 1px solid #303030;
+    border-radius: 10px; color: #ededed; padding: 12px;
+    font: 13px/1.6 ui-monospace, Menlo, monospace; white-space: pre; margin-bottom: 8px;
+  }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .actions button {
+    background: #2e2e2e; color: #ededed; border: 1px solid #303030; border-radius: 8px;
+    padding: 8px 12px; font-size: 13px;
+  }
+  .hidden { display: none; }
+  .crumb { font: 12px ui-monospace, Menlo, monospace; color: #9a9a9a; margin-bottom: 8px; word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <span>anticode remote</span>
+  <button id="tabChat" onclick="showTab('chat')">Chat</button>
+  <button id="tabFiles" onclick="showTab('files')">Files</button>
+</header>
+<main>
+  <section id="viewChat">
+    <div id="sessionList" class="card"></div>
+    <div id="chatView" class="hidden">
+      <div id="transcript"></div>
+    </div>
+  </section>
+  <section id="viewFiles" class="hidden">
+    <div class="card">
+      <div class="muted" style="margin-bottom:6px">Session folder</div>
+      <select id="folderSession" style="width:100%;background:#272727;color:#ededed;border:1px solid #303030;border-radius:8px;padding:8px;font:inherit"></select>
+      <input class="path" id="filePath" placeholder="src/app.ts" onkeydown="if(event.key==='Enter')openPath()" />
+      <div class="actions">
+        <button onclick="openPath()">Open</button>
+        <button onclick="saveFile()">Save</button>
+        <button onclick="gitAction('status')">Git status</button>
+        <button onclick="gitAction('commit')">Commit</button>
+        <button onclick="gitAction('push')">Push</button>
+      </div>
+      <div class="crumb" id="gitOut"></div>
+      <textarea class="editor hidden" id="editor" spellcheck="false"></textarea>
+      <div id="dirList"></div>
+    </div>
+  </section>
+</main>
+<div class="composer hidden" id="inputRow">
+  <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
+  <button id="sendBtn" onclick="sendPrompt()">↑</button>
+</div>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+const api = (path, options) => fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + token, options);
+const jfetch = (path, options) => api(path, options).then(async (r) => {
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || r.status);
+  return body;
+});
+let currentSession = null;
+let eventSource = null;
+let currentMode = 'chat';
+
+function showTab(tab) {
+  document.getElementById('viewChat').classList.toggle('hidden', tab !== 'chat');
+  document.getElementById('viewFiles').classList.toggle('hidden', tab !== 'files');
+  document.getElementById('inputRow').classList.toggle('hidden', tab !== 'chat');
+  document.getElementById('tabChat').style.borderColor = tab === 'chat' ? '#ededed' : '#303030';
+  document.getElementById('tabFiles').style.borderColor = tab === 'files' ? '#ededed' : '#303030';
+  if (tab === 'chat') loadOverview(); else loadFolderPicker();
+}
+
+async function loadOverview() {
+  const { sessions } = await jfetch('/api/overview');
+  const list = document.getElementById('sessionList');
+  list.innerHTML = '<div class="muted" style="padding:4px 2px">Sessions</div>';
+  if (sessions.length === 0) {
+    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — type below to start one.</div>';
+  }
+  for (const s of sessions) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span class="badge ${s.mode === 'chat' ? 'chat' : ''}">${s.mode === 'chat' ? 'A' : 'C'}</span>
+      <span class="title">${s.mode === 'code' ? 'anticode · ' : ''}${s.workspaceRoot ? s.workspaceRoot.split(/[\\\\/]/).pop() : 'chat'}</span>
+      <span class="faint">${s.messageCount} msg</span>`;
+    row.onclick = () => openSession(s.id);
+    list.appendChild(row);
+  }
+}
+
+async function openSession(id) {
+  currentSession = id;
+  const { messages } = await jfetch('/api/session/' + id);
+  renderTranscript(messages);
+  document.getElementById('sessionList').classList.add('hidden');
+  document.getElementById('chatView').classList.remove('hidden');
+  document.getElementById('inputRow').classList.remove('hidden');
+  listen(id);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function renderTranscript(messages) {
+  const el = document.getElementById('transcript');
+  el.innerHTML = '';
+  for (const m of messages) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + m.role;
+    let html = '';
+    for (const b of m.content) {
+      if (b.type === 'text') html += b.text;
+      else if (b.type === 'tool_use') html += `\n▸ ${b.name}…\n`;
+      else if (b.type === 'tool_result') html += `\n▪ ${b.isError ? 'error' : 'done'}\n`;
+    }
+    div.innerHTML = m.role === 'user' ? `<span class="bubble"></span>` : `<span></span>`;
+    const target = div.querySelector('span:not(.bubble)') || div.querySelector('.bubble');
+    target.textContent = html.trim() || '…';
+    el.appendChild(div);
+  }
+}
+
+function listen(id) {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/events?sessionId=' + id + '&token=' + token);
+  eventSource.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    if (event.type === 'text_delta') appendLive(event.text);
+    else if (event.type === 'tool_start') appendLive('\n▸ ' + event.name + '…\n');
+    else if (event.type === 'tool_end') appendLive(event.ok ? ' ✓\n' : ' ✗ ' + (event.output || '') + '\n');
+    else if (event.type === 'end' || event.type === 'error') { eventSource.close(); eventSource = null; }
+  };
+}
+
+let liveEl = null;
+function appendLive(text) {
+  const el = document.getElementById('transcript');
+  if (liveEl === null || !el.contains(liveEl) || liveEl.dataset.role !== 'assistant') {
+    liveEl = document.createElement('div');
+    liveEl.className = 'msg assistant';
+    liveEl.dataset.role = 'assistant';
+    el.appendChild(liveEl);
+  }
+  liveEl.textContent += text;
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function sendPrompt() {
+  const input = document.getElementById('prompt');
+  const prompt = input.value.trim();
+  if (prompt === '') return;
+  input.value = '';
+  const body = { prompt };
+  if (currentSession) body.sessionId = currentSession;
+  else { body.mode = currentMode; }
+  const { sessionId } = await jfetch('/api/prompt', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+  });
+  currentSession = sessionId;
+  if (document.getElementById('sessionList').classList.contains('hidden') === false) {
+    document.getElementById('sessionList').classList.add('hidden');
+    document.getElementById('chatView').classList.remove('hidden');
+  }
+  listen(sessionId);
+}
+
+async function loadFolderPicker() {
+  const { sessions } = await jfetch('/api/overview');
+  const select = document.getElementById('folderSession');
+  select.innerHTML = '';
+  const codeSessions = sessions.filter((s) => s.mode === 'code' && s.workspaceRoot);
+  if (codeSessions.length === 0) {
+    select.innerHTML = '<option value="">No anticode sessions yet</option>';
+    return;
+  }
+  for (const s of codeSessions) {
+    const option = document.createElement('option');
+    option.value = s.id;
+    option.textContent = s.workspaceRoot.split(/[\\\\/]/).pop();
+    select.appendChild(option);
+  }
+}
+
+async function openPath() {
+  const sessionId = document.getElementById('folderSession').value;
+  const filePath = document.getElementById('filePath').value || '.';
+  const result = await jfetch('/api/files?sessionId=' + sessionId + '&path=' + encodeURIComponent(filePath));
+  document.getElementById('gitOut').textContent = filePath;
+  const editor = document.getElementById('editor');
+  const dir = document.getElementById('dirList');
+  if (result.kind === 'file') {
+    editor.classList.remove('hidden');
+    editor.value = result.content;
+    dir.innerHTML = '';
+  } else {
+    editor.classList.add('hidden');
+    editor.value = '';
+    dir.innerHTML = '';
+    for (const entry of result.entries) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.textContent = entry;
+      row.onclick = () => {
+        document.getElementById('filePath').value =
+          (filePath === '.' ? '' : filePath.replace(/\/$/, '') + '/') + entry.replace(/\/$/, '');
+        openPath();
+      };
+      dir.appendChild(row);
+    }
+  }
+}
+
+async function saveFile() {
+  const sessionId = document.getElementById('folderSession').value;
+  const filePath = document.getElementById('filePath').value;
+  const content = document.getElementById('editor').value;
+  await jfetch('/api/files', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId, path: filePath, content })
+  });
+  document.getElementById('gitOut').textContent = 'Saved ' + filePath;
+}
+
+async function gitAction(action) {
+  const sessionId = document.getElementById('folderSession').value;
+  let message = '';
+  if (action === 'commit') message = window.prompt('Commit message:') || '';
+  const result = await jfetch('/api/git', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId, action, message })
+  });
+  document.getElementById('gitOut').textContent = result.ok ? result.output || 'ok' : 'FAILED: ' + result.output;
+}
+
+document.getElementById('prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
+});
+showTab('chat');
+</script>
+</body>
+</html>

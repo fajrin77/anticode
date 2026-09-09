@@ -36,6 +36,18 @@ export interface Session {
   messages: Message[]
   inputTokens: number
   outputTokens: number
+  /** Provider and model of the most recent turn, for the usage panel. */
+  provider: string | null
+  model: string | null
+  /** Input tokens of the latest request — the closest measure of context size. */
+  lastInputTokens: number
+  /**
+   * Closing a tab only hides it: the session (with its whole transcript)
+   * stays in the dashboard until the user reopens or a new app run replaces it.
+   */
+  closed: boolean
+  /** Index into SESSION_COLOURS; assigned round-robin at creation. */
+  colour: number
 }
 
 export interface UsageEntry {
@@ -48,6 +60,8 @@ export interface UsageEntry {
 export interface ActiveRun {
   runId: string
   messageId: string
+  /** The session that owns this run; events must land there, not in the open tab. */
+  sessionId: string
 }
 
 interface SessionState {
@@ -57,43 +71,83 @@ interface SessionState {
   usage: UsageEntry[]
   activeSessionId: string | null
   activeRun: ActiveRun | null
+  /** Next badge-colour index; advances on every session creation. */
+  nextColour: number
 
   addProject: (root: string) => void
   openSession: (mode: SessionMode, projectRoot: string | null) => string
   selectSession: (id: string) => void
+  /** Reopens a closed session's tab and makes it active. */
+  reopenSession: (id: string) => void
+  /** Removes a session everywhere: tab, dashboard, and history. */
+  deleteSession: (id: string) => void
+  /** Sets mode and project folder on a fresh session before its first prompt. */
+  updateSessionConfig: (
+    id: string,
+    patch: { mode?: SessionMode; projectRoot?: string | null }
+  ) => void
   closeSession: (id: string) => void
 
   addMessage: (message: Message) => void
-  appendText: (messageId: string, text: string) => void
-  startTool: (messageId: string, toolUseId: string, name: string, input: unknown) => void
-  endTool: (messageId: string, toolUseId: string, ok: boolean, output: string) => void
-  addUsage: (provider: string, model: string, inputTokens: number, outputTokens: number) => void
+  appendText: (sessionId: string, messageId: string, text: string) => void
+  startTool: (
+    sessionId: string,
+    messageId: string,
+    toolUseId: string,
+    name: string,
+    input: unknown
+  ) => void
+  endTool: (
+    sessionId: string,
+    messageId: string,
+    toolUseId: string,
+    ok: boolean,
+    output: string
+  ) => void
+  addUsage: (
+    sessionId: string,
+    provider: string,
+    model: string,
+    inputTokens: number,
+    outputTokens: number
+  ) => void
   settleMessage: (messageId: string) => void
   setActiveRun: (run: ActiveRun | null) => void
 }
 
 function baseName(root: string): string {
-  const parts = root.split('/').filter((part) => part !== '')
+  const parts = root.split(/[\\/]/).filter((part) => part !== '')
   return parts.at(-1) ?? root
 }
 
-function newSession(mode: SessionMode, projectRoot: string | null): Session {
+function newSession(mode: SessionMode, projectRoot: string | null, colour: number): Session {
   return {
     id: crypto.randomUUID(),
-    title: mode === 'chat' ? 'antichat baru' : 'anticode baru',
+    title: 'New session',
     mode,
     projectRoot,
     createdAt: Date.now(),
     messages: [],
     inputTokens: 0,
-    outputTokens: 0
+    outputTokens: 0,
+    provider: null,
+    model: null,
+    lastInputTokens: 0,
+    closed: false,
+    colour
   }
 }
 
 function mapActive(state: SessionState, change: (session: Session) => Session): Session[] {
-  return state.sessions.map((session) =>
-    session.id === state.activeSessionId ? change(session) : session
-  )
+  return mapSession(state, state.activeSessionId, change)
+}
+
+function mapSession(
+  state: SessionState,
+  sessionId: string | null,
+  change: (session: Session) => Session
+): Session[] {
+  return state.sessions.map((session) => (session.id === sessionId ? change(session) : session))
 }
 
 function mapMessage(
@@ -115,6 +169,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   usage: [],
   activeSessionId: null,
   activeRun: null,
+  nextColour: 0,
 
   addProject: (root) =>
     set((state) =>
@@ -124,22 +179,68 @@ export const useSessionStore = create<SessionState>((set) => ({
     ),
 
   openSession: (mode, projectRoot) => {
-    const session = newSession(mode, projectRoot)
-    set((state) => ({
-      sessions: [...state.sessions, session],
-      activeSessionId: session.id
-    }))
-    return session.id
+    let id = ''
+    set((state) => {
+      const session = newSession(mode, projectRoot, state.nextColour)
+      if (mode === 'code' && projectRoot !== null) session.title = baseName(projectRoot)
+      id = session.id
+      return {
+        sessions: [...state.sessions, session],
+        activeSessionId: session.id,
+        nextColour: (state.nextColour + 1) % SESSION_COLOURS.length
+      }
+    })
+    return id
   },
 
   selectSession: (id) => set({ activeSessionId: id }),
 
-  closeSession: (id) =>
+  reopenSession: (id) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === id ? { ...session, closed: false } : session
+      ),
+      activeSessionId: id
+    })),
+
+  // A fresh session starts as an unnamed chat; picking anticode binds the
+  // folder and renames the tab to it, chat renames from the first prompt.
+  updateSessionConfig: (id, patch) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) => {
+        if (session.id !== id) return session
+        const next = { ...session, ...patch }
+        if (next.mode === 'code' && next.projectRoot !== null) {
+          next.title = baseName(next.projectRoot ?? '')
+        }
+        return next
+      })
+    })),
+
+  // Deleting wipes the session from the store; the caller also cancels any
+  // active run and frees the main-process side.
+  deleteSession: (id) =>
     set((state) => {
       const remaining = state.sessions.filter((session) => session.id !== id)
       const activeSessionId =
-        state.activeSessionId === id ? (remaining.at(-1)?.id ?? null) : state.activeSessionId
+        state.activeSessionId === id
+          ? (remaining.filter((session) => !session.closed).at(-1)?.id ?? null)
+          : state.activeSessionId
       return { sessions: remaining, activeSessionId }
+    }),
+
+  // Closing a tab archives the session instead of deleting it, and lands on
+  // another open tab — or on none, which sends the view back to the dashboard.
+  closeSession: (id) =>
+    set((state) => {
+      const sessions = state.sessions.map((session) =>
+        session.id === id ? { ...session, closed: true } : session
+      )
+      const activeSessionId =
+        state.activeSessionId === id
+          ? (sessions.filter((session) => !session.closed).at(-1)?.id ?? null)
+          : state.activeSessionId
+      return { sessions, activeSessionId }
     }),
 
   addMessage: (message) =>
@@ -147,7 +248,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       sessions: mapActive(state, (session) => ({
         ...session,
         title:
-          session.messages.length === 0 && message.role === 'user'
+          session.messages.length === 0 && message.role === 'user' && session.mode === 'chat'
             ? (message.parts.find((part) => part.kind === 'text')?.text ?? session.title)
                 .slice(0, 60)
             : session.title,
@@ -155,9 +256,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       }))
     })),
 
-  appendText: (messageId, text) =>
+  appendText: (sessionId, messageId, text) =>
     set((state) => ({
-      sessions: mapActive(state, (session) =>
+      sessions: mapSession(state, sessionId, (session) =>
         mapMessage(session, messageId, (message) => {
           const last = message.parts.at(-1)
           if (last?.kind === 'text') {
@@ -171,9 +272,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       )
     })),
 
-  startTool: (messageId, toolUseId, name, input) =>
+  startTool: (sessionId, messageId, toolUseId, name, input) =>
     set((state) => ({
-      sessions: mapActive(state, (session) =>
+      sessions: mapSession(state, sessionId, (session) =>
         mapMessage(session, messageId, (message) => ({
           ...message,
           parts: [
@@ -184,9 +285,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       )
     })),
 
-  endTool: (messageId, toolUseId, ok, output) =>
+  endTool: (sessionId, messageId, toolUseId, ok, output) =>
     set((state) => ({
-      sessions: mapActive(state, (session) =>
+      sessions: mapSession(state, sessionId, (session) =>
         mapMessage(session, messageId, (message) => ({
           ...message,
           parts: message.parts.map((part) =>
@@ -198,7 +299,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       )
     })),
 
-  addUsage: (provider, model, inputTokens, outputTokens) =>
+  addUsage: (sessionId, provider, model, inputTokens, outputTokens) =>
     set((state) => {
       const existing = state.usage.find(
         (entry) => entry.provider === provider && entry.model === model
@@ -217,10 +318,13 @@ export const useSessionStore = create<SessionState>((set) => ({
 
       return {
         usage,
-        sessions: mapActive(state, (session) => ({
+        sessions: mapSession(state, sessionId, (session) => ({
           ...session,
           inputTokens: session.inputTokens + inputTokens,
-          outputTokens: session.outputTokens + outputTokens
+          outputTokens: session.outputTokens + outputTokens,
+          provider,
+          model,
+          lastInputTokens: inputTokens
         }))
       }
     }),
@@ -244,10 +348,19 @@ export function useActiveSession(): Session | undefined {
   )
 }
 
-const BADGE_COLOURS = ['#c2603f', '#3f8f86', '#7a5cc4', '#3f7fc2', '#b0873a', '#8f4f7a']
-
-export function badgeColour(name: string): string {
-  let hash = 0
-  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) >>> 0
-  return BADGE_COLOURS[hash % BADGE_COLOURS.length] ?? BADGE_COLOURS[0]!
-}
+/**
+ * Ordered glass gradients for session badges. Sessions take the next entry on
+ * creation, so fresh sessions are visually distinct until the palette wraps.
+ */
+export const SESSION_COLOURS: [string, string][] = [
+  ['#7a5cc4', '#4f3a8f'],
+  ['#3f8f86', '#2c6b64'],
+  ['#c2603f', '#8f4630'],
+  ['#3f7fc2', '#2c5e92'],
+  ['#b0873a', '#82632c'],
+  ['#8f4f7a', '#6a3c5c'],
+  ['#4f8f4f', '#386b38'],
+  ['#c24f7a', '#923a5c'],
+  ['#5c7ac2', '#43598f'],
+  ['#c27a3f', '#925c30']
+]

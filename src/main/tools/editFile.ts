@@ -7,20 +7,33 @@ import { unifiedDiff } from './diff'
 export const editFileTool = defineTool({
   name: 'edit_file',
   description:
-    'Ganti satu potongan teks di dalam berkas. old_string harus muncul tepat satu kali; ' +
-    'sertakan konteks di sekitarnya bila potongan itu tidak unik.',
+    'Replace one piece of text inside a file. old_string must appear exactly once; ' +
+    'include surrounding context when the snippet is not unique.',
   readOnly: false,
   risk: 'medium',
   schema: z.object({
-    path: z.string().describe('Path berkas, relatif terhadap root workspace'),
-    old_string: z.string().min(1).describe('Teks yang akan diganti, harus unik dalam berkas'),
-    new_string: z.string().describe('Teks pengganti')
+    path: z.string().describe('File path, relative to the workspace root'),
+    old_string: z.string().min(1).describe('Text to replace, must be unique in the file'),
+    new_string: z.string().describe('Replacement text')
   }),
   preview: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
     const original = await readFile(target, 'utf8').catch(() => null)
     if (original === null) {
-      return { kind: 'text', subject: input.path, detail: 'Berkas tidak ditemukan.' }
+      return { kind: 'text', subject: input.path, detail: 'File not found.' }
+    }
+    // Mirror execute(): an ambiguous or absent target never produces a diff,
+    // so the reviewer never approves a change that would be refused.
+    const occurrences = original.split(input.old_string).length - 1
+    if (occurrences === 0) {
+      return { kind: 'text', subject: input.path, detail: 'old_string not found in this file.' }
+    }
+    if (occurrences > 1) {
+      return {
+        kind: 'text',
+        subject: input.path,
+        detail: `old_string appears ${occurrences} times — expand the context to make it unique. Nothing was changed.`
+      }
     }
     return {
       kind: 'diff',
@@ -35,20 +48,20 @@ export const editFileTool = defineTool({
     try {
       original = await readFile(target, 'utf8')
     } catch (error) {
-      throw new ToolError(`Gagal membaca ${input.path}: ${(error as Error).message}`)
+      throw new ToolError(`Failed to read ${input.path}: ${(error as Error).message}`)
     }
 
     if (input.old_string === input.new_string) {
-      throw new ToolError('old_string dan new_string identik, tidak ada yang perlu diubah')
+      throw new ToolError('old_string and new_string are identical — nothing to change')
     }
 
     const occurrences = original.split(input.old_string).length - 1
     if (occurrences === 0) {
-      throw new ToolError(`old_string tidak ditemukan di ${input.path}`)
+      throw new ToolError(`old_string not found in ${input.path}`)
     }
     if (occurrences > 1) {
       throw new ToolError(
-        `old_string muncul ${occurrences} kali di ${input.path}; perluas konteksnya agar unik`
+        `old_string appears ${occurrences} times in ${input.path}; expand the context to make it unique`
       )
     }
 
@@ -56,11 +69,11 @@ export const editFileTool = defineTool({
     try {
       await writeFile(target, updated, 'utf8')
     } catch (error) {
-      throw new ToolError(`Gagal menulis ${input.path}: ${(error as Error).message}`)
+      throw new ToolError(`Failed to write ${input.path}: ${(error as Error).message}`)
     }
 
     const before = original.split('\n').length
     const after = updated.split('\n').length
-    return `Terubah: ${input.path} (${before} → ${after} baris)`
+    return `Edited: ${input.path} (${before} → ${after} lines)`
   }
 })

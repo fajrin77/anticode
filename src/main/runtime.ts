@@ -1,7 +1,13 @@
+import { app } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { loadPersistedSettings, savePersistedSettings } from './settings'
+import type { ContentBlock, Message } from './providers/types'
+import type { SnapshotMessage } from '@shared/ipc'
 import type {
   ModelCatalogue,
   ProviderId,
   ProviderSelection,
+  SessionMode,
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
@@ -40,13 +46,39 @@ function current(): ProviderSelection {
       providers.find((p) => p.configured && p.defaultModel !== '') ??
       providers.find((p) => p.configured) ??
       providers.find((p) => p.credentialAvailable)
-    selection = { provider: chosen?.id ?? 'anthropic', model: chosen?.defaultModel ?? '' }
+    selection = { provider: chosen?.id ?? 'clinepass', model: chosen?.defaultModel ?? '' }
   }
   return selection
 }
 
 export function setWorkspaceRoot(root: string): void {
   workspaceRoot = root
+}
+
+/**
+ * Restores what the user left behind: the approval mode and the last
+ * provider/model, guarded against providers whose credentials have since
+ * disappeared. Called once after the env file is loaded.
+ */
+export function initPersistedState(): void {
+  const persisted = loadPersistedSettings()
+  if (persisted.autoApprove !== undefined) {
+    policy.setAutoApprove(persisted.autoApprove)
+  }
+  if (persisted.provider !== null && persisted.provider !== undefined) {
+    const exists = listProviders().some(
+      (p) => p.id === persisted.provider && p.credentialAvailable
+    )
+    if (exists) {
+      selection = { provider: persisted.provider, model: persisted.model ?? '' }
+    }
+  }
+}
+
+/** Drops the active selection so the next current() falls back to built-ins. */
+export function resetProviderSelection(): void {
+  selection = null
+  for (const session of sessions.values()) session.agent = null
 }
 
 /**
@@ -63,6 +95,7 @@ export function selectProvider(next: ProviderSelection): void {
     model: model !== '' ? model : (catalogues.get(next.provider)?.models[0] ?? '')
   }
   for (const session of sessions.values()) session.agent = null
+  savePersistedSettings({ provider: selection.provider, model: selection.model })
 }
 
 export async function listModels(provider: ProviderId, refresh = false): Promise<ModelCatalogue> {
@@ -85,12 +118,21 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
   if (active.provider === provider && active.model === '' && autoPick !== undefined) {
     selection = { provider, model: autoPick }
     for (const session of sessions.values()) session.agent = null
+    savePersistedSettings({ provider, model: autoPick })
   }
   return catalogue
 }
 
+let sessionCreatedSink: ((spec: SessionSpec) => void) | null = null
+
+/** Called once by ipc registration; fans creations out to all windows. */
+export function setOnSessionCreated(sink: (spec: SessionSpec) => void): void {
+  sessionCreatedSink = sink
+}
+
 export function createSession(spec: SessionSpec): void {
   sessions.set(spec.sessionId, { spec, agent: null })
+  sessionCreatedSink?.(spec)
 }
 
 export function closeSession(sessionId: string): void {
@@ -101,11 +143,15 @@ export function getStatus(): SessionStatus {
   const active = current()
   const info = listProviders().find((p) => p.id === active.provider)
 
+  // The path must match what loadEnvFile() actually reads, or the hint lies.
+  const envFile = app.isPackaged
+    ? `${app.getPath('userData')}/.env`
+    : './.env'
   const blockedReason =
     info?.credentialAvailable !== true
-      ? `${info?.credentialHint ?? 'Kredensial'} belum diset — isi berkas .env lalu jalankan ulang app`
+      ? `${info?.credentialHint ?? 'Credentials'} not set — fill in ${envFile} and restart the app`
       : active.model === ''
-        ? 'Model belum diisi untuk provider ini'
+        ? 'No model selected for this provider'
         : null
 
   return {
@@ -120,10 +166,10 @@ export function getStatus(): SessionStatus {
 
 export function getSession(sessionId: string, gate: ApprovalGate): AgentSession {
   const live = sessions.get(sessionId)
-  if (!live) throw new Error('Sesi tidak dikenal; buka ulang tab ini')
+  if (!live) throw new Error('Unknown session; reopen this tab')
 
   if (live.spec.mode === 'code' && live.spec.workspaceRoot === null) {
-    throw new Error('Sesi Code butuh folder project')
+    throw new Error('A code session needs a project folder')
   }
 
   if (!live.agent) {
@@ -140,4 +186,60 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
 
 export function providerIds(): ProviderId[] {
   return listProviders().map((p) => p.id)
+}
+
+export interface SessionSummary {
+  id: string
+  mode: SessionMode
+  workspaceRoot: string | null
+  messageCount: number
+}
+
+export function listSessionSummaries(): SessionSummary[] {
+  return [...sessions.values()].map((live) => ({
+    id: live.spec.sessionId,
+    mode: live.spec.mode,
+    workspaceRoot: live.spec.workspaceRoot,
+    messageCount: live.agent?.snapshot().messages.length ?? 0
+  }))
+}
+
+function toSnapshot(messages: Message[]): SnapshotMessage[] {
+  return messages.map((message) => ({
+    role: message.role,
+    blocks: message.content
+      .filter(
+        (block): block is Extract<ContentBlock, { type: 'text' | 'tool_use' | 'tool_result' }> =>
+          block.type === 'text' || block.type === 'tool_use' || block.type === 'tool_result'
+      )
+      .map((block) => {
+        if (block.type === 'text') return { type: 'text' as const, text: block.text }
+        if (block.type === 'tool_use') {
+          return { type: 'tool_use' as const, id: block.id, name: block.name, input: block.input }
+        }
+        return {
+          type: 'tool_result' as const,
+          toolUseId: block.toolUseId,
+          content: block.content,
+          isError: block.isError
+        }
+      })
+  }))
+}
+
+export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null {
+  const live = sessions.get(sessionId)
+  if (live === undefined) return null
+  return toSnapshot(live.agent?.snapshot().messages ?? [])
+}
+
+export function sessionWorkspaceRoot(sessionId: string): string | null {
+  return sessions.get(sessionId)?.spec.workspaceRoot ?? null
+}
+
+/** Direct session creation for remote clients (no renderer round-trip). */
+export function createRemoteSession(mode: SessionMode, workspaceRoot: string | null): string {
+  const sessionId = randomUUID()
+  createSession({ sessionId, mode, workspaceRoot })
+  return sessionId
 }

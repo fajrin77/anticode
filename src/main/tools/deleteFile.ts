@@ -6,42 +6,42 @@ import { resolveInWorkspace } from './workspace'
 export const deleteFileTool = defineTool({
   name: 'delete_file',
   description:
-    'Hapus berkas di dalam workspace. Gunakan recursive hanya bila memang perlu menghapus folder ' +
-    'beserta isinya.',
+    'Delete a file inside the workspace. Use recursive only when a folder and everything ' +
+    'inside it really must go.',
   readOnly: false,
   risk: 'high',
   schema: z.object({
-    path: z.string().describe('Path berkas atau folder, relatif terhadap root workspace'),
+    path: z.string().describe('File or folder path, relative to the workspace root'),
     recursive: z
       .boolean()
       .default(false)
-      .describe('Wajib true untuk menghapus folder beserta isinya')
+      .describe('Required true to delete a folder and everything inside it')
   }),
   preview: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
     const info = await stat(target).catch(() => null)
-    const kind = info === null ? 'tidak ditemukan' : info.isDirectory() ? 'folder' : 'berkas'
-    const size = info?.isFile() === true ? `\nukuran: ${info.size} byte` : ''
+    const kind = info === null ? 'not found' : info.isDirectory() ? 'folder' : 'file'
+    const size = info?.isFile() === true ? `\nsize: ${info.size} bytes` : ''
     return {
       kind: 'text',
       subject: input.path,
-      detail: `Menghapus ${kind}: ${input.path}${size}\nrecursive: ${input.recursive}`
+      detail: `Deleting ${kind}: ${input.path}${size}\nrecursive: ${input.recursive}`
     }
   },
   execute: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
 
     const info = await stat(target).catch(() => null)
-    if (info === null) throw new ToolError(`Tidak ditemukan: ${input.path}`)
+    if (info === null) throw new ToolError(`Not found: ${input.path}`)
     if (info.isDirectory() && !input.recursive) {
-      throw new ToolError(`${input.path} adalah folder; set recursive true bila memang ingin dihapus`)
+      throw new ToolError(`${input.path} is a folder; set recursive true if it really should be deleted`)
     }
 
     try {
       await rm(target, { recursive: input.recursive, force: false })
     } catch (error) {
-      throw new ToolError(`Gagal menghapus ${input.path}: ${(error as Error).message}`)
+      throw new ToolError(`Failed to delete ${input.path}: ${(error as Error).message}`)
     }
-    return `Terhapus: ${input.path}`
+    return `Deleted: ${input.path}`
   }
 })

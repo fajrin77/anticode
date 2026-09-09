@@ -2,7 +2,7 @@
 
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
-Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh tool termasuk Excel,
+Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh satu tool termasuk Excel,
 Word, PDF, dan browser Playwright, sistem approval berbasis risk tier, serta attachment handler
 dengan input gambar.
 
@@ -46,7 +46,7 @@ dengan segmen terpisah untuk token masuk dan keluar.
 | | antichat | anticode |
 |---|---|---|
 | Folder project | tidak perlu | wajib |
-| Tool | tidak ada sama sekali | kedua puluh tool |
+| Tool | tidak ada sama sekali | kedua puluh satu tool |
 | Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
 
 antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider
@@ -113,6 +113,7 @@ ke provider lain bukan sesuatu yang bisa dijamin aman.
 |---|---|---|
 | `read_file` | Baca berkas dengan nomor baris | rendah — jalan tanpa bertanya |
 | `list_directory` | Daftar isi folder | rendah — jalan tanpa bertanya |
+| `search_files` | Cari teks di seluruh workspace, per baris | rendah |
 | `write_file` | Tulis berkas | sedang — preview diff |
 | `edit_file` | Ganti potongan teks unik | sedang — preview diff |
 | `run_command` | Jalankan perintah shell | sedang, naik ke tinggi bila destruktif |
@@ -133,6 +134,25 @@ ke provider lain bukan sesuatu yang bisa dijamin aman.
 | `read_network_requests` | Daftar request sejak navigasi terakhir | rendah |
 
 Tool read-only dieksekusi paralel dalam satu giliran; tool yang mengubah dijalankan berurutan.
+Tool browser (navigate, get_text, screenshot, network) berbagi satu halaman Chromium, jadi mereka
+diperlakukan serial meski tidak mengubah berkas.
+
+## Context budget
+
+Riwayat yang diputar ulang ke provider diestimasi per giliran (teks ÷ 4 karakter, gambar dihitung
+tetap). Begitu melewati ~100 ribu token, giliran prompt tertua dibuang sampai muat — hanya di batas
+prompt pengguna, sehingga pasangan `tool_use`/`tool_result` tidak pernah terbelah. Error transien
+provider (429, 5xx, timeout) diulang otomatis sampai dua kali dengan backoff eksponensial.
+
+## Aturan project
+
+Bila workspace punya `AGENTS.md`, `CLAUDE.md`, atau `.anticode.md` (urutan itu), isinya — maksimal
+4000 karakter — ditambahkan ke system prompt setiap giliran. Berkas dibaca ulang saat sesi dibuat;
+buka tab baru untuk mengambil perubahan.
+
+`list_directory` dan `search_files` melewati folder dependensi dan cache (`node_modules`, `.git`,
+`dist`, dan kawan-kawannya) serta melaporkan berapa banyak yang diabaikan, supaya context tidak
+banjir derau. Folder ambigu seperti `build` dan `out` sengaja tidak diabaikan.
 
 ## Lampiran
 
@@ -150,8 +170,8 @@ tool tidak bisa menjangkaunya. Ini menjaga sandbox workspace tetap satu-satunya 
 - **Rendah** jalan otomatis.
 - **Sedang** meminta konfirmasi, dan bisa dilonggarkan lewat "Selalu izinkan sesi ini" per tool atau
   centang "Setujui otomatis risiko sedang".
-- **Tinggi** selalu ditanya tiap panggilan. Auto-approve maupun always-allow tidak bisa
-  melewatinya, dan tombol "Selalu izinkan" memang tidak ditampilkan.
+- **Tinggi** selalu ditanya tiap panggilan selama mode Auto mati. Saat Auto aktif, semua tier
+  berjalan tanpa bertanya — penggunanya yang memikul tanggung jawabnya.
 
 Preview yang ditampilkan konkret: diff berwarna untuk `write_file` dan `edit_file`, perintah lengkap
 beserta cwd dan timeout untuk `run_command`.
@@ -187,6 +207,18 @@ npx playwright install chromium
 
 Tanpa itu `browser_navigate` gagal dengan pesan yang menyebutkan perintah di atas. `fetch_url` tetap
 jalan karena memakai HTTP biasa tanpa browser.
+
+## Remote (HP)
+
+Settings → Remote mengaktifkan server HTTP di Mac (port 8680). Buka URL pairing-nya di browser HP
+lewat Wi-Fi yang sama, lalu "Add to Home Screen" agar terlihat seperti app. Fitur: daftar session,
+chat dengan agent (live streaming), dan editor file workspace lengkap dengan git commit/push —
+edit repo yang terhubung langsung dari HP.
+
+Laptop yang ditutup lidah-nya akan sleep dan remote mati: colok charger + aktifkan "Prevent
+automatic sleeping when the display is off", atau jalankan `caffeinate -s`. Di luar rumah, pakai
+Tailscale di kedua perangkat. Prompt remote mengikuti mode approval desktop — nyalakan Auto di
+General untuk kerja tanpa pengawasan.
 
 ## Postur keamanan
 

@@ -126,7 +126,7 @@ describe('AgentSession', () => {
     await run(provider)
 
     const result = lastContent(provider, 1)[0]
-    expect(result?.type === 'tool_result' && result.content).toContain('Tool tidak dikenal')
+    expect(result?.type === 'tool_result' && result.content).toContain('Unknown tool')
   })
 
   it('skips pending tools when cancelled and leaves replayable history', async () => {
@@ -211,7 +211,7 @@ describe('AgentSession', () => {
 
     expect(await readFile(path.join(root, 'a.txt'), 'utf8')).toBe('asli')
     const result = lastContent(provider, 1)[0]
-    expect(result?.type === 'tool_result' && result.content).toContain('Ditolak')
+    expect(result?.type === 'tool_result' && result.content).toContain('Rejected')
     expect(events.some((e) => e.type === 'tool_end' && e.rejected === true)).toBe(true)
   })
 
@@ -229,8 +229,141 @@ describe('AgentSession', () => {
     expect(preview.detail).toContain('@@')
   })
 
+  it('never shows a diff the execution would refuse', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'x\nx')
+
+    const ambiguous = await editFileTool
+      .prepare({ path: 'a.txt', old_string: 'x', new_string: 'y' })
+      .preview({ workspaceRoot: root, signal: new AbortController().signal })
+    expect(ambiguous.kind).toBe('text')
+    expect(ambiguous.detail).toContain('appears 2 times')
+
+    const absent = await editFileTool
+      .prepare({ path: 'a.txt', old_string: 'tidak ada', new_string: 'y' })
+      .preview({ workspaceRoot: root, signal: new AbortController().signal })
+    expect(absent.kind).toBe('text')
+    expect(absent.detail).toContain('not found')
+  })
+
   it('surfaces max_tokens as its own end reason', async () => {
     await run(new FakeProvider([turn([{ type: 'text', text: 'terpotong' }], 'max_tokens')]))
     expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'max_tokens' })
+  })
+
+  it('drops the oldest turns once the history passes the context budget', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'isi')
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'a.txt' } }], 'tool_use'),
+      turn([{ type: 'text', text: 'ok' }], 'end_turn')
+    ])
+
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    const emit = (event: AgentEvent): void => void events.push(event)
+
+    await session.run({
+      runId: 'run-1',
+      prompt: 'x'.repeat(500_000),
+      signal: new AbortController().signal,
+      emit
+    })
+    await session.run({
+      runId: 'run-2',
+      prompt: 'kedua',
+      signal: new AbortController().signal,
+      emit
+    })
+
+    // Run 1 makes two requests (tool turn, then the wrap-up); run 2's request
+    // is the third.
+    const replayed = provider.sent[2] ?? []
+    expect(replayed).toHaveLength(1)
+    expect(replayed[0]?.role).toBe('user')
+    // The cut must never orphan a tool_result: its tool_use goes with it.
+    expect(replayed.some((m) => m.content.some((b) => b.type === 'tool_result'))).toBe(false)
+  })
+
+  it('keeps the whole history while it fits the budget', async () => {
+    const provider = new FakeProvider([turn([{ type: 'text', text: 'satu' }], 'end_turn')])
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    const emit = (event: AgentEvent): void => void events.push(event)
+
+    await session.run({
+      runId: 'run-1',
+      prompt: 'halo',
+      signal: new AbortController().signal,
+      emit
+    })
+    await session.run({
+      runId: 'run-2',
+      prompt: 'lagi',
+      signal: new AbortController().signal,
+      emit
+    })
+
+    const replayed = provider.sent[1] ?? []
+    expect(replayed).toHaveLength(3)
+  })
+
+  it('stubs old tool outputs and keeps recent turns verbatim', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'x'.repeat(2000))
+    const toolTurn = (id: string): LLMResponse =>
+      turn([{ type: 'tool_use', id, name: 'read_file', input: { path: 'a.txt' } }], 'tool_use')
+    const provider = new FakeProvider([
+      toolTurn('t1'),
+      toolTurn('t2'),
+      toolTurn('t3'),
+      toolTurn('t4'),
+      turn([{ type: 'text', text: 'selesai' }], 'end_turn')
+    ])
+
+    await run(provider)
+
+    const contents = (provider.sent[4] ?? [])
+      .flatMap((message) => message.content)
+      .filter((block): block is Extract<ContentBlock, { type: 'tool_result' }> =>
+        block.type === 'tool_result'
+      )
+      .map((block) => block.content)
+
+    expect(contents.some((content) => content.includes('elided'))).toBe(true)
+    expect(contents.some((content) => content.includes('x'.repeat(2000)))).toBe(true)
+  })
+
+  it('retries a transient provider error and recovers', async () => {
+    const inner = new FakeProvider([turn([{ type: 'text', text: 'pulih' }], 'end_turn')])
+    let calls = 0
+    const flaky: LLMProvider = {
+      name: 'flaky',
+      model: 'flaky-model',
+      async *chat(params) {
+        calls += 1
+        if (calls === 1) {
+          throw Object.assign(new Error('overloaded'), { status: 503 })
+        }
+        yield* inner.chat(params)
+      }
+    }
+
+    await run(flaky)
+
+    expect(calls).toBe(2)
+    expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
+  })
+
+  it('does not retry a permanent provider error', async () => {
+    let calls = 0
+    const broken: LLMProvider = {
+      name: 'broken',
+      model: 'broken-model',
+      async *chat() {
+        calls += 1
+        throw new Error('kunci tidak valid')
+      }
+    }
+
+    await run(broken)
+
+    expect(calls).toBe(1)
+    expect(events.at(-1)?.type).toBe('error')
   })
 })

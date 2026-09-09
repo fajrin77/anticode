@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { GoogleGenAI } from '@google/genai'
 import type { Content, FunctionDeclaration, Part, Schema } from '@google/genai'
 import type {
@@ -13,6 +14,15 @@ import type {
 
 /** Ids we invent for calls Gemini returned without one; never sent back. */
 const SYNTHETIC_PREFIX = 'gen-'
+
+/**
+ * Gemini omits tool-call ids far more often than it includes them, so ids are
+ * synthesised per call instead of per response — two turns that both get
+ * unnamed calls must not collide when names are looked up from history later.
+ */
+function syntheticId(): string {
+  return `${SYNTHETIC_PREFIX}${randomUUID()}`
+}
 
 const SCHEMA_KEYS = [
   'type',
@@ -125,12 +135,17 @@ export class GoogleProvider implements LLMProvider {
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+    // Gemini rejects an empty functionDeclarations array, so chat mode — which
+    // is offered no tools at all — must not send the tools key.
+    const tools =
+      params.tools.length > 0 ? [{ functionDeclarations: toDeclarations(params.tools) }] : undefined
+
     const stream = await this.client.models.generateContentStream({
       model: this.model,
       contents: toContents(params.messages),
       config: {
         systemInstruction: params.system,
-        tools: [{ functionDeclarations: toDeclarations(params.tools) }],
+        ...(tools !== undefined ? { tools } : {}),
         maxOutputTokens: params.maxTokens,
         abortSignal: params.signal
       }
@@ -158,7 +173,7 @@ export class GoogleProvider implements LLMProvider {
         if (part.functionCall) {
           calls.push({
             type: 'tool_use',
-            id: part.functionCall.id ?? `${SYNTHETIC_PREFIX}${calls.length}`,
+            id: part.functionCall.id ?? syntheticId(),
             name: part.functionCall.name ?? 'unknown',
             input: part.functionCall.args ?? {}
           })

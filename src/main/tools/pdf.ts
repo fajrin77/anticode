@@ -13,7 +13,7 @@ async function extractText(filePath: string): Promise<{ text: string; pages: num
     const result = await parser.getText()
     return { text: result.text, pages: result.total }
   } catch (error) {
-    throw new ToolError(`Gagal membaca PDF: ${(error as Error).message}`)
+    throw new ToolError(`Failed to read PDF: ${(error as Error).message}`)
   } finally {
     await parser.destroy()
   }
@@ -22,60 +22,60 @@ async function extractText(filePath: string): Promise<{ text: string; pages: num
 /** Shared with the attachment handler so a dropped PDF previews the same way. */
 export async function summarisePdf(filePath: string): Promise<string> {
   const { text, pages } = await extractText(filePath)
-  return `PDF ${pages} halaman.\n\n${text}`
+  return `PDF · ${pages} pages\n\n${text}`
 }
 
 async function loadForm(filePath: string): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(await readFile(filePath))
   } catch (error) {
-    throw new ToolError(`Gagal membuka PDF: ${(error as Error).message}`)
+    throw new ToolError(`Failed to open PDF: ${(error as Error).message}`)
   }
 }
 
 export const readPdfTool = defineTool({
   name: 'read_pdf',
-  description: 'Ekstrak teks dari berkas PDF beserta jumlah halamannya.',
+  description: 'Extract text from a PDF file along with its page count.',
   readOnly: true,
   risk: 'low',
   schema: z.object({
-    path: z.string().describe('Path berkas .pdf relatif terhadap root workspace')
+    path: z.string().describe('Pdf file path relative to the workspace root')
   }),
   execute: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
     const { text, pages } = await extractText(target)
     const body =
       text.length > MAX_TEXT_CHARS
-        ? `${text.slice(0, MAX_TEXT_CHARS)}\n… teks dipotong (${text.length} karakter total)`
+        ? `${text.slice(0, MAX_TEXT_CHARS)}\n… text truncated (${text.length} characters total)`
         : text
-    return `PDF ${pages} halaman.\n\n${body}`
+    return `PDF · ${pages} pages\n\n${body}`
   }
 })
 
 export const fillPdfFormTool = defineTool({
   name: 'fill_pdf_form',
   description:
-    'Isi field pada form PDF. Panggil tanpa fields untuk melihat daftar nama field yang tersedia ' +
-    'beserta tipenya.',
+    'Fill fields on a PDF form. Call without fields to see the available field names ' +
+    'and their types.',
   readOnly: false,
   risk: 'medium',
   schema: z.object({
-    path: z.string().describe('Path berkas .pdf relatif terhadap root workspace'),
+    path: z.string().describe('Pdf file path relative to the workspace root'),
     fields: z
       .record(z.string(), z.string())
       .default({})
-      .describe('Peta nama field ke nilainya; kosongkan untuk sekadar melihat daftar field'),
+      .describe('Map of field name to its value; leave empty to just list the fields'),
     output_path: z
       .string()
       .optional()
-      .describe('Path hasil; bila kosong berkas asli ditimpa')
+      .describe('Output path; when empty the original file is overwritten')
   }),
   preview: async (input) => ({
     kind: 'text',
     subject: input.output_path ?? input.path,
     detail:
       Object.keys(input.fields).length === 0
-        ? 'Hanya membaca daftar field, tidak ada perubahan.'
+        ? 'Only listing the fields, nothing is changed.'
         : Object.entries(input.fields)
             .map(([name, value]) => `${name} = ${value}`)
             .join('\n')
@@ -91,8 +91,8 @@ export const fillPdfFormTool = defineTool({
 
     if (Object.keys(input.fields).length === 0) {
       return available.length === 0
-        ? 'PDF ini tidak punya field form.'
-        : `Field tersedia:\n${available.map((f) => `- ${f.name} (${f.type})`).join('\n')}`
+        ? 'This PDF has no form fields.'
+        : `Available fields:\n${available.map((f) => `- ${f.name} (${f.type})`).join('\n')}`
     }
 
     const filled: string[] = []
@@ -103,13 +103,13 @@ export const fillPdfFormTool = defineTool({
       } catch {
         const names = available.map((f) => f.name).join(', ')
         throw new ToolError(
-          `Field teks "${name}" tidak ditemukan. Field yang ada: ${names || '(tidak ada)'}`
+          `Text field "${name}" not found. Existing fields: ${names || '(none)'}`
         )
       }
     }
 
     const destination = resolveInWorkspace(context.workspaceRoot, input.output_path ?? input.path)
     await writeFile(destination, await document.save())
-    return `Terisi di ${input.output_path ?? input.path}:\n${filled.join('\n')}`
+    return `Filled in ${input.output_path ?? input.path}:\n${filled.join('\n')}`
   }
 })

@@ -3,9 +3,9 @@ import type { JSX } from 'react'
 import type { ApprovalDecision, ApprovalRequest, RiskTier } from '@shared/ipc'
 
 const RISK_LABEL: Record<RiskTier, string> = {
-  low: 'rendah',
-  medium: 'sedang',
-  high: 'tinggi'
+  low: 'low',
+  medium: 'medium',
+  high: 'high'
 }
 
 function DiffLine({ line }: { line: string }): JSX.Element {
@@ -24,6 +24,10 @@ interface ApprovalModalProps {
   onDecide: (decision: ApprovalDecision) => void
 }
 
+/**
+ * Sits directly above the composer instead of covering the screen: the
+ * conversation and the pending action stay visible together.
+ */
 export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.Element {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -36,21 +40,21 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
   const { preview } = request
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-10">
-      <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
-        <header className="flex items-baseline gap-2.5 px-5 py-3.5">
-          <span className="text-[15px] text-text">{request.toolName}</span>
+    <div className="shrink-0 px-10 pb-3">
+      <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
+        <header className="flex items-baseline gap-2.5 px-5 py-3">
+          <span className="text-[14px] text-text">{request.toolName}</span>
           <span
             className={`text-[11.5px] ${request.risk === 'high' ? 'text-del' : 'text-dim'}`}
           >
-            risiko {RISK_LABEL[request.risk]}
+            {RISK_LABEL[request.risk]} risk
           </span>
           <span className="ml-auto min-w-0 truncate font-mono text-[11.5px] text-faint">
             {preview.subject}
           </span>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-auto border-y border-line-soft px-5 py-4">
+        <div className="max-h-48 overflow-auto border-y border-line-soft px-5 py-3">
           {preview.kind === 'diff' ? (
             <div className="overflow-x-auto font-mono text-[12px] leading-relaxed">
               {preview.detail.split('\n').map((line, index) => (
@@ -64,10 +68,10 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           )}
         </div>
 
-        <footer className="flex items-center gap-2 px-5 py-3.5">
+        <footer className="flex items-center gap-2 px-5 py-3">
           {request.risk === 'high' && (
             <span className="mr-auto text-[11.5px] text-faint">
-              Risiko tinggi diminta ulang tiap panggilan.
+              High risk asks again on every call.
             </span>
           )}
 
@@ -78,7 +82,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
               request.risk === 'high' ? '' : 'ml-auto'
             }`}
           >
-            Tolak
+            Reject
           </button>
 
           {request.allowAlways && (
@@ -87,7 +91,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
               onClick={() => onDecide('always')}
               className="rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-text"
             >
-              Selalu izinkan
+              Always allow
             </button>
           )}
 
@@ -96,7 +100,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
             onClick={() => onDecide('approve')}
             className="rounded-md bg-hover px-4 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a]"
           >
-            Setujui
+            Approve
           </button>
         </footer>
       </div>

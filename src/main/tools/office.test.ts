@@ -64,7 +64,7 @@ describe('excel tools', () => {
   it('reads a sheet as a numbered table', async () => {
     await makeWorkbook()
     const output = (await readExcelTool.prepare({ path: 'data.xlsx' }).execute(context)).text
-    expect(output).toContain('Sheet aktif: Penjualan')
+    expect(output).toContain('Active sheet: Penjualan')
     expect(output).toContain('produk\tjumlah')
     expect(output).toContain('buku\t25')
   })
@@ -73,7 +73,7 @@ describe('excel tools', () => {
     await makeWorkbook()
     await expect(
       readExcelTool.prepare({ path: 'data.xlsx', sheet: 'Tidak Ada' }).execute(context)
-    ).rejects.toThrow(/Tersedia: Penjualan/)
+    ).rejects.toThrow(/Available: Penjualan/)
   })
 
   it('stores a numeric string as a number', async () => {
@@ -101,8 +101,8 @@ describe('excel tools', () => {
     const preview = await writeExcelCellTool
       .prepare({ path: 'data.xlsx', cell: 'B2', value: '99' })
       .preview(context)
-    expect(preview.detail).toContain('sebelum: 10')
-    expect(preview.detail).toContain('sesudah: 99')
+    expect(preview.detail).toContain('before: 10')
+    expect(preview.detail).toContain('after: 99')
   })
 
   it('writes a formula and strips a leading equals sign', async () => {
@@ -119,7 +119,7 @@ describe('excel tools', () => {
 
   it('rejects a malformed cell address', () => {
     expect(() => writeExcelCellTool.prepare({ path: 'a.xlsx', cell: '4B', value: 'x' })).toThrow(
-      /Input tidak valid/
+      /Invalid input/
     )
   })
 })
@@ -148,7 +148,7 @@ describe('pdf tools', () => {
   it('extracts text and page count', async () => {
     await makePdf(false)
     const output = (await readPdfTool.prepare({ path: 'dokumen.pdf' }).execute(context)).text
-    expect(output).toContain('PDF 1 halaman')
+    expect(output).toContain('PDF · 1 pages')
     expect(output).toContain('Dokumen uji')
   })
 
@@ -172,7 +172,7 @@ describe('pdf tools', () => {
     await makePdf(true)
     await expect(
       fillPdfFormTool.prepare({ path: 'form.pdf', fields: { salah: 'x' } }).execute(context)
-    ).rejects.toThrow(/Field yang ada: nama/)
+    ).rejects.toThrow(/Existing fields: nama/)
   })
 })
 
@@ -226,13 +226,13 @@ describe('attachment handler', () => {
     expect(attachment.workspacePath).toBeNull()
 
     const blocks = await toContentBlocks(attachment)
-    expect(blocks[0]?.type === 'text' && blocks[0].text).toContain('di luar workspace')
+    expect(blocks[0]?.type === 'text' && blocks[0].text).toContain('outside the workspace')
     await rm(outside, { recursive: true, force: true })
   })
 
   it('refuses a file over the size limit', async () => {
     const file = path.join(root, 'besar.bin')
     await writeFile(file, Buffer.alloc(21 * 1024 * 1024))
-    await expect(prepareAttachment(file, root)).rejects.toThrow(/terlalu besar/)
+    await expect(prepareAttachment(file, root)).rejects.toThrow(/too large/)
   })
 })

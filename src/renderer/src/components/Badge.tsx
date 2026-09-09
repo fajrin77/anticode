@@ -1,19 +1,31 @@
 import type { JSX } from 'react'
-import { badgeColour } from '../store/session'
+import { SESSION_COLOURS } from '../store/session'
 
 interface BadgeProps {
-  name: string
+  /** Text the badge takes its initial from. */
+  label: string
+  /** Index into SESSION_COLOURS; each session owns one. */
+  colour: number
   size?: 'sm' | 'md'
 }
 
-export function Badge({ name, size = 'sm' }: BadgeProps): JSX.Element {
+/** Glass gradient chip: two-tone diagonal fill, top light, inner rim. */
+export function Badge({ label, colour, size = 'sm' }: BadgeProps): JSX.Element {
   const dimension = size === 'sm' ? 'h-4 w-4 text-[10px]' : 'h-5 w-5 text-[11px]'
+  const pair = SESSION_COLOURS[colour % SESSION_COLOURS.length] ?? ['#5c5c66', '#3a3a42']
+  const [from, to] = pair
+
   return (
     <span
-      className={`flex shrink-0 items-center justify-center rounded font-medium text-white/90 ${dimension}`}
-      style={{ backgroundColor: badgeColour(name) }}
+      className={`flex shrink-0 items-center justify-center rounded-[5px] font-medium text-white/95 ${dimension}`}
+      style={{
+        background: `linear-gradient(135deg, ${from}f2 0%, ${to}d9 100%)`,
+        boxShadow:
+          'inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 1px rgba(0,0,0,0.28), 0 1px 3px rgba(0,0,0,0.4)',
+        border: '1px solid rgba(255,255,255,0.14)'
+      }}
     >
-      {(name[0] ?? '?').toUpperCase()}
+      {(label[0] ?? '?').toUpperCase()}
     </span>
   )
 }

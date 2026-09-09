@@ -15,8 +15,20 @@ export const IpcChannel = {
   AGENT_CANCEL: 'agent:cancel',
   AGENT_EVENT: 'agent:event',
   APPROVAL_REQUEST: 'approval:request',
-  APPROVAL_RESPOND: 'approval:respond'
+  APPROVAL_RESPOND: 'approval:respond',
+  PROVIDER_ADD: 'provider:add',
+  PROVIDER_REMOVE: 'provider:remove',
+  REMOTE_STATUS: 'remote:status',
+  REMOTE_SET: 'remote:set',
+  SESSION_CREATED: 'session:created',
+  SESSION_SNAPSHOT: 'session:snapshot'
 } as const
+
+/**
+ * Replay budget the agent trims its history against; the UI shows the same
+ * number as the context ceiling so both sides agree on "how full am I".
+ */
+export const HISTORY_TOKEN_BUDGET = 100_000
 
 export interface AppInfo {
   name: string
@@ -28,7 +40,18 @@ export interface AppInfo {
   isPackaged: boolean
 }
 
-export type ProviderId = 'anthropic' | 'openai' | 'google' | 'ollama' | 'clinepass'
+/**
+ * Built-in ids plus `custom:<uuid>` entries the user adds in Settings — any
+ * OpenAI-compatible endpoint (cloud gateway or a local server like Ollama).
+ */
+export type ProviderId = string
+
+export interface CustomProviderInput {
+  label: string
+  kind: 'openai' | 'ollama'
+  baseURL: string
+  apiKey: string
+}
 
 export interface ProviderInfo {
   id: ProviderId
@@ -150,7 +173,30 @@ export type AgentEvent =
   | { type: 'end'; runId: string; reason: AgentEndReason }
   | { type: 'error'; runId: string; message: string }
 
+export interface RemoteStatus {
+  enabled: boolean
+  /** Full pairing URL for the phone, null when disabled or on error. */
+  url: string | null
+  token: string | null
+  error: string | null
+}
+
+export type SnapshotBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }
+
+export interface SnapshotMessage {
+  role: 'user' | 'assistant'
+  blocks: SnapshotBlock[]
+}
+
 export interface AnticodeApi {
+  getRemoteStatus: () => Promise<RemoteStatus>
+  setRemoteEnabled: (enabled: boolean) => Promise<RemoteStatus>
+  /** Fires for sessions created anywhere — desktop or remote phone. */
+  onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
+  getSessionSnapshot: (sessionId: string) => Promise<SnapshotMessage[] | null>
   getAppInfo: () => Promise<AppInfo>
   getStatus: () => Promise<SessionStatus>
   chooseWorkspace: () => Promise<SessionStatus>
@@ -167,6 +213,8 @@ export interface AnticodeApi {
   sendPrompt: (req: AgentRequest) => Promise<void>
   cancelRun: (runId: string) => Promise<void>
   respondToApproval: (response: ApprovalResponse) => Promise<void>
+  addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>
+  removeProvider: (id: ProviderId) => Promise<ProviderInfo[]>
   onAgentEvent: (listener: (event: AgentEvent) => void) => () => void
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void
 }

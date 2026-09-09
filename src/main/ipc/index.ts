@@ -20,13 +20,21 @@ import {
   getSession,
   getStatus,
   listModels,
+  loadSessionMessages,
   policy,
+  resetProviderSelection,
   selectProvider,
+  setOnSessionCreated,
   setWorkspaceRoot
 } from '../runtime'
 import { listProviders } from '../providers'
 import { ApprovalCoordinator } from '../approval/coordinator'
-import { prepareAttachment, toContentBlocks } from '../attachments'
+import { AttachmentError, prepareAttachment, toContentBlocks } from '../attachments'
+import { addCustomProvider, removeCustomProvider } from '../providers/custom'
+import { savePersistedSettings } from '../settings'
+import { forgetRun, forward, registerRun } from '../remote/bus'
+import { getRemoteStatus, setRemoteEnabled } from '../remote/server'
+import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
 
 const activeRuns = new Map<string, AbortController>()
@@ -36,7 +44,14 @@ let lastSender: WebContents | null = null
 
 const approvals = new ApprovalCoordinator(policy, () => lastSender)
 
+/** The remote server reuses the same gate and targets the desktop window. */
+export { approvals }
+export function focusApprovalTarget(sender: WebContents): void {
+  lastSender = sender
+}
+
 function emit(sender: WebContents, event: AgentEvent): void {
+  forward(event)
   if (sender.isDestroyed()) return
   sender.send(IpcChannel.AGENT_EVENT, event)
 }
@@ -75,8 +90,34 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.POLICY_SET, (_event, enabled: boolean): SessionStatus => {
     policy.setAutoApprove(enabled)
+    savePersistedSettings({ autoApprove: enabled })
     return getStatus()
   })
+
+  ipcMain.handle(
+    IpcChannel.PROVIDER_ADD,
+    (_event, input: CustomProviderInput): ProviderInfo[] => {
+      addCustomProvider({
+        label: input.label.trim() !== '' ? input.label.trim() : 'Provider',
+        kind: input.kind,
+        baseURL: input.baseURL.trim(),
+        apiKey: input.apiKey.trim()
+      })
+      return listProviders()
+    }
+  )
+
+  ipcMain.handle(IpcChannel.PROVIDER_REMOVE, (_event, id: string): ProviderInfo[] => {
+    removeCustomProvider(id)
+    if (getStatus().provider === id) resetProviderSelection()
+    return listProviders()
+  })
+
+  ipcMain.handle(IpcChannel.REMOTE_STATUS, (): ReturnType<typeof getRemoteStatus> =>
+    getRemoteStatus()
+  )
+
+  ipcMain.handle(IpcChannel.REMOTE_SET, (_event, enabled: boolean) => setRemoteEnabled(enabled))
 
   ipcMain.handle(IpcChannel.WORKSPACE_CHOOSE, async (event): Promise<SessionStatus> => {
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -97,8 +138,24 @@ export function registerIpcHandlers(): void {
 
   async function register(paths: string[]): Promise<AttachmentInfo[]> {
     const root = getStatus().workspaceRoot
-    const prepared = await Promise.all(paths.map((file) => prepareAttachment(file, root)))
+    // Atomic: one unreadable file would otherwise register a half batch the
+    // user cannot see. Every failure is named so the bad file is findable.
+    const settled = await Promise.allSettled(paths.map((file) => prepareAttachment(file, root)))
+    const failures = settled
+      .filter((entry): entry is PromiseRejectedResult => entry.status === 'rejected')
+      .map((entry) => (entry.reason as Error).message)
+
+    const prepared = settled
+      .filter((entry): entry is PromiseFulfilledResult<AttachmentInfo> => entry.status === 'fulfilled')
+      .map((entry) => entry.value)
     for (const item of prepared) attachments.set(item.id, item)
+
+    if (failures.length > 0) {
+      if (prepared.length === 0) throw new AttachmentError(failures.join('\n'))
+      throw new AttachmentError(
+        `${prepared.length} attached, ${failures.length} failed:\n${failures.join('\n')}`
+      )
+    }
     return prepared
   }
 
@@ -125,6 +182,18 @@ export function registerIpcHandlers(): void {
     createSession(spec)
   })
 
+  ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) =>
+    loadSessionMessages(sessionId)
+  )
+
+  setOnSessionCreated((spec) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IpcChannel.SESSION_CREATED, spec)
+      }
+    }
+  })
+
   ipcMain.handle(IpcChannel.SESSION_CLOSE, (_event, sessionId: string): void => {
     closeSession(sessionId)
   })
@@ -134,10 +203,13 @@ export function registerIpcHandlers(): void {
 
     const status = getStatus()
     if (!status.providerReady) {
+      // The send is refused before any run starts; releasing the attachments
+      // here keeps them from leaking — the renderer has already dropped them.
+      for (const id of req.attachmentIds) attachments.delete(id)
       emit(event.sender, {
         type: 'error',
         runId: req.runId,
-        message: status.blockedReason ?? 'Agent belum siap'
+        message: status.blockedReason ?? 'Agent is not ready'
       })
       return
     }
@@ -145,6 +217,7 @@ export function registerIpcHandlers(): void {
     if (activeRuns.has(req.runId)) return
     const controller = new AbortController()
     activeRuns.set(req.runId, controller)
+    registerRun(req.runId, req.sessionId)
 
     void (async () => {
       try {
@@ -166,6 +239,7 @@ export function registerIpcHandlers(): void {
         emit(event.sender, { type: 'error', runId: req.runId, message: (error as Error).message })
       } finally {
         for (const id of req.attachmentIds) attachments.delete(id)
+        forgetRun(req.runId)
         activeRuns.delete(req.runId)
       }
     })()

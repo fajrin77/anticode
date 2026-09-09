@@ -9,7 +9,10 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   AttachmentInfo,
+  CustomProviderInput,
   ModelCatalogue,
+  RemoteStatus,
+  SnapshotMessage,
   ProviderId,
   ProviderInfo,
   ProviderSelection,
@@ -38,6 +41,17 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.PROVIDER_MODELS, provider, refresh) as Promise<ModelCatalogue>,
   setAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
+  addProvider: (input: CustomProviderInput) =>
+    ipcRenderer.invoke(IpcChannel.PROVIDER_ADD, input) as Promise<ProviderInfo[]>,
+  getRemoteStatus: () => ipcRenderer.invoke(IpcChannel.REMOTE_STATUS) as Promise<RemoteStatus>,
+  onSessionCreated: (listener: (spec: SessionSpec) => void) =>
+    subscribe<SessionSpec>(IpcChannel.SESSION_CREATED, listener),
+  getSessionSnapshot: (sessionId: string) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<SnapshotMessage[] | null>,
+  setRemoteEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke(IpcChannel.REMOTE_SET, enabled) as Promise<RemoteStatus>,
+  removeProvider: (id: ProviderId) =>
+    ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
   createSession: (spec: SessionSpec) =>
     ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<void>,
   closeSession: (sessionId: string) =>

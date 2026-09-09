@@ -11,7 +11,7 @@ const urlSchema = z
   .string()
   .url()
   .refine((value) => value.startsWith('http://') || value.startsWith('https://'), {
-    message: 'Hanya http dan https yang didukung'
+    message: 'Only http and https are supported'
   })
 
 function clip(text: string): string {
@@ -27,17 +27,17 @@ function describe(error: unknown): string {
 export const fetchUrlTool = defineTool({
   name: 'fetch_url',
   description:
-    'Ambil isi mentah sebuah URL lewat HTTP biasa, tanpa menjalankan JavaScript. ' +
-    'Untuk halaman yang butuh render JS, pakai browser_navigate.',
+    'Fetch the raw contents of a URL over plain HTTP, without running JavaScript. ' +
+    'For pages that need JS rendering, use browser_navigate.',
   readOnly: true,
   risk: 'low',
-  schema: z.object({ url: urlSchema.describe('URL http atau https') }),
+  schema: z.object({ url: urlSchema.describe('An http or https URL') }),
   execute: async (input, context) => {
     let response: Response
     try {
       response = await fetch(input.url, { signal: context.signal, redirect: 'follow' })
     } catch (error) {
-      throw new ToolError(`Gagal mengambil ${input.url}: ${describe(error)}`)
+      throw new ToolError(`Failed to fetch ${input.url}: ${describe(error)}`)
     }
     const body = await response.text()
     return `HTTP ${response.status} ${response.headers.get('content-type') ?? ''}\n\n${clip(body)}`
@@ -47,16 +47,18 @@ export const fetchUrlTool = defineTool({
 export const browserNavigateTool = defineTool({
   name: 'browser_navigate',
   description:
-    'Buka URL di browser headless dan tunggu halaman selesai dimuat, termasuk JavaScript. ' +
-    'Halaman ini tetap terbuka untuk tool browser berikutnya.',
-  readOnly: true,
+    'Open a URL in the headless browser and wait for the page to finish loading, including JavaScript. ' +
+    'The page stays open for the following browser tools.',
+  // All browser tools share one page, so they must not run concurrently; only
+  // fetch_url is genuinely parallel-safe.
+  readOnly: false,
   risk: 'low',
   schema: z.object({
-    url: urlSchema.describe('URL http atau https'),
+    url: urlSchema.describe('An http or https URL'),
     wait_for: z
       .enum(['load', 'domcontentloaded', 'networkidle'])
       .default('load')
-      .describe('Kondisi tunggu sebelum dianggap selesai')
+      .describe('Wait condition before the page counts as loaded')
   }),
   execute: async (input) =>
     withPage(async (page) => {
@@ -66,9 +68,9 @@ export const browserNavigateTool = defineTool({
           waitUntil: input.wait_for,
           timeout: DEFAULT_TIMEOUT
         })
-        return `Terbuka: ${page.url()} (HTTP ${response?.status() ?? 'tidak diketahui'})\nJudul: ${await page.title()}`
+        return `Opened: ${page.url()} (HTTP ${response?.status() ?? 'unknown'})\nTitle: ${await page.title()}`
       } catch (error) {
-        throw new ToolError(`Gagal membuka ${input.url}: ${describe(error)}`)
+        throw new ToolError(`Failed to open ${input.url}: ${describe(error)}`)
       }
     })
 })
@@ -76,11 +78,11 @@ export const browserNavigateTool = defineTool({
 export const browserGetTextTool = defineTool({
   name: 'browser_get_text',
   description:
-    'Ambil teks dari halaman yang sedang terbuka. Tanpa selector, seluruh isi body yang diambil.',
-  readOnly: true,
+    'Read text from the currently open page. Without a selector, the whole body is returned.',
+  readOnly: false,
   risk: 'low',
   schema: z.object({
-    selector: z.string().optional().describe('Selector CSS; kosongkan untuk seluruh halaman')
+    selector: z.string().optional().describe('CSS selector; leave empty for the whole page')
   }),
   execute: async (input) => {
     const page = requirePage()
@@ -90,12 +92,12 @@ export const browserGetTextTool = defineTool({
       }
       const locator = page.locator(input.selector)
       if ((await locator.count()) === 0) {
-        throw new ToolError(`Tidak ada elemen yang cocok dengan "${input.selector}"`)
+        throw new ToolError(`No element matches "${input.selector}"`)
       }
       return clip((await locator.allInnerTexts()).join('\n---\n'))
     } catch (error) {
       if (error instanceof ToolError) throw error
-      throw new ToolError(`Gagal membaca teks: ${describe(error)}`)
+      throw new ToolError(`Failed to read text: ${describe(error)}`)
     }
   }
 })
@@ -103,11 +105,11 @@ export const browserGetTextTool = defineTool({
 export const browserScreenshotTool = defineTool({
   name: 'browser_screenshot',
   description:
-    'Ambil tangkapan layar halaman yang sedang terbuka dan kirimkan sebagai gambar untuk dilihat.',
-  readOnly: true,
+    'Capture a screenshot of the currently open page and send it as an image to look at.',
+  readOnly: false,
   risk: 'low',
   schema: z.object({
-    full_page: z.boolean().default(false).describe('True untuk menangkap seluruh tinggi halaman')
+    full_page: z.boolean().default(false).describe('True to capture the full page height')
   }),
   execute: async (input) => {
     const page = requirePage()
@@ -115,7 +117,7 @@ export const browserScreenshotTool = defineTool({
     try {
       raw = await page.screenshot({ fullPage: input.full_page, type: 'png' })
     } catch (error) {
-      throw new ToolError(`Gagal mengambil tangkapan layar: ${describe(error)}`)
+      throw new ToolError(`Failed to capture screenshot: ${describe(error)}`)
     }
 
     const resized = await sharp(raw)
@@ -124,7 +126,7 @@ export const browserScreenshotTool = defineTool({
       .toBuffer()
 
     return {
-      text: `Tangkapan layar ${page.url()} terlampir.`,
+      text: `Screenshot of ${page.url()} attached.`,
       images: [{ mediaType: 'image/jpeg', data: resized.toString('base64') }]
     }
   }
@@ -132,66 +134,66 @@ export const browserScreenshotTool = defineTool({
 
 export const browserClickTool = defineTool({
   name: 'browser_click',
-  description: 'Klik elemen pertama yang cocok dengan selector di halaman yang sedang terbuka.',
+  description: 'Click the first element matching the selector on the currently open page.',
   readOnly: false,
   risk: 'medium',
-  schema: z.object({ selector: z.string().min(1).describe('Selector CSS elemen yang diklik') }),
+  schema: z.object({ selector: z.string().min(1).describe('CSS selector of the element to click') }),
   preview: async (input) => ({
     kind: 'command',
     subject: requirePage().url(),
-    detail: `Klik elemen: ${input.selector}`
+    detail: `Click element: ${input.selector}`
   }),
   execute: async (input) => {
     const page = requirePage()
     try {
       await page.locator(input.selector).first().click({ timeout: DEFAULT_TIMEOUT })
     } catch (error) {
-      throw new ToolError(`Gagal mengklik "${input.selector}": ${describe(error)}`)
+      throw new ToolError(`Failed to click "${input.selector}": ${describe(error)}`)
     }
-    return `Diklik: ${input.selector}\nURL sekarang: ${page.url()}`
+    return `Clicked: ${input.selector}\nURL now: ${page.url()}`
   }
 })
 
 export const browserFillTool = defineTool({
   name: 'browser_fill',
-  description: 'Isi sebuah input atau textarea di halaman yang sedang terbuka.',
+  description: 'Fill an input or textarea on the currently open page.',
   readOnly: false,
   risk: 'medium',
   schema: z.object({
-    selector: z.string().min(1).describe('Selector CSS elemen input'),
-    value: z.string().describe('Nilai yang diisikan')
+    selector: z.string().min(1).describe('CSS selector of the input element'),
+    value: z.string().describe('The value to type in')
   }),
   preview: async (input) => ({
     kind: 'command',
     subject: requirePage().url(),
-    detail: `Isi ${input.selector} dengan:\n${input.value}`
+    detail: `Fill ${input.selector} with:\n${input.value}`
   }),
   execute: async (input) => {
     const page = requirePage()
     try {
       await page.locator(input.selector).first().fill(input.value, { timeout: DEFAULT_TIMEOUT })
     } catch (error) {
-      throw new ToolError(`Gagal mengisi "${input.selector}": ${describe(error)}`)
+      throw new ToolError(`Failed to fill "${input.selector}": ${describe(error)}`)
     }
-    return `Terisi: ${input.selector}`
+    return `Filled: ${input.selector}`
   }
 })
 
 export const readNetworkRequestsTool = defineTool({
   name: 'read_network_requests',
   description:
-    'Daftar request jaringan yang tercatat sejak navigasi terakhir, berguna untuk memeriksa ' +
-    'endpoint backend yang dipanggil halaman.',
-  readOnly: true,
+    'List the network requests recorded since the last navigation, useful for inspecting ' +
+    'the backend endpoints the page calls.',
+  readOnly: false,
   risk: 'low',
   schema: z.object({
-    filter: z.string().optional().describe('Hanya tampilkan URL yang memuat teks ini')
+    filter: z.string().optional().describe('Only show URLs containing this text')
   }),
   execute: async (input) => {
     const matched = networkRecords().filter(
       (record) => input.filter === undefined || record.url.includes(input.filter)
     )
-    if (matched.length === 0) return '(tidak ada request tercatat)'
+    if (matched.length === 0) return '(no requests recorded)'
 
     return matched
       .map(

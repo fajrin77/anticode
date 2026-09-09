@@ -15,6 +15,8 @@ mac:
   target:
     - dmg
   category: public.app-category.developer-tools
+  # Personal local builds: no developer certificate, skip signing entirely.
+  identity: null
 win:
   icon: build/icon.png
   target:

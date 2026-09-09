@@ -48,9 +48,9 @@ async function buildPreview(kind: AttachmentInfo['kind'], filePath: string): Pro
     case 'pdf':
       return clip(await summarisePdf(filePath))
     case 'image':
-      return '(gambar dikirim sebagai lampiran visual)'
+      return '(image sent as a visual attachment)'
     case 'binary':
-      return '(berkas biner — isinya tidak dibaca)'
+      return '(binary file — contents not read)'
   }
 }
 
@@ -63,10 +63,10 @@ export async function prepareAttachment(
   workspaceRoot: string | null
 ): Promise<AttachmentInfo> {
   const info = await stat(filePath).catch(() => null)
-  if (info === null || !info.isFile()) throw new AttachmentError(`Bukan berkas: ${filePath}`)
+  if (info === null || !info.isFile()) throw new AttachmentError(`Not a file: ${filePath}`)
   if (info.size > MAX_BYTES) {
     throw new AttachmentError(
-      `Berkas terlalu besar (${Math.round(info.size / 1024 / 1024)} MB, batas 20 MB)`
+      `File too large (${Math.round(info.size / 1024 / 1024)} MB, limit 20 MB)`
     )
   }
 
@@ -108,10 +108,10 @@ async function toImageBlock(filePath: string): Promise<ContentBlock> {
 export async function toContentBlocks(attachment: AttachmentInfo): Promise<ContentBlock[]> {
   const location =
     attachment.workspacePath !== null
-      ? `di dalam workspace pada \`${attachment.workspacePath}\` — tool bisa membacanya langsung`
-      : 'di luar workspace, jadi tool tidak bisa membukanya; salin ke folder project bila perlu diedit'
+      ? `inside the workspace at \`${attachment.workspacePath}\` — tools can read it directly`
+      : 'outside the workspace, so tools cannot open it; copy it into the project folder if it needs editing'
 
-  const header = `Lampiran: ${attachment.name} (${attachment.kind}, ${attachment.size} byte), ${location}.`
+  const header = `Attachment: ${attachment.name} (${attachment.kind}, ${attachment.size} bytes), ${location}.`
 
   if (attachment.kind === 'image') {
     return [{ type: 'text', text: header }, await toImageBlock(attachment.path)]

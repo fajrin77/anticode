@@ -27,19 +27,19 @@ export async function docxToMarkdown(filePath: string): Promise<string> {
   try {
     const result = await convertToMarkdown({ path: filePath })
     const text = unescapePunctuation(result.value).trim()
-    return text === '' ? '(dokumen kosong)' : text
+    return text === '' ? '(empty document)' : text
   } catch (error) {
-    throw new ToolError(`Gagal membaca docx: ${(error as Error).message}`)
+    throw new ToolError(`Failed to read docx: ${(error as Error).message}`)
   }
 }
 
 export const readDocxTool = defineTool({
   name: 'read_docx',
-  description: 'Baca dokumen Word (.docx) dan kembalikan isinya sebagai markdown.',
+  description: 'Read a Word (.docx) document and return its contents as markdown.',
   readOnly: true,
   risk: 'low',
   schema: z.object({
-    path: z.string().describe('Path berkas .docx relatif terhadap root workspace')
+    path: z.string().describe('Docx file path relative to the workspace root')
   }),
   execute: async (input, context) =>
     docxToMarkdown(resolveInWorkspace(context.workspaceRoot, input.path))
@@ -68,13 +68,13 @@ function toParagraphs(markdown: string): Paragraph[] {
 export const writeDocxTool = defineTool({
   name: 'write_docx',
   description:
-    'Buat dokumen Word (.docx) dari teks markdown sederhana. Didukung: judul (#, ##, ###), ' +
-    'butir daftar (- atau *), dan paragraf biasa.',
+    'Create a Word (.docx) document from simple markdown. Supported: headings (#, ##, ###), ' +
+    'list items (- or *), and plain paragraphs.',
   readOnly: false,
   risk: 'medium',
   schema: z.object({
-    path: z.string().describe('Path berkas .docx tujuan, relatif terhadap root workspace'),
-    content: z.string().min(1).describe('Isi dokumen dalam markdown sederhana')
+    path: z.string().describe('Destination .docx path, relative to the workspace root'),
+    content: z.string().min(1).describe('Document contents in simple markdown')
   }),
   preview: async (input) => ({
     kind: 'text',
@@ -88,8 +88,8 @@ export const writeDocxTool = defineTool({
     try {
       await writeFile(target, await Packer.toBuffer(document))
     } catch (error) {
-      throw new ToolError(`Gagal menulis docx: ${(error as Error).message}`)
+      throw new ToolError(`Failed to write docx: ${(error as Error).message}`)
     }
-    return `Tersimpan: ${input.path} (${input.content.split('\n').length} paragraf)`
+    return `Saved: ${input.path} (${input.content.split('\n').length} paragraphs)`
   }
 })

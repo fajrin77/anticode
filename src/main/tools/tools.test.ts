@@ -45,11 +45,11 @@ describe('resolveInWorkspace', () => {
   })
 
   it('rejects traversal above the root', () => {
-    expect(() => resolveInWorkspace(root, '../secret.txt')).toThrow(/di luar workspace/)
+    expect(() => resolveInWorkspace(root, '../secret.txt')).toThrow(/outside the workspace/)
   })
 
   it('rejects absolute paths outside the root', () => {
-    expect(() => resolveInWorkspace(root, '/etc/passwd')).toThrow(/di luar workspace/)
+    expect(() => resolveInWorkspace(root, '/etc/passwd')).toThrow(/outside the workspace/)
   })
 
   it('rejects a symlink pointing outside the root', async () => {
@@ -57,7 +57,7 @@ describe('resolveInWorkspace', () => {
     await writeFile(path.join(outside, 'secret.txt'), 'rahasia')
     await symlink(outside, path.join(root, 'link'))
 
-    expect(() => resolveInWorkspace(root, 'link/secret.txt')).toThrow(/di luar workspace/)
+    expect(() => resolveInWorkspace(root, 'link/secret.txt')).toThrow(/outside the workspace/)
     await rm(outside, { recursive: true, force: true })
   })
 })
@@ -76,15 +76,15 @@ describe('read_file', () => {
     expect(output).toContain('    2\tdua')
     expect(output).toContain('    3\ttiga')
     expect(output).not.toContain('satu')
-    expect(output).toContain('1 baris berikutnya tidak ditampilkan')
+    expect(output).toContain('1 more lines not shown')
   })
 
   it('reports a missing file as a tool error', async () => {
-    await expect(readFileTool.prepare({ path: 'hilang.txt' }).execute(context)).rejects.toThrow(/Gagal membaca/)
+    await expect(readFileTool.prepare({ path: 'hilang.txt' }).execute(context)).rejects.toThrow(/Failed to read/)
   })
 
   it('rejects input that fails schema validation before anything runs', () => {
-    expect(() => readFileTool.prepare({ path: 42 })).toThrow(/Input tidak valid/)
+    expect(() => readFileTool.prepare({ path: 42 })).toThrow(/Invalid input/)
   })
 })
 
@@ -93,7 +93,7 @@ describe('write_file', () => {
     const output = (await writeFileTool
       .prepare({ path: 'src/nested/app.ts', content: 'export const a = 1\n' })
       .execute(context)).text
-    expect(output).toContain('Tersimpan')
+    expect(output).toContain('Saved')
     expect(await readFile(path.join(root, 'src/nested/app.ts'), 'utf8')).toBe(
       'export const a = 1\n'
     )
@@ -102,7 +102,7 @@ describe('write_file', () => {
   it('refuses to write outside the workspace', async () => {
     await expect(
       writeFileTool.prepare({ path: '../escape.txt', content: 'x' }).execute(context)
-    ).rejects.toThrow(/di luar workspace/)
+    ).rejects.toThrow(/outside the workspace/)
   })
 })
 
@@ -117,14 +117,14 @@ describe('edit_file', () => {
     await writeFile(path.join(root, 'a.txt'), 'x\nx')
     await expect(
       editFileTool.prepare({ path: 'a.txt', old_string: 'x', new_string: 'y' }).execute(context)
-    ).rejects.toThrow(/muncul 2 kali/)
+    ).rejects.toThrow(/appears 2 times/)
   })
 
   it('refuses when the target is absent', async () => {
     await writeFile(path.join(root, 'a.txt'), 'halo')
     await expect(
       editFileTool.prepare({ path: 'a.txt', old_string: 'tidak ada', new_string: 'y' }).execute(context)
-    ).rejects.toThrow(/tidak ditemukan/)
+    ).rejects.toThrow(/not found/)
   })
 })
 
@@ -138,7 +138,7 @@ describe('list_directory', () => {
 
   it('reports an empty directory', async () => {
     await mkdir(path.join(root, 'kosong'))
-    expect((await listDirectoryTool.prepare({ path: 'kosong' }).execute(context)).text).toBe('(folder kosong)')
+    expect((await listDirectoryTool.prepare({ path: 'kosong' }).execute(context)).text).toBe('(empty folder)')
   })
 })
 
@@ -165,7 +165,7 @@ describe('run_command', () => {
 
   it('refuses a working directory outside the workspace', async () => {
     await expect(runCommandTool.prepare({ command: 'pwd', cwd: '../..' }).execute(context)).rejects.toThrow(
-      /di luar workspace/
+      /outside the workspace/
     )
   })
 
@@ -173,6 +173,6 @@ describe('run_command', () => {
     const output = (await runCommandTool
       .prepare({ command: 'sleep 5', timeout_ms: 1000 })
       .execute(context)).text
-    expect(output).toContain('dihentikan setelah 1000 ms')
+    expect(output).toContain('killed after 1000 ms')
   })
 })

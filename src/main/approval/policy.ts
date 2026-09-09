@@ -47,12 +47,14 @@ export class ApprovalPolicy {
   }
 
   /**
-   * High risk always asks, regardless of auto-approve or a previous "always
-   * allow" — §8 requires explicit approval on every such call.
+   * Auto mode covers every tier: the user who flips it owns the blast radius.
+   * Without it, low runs free, high always asks, and "always allow" lifts a
+   * single tool to low.
    */
   needsApproval(toolName: string, risk: RiskTier): boolean {
+    if (this.autoApprove) return false
     if (risk === 'low') return false
     if (risk === 'high') return true
-    return !this.autoApprove && !this.alwaysAllowed.has(toolName)
+    return !this.alwaysAllowed.has(toolName)
   }
 }
