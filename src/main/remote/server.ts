@@ -89,6 +89,16 @@ export async function restoreRemoteServer(): Promise<void> {
   }
 }
 
+/** Issues a fresh pairing token; old links die instantly because every
+ * request re-reads the persisted settings. The server itself stays up. */
+export async function regenerateRemoteToken(): Promise<RemoteStatus> {
+  const enabled = loadPersistedSettings().remote?.enabled === true
+  savePersistedSettings({
+    remote: { enabled, token: randomUUID().replace(/-/g, ''), port: PORT }
+  })
+  return getRemoteStatus()
+}
+
 function persistedToken(): string {
   const existing = loadPersistedSettings().remote?.token
   if (existing !== undefined && existing !== '') return existing

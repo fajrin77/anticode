@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
+import QRCode from 'qrcode'
 import type {
   AppInfo,
   ModelCatalogue,
@@ -384,13 +385,26 @@ function Models({
 function Remote(): JSX.Element {
   const [remote, setRemote] = useState<RemoteStatus | null>(null)
   const [copied, setCopied] = useState(false)
+  const [qr, setQr] = useState<string | null>(null)
 
   useEffect(() => {
     void window.anticode.getRemoteStatus().then(setRemote)
   }, [])
 
+  useEffect(() => {
+    if (remote?.url === null || remote?.url === undefined) {
+      setQr(null)
+      return
+    }
+    void QRCode.toDataURL(remote.url, { margin: 1, width: 320 }).then(setQr)
+  }, [remote?.url])
+
   function toggle(enabled: boolean): void {
     void window.anticode.setRemoteEnabled(enabled).then(setRemote)
+  }
+
+  function regenerate(): void {
+    void window.anticode.regenerateRemoteToken().then(setRemote)
   }
 
   return (
@@ -410,22 +424,48 @@ function Remote(): JSX.Element {
         <>
           <h2 className="mb-3 mt-8 text-[14px] text-text">Pairing</h2>
           <div className="rounded-xl border border-line p-4">
-            <div className="mb-2 text-[12px] text-faint">Open this URL on the phone, then use “Add to Home Screen” for an app-like icon:</div>
-            <div className="mb-3 break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12px] text-code select-all">
-              {remote.url}
+            <div className="flex items-start gap-4">
+              {qr !== null && (
+                <img
+                  src={qr}
+                  alt="Pairing QR code"
+                  className="shrink-0 rounded-lg bg-white p-1.5"
+                  width={128}
+                  height={128}
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 text-[12px] text-faint">
+                  Scan the QR code with the phone camera, or open this URL — then use “Add to
+                  Home Screen” for an app-like icon:
+                </div>
+                <div className="mb-3 break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12px] text-code select-all">
+                  {remote.url}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(remote.url ?? '').then(() => {
+                        setCopied(true)
+                        window.setTimeout(() => setCopied(false), 1500)
+                      })
+                    }}
+                    className="rounded-lg bg-hover px-3 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a]"
+                  >
+                    {copied ? 'Copied' : 'Copy URL'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={regenerate}
+                    title="Invalidate the current link and issue a fresh one"
+                    className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-text"
+                  >
+                    New pairing link
+                  </button>
+                </div>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard.writeText(remote.url ?? '').then(() => {
-                  setCopied(true)
-                  window.setTimeout(() => setCopied(false), 1500)
-                })
-              }}
-              className="rounded-lg bg-hover px-3 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a]"
-            >
-              {copied ? 'Copied' : 'Copy URL'}
-            </button>
           </div>
         </>
       )}
@@ -435,6 +475,11 @@ function Remote(): JSX.Element {
         <ul className="list-disc space-y-1 pl-4">
           <li>The Mac must stay awake — closing the lid sleeps the app (System Settings → Battery → Power Adapter → prevent automatic sleeping, or run <span className="font-mono">caffeinate -s</span>).</li>
           <li>The phone and the Mac share the Wi-Fi. For access away from home, put both on Tailscale.</li>
+          <li>
+            Moved to another Wi-Fi? The pairing URL always follows the Mac's current address —
+            reopen this page, then scan or copy the fresh link for the phone. “New pairing link”
+            also revokes every old link.
+          </li>
           <li>Remote prompts follow the desktop approval mode. Enable Auto in General for fully unattended runs.</li>
           <li>Sessions created remotely appear on the desktop after it restarts.</li>
         </ul>

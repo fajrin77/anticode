@@ -33,7 +33,7 @@ import { AttachmentError, prepareAttachment, toContentBlocks } from '../attachme
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
 import { forgetRun, forward, registerRun } from '../remote/bus'
-import { getRemoteStatus, setRemoteEnabled } from '../remote/server'
+import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
 
@@ -118,6 +118,8 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(IpcChannel.REMOTE_SET, (_event, enabled: boolean) => setRemoteEnabled(enabled))
+
+  ipcMain.handle(IpcChannel.REMOTE_REGENERATE, () => regenerateRemoteToken())
 
   ipcMain.handle(IpcChannel.WORKSPACE_CHOOSE, async (event): Promise<SessionStatus> => {
     const window = BrowserWindow.fromWebContents(event.sender)

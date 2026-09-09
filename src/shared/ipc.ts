@@ -20,6 +20,7 @@ export const IpcChannel = {
   PROVIDER_REMOVE: 'provider:remove',
   REMOTE_STATUS: 'remote:status',
   REMOTE_SET: 'remote:set',
+  REMOTE_REGENERATE: 'remote:regenerate',
   SESSION_CREATED: 'session:created',
   SESSION_SNAPSHOT: 'session:snapshot'
 } as const
@@ -194,6 +195,8 @@ export interface SnapshotMessage {
 export interface AnticodeApi {
   getRemoteStatus: () => Promise<RemoteStatus>
   setRemoteEnabled: (enabled: boolean) => Promise<RemoteStatus>
+  /** Issues a fresh pairing token; every previously shared link stops working. */
+  regenerateRemoteToken: () => Promise<RemoteStatus>
   /** Fires for sessions created anywhere — desktop or remote phone. */
   onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
   getSessionSnapshot: (sessionId: string) => Promise<SnapshotMessage[] | null>

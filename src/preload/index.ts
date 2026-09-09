@@ -50,6 +50,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<SnapshotMessage[] | null>,
   setRemoteEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.REMOTE_SET, enabled) as Promise<RemoteStatus>,
+  regenerateRemoteToken: () =>
+    ipcRenderer.invoke(IpcChannel.REMOTE_REGENERATE) as Promise<RemoteStatus>,
   removeProvider: (id: ProviderId) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
   createSession: (spec: SessionSpec) =>
