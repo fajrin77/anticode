@@ -1,0 +1,23 @@
+appId: com.anticode.app
+productName: anticode
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+# sharp ships platform-specific binaries that cannot be loaded from inside asar.
+asarUnpack:
+  - '**/node_modules/sharp/**'
+  - '**/node_modules/@img/**'
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+  category: Development

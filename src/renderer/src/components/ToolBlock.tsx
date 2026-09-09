@@ -1,0 +1,57 @@
+import { useState } from 'react'
+import type { JSX } from 'react'
+import type { MessagePart } from '../store/session'
+
+type ToolPart = Extract<MessagePart, { kind: 'tool' }>
+
+/** The one-line subject shown beside the tool name, mirroring a shell prompt. */
+function subject(part: ToolPart): string {
+  if (part.input === null || typeof part.input !== 'object') return ''
+  const record = part.input as Record<string, unknown>
+  for (const key of ['command', 'path', 'cell']) {
+    const value = record[key]
+    if (typeof value === 'string') return value
+  }
+  return ''
+}
+
+function label(name: string): string {
+  return name === 'run_command' ? 'Shell' : name
+}
+
+export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const line = subject(part)
+  const isShell = part.name === 'run_command'
+
+  return (
+    <div className="my-3">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-baseline gap-2.5 text-left"
+      >
+        <span
+          className={`shrink-0 text-[15px] ${
+            part.status === 'error' ? 'text-del' : 'text-text'
+          }`}
+        >
+          {label(part.name)}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-dim">{line}</span>
+        <span className="shrink-0 text-[11px] text-faint">
+          {part.status === 'running' ? '···' : open ? '⌃' : '⌄'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-2 overflow-hidden rounded-lg border border-line bg-surface">
+          <pre className="max-h-96 overflow-auto px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-dim">
+            {isShell ? `$ ${line}\n\n` : ''}
+            {part.output === '' ? '(belum ada keluaran)' : part.output}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}

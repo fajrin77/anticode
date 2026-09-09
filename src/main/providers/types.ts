@@ -1,0 +1,53 @@
+export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
+
+/**
+ * `opaque` carries provider-native blocks that must be replayed verbatim to the
+ * same provider — Anthropic thinking blocks are signed and rejected if altered.
+ * Blocks from a different provider are dropped rather than translated.
+ */
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mediaType: string; data: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }
+  | { type: 'opaque'; provider: string; raw: unknown }
+
+export interface Message {
+  role: 'user' | 'assistant'
+  content: ContentBlock[]
+}
+
+export interface ToolDefinition {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+}
+
+export interface Usage {
+  inputTokens: number
+  outputTokens: number
+}
+
+export interface LLMResponse {
+  content: ContentBlock[]
+  stopReason: StopReason
+  usage: Usage
+}
+
+export type ProviderEvent =
+  | { type: 'text_delta'; text: string }
+  | { type: 'response'; response: LLMResponse }
+
+export interface ChatParams {
+  system: string
+  messages: Message[]
+  tools: ToolDefinition[]
+  maxTokens: number
+  signal: AbortSignal
+}
+
+export interface LLMProvider {
+  readonly name: string
+  readonly model: string
+  chat(params: ChatParams): AsyncIterable<ProviderEvent>
+}

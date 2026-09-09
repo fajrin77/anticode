@@ -1,0 +1,294 @@
+# anticode
+
+AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
+
+Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh tool termasuk Excel,
+Word, PDF, dan browser Playwright, sistem approval berbasis risk tier, serta attachment handler
+dengan input gambar.
+
+## Setup
+
+```bash
+npm install
+```
+
+Salin `.env.example` menjadi `.env` lalu isi provider yang mau dipakai. Provider tanpa kredensial
+tetap terlihat di UI tetapi ditandai, dan kolom input dikunci dengan alasan yang jelas.
+
+Jika `npm run dev` gagal dengan `Error: Electron uninstall`, biner Electron belum terunduh saat
+postinstall. Jalankan sekali:
+
+```bash
+node node_modules/electron/install.js
+```
+
+## Perintah
+
+| Perintah | Fungsi |
+|---|---|
+| `npm run dev` | Dev server + Electron dengan HMR di renderer dan restart otomatis di main |
+| `npm test` | Test tool, kebijakan risiko, dan agent loop (Vitest) |
+| `npm run typecheck` | Typecheck main/preload/shared dan renderer |
+| `npm run build` | Typecheck lalu bundle ke `out/` |
+| `npm run pack:mac` / `pack:win` / `pack:linux` | Installer lewat electron-builder ke `release/` |
+
+## Cara pakai
+
+1. Jalankan `npm run dev`.
+2. Di dashboard, pilih **antichat** atau **anticode**.
+3. Beri instruksi. Di mode anticode, tool berisiko memunculkan dialog konfirmasi.
+
+Dashboard juga menampilkan diagram batang pemakaian token, dipecah per model beserta provider-nya,
+dengan segmen terpisah untuk token masuk dan keluar.
+
+## Dua mode sesi
+
+| | antichat | anticode |
+|---|---|---|
+| Folder project | tidak perlu | wajib |
+| Tool | tidak ada sama sekali | kedua puluh tool |
+| Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
+
+antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider
+memang kosong, jadi model tidak punya cara apa pun menyentuh disk. Kartu **anticode** di dashboard
+tetap mati sampai sebuah folder dipilih.
+
+Tiap tab punya percakapannya sendiri di main process, terikat pada mode dan folder yang berlaku saat
+sesi itu dibuat. Membuka tab Code kedua di folder berbeda tidak mencampur riwayatnya.
+
+## Tampilan
+
+Satu tab bar di atas: ikon kisi membuka layar Projects, tiap tab adalah satu sesi dengan badge
+berwarna sesuai project-nya. Layar Projects berisi pencarian sesi, daftar project, dan Settings.
+
+Composer di bawah memuat tombol lampiran, chip model, dan chip mode approval (**Default** menanyakan
+setiap perubahan, **Auto** melewati yang berisiko sedang; risiko tinggi tetap ditanya). Tombol kirim
+berubah jadi tombol henti selama agent bekerja.
+
+Palet sengaja abu-abu netral tanpa rona biru, tanpa warna aksen selain hijau/merah untuk diff.
+Balasan model dirender lewat subset markdown kecil — blok kode berpagar, tabel, judul, butir, kutipan,
+tebal, dan kode inline. Parser penuh jauh lebih luas daripada yang benar-benar dikeluarkan model.
+
+## Provider
+
+| Provider | Kredensial | Model |
+|---|---|---|
+| Anthropic | `ANTHROPIC_API_KEY` | default `claude-opus-5` |
+| OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL` |
+| Google Gemini | `GOOGLE_API_KEY` | `GOOGLE_MODEL` |
+| Ollama (lokal) | tidak perlu; `OLLAMA_BASE_URL` | `OLLAMA_MODEL` |
+| Clinepass | `CLINEPASS_API_KEY` + `CLINEPASS_BASE_URL` | `CLINEPASS_MODEL` |
+
+Nama model tidak perlu dihafal: begitu sebuah provider punya kredensial, app menanyakan katalognya
+lewat endpoint model milik provider itu sendiri, lalu menampilkannya sebagai daftar yang bisa dicari
+di chip model. Klik chip untuk berpindah provider sekaligus memilih model.
+
+Model dipilih otomatis hanya bila katalognya pendek (≤ 25), yaitu daftar milik akun itu sendiri.
+Katalog panjang berarti marketplace berisi ratusan model, dan memilih yang pertama secara alfabet di
+sana akan mendarat pada model berbayar yang acak — jadi pilihannya diserahkan ke pengguna.
+
+Clinepass adalah gateway agregator: base URL `https://api.cline.bot/api/v1`, id model berbentuk
+`vendor/model` (mis. `anthropic/claude-opus-5`, `thinkingmachines/inkling-small:free`), dan
+`GET /models` mengembalikan ratusan pilihan. Beberapa model berakhiran `:free` bisa dipakai tanpa
+saldo.
+
+**Model langganan Clinepass tidak bisa ditemukan otomatis.** Id berprefiks `cline-pass/` berfungsi
+saat dipanggil, tetapi tidak satu pun muncul di `GET /models`; `users/me` tidak memuat informasi
+paket, dan `plans` hanya menyebut nama pemasarannya ("Kimi K3, GLM 5.2, …") tanpa id. Jadi untuk
+model langganan, isi `CLINEPASS_MODEL` sekali di `.env`, atau ketik id-nya di kolom pencarian pemilih
+model dan tekan Enter.
+
+Satu keanehan lain yang perlu diingat kalau nanti menambah jalur non-streaming: respons non-streaming
+dibungkus envelope `{"data": {...}}`, sedangkan chunk streaming-nya justru bentuk OpenAI standar.
+Adapter ini memakai streaming, jadi tidak terpengaruh.
+
+Ollama dan Clinepass memakai adapter yang sama dengan OpenAI karena keduanya bicara format
+`/v1/chat/completions`. Berganti provider mengosongkan riwayat percakapan: id tool call dan bentuk
+pesan bersifat spesifik per provider, dan memutar ulang giliran yang setengah jadi dari satu provider
+ke provider lain bukan sesuatu yang bisa dijamin aman.
+
+## Tool dan tier risiko
+
+| Tool | Fungsi | Tier |
+|---|---|---|
+| `read_file` | Baca berkas dengan nomor baris | rendah — jalan tanpa bertanya |
+| `list_directory` | Daftar isi folder | rendah — jalan tanpa bertanya |
+| `write_file` | Tulis berkas | sedang — preview diff |
+| `edit_file` | Ganti potongan teks unik | sedang — preview diff |
+| `run_command` | Jalankan perintah shell | sedang, naik ke tinggi bila destruktif |
+| `delete_file` | Hapus berkas atau folder | tinggi — selalu ditanya |
+| `read_excel` | Baca sheet .xlsx sebagai tabel | rendah |
+| `write_excel_cell` | Ubah satu cell | sedang — preview sebelum/sesudah |
+| `add_excel_formula` | Pasang formula di satu cell | sedang |
+| `read_docx` | Baca .docx sebagai markdown | rendah |
+| `write_docx` | Tulis .docx dari markdown sederhana | sedang |
+| `read_pdf` | Ekstrak teks dan jumlah halaman | rendah |
+| `fill_pdf_form` | Isi field form PDF | sedang — daftar field bila kosong |
+| `fetch_url` | Ambil isi URL lewat HTTP biasa | rendah |
+| `browser_navigate` | Buka halaman di Chromium headless | rendah |
+| `browser_get_text` | Ambil teks halaman atau selector | rendah |
+| `browser_screenshot` | Tangkap layar halaman sebagai gambar | rendah |
+| `browser_click` | Klik elemen | sedang |
+| `browser_fill` | Isi input | sedang |
+| `read_network_requests` | Daftar request sejak navigasi terakhir | rendah |
+
+Tool read-only dieksekusi paralel dalam satu giliran; tool yang mengubah dijalankan berurutan.
+
+## Lampiran
+
+Klik **+** atau seret berkas ke kolom input. Berkas dirutekan berdasarkan ekstensi: gambar
+di-resize ke sisi terpanjang 1568 px lalu dikirim sebagai blok gambar; xlsx, docx, dan pdf diringkas
+jadi teks; berkas teks dan kode dibaca apa adanya. Batasnya 20 MB per berkas dan pratinjau dipotong
+di 2000 karakter agar tidak menghabiskan konteks.
+
+Berkas asli tidak disalin ke mana-mana. Bila kebetulan berada di dalam workspace, path relatifnya
+ikut diberitahukan ke model supaya tool bisa membukanya penuh; bila di luar, model diberi tahu bahwa
+tool tidak bisa menjangkaunya. Ini menjaga sandbox workspace tetap satu-satunya pintu akses berkas.
+
+## Approval
+
+- **Rendah** jalan otomatis.
+- **Sedang** meminta konfirmasi, dan bisa dilonggarkan lewat "Selalu izinkan sesi ini" per tool atau
+  centang "Setujui otomatis risiko sedang".
+- **Tinggi** selalu ditanya tiap panggilan. Auto-approve maupun always-allow tidak bisa
+  melewatinya, dan tombol "Selalu izinkan" memang tidak ditampilkan.
+
+Preview yang ditampilkan konkret: diff berwarna untuk `write_file` dan `edit_file`, perintah lengkap
+beserta cwd dan timeout untuk `run_command`.
+
+Deteksi perintah destruktif (`rm -rf`, `sudo`, `git push --force`, pipe ke shell, dan sejenisnya)
+adalah heuristik, **bukan batas keamanan**. Cocok berarti wajib approval tiap panggilan; tidak cocok
+tetap berada di tier sedang yang minimal ditanya sekali. Jangan pernah membacanya sebagai bukti bahwa
+sebuah perintah aman.
+
+## Struktur
+
+```
+src/
+├── main/              Node.js — semua logika agent ada di sini
+│   ├── agent/loop.ts  Agent loop: request → approval → tool → hasil → ulangi
+│   ├── providers/     Abstraksi LLM + adapter Anthropic, OpenAI-compatible, Gemini
+│   ├── approval/      Tier risiko, kebijakan sesi, dan jembatan dialog
+│   ├── tools/         Satu modul per tool, skema Zod, penjaga batas workspace
+│   └── ipc/           Registrasi handler ipcMain
+├── preload/           contextBridge — satu-satunya jembatan renderer ke main
+├── shared/ipc.ts      Kontrak tunggal antar-proses
+└── renderer/          React + Tailwind, tanpa akses Node
+```
+
+## Browser
+
+Tool browser memakai satu Chromium headless dan satu halaman untuk seluruh app; agent memang bekerja
+di satu halaman pada satu waktu. Chromium-nya diunduh terpisah:
+
+```bash
+npx playwright install chromium
+```
+
+Tanpa itu `browser_navigate` gagal dengan pesan yang menyebutkan perintah di atas. `fetch_url` tetap
+jalan karena memakai HTTP biasa tanpa browser.
+
+## Postur keamanan
+
+- `contextIsolation: true`, `nodeIntegration: false` — renderer tidak punya akses Node.
+- `sandbox: false` diperlukan karena preload di-build sebagai ESM; isolasi renderer tidak terpengaruh.
+- CSP di-inject saat build saja. `connect-src 'self'` disengaja: panggilan ke provider hanya boleh
+  terjadi di main process.
+- Setiap path dari model di-resolve terhadap root workspace dan ditolak bila keluar dari sana.
+  Pemeriksaan diulang setelah resolusi symlink, sehingga tautan di dalam workspace tidak bisa dipakai
+  menjangkau berkas di luarnya.
+- Membatalkan run saat dialog approval terbuka otomatis menolak permintaan itu.
+
+## Catatan desain
+
+**Blok `opaque`.** Anthropic mengembalikan thinking block bertanda tangan yang harus dikirim balik apa
+adanya. Tipe internal menyimpannya sebagai blok `opaque` bertanda nama provider; blok milik provider
+lain dibuang alih-alih diterjemahkan.
+
+**Satu tool result, dua bentuk pesan.** Anthropic mengelompokkan semua hasil tool dalam satu pesan
+user; OpenAI menuntut satu pesan `role: "tool"` per hasil. Pemecahan itu tugas adapter, bukan loop.
+
+**Gemini tidak punya id tool call yang dijamin ada.** Adapter menyintesis id bila kosong, menandainya,
+dan tidak mengirimkan id sintetis itu kembali. Nama fungsi untuk `functionResponse` diambil dari
+panggilan aslinya di riwayat.
+
+**Validasi sekali di depan.** `prepare()` memvalidasi input model lalu mengembalikan tier risiko,
+preview, dan eksekusi. Preview hanya dihitung saat approval memang dibutuhkan, jadi panggilan yang
+otomatis disetujui tidak ikut membaca berkas.
+
+**Skema tool dibuat dalam mode `input`.** Zod secara bawaan menganggap field ber-`default` selalu ada,
+sehingga ikut masuk ke `required` dan model dipaksa mengisinya. `io: 'input'` memperbaikinya, dan key
+`$schema` dibuang karena provider menolak key asing.
+
+**Perbaikan history setelah pembatalan.** Giliran yang dibatalkan bisa meninggalkan `tool_use` tanpa
+`tool_result`, dan provider menolak history seperti itu di request berikutnya — artinya sesi rusak
+permanen, bukan cuma giliran itu.
+
+**Pemilihan provider dihitung malas.** Modul runtime di-import sebelum `loadEnvFile()` sempat jalan,
+jadi membaca kredensial di level modul selalu melihat environment kosong dan jatuh ke provider
+bawaan. Nilainya baru dihitung saat pertama diakses.
+
+**Escape markdown dari docx dibersihkan.** Mammoth mengembalikan prosa biasa sebagai `paragraf\.`.
+Escape itu hanya berguna kalau markdown-nya dirender ulang; di sini teksnya dibaca model, jadi
+backslash-nya cuma derau dan dibuang.
+
+**Gambar hasil tool menumpang giliran yang sama, bukan hasil tool-nya.** Anthropic mengizinkan blok
+gambar di dalam `tool_result`, tetapi pesan `role: "tool"` milik OpenAI hanya menerima teks. Jadi
+`browser_screenshot` mengembalikan teks sebagai hasil tool, sementara gambarnya ditempelkan ke pesan
+user yang sama — bentuk yang sah di ketiga provider.
+
+**Ada-tidaknya kredensial memilih provider, bukan ada-tidaknya nama model.** Sebelumnya provider
+tanpa nama model dilewati saat pemilihan awal, sehingga memasukkan kunci saja tidak cukup. Ollama juga
+dipisahkan: ia tidak butuh kunci sehingga selalu "tersedia", tapi hanya dihitung terkonfigurasi bila
+endpoint-nya benar-benar diisi — kalau tidak, ia akan memenangkan pemilihan otomatis dari setiap
+provider lain yang justru punya kunci.
+
+**Pemakaian token diatribusikan di main process.** Event usage membawa nama provider dan model dari
+adapter yang benar-benar mengerjakan panggilan itu, bukan dari provider yang kebetulan aktif di UI.
+Berganti model di tengah sesi karena itu tidak mengacaukan grafiknya.
+
+**Palet grafik divalidasi, bukan dikira-kira.** Dua warna kategorikal pada diagram token lolos
+pemeriksaan lightness, chroma, keterpisahan buta warna (deutan ΔE 15.7), keterpisahan penglihatan
+normal (ΔE 23.3), dan kontras terhadap latar gelap. Jangan menggesernya dengan mata.
+
+**Gambar dikompresi sebelum dikirim.** Sisi terpanjang dipotong ke 1568 px — di atas itu token
+bertambah tanpa menambah ketelitian. PNG hanya dipakai bila gambar punya alpha; selebihnya JPEG,
+yang jauh lebih kecil.
+
+## Yang sudah dan belum diuji
+
+Sudah, otomatis: 86 test mencakup kedua puluh tool, penjagaan batas workspace termasuk lolos-symlink,
+pembuatan skema, deteksi perintah destruktif, aturan tier risiko, attachment handler (kompresi
+gambar, transparansi, batas ukuran, berkas di luar workspace), tool browser terhadap server HTTP
+lokal (navigasi, ekstraksi teks, klik, isi form, catatan network, screenshot), serta agent loop lewat provider
+tiruan — tool call paralel, kegagalan tool sebagai `tool_result`, penolakan approval, pembatalan, dan
+perbaikan history.
+
+Sudah, manual lewat server stub OpenAI-compatible lokal: argumen tool call yang datang
+terpotong-potong, pergantian provider di UI, dan penolakan perintah destruktif risiko tinggi.
+
+Sudah, manual lewat API Clinepass sungguhan:
+
+- Tugas shell multi-giliran sampai selesai, dengan approval dan "Selalu izinkan sesi ini".
+- Tugas debugging: agent menjalankan test yang gagal, membaca dua berkas, menemukan bug off-by-one,
+  menyunting kode lewat preview diff, lalu menjalankan test lagi sampai ketiganya lulus.
+- Tugas Excel: membaca workbook lalu memasang header dan tiga formula `=Bn*Cn`; isi berkasnya
+  diperiksa ulang di luar app dan formulanya memang tersimpan.
+- Lampiran gambar: PNG dilampirkan lewat pemilih berkas, dan model menyebutkan ketiga baris teks di
+  dalamnya dengan tepat.
+
+Belum: panggilan sungguhan ke API Anthropic dan Gemini, karena tidak ada kredensialnya di mesin
+pengembangan. Kedua adapter itu divalidasi lewat tipe resmi SDK-nya, bukan request nyata. Tool docx
+dan PDF baru diuji lewat test otomatis, belum lewat sesi agent sungguhan.
+
+## Catatan dependensi
+
+`npm audit` melaporkan `uuid` lama yang ditarik `exceljs`. Kerentanannya ada di jalur v3/v5/v6 saat
+buffer disediakan sendiri; exceljs memakai v4, jadi jalur itu tidak tersentuh. `npm audit fix --force`
+akan menurunkan exceljs ke 3.x yang breaking, jadi sengaja tidak dilakukan.
+
+## Fase berikutnya
+
+**Fase 5 — Computer use.** Screenshot layar penuh dan kontrol mouse/keyboard, dijalankan terisolasi.
+
+Fase 6 persistence + MCP. Sampai fase itu, daftar project dan sesi hilang saat app ditutup.
