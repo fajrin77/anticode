@@ -70,7 +70,27 @@ function ToolGroup({ parts }: { parts: ToolPart[] }): JSX.Element {
   )
 }
 
+/** Counts tool calls by work type, for the finished-run summary line. */
+function breakdownOf(parts: MessagePart[]): string {
+  let explore = 0
+  let edit = 0
+  let code = 0
+  for (const part of parts) {
+    if (part.kind !== 'tool') continue
+    if (part.name === 'run_command') code += 1
+    else if (/^(write|edit|delete|add|fill)_/.test(part.name)) edit += 1
+    else explore += 1
+  }
+  const bits: string[] = []
+  if (explore > 0) bits.push(`${explore} explored`)
+  if (edit > 0) bits.push(`${edit} edited`)
+  if (code > 0) bits.push(`${code} code`)
+  return bits.length > 0 ? ` · ${bits.join(' · ')}` : ''
+}
+
 function MessageView({ message }: { message: Message }): JSX.Element {
+  const [stepsOpen, setStepsOpen] = useState(false)
+
   if (message.role === 'user') {
     return (
       <div className="flex justify-end py-4">
@@ -87,20 +107,43 @@ function MessageView({ message }: { message: Message }): JSX.Element {
   const tail = blocks.at(-1)
   const tailRunning =
     tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
+  const tools = message.parts.filter((part) => part.kind === 'tool')
+  // A finished run folds every tool group into one compact line — the closing
+  // summary is what should be visible, not a wall of steps.
+  const compact = message.summary !== undefined && !stepsOpen && tools.length > 0
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">
-      {blocks.map((block, index) =>
-        block.kind === 'tools' ? (
+      {blocks.map((block, index) => {
+        if (block.kind === 'text') {
+          return (
+            <div key={`text-${index}`} className="my-2">
+              <RichText text={block.text} />
+            </div>
+          )
+        }
+        return compact ? null : (
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
           />
-        ) : (
-          <div key={`text-${index}`} className="my-2">
-            <RichText text={block.text} />
-          </div>
         )
+      })}
+      {compact && (
+        <button
+          type="button"
+          onClick={() => setStepsOpen(true)}
+          className="group mt-1 flex items-center gap-2.5"
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full bg-faint" />
+          <span className="text-[14px] text-dim">
+            ran {tools.length} {tools.length === 1 ? 'step' : 'steps'}
+            {breakdownOf(message.parts)}
+          </span>
+          <span className="text-[11px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
+            ⌄
+          </span>
+        </button>
       )}
       {message.pending && !tailRunning && (
         <div className="mt-2 flex items-center gap-2.5 text-[14px] text-dim">

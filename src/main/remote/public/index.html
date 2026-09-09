@@ -56,10 +56,13 @@
   .badge {
     flex: none; width: 22px; height: 22px; border-radius: 6px; display: inline-flex;
     align-items: center; justify-content: center; font-size: 12px; font-weight: 600;
-    color: rgba(255,255,255,.95); background: linear-gradient(135deg, #7a5cc4f2, #4f3a8fd9);
+    color: rgba(255,255,255,.95);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
   }
-  .badge.chat { background: linear-gradient(135deg, #3f8f86f2, #2c6b64d9); }
+  .msg .icode {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.88em;
+    background: #262626; border-radius: 4px; padding: 1px 5px; color: #d0d0d0;
+  }
   .muted { color: #9a9a9a; }
   .faint { color: #6d6d6d; font-size: 14px; }
   .msg { padding: 8px 0; border-bottom: 1px solid #262626; white-space: pre-wrap; word-break: break-word; }
@@ -156,9 +159,9 @@
   </button>
 </header>
 <div id="menuDrop" class="hidden">
-  <div class="mrow" onclick="gotoNew()"><span class="ico">＋</span>New session</div>
-  <div class="mrow" onclick="gotoSessions()"><span class="ico">💬</span>Sessions</div>
-  <div class="mrow" onclick="gotoFiles()"><span class="ico">🗂</span>Files</div>
+  <div class="mrow" onclick="gotoNew()">New session</div>
+  <div class="mrow" onclick="gotoSessions()">Sessions</div>
+  <div class="mrow" onclick="gotoFiles()">Files</div>
 </div>
 <main>
   <section id="viewChat">
@@ -305,7 +308,8 @@ async function loadOverview() {
   for (const s of sessions) {
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = `<span class="badge ${s.mode === 'chat' ? 'chat' : ''}">${s.mode === 'chat' ? 'A' : 'C'}</span>
+    const badge = badgeFor(s);
+    row.innerHTML = `<span class="badge" style="background:${badge.bg}">${badge.letter}</span>
       <span class="title">${s.mode === 'code' ? 'anticode · ' : ''}${s.workspaceRoot ? s.workspaceRoot.split(/[\\\\/]/).pop() : 'chat'}</span>
       <span class="faint">${s.messageCount} msg</span>`;
     row.onclick = () => openSession(s.id);
@@ -404,6 +408,55 @@ function diffStatOf(item) {
 
 function pluralize(count, noun) { return count + ' ' + noun + (count === 1 ? '' : 's'); }
 
+/* The same glass gradients the desktop badges use; a session always gets the
+ * same colour by hashing its id. */
+const BADGE_COLOURS = [
+  ['#7a5cc4', '#4f3a8f'], ['#3f8f86', '#2c6b64'], ['#c2603f', '#8f4630'],
+  ['#3f7fc2', '#2c5e92'], ['#b0873a', '#82632c'], ['#8f4f7a', '#6a3c5c'],
+  ['#4f8f4f', '#386b38'], ['#c24f7a', '#923a5c'], ['#5c7ac2', '#43598f'],
+  ['#c27a3f', '#925c30']
+];
+
+function badgeFor(s) {
+  const title = s.mode === 'code'
+    ? (s.workspaceRoot ? s.workspaceRoot.split(/[\\/]/).pop() : 'session')
+    : 'antichat';
+  let hash = 0;
+  for (const ch of s.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const [c1, c2] = BADGE_COLOURS[hash % BADGE_COLOURS.length];
+  return { letter: title.charAt(0).toUpperCase(), bg: `linear-gradient(135deg, ${c1}f2, ${c2}d9)` };
+}
+
+/* Lightweight markdown so the phone reads like the desktop: **bold**, `code`
+ * as plain mono (no purple chip), and # headings demoted to bold lines. */
+function appendRichText(parent, text) {
+  for (const line of text.split('\n')) {
+    const row = document.createElement('div');
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    const content = heading !== null ? heading[1] : line;
+    const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+    let last = 0;
+    let match;
+    while ((match = re.exec(content)) !== null) {
+      if (match.index > last) row.appendChild(document.createTextNode(content.slice(last, match.index)));
+      const token = match[0];
+      if (token.startsWith('**')) {
+        const b = document.createElement('strong');
+        b.textContent = token.slice(2, -2);
+        row.appendChild(b);
+      } else {
+        const c = document.createElement('code');
+        c.className = 'icode';
+        c.textContent = token.slice(1, -1);
+        row.appendChild(c);
+      }
+      last = match.index + token.length;
+    }
+    if (last < content.length) row.appendChild(document.createTextNode(content.slice(last)));
+    parent.appendChild(row);
+  }
+}
+
 function toolGroupEl(group) {
   const count = group.items.length;
   const details = document.createElement('details');
@@ -494,7 +547,7 @@ function renderTranscript(messages) {
       if (text !== '') {
         const p = document.createElement('div');
         p.style.whiteSpace = 'pre-wrap';
-        p.textContent = text;
+        appendRichText(p, text);
         div.appendChild(p);
       }
       textBuf.length = 0;
