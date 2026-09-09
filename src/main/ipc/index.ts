@@ -51,11 +51,10 @@ export function focusApprovalTarget(sender: WebContents): void {
   lastSender = sender
 }
 
-function emit(sender: WebContents, event: AgentEvent, sessionId: string): void {
-  const routed = { ...event, sessionId } as RoutedAgentEvent
-  forward(routed)
-  if (sender.isDestroyed()) return
-  sender.send(IpcChannel.AGENT_EVENT, routed)
+/** Every agent event routes through the bus, which reaches all windows and
+ * SSE subscribers; no separate direct send, or windows would get duplicates. */
+function emit(event: AgentEvent, sessionId: string): void {
+  forward({ ...event, sessionId } as RoutedAgentEvent)
 }
 
 export function registerIpcHandlers(): void {
@@ -205,23 +204,27 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.AGENT_SEND, (event, req: AgentRequest): void => {
     lastSender = event.sender
 
+    // Events only travel through the bus, so the run must be registered even
+    // when the send is refused — the error has to reach the windows.
+    registerRun(req.runId, req.sessionId)
+
     const status = getStatus()
     if (!status.providerReady) {
       // The send is refused before any run starts; releasing the attachments
       // here keeps them from leaking — the renderer has already dropped them.
       for (const id of req.attachmentIds) attachments.delete(id)
-      emit(event.sender, {
+      emit({
         type: 'error',
         runId: req.runId,
         message: status.blockedReason ?? 'Agent is not ready'
       }, req.sessionId)
+      forgetRun(req.runId)
       return
     }
 
     if (activeRuns.has(req.runId)) return
     const controller = new AbortController()
     activeRuns.set(req.runId, controller)
-    registerRun(req.runId, req.sessionId)
 
     void (async () => {
       try {
@@ -236,11 +239,11 @@ export function registerIpcHandlers(): void {
           runId: req.runId,
           prompt: req.prompt,
           signal: controller.signal,
-          emit: (agentEvent) => emit(event.sender, agentEvent, req.sessionId),
+          emit: (agentEvent) => emit(agentEvent, req.sessionId),
           attachments: blocks.flat()
         })
       } catch (error) {
-        emit(event.sender, { type: 'error', runId: req.runId, message: (error as Error).message }, req.sessionId)
+        emit({ type: 'error', runId: req.runId, message: (error as Error).message }, req.sessionId)
       } finally {
         for (const id of req.attachmentIds) attachments.delete(id)
         forgetRun(req.runId)

@@ -4,6 +4,32 @@ import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 import { unifiedDiff } from './diff'
 
+/** A compact "+added -removed" tail the UI parses into run summaries. */
+export function diffStat(before: string, after: string): string {
+  const beforeLines = before === '' ? [] : before.split('\n')
+  const afterLines = after === '' ? [] : after.split('\n')
+  // Longest-common-subsequence on lines; files here are single edits, so the
+  // O(n*m) table stays small enough and needs no external diff library.
+  const width = afterLines.length + 1
+  const table = new Uint32Array((beforeLines.length + 1) * width)
+  for (let i = beforeLines.length - 1; i >= 0; i--) {
+    for (let j = afterLines.length - 1; j >= 0; j--) {
+      const best = Math.max(table[(i + 1) * width + j] ?? 0, table[i * width + j + 1] ?? 0)
+      const match =
+        beforeLines[i] === afterLines[j]
+          ? (table[(i + 1) * width + j + 1] ?? 0) + 1
+          : Math.max(best, table[(i + 1) * width + j + 1] ?? 0)
+      table[i * width + j] = match
+    }
+  }
+  const added = afterLines.length - (table[0] ?? 0)
+  const removed = beforeLines.length - (table[0] ?? 0)
+  const parts: string[] = []
+  if (added > 0) parts.push(`+${added}`)
+  if (removed > 0) parts.push(`-${removed}`)
+  return parts.length > 0 ? `(${parts.join(' ')})` : '(no line changes)'
+}
+
 export const editFileTool = defineTool({
   name: 'edit_file',
   description:
@@ -72,8 +98,6 @@ export const editFileTool = defineTool({
       throw new ToolError(`Failed to write ${input.path}: ${(error as Error).message}`)
     }
 
-    const before = original.split('\n').length
-    const after = updated.split('\n').length
-    return `Edited: ${input.path} (${before} → ${after} lines)`
+    return `Edited: ${input.path} ${diffStat(original, updated)}`
   }
 })

@@ -22,8 +22,14 @@
     font-weight: 600; z-index: 5;
   }
   header button {
-    margin-left: auto; background: #2e2e2e; color: #ededed; border: 1px solid #303030;
+    background: #2e2e2e; color: #ededed; border: 1px solid #303030;
     border-radius: 8px; padding: 6px 12px;
+  }
+  header #backBtn { display: none; padding: 6px 10px; }
+  header .spacer { flex: 1; }
+  header .modelchip {
+    font-size: 12.5px; color: #9a9a9a; font-weight: 500; max-width: 38vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   main { padding: 12px 16px 120px; }
   .card {
@@ -52,6 +58,25 @@
     padding: 8px 12px; max-width: 85%;
   }
   .msg .tool { color: #9a9a9a; font-size: 13.5px; font-family: ui-monospace, Menlo, monospace; }
+  .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
+  .working .dot {
+    width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { background: #9a9a9a; box-shadow: 0 0 0 0 rgba(209,250,34,0); }
+    50% { background: #d1fa22; box-shadow: 0 0 10px 2px rgba(209,250,34,.5); }
+  }
+  .summary {
+    background: #1e1e1e; border: 1px solid #303030; border-radius: 10px;
+    padding: 8px 12px; margin: 6px 0;
+  }
+  .summary .meta { display: flex; align-items: center; gap: 6px; color: #6d6d6d; font-size: 12.5px; }
+  .summary .meta .dot { width: 6px; height: 6px; border-radius: 50%; background: #5ac37f; }
+  .summary .files { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 13.5px; }
+  .summary .files .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; color: #9a9a9a; }
+  .add { color: #5ac37f; }
+  .del { color: #e06c6c; }
   .composer {
     position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #1a1a1a;
@@ -66,9 +91,19 @@
     padding: 0 18px;
   }
   .composer button:disabled { color: #6d6d6d; }
+  .mode { display: flex; gap: 8px; margin-bottom: 10px; }
+  .mode button {
+    flex: 1; background: #202020; color: #9a9a9a; border: 1px solid #303030;
+    border-radius: 10px; padding: 10px 0; font-weight: 600;
+  }
+  .mode button.on { color: #ededed; border-color: #d1fa22; background: #232616; }
   .path {
     width: 100%; background: #202020; border: 1px solid #303030; border-radius: 8px;
     color: #ededed; padding: 8px 10px; font: 16px ui-monospace, Menlo, monospace; margin-bottom: 8px;
+  }
+  select.wide {
+    width: 100%; background: #202020; border: 1px solid #303030; border-radius: 8px;
+    color: #ededed; padding: 8px 10px; margin-bottom: 8px;
   }
   textarea.editor {
     width: 100%; min-height: 45vh; background: #202020; border: 1px solid #303030;
@@ -92,13 +127,30 @@
 </head>
 <body>
 <header>
+  <button id="backBtn" onclick="showDashboard()">←</button>
   <span>anticode remote</span>
+  <span class="spacer"></span>
+  <span class="modelchip" id="modelChip"></span>
   <button id="tabChat" onclick="showTab('chat')">Chat</button>
   <button id="tabFiles" onclick="showTab('files')">Files</button>
 </header>
 <main>
   <section id="viewChat">
-    <div id="sessionList" class="card"></div>
+    <div id="dashboard">
+      <div class="card" id="newSessionCard">
+        <div class="muted" style="margin-bottom:8px">New session</div>
+        <div class="mode">
+          <button id="modeCode" class="on" onclick="setMode('code')">anticode</button>
+          <button id="modeChat" onclick="setMode('chat')">antichat</button>
+        </div>
+        <input class="path hidden" id="folderInput" placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
+        <select class="wide" id="modelSelect" onchange="pickModel(this.value)"></select>
+        <div class="actions" style="margin-bottom:0">
+          <button onclick="startSession()">Start</button>
+        </div>
+      </div>
+      <div id="sessionList" class="card"></div>
+    </div>
     <div id="chatView" class="hidden">
       <div id="transcript"></div>
     </div>
@@ -138,14 +190,30 @@ let eventSource = null;
 let currentPath = '.';
 let openedFile = null;
 let folderReady = false;
+let phoneMode = 'code';
+let modelInfo = null;
+
+/* ---------- Navigation ---------- */
 
 function showTab(tab) {
   document.getElementById('viewChat').classList.toggle('hidden', tab !== 'chat');
   document.getElementById('viewFiles').classList.toggle('hidden', tab !== 'files');
-  document.getElementById('inputRow').classList.toggle('hidden', tab !== 'chat');
+  document.getElementById('inputRow').classList.toggle('hidden', tab !== 'chat' || currentSession === null);
+  document.getElementById('backBtn').style.display = currentSession !== null && tab === 'chat' ? 'block' : 'none';
   document.getElementById('tabChat').style.borderColor = tab === 'chat' ? '#ededed' : '#303030';
   document.getElementById('tabFiles').style.borderColor = tab === 'files' ? '#ededed' : '#303030';
-  if (tab === 'chat') loadOverview(); else refreshFilesTab();
+  if (tab === 'chat') { loadOverview(); void loadModels(); } else refreshFilesTab();
+}
+
+function showDashboard() {
+  currentSession = null;
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  document.getElementById('chatView').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  document.getElementById('inputRow').classList.add('hidden');
+  document.getElementById('backBtn').style.display = 'none';
+  liveEl = null;
+  loadOverview();
 }
 
 /* ---------- Chat ---------- */
@@ -155,7 +223,7 @@ async function loadOverview() {
   const list = document.getElementById('sessionList');
   list.innerHTML = '<div class="muted" style="padding:4px 2px">Sessions</div>';
   if (sessions.length === 0) {
-    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — type below to start one.</div>';
+    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — start one above or type below.</div>';
   }
   for (const s of sessions) {
     const row = document.createElement('div');
@@ -168,13 +236,72 @@ async function loadOverview() {
   }
 }
 
+function setMode(mode) {
+  phoneMode = mode;
+  document.getElementById('modeCode').classList.toggle('on', mode === 'code');
+  document.getElementById('modeChat').classList.toggle('on', mode === 'chat');
+  document.getElementById('folderInput').classList.toggle('hidden', mode !== 'code');
+}
+
+async function loadModels() {
+  try {
+    modelInfo = await jfetch('/api/models');
+  } catch { modelInfo = null; }
+  const chip = document.getElementById('modelChip');
+  const select = document.getElementById('modelSelect');
+  if (modelInfo !== null) {
+    chip.textContent = modelInfo.model || modelInfo.provider;
+    select.innerHTML = '';
+    const current = document.createElement('option');
+    current.value = modelInfo.provider + '|' + modelInfo.model;
+    current.textContent = 'model: ' + (modelInfo.model || modelInfo.provider);
+    select.appendChild(current);
+    const entry = modelInfo.providers.find((p) => p.id === modelInfo.provider);
+    for (const m of entry?.models ?? []) {
+      if (m === modelInfo.model) continue;
+      const option = document.createElement('option');
+      option.value = modelInfo.provider + '|' + m;
+      option.textContent = m;
+      select.appendChild(option);
+    }
+  } else {
+    chip.textContent = '';
+  }
+}
+
+async function pickModel(value) {
+  const [provider, model] = value.split('|');
+  try {
+    await jfetch('/api/model', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider, model })
+    });
+  } catch (error) { alert('Ganti model gagal: ' + error.message); }
+  void loadModels();
+}
+
+async function startSession() {
+  const body = { mode: phoneMode };
+  if (phoneMode === 'code') {
+    body.folder = document.getElementById('folderInput').value.trim();
+    if (body.folder === '') { alert('Isi dulu folder proyeknya di Mac.'); return; }
+  }
+  try {
+    const { sessionId } = await jfetch('/api/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    });
+    await openSession(sessionId);
+  } catch (error) { alert(error.message); }
+}
+
 async function openSession(id) {
   currentSession = id;
   const { messages } = await jfetch('/api/session/' + id);
   renderTranscript(messages);
-  document.getElementById('sessionList').classList.add('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
+  document.getElementById('backBtn').style.display = 'block';
   listen(id);
   window.scrollTo(0, document.body.scrollHeight);
 }
@@ -182,13 +309,32 @@ async function openSession(id) {
 function renderTranscript(messages) {
   const el = document.getElementById('transcript');
   el.innerHTML = '';
+  const results = new Map();
+  for (const m of messages) {
+    for (const b of m.blocks) {
+      if (b.type === 'tool_result') results.set(b.toolUseId, b);
+    }
+  }
   for (const m of messages) {
     const div = document.createElement('div');
     div.className = 'msg ' + m.role;
     let html = '';
+    const files = [];
     for (const b of m.blocks) {
       if (b.type === 'text') html += b.text;
-      else if (b.type === 'tool_use') html += `\n▸ ${b.name}…\n`;
+      else if (b.type === 'tool_use') {
+        html += `\n▸ ${b.name}…\n`;
+        if (['edit_file', 'write_file', 'delete_file'].includes(b.name)) {
+          const input = b.input || {};
+          const stat = results.get(b.id)?.content || '';
+          const match = /\((\+\d+)?\s?(-\d+)?\)/.exec(stat);
+          files.push({
+            path: String(input.path || ''),
+            added: match !== null ? parseInt((match[1] || '+0').slice(1), 10) : 0,
+            removed: match !== null ? parseInt((match[2] || '-0').slice(1), 10) : 0
+          });
+        }
+      }
       else if (b.type === 'tool_result') html += `\n▪ ${b.isError ? 'error' : 'done'}\n`;
     }
     const wrap = m.role === 'user' ? document.createElement('span') : div;
@@ -199,19 +345,56 @@ function renderTranscript(messages) {
     }
     wrap.textContent = html.trim() || '…';
     el.appendChild(div);
+    if (m.role === 'assistant' && files.length > 0) el.appendChild(summaryCard(files));
   }
+}
+
+function summaryCard(files) {
+  const card = document.createElement('div');
+  card.className = 'summary';
+  const added = files.reduce((sum, f) => sum + f.added, 0);
+  const removed = files.reduce((sum, f) => sum + f.removed, 0);
+  card.innerHTML = `<div class="meta"><span class="dot"></span><span>${files.length} changed ${files.length === 1 ? 'file' : 'files'}</span>` +
+    `<span class="add">+${added}</span><span class="del">−${removed}</span></div>` +
+    files.map((f) => `<div class="files"><span class="name">${f.path}</span>` +
+      (f.added > 0 ? `<span class="add">+${f.added}</span>` : '') +
+      (f.removed > 0 ? `<span class="del">−${f.removed}</span>` : '') + `</div>`).join('');
+  return card;
 }
 
 function listen(id) {
   if (eventSource) eventSource.close();
   eventSource = new EventSource('/api/events?sessionId=' + id + '&token=' + token);
-  eventSource.onmessage = (e) => {
+  showWorking();
+  eventSource.onmessage = async (e) => {
     const event = JSON.parse(e.data);
-    if (event.type === 'text_delta') appendLive(event.text);
-    else if (event.type === 'tool_start') appendLive('\n▸ ' + event.name + '…\n');
+    if (event.type === 'text_delta') { hideWorking(); appendLive(event.text); }
+    else if (event.type === 'tool_start') { hideWorking(); appendLive('\n▸ ' + event.name + '…\n'); }
     else if (event.type === 'tool_end') appendLive(event.ok ? ' ✓\n' : ' ✗ ' + (event.output || '') + '\n');
-    else if (event.type === 'end' || event.type === 'error') { eventSource.close(); eventSource = null; }
+    else if (event.type === 'end' || event.type === 'error') {
+      eventSource.close(); eventSource = null;
+      hideWorking();
+      try {
+        const { messages } = await jfetch('/api/session/' + id);
+        renderTranscript(messages);
+        window.scrollTo(0, document.body.scrollHeight);
+      } catch {}
+    }
   };
+}
+
+let workingEl = null;
+function showWorking() {
+  if (workingEl !== null) return;
+  workingEl = document.createElement('div');
+  workingEl.className = 'working';
+  workingEl.innerHTML = '<span class="dot"></span><span>working</span>';
+  document.getElementById('transcript').appendChild(workingEl);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function hideWorking() {
+  workingEl?.remove();
+  workingEl = null;
 }
 
 let liveEl = null;
@@ -233,14 +416,15 @@ async function sendPrompt() {
   input.value = '';
   const body = { prompt };
   if (currentSession) body.sessionId = currentSession;
-  else body.mode = 'chat';
+  else body.mode = phoneMode === 'code' ? 'chat' : phoneMode;
   const { sessionId } = await jfetch('/api/prompt', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
   currentSession = sessionId;
-  document.getElementById('sessionList').classList.add('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
+  document.getElementById('backBtn').style.display = 'block';
   listen(sessionId);
 }
 
@@ -284,9 +468,6 @@ function setFileControlsEnabled(enabled) {
   for (const id of ['saveBtn', 'gitStatusBtn', 'gitCommitBtn', 'gitPushBtn']) {
     document.getElementById(id).disabled = !enabled;
   }
-  document.getElementById('gitStatusBtn').disabled = false;
-  document.getElementById('gitCommitBtn').disabled = false;
-  document.getElementById('gitPushBtn').disabled = false;
   if (!enabled) {
     document.getElementById('saveBtn').disabled = true;
     document.getElementById('gitStatusBtn').disabled = true;
@@ -310,7 +491,6 @@ async function renderListing() {
   const sessionId = document.getElementById('folderSession').value;
   if (!sessionId) return;
   document.getElementById('crumb').textContent = currentPath;
-  document.getElementById('filePath')?.remove();
   const result = await jfetch('/api/files?sessionId=' + sessionId + '&path=' + encodeURIComponent(currentPath));
   const dir = document.getElementById('dirList');
   const editor = document.getElementById('editor');
@@ -340,9 +520,8 @@ async function renderListing() {
     row.className = 'dirrow' + (isFolder ? ' folder' : '');
     row.innerHTML = `<span class="name">${entry}</span>`;
     row.onclick = () => {
-      const next = joinPath(currentPath, entry);
-      if (isFolder) { currentPath = next; void renderListing(); }
-      else { currentPath = next; void renderListing(); }
+      currentPath = joinPath(currentPath, entry);
+      void renderListing();
     };
     dir.appendChild(row);
   }
@@ -352,13 +531,6 @@ function upDir() {
   currentPath = parentPath(currentPath);
   openedFile = null;
   void renderListing();
-}
-
-async function openPath() {
-  const filePath = prompt('File path:', currentPath === '.' ? '' : currentPath);
-  if (filePath === null || filePath === '') return;
-  currentPath = filePath;
-  await renderListing();
 }
 
 async function saveFile() {

@@ -99,6 +99,14 @@ export function App(): JSX.Element {
     return window.anticode.onAgentEvent((event) => {
       const store = useSessionStore.getState()
       const run = store.activeRun
+      /** Model label for the closing summary card. */
+      const modelOf = (sessionId: string): string =>
+        store.sessions.find((session) => session.id === sessionId)?.model ?? ''
+      const summaryOf = (sessionId: string, startedAt: number) => ({
+        model: modelOf(sessionId),
+        durationMs: Date.now() - startedAt
+      })
+
       if (run !== null && run.runId === event.runId) {
         switch (event.type) {
           case 'text_delta':
@@ -115,14 +123,14 @@ export function App(): JSX.Element {
             break
           case 'error':
             store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
-            store.settleMessage(run.messageId)
+            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
             store.setActiveRun(null)
             break
           case 'end':
             if (event.reason !== 'complete') {
               store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
             }
-            store.settleMessage(run.messageId)
+            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
             store.setActiveRun(null)
             break
         }
@@ -151,23 +159,36 @@ export function App(): JSX.Element {
           store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
           break
         case 'error': {
+          const entry = useSessionStore.getState().mirrorRuns[event.runId]
+          const summary =
+            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt) : undefined
           store.appendText(
             event.sessionId,
             store.mirrorStart(event.runId, event.sessionId),
             `\n${event.message}`
           )
-          store.mirrorSettle(event.runId)
+          store.mirrorSettle(event.runId, summary)
           void window.anticode.getSessionSnapshot(event.sessionId).then((messages) => {
             if (messages !== null) useSessionStore.getState().importSnapshot(event.sessionId, messages)
+            if (summary !== undefined) {
+              useSessionStore.getState().stampLastSummary(event.sessionId, summary)
+            }
           })
           break
         }
-        case 'end':
-          store.mirrorSettle(event.runId)
+        case 'end': {
+          const entry = useSessionStore.getState().mirrorRuns[event.runId]
+          const summary =
+            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt) : undefined
+          store.mirrorSettle(event.runId, summary)
           void window.anticode.getSessionSnapshot(event.sessionId).then((messages) => {
             if (messages !== null) useSessionStore.getState().importSnapshot(event.sessionId, messages)
+            if (summary !== undefined) {
+              useSessionStore.getState().stampLastSummary(event.sessionId, summary)
+            }
           })
           break
+        }
       }
     })
   }, [])

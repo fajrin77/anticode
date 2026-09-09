@@ -1,3 +1,5 @@
+import { BrowserWindow } from 'electron'
+import { IpcChannel } from '@shared/ipc'
 import type { AgentEvent } from '@shared/ipc'
 
 type Listener = (event: AgentEvent) => void
@@ -14,11 +16,19 @@ export function forgetRun(runId: string): void {
   runSessions.delete(runId)
 }
 
-/** Fans a desktop or remote event out to every subscriber of its session. */
+/**
+ * Fans a desktop or remote event out to every desktop window (so a run started
+ * on the phone streams here too) and to every SSE subscriber of its session.
+ */
 export function forward(event: AgentEvent): void {
   const sessionId = runSessions.get(event.runId)
   if (sessionId === undefined) return
   if (event.type === 'end' || event.type === 'error') runSessions.delete(event.runId)
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(IpcChannel.AGENT_EVENT, event)
+  }
+
   const set = listeners.get(sessionId)
   if (set === undefined) return
   for (const listener of set) {

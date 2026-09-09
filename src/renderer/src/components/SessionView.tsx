@@ -96,6 +96,106 @@ function MessageView({ message }: { message: Message }): JSX.Element {
           working
         </div>
       )}
+      {message.summary !== undefined && <RunSummaryCard message={message} />}
+    </div>
+  )
+}
+
+/** Formats 469000 ms as "7m 49s", 42000 ms as "42s". */
+function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  if (total < 60) return `${total}s`
+  return `${Math.floor(total / 60)}m ${total % 60}s`
+}
+
+interface FileStat {
+  path: string
+  added: number
+  removed: number
+}
+
+const STAT_PATTERN = /\(\+(\d+)(?:\s*-\s*(\d+))?\)/
+
+/** Files the run touched, with per-file line counts from tool outputs. */
+function fileStats(parts: MessagePart[]): FileStat[] {
+  const files = new Map<string, FileStat>()
+  for (const part of parts) {
+    if (part.kind !== 'tool') continue
+    if (!['edit_file', 'write_file', 'delete_file'].includes(part.name)) continue
+    const path =
+      part.input !== null &&
+      typeof part.input === 'object' &&
+      typeof (part.input as Record<string, unknown>).path === 'string'
+        ? ((part.input as Record<string, unknown>).path as string)
+        : ''
+    if (path === '') continue
+    const match = STAT_PATTERN.exec(part.output)
+    const stat: FileStat = {
+      path,
+      added: match !== null ? Number(match[1] ?? 0) : 0,
+      removed: match !== null ? Number(match[2] ?? 0) : 0
+    }
+    const existing = files.get(path)
+    if (existing === undefined) {
+      files.set(path, stat)
+    } else {
+      existing.added += stat.added
+      existing.removed += stat.removed
+    }
+  }
+  return [...files.values()]
+}
+
+function RunSummaryCard({ message }: { message: Message }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const files = fileStats(message.parts)
+  const added = files.reduce((sum, file) => sum + file.added, 0)
+  const removed = files.reduce((sum, file) => sum + file.removed, 0)
+  const summary = message.summary
+  if (summary === undefined) return <></>
+  const { model, durationMs } = summary
+
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-surface/60 px-4 py-3">
+      <div className="flex items-center gap-2 text-[12.5px] text-faint">
+        <span className="h-1.5 w-1.5 rounded-full bg-add" />
+        <span className="min-w-0 flex-1 truncate">
+          {model === '' ? 'done' : model} · {formatDuration(durationMs)}
+        </span>
+      </div>
+      {files.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="group mt-2 flex w-full items-center gap-2 text-left"
+          >
+            <span className="text-[13.5px] text-text">
+              {files.length} changed {files.length === 1 ? 'file' : 'files'}
+            </span>
+            <span className="text-[12.5px] text-add">+{added}</span>
+            <span className="text-[12.5px] text-del">−{removed}</span>
+            <span
+              className={`ml-auto text-[11px] text-faint transition-opacity ${
+                open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              }`}
+            >
+              {open ? '⌃' : '⌄'}
+            </span>
+          </button>
+          {open && (
+            <div className="mt-1.5 border-t border-line-soft pt-1.5">
+              {files.map((file) => (
+                <div key={file.path} className="flex items-baseline gap-2 py-0.5 text-[12px]">
+                  <span className="min-w-0 flex-1 truncate font-mono text-dim">{file.path}</span>
+                  {file.added > 0 && <span className="text-add">+{file.added}</span>}
+                  {file.removed > 0 && <span className="text-del">−{file.removed}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

@@ -2,21 +2,25 @@ import http from 'node:http'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
+import { existsSync, statSync } from 'node:fs'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentEvent, RemoteStatus, RoutedAgentEvent } from '@shared/ipc'
+import type { AgentEvent, RemoteStatus, RoutedAgentEvent, SessionMode } from '@shared/ipc'
 import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
+import { listProviders } from '../providers'
 import {
+  cachedCatalogue,
   createRemoteSession,
   getSession,
   getStatus,
   listSessionSummaries,
   loadSessionMessages,
+  selectProvider,
   sessionWorkspaceRoot
 } from '../runtime'
 import { approvals } from '../ipc'
-import { forward, subscribe } from './bus'
+import { forgetRun, forward, registerRun, subscribe } from './bus'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
 const PORT = 8680
@@ -148,6 +152,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, { status: getStatus(), sessions: listSessionSummaries() })
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/models') {
+      return json(res, 200, await modelsPayload())
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/model') {
+      const provider = typeof body.provider === 'string' ? body.provider : ''
+      const model = typeof body.model === 'string' ? body.model : ''
+      if (provider === '') return json(res, 400, { error: 'provider is required' })
+      selectProvider({ provider, model })
+      return json(res, 200, { ok: true, status: getStatus() })
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/session') {
+      return json(res, 200, createPhoneSession(body))
+    }
+
     const sessionMatch = /\/api\/session\/([\w-]+)$/.exec(url.pathname)
     if (req.method === 'GET' && sessionMatch !== null) {
       const messages = loadSessionMessages(sessionMatch[1] ?? '')
@@ -209,6 +229,43 @@ function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 
 const remoteRuns = new Map<string, AbortController>()
 
+/** Provider list plus the catalogue of the current provider, for the phone picker. */
+async function modelsPayload(): Promise<{
+  provider: string
+  model: string
+  providers: { id: string; label: string; available: boolean; models: string[] }[]
+}> {
+  const status = getStatus()
+  const providers = listProviders().map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    available: entry.credentialAvailable,
+    models: entry.id === status.provider ? (listModelsSync(entry.id) ?? []) : []
+  }))
+  return { provider: status.provider, model: status.model, providers }
+}
+
+/** Catalogue from the runtime cache; a cold cache stays empty rather than slow. */
+function listModelsSync(providerId: string): string[] | null {
+  try {
+    return cachedCatalogue(providerId)
+  } catch {
+    return null
+  }
+}
+
+/** Creates a session straight from the phone, validating the folder up front. */
+function createPhoneSession(body: Record<string, unknown>): { sessionId: string } {
+  const mode: SessionMode = body.mode === 'chat' ? 'chat' : 'code'
+  const folder = typeof body.folder === 'string' && body.folder.trim() !== '' ? body.folder.trim() : null
+  if (mode === 'chat') return { sessionId: createRemoteSession('chat', null) }
+
+  if (folder === null || !existsSync(folder) || !statSync(folder).isDirectory()) {
+    throw new Error('Folder not found on the Mac — check the path')
+  }
+  return { sessionId: createRemoteSession('code', folder) }
+}
+
 async function startPrompt(body: Record<string, unknown>): Promise<{
   sessionId: string
   runId: string
@@ -236,6 +293,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   controller.signal.addEventListener('abort', () => remoteRuns.delete(runId), { once: true })
 
   const agent = getSession(sessionId, approvals)
+  registerRun(runId, sessionId)
   void agent
     .run({
       runId,
@@ -243,7 +301,10 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
       signal: controller.signal,
       emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent)
     })
-    .finally(() => remoteRuns.delete(runId))
+    .finally(() => {
+      forgetRun(runId)
+      remoteRuns.delete(runId)
+    })
 
   return { sessionId, runId }
 }

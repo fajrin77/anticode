@@ -98,10 +98,14 @@ export function selectProvider(next: ProviderSelection): void {
   savePersistedSettings({ provider: selection.provider, model: selection.model })
 }
 
+/** The cached catalogue without any network round-trip; null when cold. */
+export function cachedCatalogue(provider: ProviderId): string[] | null {
+  return catalogues.get(provider)?.models ?? null
+}
+
 export async function listModels(provider: ProviderId, refresh = false): Promise<ModelCatalogue> {
   const cached = catalogues.get(provider)
   if (cached && !refresh) return cached
-
   let catalogue: ModelCatalogue
   try {
     catalogue = { provider, models: (await fetchModels(provider)).sort(), error: null }

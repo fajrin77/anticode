@@ -138,7 +138,7 @@ function DashboardComposer({
     const messageId = crypto.randomUUID()
     const runId = crypto.randomUUID()
     addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
-    setActiveRun({ runId, messageId, sessionId })
+    setActiveRun({ runId, messageId, sessionId, startedAt: Date.now() })
 
     await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
   }

@@ -15,11 +15,18 @@ export type MessagePart =
       output: string
     }
 
+export interface RunSummary {
+  model: string
+  durationMs: number
+}
+
 export interface Message {
   id: string
   role: Role
   parts: MessagePart[]
   pending: boolean
+  /** Set when the run settles; feeds the closing summary card. */
+  summary?: RunSummary
 }
 
 export interface Project {
@@ -62,6 +69,7 @@ export interface ActiveRun {
   messageId: string
   /** The session that owns this run; events must land there, not in the open tab. */
   sessionId: string
+  startedAt: number
 }
 
 interface SessionState {
@@ -72,7 +80,7 @@ interface SessionState {
   activeSessionId: string | null
   activeRun: ActiveRun | null
   /** Phone-initiated runs mirrored live here: runId → placeholder message. */
-  mirrorRuns: Record<string, { sessionId: string; messageId: string }>
+  mirrorRuns: Record<string, { sessionId: string; messageId: string; startedAt: number }>
   /** Next badge-colour index; advances on every session creation. */
   nextColour: number
 
@@ -87,10 +95,12 @@ interface SessionState {
   addExternalSession: (spec: SessionSpec) => void
   /** Fills a registered external session with its main-process transcript. */
   importSnapshot: (sessionId: string, messages: SnapshotMessage[]) => void
+  /** Puts the closing summary on the newest assistant message (post-import). */
+  stampLastSummary: (sessionId: string, summary: RunSummary) => void
   /** Opens a live mirror placeholder for a phone-initiated run; returns its message id. */
   mirrorStart: (runId: string, sessionId: string) => string
   /** Closes a mirror placeholder once the mirrored run settles. */
-  mirrorSettle: (runId: string) => void
+  mirrorSettle: (runId: string, summary?: RunSummary) => void
   /** Sets mode and project folder on a fresh session before its first prompt. */
   updateSessionConfig: (
     id: string,
@@ -121,7 +131,7 @@ interface SessionState {
     inputTokens: number,
     outputTokens: number
   ) => void
-  settleMessage: (messageId: string) => void
+  settleMessage: (messageId: string, summary?: RunSummary) => void
   setActiveRun: (run: ActiveRun | null) => void
 }
 
@@ -300,6 +310,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       })
     })),
 
+  stampLastSummary: (sessionId, summary) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => {
+        for (let i = session.messages.length - 1; i >= 0; i--) {
+          const message = session.messages[i]
+          if (message?.role === 'assistant') {
+            if (message.summary !== undefined) return session
+            const next = session.messages.slice()
+            next[i] = { ...message, summary }
+            return { ...session, messages: next }
+          }
+        }
+        return session
+      })
+    })),
+
   // A run started on the phone gets a placeholder assistant message here, so
   // the desktop watches it stream in like any local run.
   mirrorStart: (runId, sessionId) => {
@@ -307,7 +333,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (existing !== undefined) return existing.messageId
     const messageId = crypto.randomUUID()
     set((state) => ({
-      mirrorRuns: { ...state.mirrorRuns, [runId]: { sessionId, messageId } },
+      mirrorRuns: {
+        ...state.mirrorRuns,
+        [runId]: { sessionId, messageId, startedAt: Date.now() }
+      },
       sessions: mapSession(state, sessionId, (session) =>
         session.messages.some((message) => message.id === messageId)
           ? session
@@ -323,7 +352,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return messageId
   },
 
-  mirrorSettle: (runId) =>
+  mirrorSettle: (runId, summary) =>
     set((state) => {
       const entry = state.mirrorRuns[runId]
       if (entry === undefined) return state
@@ -334,7 +363,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions: mapSession(state, entry.sessionId, (session) => ({
           ...session,
           messages: session.messages.map((message) =>
-            message.id === entry.messageId ? { ...message, pending: false } : message
+            message.id === entry.messageId
+              ? {
+                  ...message,
+                  pending: false,
+                  ...(summary !== undefined ? { summary } : {})
+                }
+              : message
           )
         }))
       }
@@ -452,12 +487,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }),
 
-  settleMessage: (messageId) =>
+  settleMessage: (messageId, summary) =>
     set((state) => ({
       sessions: state.sessions.map((session) => ({
         ...session,
         messages: session.messages.map((message) =>
-          message.id === messageId ? { ...message, pending: false } : message
+          message.id === messageId
+            ? {
+                ...message,
+                pending: false,
+                ...(summary !== undefined ? { summary } : {})
+              }
+            : message
         )
       }))
     })),

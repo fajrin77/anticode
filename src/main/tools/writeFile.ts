@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 import { unifiedDiff } from './diff'
+import { diffStat } from './editFile'
 
 export const writeFileTool = defineTool({
   name: 'write_file',
@@ -25,13 +26,15 @@ export const writeFileTool = defineTool({
   },
   execute: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
+    const original = await readFile(target, 'utf8').catch(() => null)
     try {
       await mkdir(path.dirname(target), { recursive: true })
       await write(target, input.content, 'utf8')
     } catch (error) {
       throw new ToolError(`Failed to write ${input.path}: ${(error as Error).message}`)
     }
-    const lines = input.content === '' ? 0 : input.content.split('\n').length
-    return `Saved: ${input.path} (${lines} lines, ${Buffer.byteLength(input.content)} bytes)`
+    const stat =
+      original === null ? `(+${input.content === '' ? 0 : input.content.split('\n').length})` : diffStat(original, input.content)
+    return `Saved: ${input.path} ${stat}`
   }
 })

@@ -143,7 +143,7 @@ export function Composer({
     const messageId = crypto.randomUUID()
     const runId = crypto.randomUUID()
     addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
-    setActiveRun({ runId, messageId, sessionId: session.id })
+    setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
 
     // The first prompt finalises a fresh session's binding: the main process
     // session is (re)created with the mode and folder chosen in the hero.
