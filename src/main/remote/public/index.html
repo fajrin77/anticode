@@ -58,6 +58,26 @@
     padding: 8px 12px; max-width: 85%;
   }
   .msg .tool { color: #9a9a9a; font-size: 13.5px; font-family: ui-monospace, Menlo, monospace; }
+  .tgroup { margin: 4px 0; }
+  .tgroup summary {
+    list-style: none; display: flex; align-items: baseline; gap: 8px;
+    padding: 6px 0; cursor: pointer; color: #ededed; font-weight: 600;
+  }
+  .tgroup summary::-webkit-details-marker { display: none; }
+  .tgroup .tlabel { flex: none; }
+  .tgroup .tsubject {
+    flex: 1; min-width: 0; color: #9a9a9a; font-weight: 400; font-size: 14px;
+    font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tgroup .tstat { flex: none; font-size: 13px; }
+  .tgroup .tbody { border-left: 1px solid #303030; margin: 2px 0 2px 4px; padding-left: 10px; }
+  .tgroup .trow {
+    display: flex; align-items: baseline; gap: 8px; padding: 4px 0; font-size: 13.5px;
+    color: #9a9a9a; font-family: ui-monospace, Menlo, monospace;
+  }
+  .tgroup .trow .tsubject { flex: 1; }
+  .tgroup .ok { color: #5ac37f; }
+  .tgroup .bad { color: #e06c6c; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -67,14 +87,6 @@
     0%, 100% { background: #9a9a9a; box-shadow: 0 0 0 0 rgba(209,250,34,0); }
     50% { background: #d1fa22; box-shadow: 0 0 10px 2px rgba(209,250,34,.5); }
   }
-  .summary {
-    background: #1e1e1e; border: 1px solid #303030; border-radius: 10px;
-    padding: 8px 12px; margin: 6px 0;
-  }
-  .summary .meta { display: flex; align-items: center; gap: 6px; color: #6d6d6d; font-size: 12.5px; }
-  .summary .meta .dot { width: 6px; height: 6px; border-radius: 50%; background: #5ac37f; }
-  .summary .files { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 13.5px; }
-  .summary .files .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; color: #9a9a9a; }
   .add { color: #5ac37f; }
   .del { color: #e06c6c; }
   .composer {
@@ -306,6 +318,90 @@ async function openSession(id) {
   window.scrollTo(0, document.body.scrollHeight);
 }
 
+/* Tool calls fold into three simple groups, mirroring the desktop. */
+function toolCategory(name) {
+  if (name === 'run_command') return 'code';
+  if (/^(write|edit|delete|add|fill)_/.test(name)) return 'edit';
+  return 'explore';
+}
+
+function toolSubject(item) {
+  const input = item.input || {};
+  for (const key of ['command', 'path', 'url', 'query', 'cell']) {
+    if (typeof input[key] === 'string' && input[key] !== '') return input[key];
+  }
+  return item.name;
+}
+
+function diffStatOf(item) {
+  const match = /\((\+\d+)(?:\s*-\s*(\d+))?\)/.exec(item.result?.content || '');
+  if (match === null) return null;
+  return { added: parseInt(match[1].slice(1), 10), removed: match[2] !== undefined ? parseInt(match[2].slice(1), 10) : 0 };
+}
+
+function pluralize(count, noun) { return count + ' ' + noun + (count === 1 ? '' : 's'); }
+
+function toolGroupEl(group) {
+  const count = group.items.length;
+  const details = document.createElement('details');
+  details.className = 'tgroup';
+  const summary = document.createElement('summary');
+  const label = document.createElement('span');
+  label.className = 'tlabel';
+  const subject = document.createElement('span');
+  subject.className = 'tsubject';
+  let totalAdded = 0;
+  let totalRemoved = 0;
+  for (const item of group.items) {
+    const stat = diffStatOf(item);
+    if (stat !== null) { totalAdded += stat.added; totalRemoved += stat.removed; }
+  }
+  const statSpan = document.createElement('span');
+  statSpan.className = 'tstat';
+  if (group.cat === 'edit') {
+    label.textContent = 'Edit';
+    subject.textContent = count === 1 ? toolSubject(group.items[0]) : pluralize(count, 'file');
+    statSpan.className = 'tstat add';
+    statSpan.textContent = (totalAdded > 0 ? '+' + totalAdded : '') + (totalRemoved > 0 ? ' −' + totalRemoved : '');
+  } else if (group.cat === 'code') {
+    label.textContent = 'Code';
+    subject.textContent = count === 1 ? toolSubject(group.items[0]) : pluralize(count, 'command');
+  } else {
+    label.textContent = 'Explored';
+    subject.textContent = pluralize(count, 'read');
+  }
+  summary.appendChild(label);
+  summary.appendChild(subject);
+  if (totalAdded > 0 || totalRemoved > 0) summary.appendChild(statSpan);
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'tbody';
+  for (const item of group.items) {
+    const row = document.createElement('div');
+    row.className = 'trow';
+    const rowSubject = document.createElement('span');
+    rowSubject.className = 'tsubject';
+    rowSubject.textContent = toolSubject(item);
+    row.appendChild(rowSubject);
+    const stat = diffStatOf(item);
+    if (stat !== null) {
+      const statRow = document.createElement('span');
+      statRow.className = 'tstat add';
+      statRow.textContent = (stat.added > 0 ? '+' + stat.added : '') + (stat.removed > 0 ? ' −' + stat.removed : '');
+      row.appendChild(statRow);
+    } else if (item.result !== undefined) {
+      const mark = document.createElement('span');
+      mark.className = item.result.isError ? 'bad' : 'ok';
+      mark.textContent = item.result.isError ? '✗' : '✓';
+      row.appendChild(mark);
+    }
+    body.appendChild(row);
+  }
+  details.appendChild(body);
+  return details;
+}
+
 function renderTranscript(messages) {
   const el = document.getElementById('transcript');
   el.innerHTML = '';
@@ -316,61 +412,55 @@ function renderTranscript(messages) {
     }
   }
   for (const m of messages) {
-    const div = document.createElement('div');
-    div.className = 'msg ' + m.role;
-    let html = '';
-    const files = [];
-    for (const b of m.blocks) {
-      if (b.type === 'text') html += b.text;
-      else if (b.type === 'tool_use') {
-        html += `\n▸ ${b.name}…\n`;
-        if (['edit_file', 'write_file', 'delete_file'].includes(b.name)) {
-          const input = b.input || {};
-          const stat = results.get(b.id)?.content || '';
-          const match = /\((\+\d+)?\s?(-\d+)?\)/.exec(stat);
-          files.push({
-            path: String(input.path || ''),
-            added: match !== null ? parseInt((match[1] || '+0').slice(1), 10) : 0,
-            removed: match !== null ? parseInt((match[2] || '-0').slice(1), 10) : 0
-          });
-        }
-      }
-      else if (b.type === 'tool_result') html += `\n▪ ${b.isError ? 'error' : 'done'}\n`;
-    }
-    const wrap = m.role === 'user' ? document.createElement('span') : div;
     if (m.role === 'user') {
-      wrap.className = 'bubble';
-      wrap.style.cssText = 'display:inline-block;text-align:left;background:#272727;border-radius:12px;padding:8px 12px;max-width:85%;white-space:pre-wrap;word-break:break-word';
-      div.appendChild(wrap);
+      const div = document.createElement('div');
+      div.className = 'msg user';
+      const bubble = document.createElement('span');
+      bubble.className = 'bubble';
+      bubble.textContent = m.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('').trim() || '…';
+      div.appendChild(bubble);
+      el.appendChild(div);
+      continue;
     }
-    wrap.textContent = html.trim() || '…';
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    const textBuf = [];
+    let group = null;
+    const flushText = () => {
+      const text = textBuf.join('').trim();
+      if (text !== '') {
+        const p = document.createElement('div');
+        p.style.whiteSpace = 'pre-wrap';
+        p.textContent = text;
+        div.appendChild(p);
+      }
+      textBuf.length = 0;
+    };
+    const flushGroup = () => {
+      if (group !== null) { div.appendChild(toolGroupEl(group)); group = null; }
+    };
+    for (const b of m.blocks) {
+      if (b.type === 'text') { flushGroup(); textBuf.push(b.text); continue; }
+      if (b.type !== 'tool_use') continue;
+      const cat = toolCategory(b.name);
+      if (group === null || group.cat !== cat) { flushText(); group = { cat, items: [] }; }
+      group.items.push({ name: b.name, input: b.input, result: results.get(b.id) });
+    }
+    flushGroup();
+    flushText();
     el.appendChild(div);
-    if (m.role === 'assistant' && files.length > 0) el.appendChild(summaryCard(files));
   }
-}
-
-function summaryCard(files) {
-  const card = document.createElement('div');
-  card.className = 'summary';
-  const added = files.reduce((sum, f) => sum + f.added, 0);
-  const removed = files.reduce((sum, f) => sum + f.removed, 0);
-  card.innerHTML = `<div class="meta"><span class="dot"></span><span>${files.length} changed ${files.length === 1 ? 'file' : 'files'}</span>` +
-    `<span class="add">+${added}</span><span class="del">−${removed}</span></div>` +
-    files.map((f) => `<div class="files"><span class="name">${f.path}</span>` +
-      (f.added > 0 ? `<span class="add">+${f.added}</span>` : '') +
-      (f.removed > 0 ? `<span class="del">−${f.removed}</span>` : '') + `</div>`).join('');
-  return card;
 }
 
 function listen(id) {
   if (eventSource) eventSource.close();
   eventSource = new EventSource('/api/events?sessionId=' + id + '&token=' + token);
-  showWorking();
+  showWorking(null);
   eventSource.onmessage = async (e) => {
     const event = JSON.parse(e.data);
     if (event.type === 'text_delta') { hideWorking(); appendLive(event.text); }
-    else if (event.type === 'tool_start') { hideWorking(); appendLive('\n▸ ' + event.name + '…\n'); }
-    else if (event.type === 'tool_end') appendLive(event.ok ? ' ✓\n' : ' ✗ ' + (event.output || '') + '\n');
+    else if (event.type === 'tool_start') { showWorking(event.name); }
+    else if (event.type === 'tool_end') { /* the next event or refetch replaces this */ }
     else if (event.type === 'end' || event.type === 'error') {
       eventSource.close(); eventSource = null;
       hideWorking();
@@ -384,12 +474,18 @@ function listen(id) {
 }
 
 let workingEl = null;
-function showWorking() {
-  if (workingEl !== null) return;
-  workingEl = document.createElement('div');
-  workingEl.className = 'working';
-  workingEl.innerHTML = '<span class="dot"></span><span>working</span>';
-  document.getElementById('transcript').appendChild(workingEl);
+function showWorking(toolName) {
+  if (workingEl === null) {
+    workingEl = document.createElement('div');
+    workingEl.className = 'working';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    const label = document.createElement('span');
+    workingEl.appendChild(dot);
+    workingEl.appendChild(label);
+    document.getElementById('transcript').appendChild(workingEl);
+  }
+  workingEl.lastChild.textContent = toolName === null ? 'working' : 'working · ' + toolCategory(toolName);
   window.scrollTo(0, document.body.scrollHeight);
 }
 function hideWorking() {
