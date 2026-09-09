@@ -73,10 +73,12 @@ function DashboardComposer({
   const addMessage = useSessionStore((state) => state.addMessage)
   const setActiveRun = useSessionStore((state) => state.setActiveRun)
 
-  const isStreaming = activeRun !== null
+  // Local guard only: a run elsewhere must never stop this hero from
+  // minting a brand-new session.
+  const [sending, setSending] = useState(false)
   const ready =
     status?.providerReady === true && (mode === 'chat' || folder !== null)
-  const canSend = draft.trim() !== '' && !isStreaming && ready
+  const canSend = draft.trim() !== '' && !sending && ready
 
   // Blocked send with anticode and no folder: shake the composer and glow the
   // Choose folder button until a folder is picked.
@@ -107,12 +109,14 @@ function DashboardComposer({
 
   async function send(): Promise<void> {
     const prompt = draft.trim()
+    if (sending) return
     if (!canSend) {
       if (status?.providerReady === true && mode === 'code' && folder === null) {
         flagMissingFolder()
       }
       return
     }
+    setSending(true)
 
     const attachmentIds = attached.map((item) => item.id)
     const label =
@@ -140,7 +144,17 @@ function DashboardComposer({
     addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
     setActiveRun({ runId, messageId, sessionId, startedAt: Date.now() })
 
-    await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
+    try {
+      await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
+    } catch (failure) {
+      // A refused send must not leave a ghost run blocking the hero.
+      setError((failure as Error).message)
+      useSessionStore.getState().settleMessage(messageId)
+      const run = useSessionStore.getState().activeRun
+      if (run !== null && run.runId === runId) setActiveRun(null)
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -250,12 +264,12 @@ function DashboardComposer({
 
             <button
               type="button"
-              onClick={() => void (isStreaming ? window.anticode.cancelRun(activeRun.runId) : send())}
-              disabled={!isStreaming && !canSend}
-              aria-label={isStreaming ? 'Stop' : 'Send'}
+              onClick={() => void (sending ? window.anticode.cancelRun(activeRun?.runId ?? '') : send())}
+              disabled={sending && activeRun === null}
+              aria-label={sending ? 'Sending' : 'Send'}
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] disabled:cursor-not-allowed disabled:text-faint"
             >
-              {isStreaming ? (
+              {sending ? (
                 <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
               ) : (
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">

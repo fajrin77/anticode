@@ -40,6 +40,18 @@ export function App(): JSX.Element {
     })
   }, [openSession])
 
+  // Cmd/Ctrl+N mints a fresh session, exactly like the "+" tab.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        startSession()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [startSession])
+
   // Clicking the tab of the already-active session changes no store state, so
   // the effect below never fires — the view switch happens here explicitly.
   // Reopening from the dashboard also un-archives the session's tab.

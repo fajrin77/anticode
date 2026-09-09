@@ -60,7 +60,9 @@ export function Composer({
   const setActiveRun = useSessionStore((state) => state.setActiveRun)
   const updateSessionConfig = useSessionStore((state) => state.updateSessionConfig)
 
-  const isStreaming = activeRun !== null
+  // Streaming is judged per session: a run elsewhere must never block this
+  // session's composer or swallow its Enter key.
+  const isStreaming = activeRun !== null && session !== undefined && activeRun.sessionId === session.id
   // A code session is only usable once it is bound to a folder; chat never needs one.
   const sessionReady =
     session !== undefined && (session.mode === 'chat' || session.projectRoot !== null)
@@ -155,7 +157,14 @@ export function Composer({
       })
     }
 
-    await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt, attachmentIds })
+    try {
+      await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt, attachmentIds })
+    } catch (failure) {
+      // A refused send must not leave a ghost run blocking the composer.
+      setError((failure as Error).message)
+      useSessionStore.getState().settleMessage(messageId)
+      setActiveRun(null)
+    }
   }
 
   const shortModel = status?.model === '' ? 'pick a model' : (status?.model ?? '…')
