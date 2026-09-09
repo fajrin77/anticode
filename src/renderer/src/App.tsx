@@ -160,6 +160,8 @@ export function App(): JSX.Element {
 
       if (run !== null && run.runId === event.runId) {
         switch (event.type) {
+          case 'prompt':
+            break
           case 'text_delta':
             store.appendText(run.sessionId, run.messageId, event.text)
             break
@@ -177,13 +179,17 @@ export function App(): JSX.Element {
             store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
             store.setActiveRun(null)
             break
-          case 'end':
+          case 'end': {
+            const pausedNow = useSessionStore.getState().pausedSessions[run.sessionId] === true
+            // A deliberate pause is not a failure — no [cancelled] scar.
+            if (event.reason === 'cancelled' && pausedNow) break
             if (event.reason !== 'complete') {
               store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
             }
             store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
             store.setActiveRun(null)
             break
+          }
         }
         return
       }
@@ -191,6 +197,9 @@ export function App(): JSX.Element {
       // A run started elsewhere (the phone): mirror it live into its session,
       // then pull the finished transcript so nothing is lost in translation.
       switch (event.type) {
+        case 'prompt':
+          store.addUserPrompt(event.sessionId, event.text)
+          break
         case 'text_delta':
           store.appendText(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
           break
@@ -274,6 +283,7 @@ export function App(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <TabBar
+        dashboardActive={view === 'dashboard'}
         onDashboard={() => setView('dashboard')}
         onOpenSettings={() =>
           setView((current) => (current === 'settings' ? 'session' : 'settings'))

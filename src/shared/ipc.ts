@@ -154,6 +154,9 @@ export interface AgentRequest {
 export type AgentEndReason = 'complete' | 'cancelled' | 'max_tokens' | 'refusal'
 
 export type AgentEvent =
+  /** Emitted by the routing layer before the run starts, so every viewer sees
+   * the prompt the moment it is sent — never only after the turn ends. */
+  | { type: 'prompt'; runId: string; text: string }
   | { type: 'text_delta'; runId: string; text: string }
   | { type: 'tool_start'; runId: string; toolUseId: string; name: string; input: unknown }
   | {

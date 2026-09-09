@@ -130,6 +130,8 @@
     padding: 0 18px;
   }
   .composer button:disabled { color: #6d6d6d; }
+  .composer button.stopping { font-size: 12px; letter-spacing: 1px; }
+  .composer button.lime { background: #d1fa22; color: #1a1a1a; }
   .mode { display: flex; gap: 8px; margin-bottom: 10px; }
   .mode button {
     flex: 1; background: #202020; color: #9a9a9a; border: 1px solid #303030;
@@ -217,7 +219,7 @@
 </main>
 <div class="composer hidden" id="inputRow">
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
-  <button id="sendBtn" onclick="sendPrompt()">↑</button>
+  <button id="sendBtn" onclick="onSendBtn()">↑</button>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
@@ -228,7 +230,9 @@ const jfetch = (path, options) => api(path, options).then(async (r) => {
   return body;
 });
 let currentSession = null;
+let currentRunId = null;
 let eventSource = null;
+const pausedSessions = new Set();
 let currentPath = '.';
 let openedFile = null;
 let folderReady = false;
@@ -263,6 +267,7 @@ function closeMenu() {
 function showChatSection() {
   document.getElementById('viewChat').classList.remove('hidden');
   document.getElementById('viewFiles').classList.add('hidden');
+  updateSendBtn();
 }
 
 function showFilesSection() {
@@ -416,6 +421,7 @@ async function startSession() {
 
 async function openSession(id) {
   currentSession = id;
+  currentRunId = null;
   stopOverviewPolling();
   const { messages } = await jfetch('/api/session/' + id);
   renderTranscript(messages);
@@ -617,12 +623,15 @@ function listen(id) {
   eventSource = new EventSource('/api/events?sessionId=' + id + '&token=' + token);
   eventSource.onmessage = async (e) => {
     const event = JSON.parse(e.data);
-    if (event.type === 'text_delta') { hideWorking(); appendLive(event.text); }
+    if (event.type === 'prompt') { hideWorking(); appendUserBubble(event.text); }
+    else if (event.type === 'text_delta') { hideWorking(); appendLive(event.text); }
     else if (event.type === 'tool_start') { showWorking(event.name); }
     else if (event.type === 'tool_end') { /* the next event or refetch replaces this */ }
     else if (event.type === 'end' || event.type === 'error') {
       eventSource.close(); eventSource = null;
       hideWorking();
+      currentRunId = null;
+      updateSendBtn();
       try {
         const { messages } = await jfetch('/api/session/' + id);
         renderTranscript(messages);
@@ -664,6 +673,69 @@ function appendLive(text) {
   window.scrollTo(0, document.body.scrollHeight);
 }
 
+function sendBtnState() {
+  const running = eventSource !== null;
+  const paused = currentSession !== null && pausedSessions.has(currentSession);
+  if (paused) return 'resume';
+  if (running) return 'running';
+  return 'send';
+}
+
+function updateSendBtn() {
+  const btn = document.getElementById('sendBtn');
+  const state = sendBtnState();
+  btn.classList.toggle('lime', state === 'resume');
+  btn.classList.toggle('stopping', state === 'running');
+  btn.textContent = state === 'running' ? '❚❚' : '↑';
+  btn.title = state === 'resume' ? 'Resume' : state === 'running' ? 'Pause' : 'Send';
+}
+
+function onSendBtn() {
+  const state = sendBtnState();
+  if (state === 'running') void pauseSession();
+  else if (state === 'resume') void resumeSession();
+  else void sendPrompt();
+}
+
+async function pauseSession() {
+  if (currentRunId === null || currentSession === null) return;
+  try { await api('/api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId: currentRunId }) }); } catch {}
+  pausedSessions.add(currentSession);
+  updateSendBtn();
+}
+
+const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
+
+async function resumeSession() {
+  if (currentSession === null) return;
+  pausedSessions.delete(currentSession);
+  updateSendBtn();
+  const body = { sessionId: currentSession, prompt: CONTINUE_PROMPT };
+  try {
+    const res = await jfetch('/api/prompt', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    });
+    currentRunId = res.runId;
+    listen(currentSession);
+    showWorking(null);
+  } catch (error) { alert(error.message); }
+}
+
+function appendUserBubble(text) {
+  const el = document.getElementById('transcript');
+  const bubbles = el.querySelectorAll('.msg.user .bubble');
+  const last = bubbles[bubbles.length - 1];
+  if (last !== undefined && last.textContent === text) return;
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  const bubble = document.createElement('span');
+  bubble.className = 'bubble';
+  bubble.textContent = text;
+  div.appendChild(bubble);
+  el.appendChild(div);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
 async function sendPrompt() {
   const input = document.getElementById('prompt');
   const prompt = input.value.trim();
@@ -672,10 +744,12 @@ async function sendPrompt() {
   const body = { prompt };
   if (currentSession) body.sessionId = currentSession;
   else body.mode = phoneMode === 'code' ? 'chat' : phoneMode;
-  const { sessionId } = await jfetch('/api/prompt', {
+  const res = await jfetch('/api/prompt', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
   currentSession = sessionId;
+  currentRunId = res.runId;
+  updateSendBtn();
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');

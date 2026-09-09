@@ -59,6 +59,11 @@ export function Composer({
   const addMessage = useSessionStore((state) => state.addMessage)
   const setActiveRun = useSessionStore((state) => state.setActiveRun)
   const updateSessionConfig = useSessionStore((state) => state.updateSessionConfig)
+  const isPaused = useSessionStore(
+    (state) => session !== undefined && state.pausedSessions[session.id] === true
+  )
+  const pauseSession = useSessionStore((state) => state.pauseSession)
+  const resumeSession = useSessionStore((state) => state.resumeSession)
 
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
@@ -114,6 +119,36 @@ export function Composer({
   useEffect(() => {
     if (session?.projectRoot !== null && session?.projectRoot !== undefined) setGlow(false)
   }, [session?.projectRoot])
+
+  // Pause stops the run mid-task; resume sends a continuation instruction so
+  // the agent picks up exactly where its history left off.
+  async function resume(): Promise<void> {
+    if (session === undefined) return
+    resumeSession(session.id)
+    const runId = crypto.randomUUID()
+    const messageId = crypto.randomUUID()
+    addMessage({
+      id: crypto.randomUUID(),
+      role: 'user',
+      parts: [{ kind: 'text', text: '▶ lanjutkan' }],
+      pending: false
+    })
+    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+    setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
+    try {
+      await window.anticode.sendPrompt({
+        sessionId: session.id,
+        runId,
+        prompt:
+          'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.',
+        attachmentIds: []
+      })
+    } catch (failure) {
+      setError((failure as Error).message)
+      useSessionStore.getState().settleMessage(messageId)
+      setActiveRun(null)
+    }
+  }
 
   async function send(): Promise<void> {
     const prompt = draft.trim()
@@ -306,12 +341,27 @@ export function Composer({
 
             <button
               type="button"
-              onClick={() => void (isStreaming ? window.anticode.cancelRun(activeRun.runId) : send())}
-              disabled={!isStreaming && !canSend}
-              aria-label={isStreaming ? 'Stop' : 'Send'}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] disabled:cursor-not-allowed disabled:text-faint"
+              onClick={() => {
+                if (isStreaming && !isPaused) {
+                  pauseSession(session?.id ?? '')
+                  void window.anticode.cancelRun(activeRun.runId)
+                  return
+                }
+                if (isPaused) {
+                  void resume()
+                  return
+                }
+                void send()
+              }}
+              disabled={!isStreaming && !isPaused && !canSend}
+              aria-label={isPaused ? 'Resume' : isStreaming ? 'Pause' : 'Send'}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
+                isPaused
+                  ? 'bg-[#d1fa22] text-[#1a1a1a] hover:bg-[#c4ef1f]'
+                  : 'bg-hover text-text hover:bg-[#3a3a3a]'
+              }`}
             >
-              {isStreaming ? (
+              {isStreaming && !isPaused ? (
                 <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
               ) : (
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">

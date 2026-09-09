@@ -313,6 +313,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
 
   const agent = getSession(sessionId, approvals)
   registerRun(runId, sessionId)
+  forward({ type: 'prompt', runId, text: prompt, sessionId } as RoutedAgentEvent)
   remoteRunSessions.set(runId, sessionId)
   void agent
     .run({

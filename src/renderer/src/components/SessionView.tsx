@@ -107,10 +107,7 @@ function MessageView({ message }: { message: Message }): JSX.Element {
   const tail = blocks.at(-1)
   const tailRunning =
     tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
-  const tools = message.parts.filter((part) => part.kind === 'tool')
-  // A finished run folds every tool group into one compact line — the closing
-  // summary is what should be visible, not a wall of steps.
-  const compact = message.summary !== undefined && !stepsOpen && tools.length > 0
+  const done = message.summary !== undefined
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">
@@ -122,36 +119,28 @@ function MessageView({ message }: { message: Message }): JSX.Element {
             </div>
           )
         }
-        return compact ? null : (
+        // A finished run hides its tool groups behind the summary line, so the
+        // closing summary is what stays visible, not a wall of steps.
+        return done && !stepsOpen ? null : (
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
           />
         )
       })}
-      {compact && (
-        <button
-          type="button"
-          onClick={() => setStepsOpen(true)}
-          className="group mt-1 flex items-center gap-2.5"
-        >
-          <span className="h-2 w-2 shrink-0 rounded-full bg-faint" />
-          <span className="text-[14px] text-dim">
-            ran {tools.length} {tools.length === 1 ? 'step' : 'steps'}
-            {breakdownOf(message.parts)}
-          </span>
-          <span className="text-[11px] text-faint opacity-0 transition-opacity group-hover:opacity-100">
-            ⌄
-          </span>
-        </button>
-      )}
       {message.pending && !tailRunning && (
         <div className="mt-2 flex items-center gap-2.5 text-[14px] text-dim">
           <span className="h-2.5 w-2.5 animate-breathe rounded-full bg-dim" />
           working
         </div>
       )}
-      {message.summary !== undefined && <RunSummaryCard message={message} />}
+      {done && (
+        <RunSummaryCard
+          message={message}
+          open={stepsOpen}
+          onToggle={() => setStepsOpen((value) => !value)}
+        />
+      )}
     </div>
   )
 }
@@ -201,31 +190,48 @@ function fileStats(parts: MessagePart[]): FileStat[] {
   return [...files.values()]
 }
 
-function RunSummaryCard({ message }: { message: Message }): JSX.Element {
-  const [open, setOpen] = useState(false)
+function RunSummaryCard({
+  message,
+  open,
+  onToggle
+}: {
+  message: Message
+  open: boolean
+  onToggle: () => void
+}): JSX.Element {
   const files = fileStats(message.parts)
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
   const summary = message.summary
   if (summary === undefined) return <></>
   const { model, durationMs } = summary
+  const steps = message.parts.filter((part) => part.kind === 'tool').length
 
   // A faint, centred footnote rather than a card — hidden until the cursor
-  // comes near, so the conversation stays the only thing on stage.
+  // comes near, so the conversation stays the only thing on stage. Clicking
+  // unfolds both the changed files and the run's tool steps.
   return (
     <div className="group mt-2 flex flex-col items-center">
       <button
         type="button"
-        disabled={files.length === 0}
-        onClick={() => setOpen((value) => !value)}
-        className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-opacity ${
-          files.length > 0 ? 'cursor-pointer hover:text-dim' : 'cursor-default'
-        } ${open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        onClick={onToggle}
+        className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-opacity hover:text-dim ${
+          open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-add" />
         <span>{model === '' ? 'done' : model}</span>
         <span>·</span>
         <span>{formatDuration(durationMs)}</span>
+        {steps > 0 && (
+          <>
+            <span>·</span>
+            <span>
+              {steps} {steps === 1 ? 'step' : 'steps'}
+            </span>
+            <span className="hidden sm:inline">{breakdownOf(message.parts)}</span>
+          </>
+        )}
         {files.length > 0 && (
           <>
             <span>·</span>

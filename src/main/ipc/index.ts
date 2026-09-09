@@ -236,6 +236,9 @@ export function registerIpcHandlers(): void {
       }
     }
 
+    // Surface the prompt instantly on every viewer, before any model call.
+    emit({ type: 'prompt', runId: req.runId, text: req.prompt }, req.sessionId)
+
     const status = getStatus()
     if (!status.providerReady) {
       // The send is refused before any run starts; releasing the attachments

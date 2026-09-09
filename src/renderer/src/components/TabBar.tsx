@@ -74,6 +74,8 @@ interface TabBarProps {
   onOpenSettings: () => void
   onNewTab: () => void
   onSelectSession: (id: string) => void
+  /** True while the dashboard view is on screen — lights the grid icon lime. */
+  dashboardActive: boolean
 }
 
 function GridIcon(): JSX.Element {
@@ -91,7 +93,8 @@ export function TabBar({
   onDashboard,
   onOpenSettings,
   onNewTab,
-  onSelectSession
+  onSelectSession,
+  dashboardActive
 }: TabBarProps): JSX.Element {
   const sessions = useSessionStore((state) => state.sessions)
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
@@ -136,7 +139,9 @@ export function TabBar({
         type="button"
         onClick={onDashboard}
         title="Dashboard"
-        className="region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
+        className={`region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-text ${
+          dashboardActive ? 'text-[#d1fa22]' : 'text-faint'
+        }`}
       >
         <GridIcon />
       </button>

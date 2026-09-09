@@ -81,6 +81,8 @@ interface SessionState {
   activeRun: ActiveRun | null
   /** Phone-initiated runs mirrored live here: runId → placeholder message. */
   mirrorRuns: Record<string, { sessionId: string; messageId: string; startedAt: number }>
+  /** Sessions the user paused; their runs were stopped, resume re-prompts. */
+  pausedSessions: Record<string, true>
   /** Next badge-colour index; advances on every session creation. */
   nextColour: number
 
@@ -101,6 +103,10 @@ interface SessionState {
   mirrorStart: (runId: string, sessionId: string) => string
   /** Closes a mirror placeholder once the mirrored run settles. */
   mirrorSettle: (runId: string, summary?: RunSummary) => void
+  /** Marks a session paused (its run was stopped mid-task). */
+  pauseSession: (sessionId: string) => void
+  /** Clears the paused mark; the agent continues from its history. */
+  resumeSession: (sessionId: string) => void
   /** Sets mode and project folder on a fresh session before its first prompt. */
   updateSessionConfig: (
     id: string,
@@ -109,6 +115,8 @@ interface SessionState {
   closeSession: (id: string) => void
 
   addMessage: (message: Message) => void
+  /** Adds a remotely-sent user prompt unless it is already the last one. */
+  addUserPrompt: (sessionId: string, text: string) => void
   appendText: (sessionId: string, messageId: string, text: string) => void
   startTool: (
     sessionId: string,
@@ -190,6 +198,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeSessionId: null,
   activeRun: null,
   mirrorRuns: {},
+  pausedSessions: {},
   nextColour: 0,
 
   addProject: (root) =>
@@ -503,7 +512,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }))
     })),
 
-  setActiveRun: (run) => set({ activeRun: run })
+  setActiveRun: (run) => set({ activeRun: run }),
+
+  addUserPrompt: (sessionId, text) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => {
+        const last = session.messages.at(-1)
+        if (last?.role === 'user' && last.parts.some((part) => part.kind === 'text' && part.text === text)) {
+          return session
+        }
+        return {
+          ...session,
+          messages: [
+            ...session.messages,
+            {
+              id: crypto.randomUUID(),
+              role: 'user' as const,
+              parts: [{ kind: 'text' as const, text }],
+              pending: false
+            }
+          ]
+        }
+      })
+    })),
+
+  pauseSession: (sessionId) =>
+    set((state) => ({
+      pausedSessions: { ...state.pausedSessions, [sessionId]: true }
+    })),
+
+  resumeSession: (sessionId) =>
+    set((state) => {
+      const paused = { ...state.pausedSessions }
+      delete paused[sessionId]
+      return { pausedSessions: paused }
+    })
 }))
 
 export function useActiveSession(): Session | undefined {
