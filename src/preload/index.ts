@@ -29,6 +29,11 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
 }
 
 const api: AnticodeApi = {
+  listSessions: () => ipcRenderer.invoke(IpcChannel.SESSION_LIST) as Promise<SessionSpec[]>,
+  releaseAttachments: (ids) => ipcRenderer.invoke(IpcChannel.ATTACH_RELEASE, ids) as Promise<void>,
+  pendingApprovals: () => ipcRenderer.invoke(IpcChannel.APPROVAL_PENDING) as Promise<ApprovalRequest[]>,
+  onApprovalDismissed: (listener) => subscribe<string>(IpcChannel.APPROVAL_DISMISSED, listener),
+  listRuns: () => ipcRenderer.invoke(IpcChannel.RUN_LIST) as ReturnType<AnticodeApi['listRuns']>,
   getAppInfo: () => ipcRenderer.invoke(IpcChannel.APP_INFO) as Promise<AppInfo>,
   getStatus: () => ipcRenderer.invoke(IpcChannel.STATUS) as Promise<SessionStatus>,
   chooseWorkspace: () => ipcRenderer.invoke(IpcChannel.WORKSPACE_CHOOSE) as Promise<SessionStatus>,

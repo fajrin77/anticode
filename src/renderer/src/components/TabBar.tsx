@@ -100,7 +100,7 @@ export function TabBar({
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const closeSession = useSessionStore((state) => state.closeSession)
   const deleteSession = useSessionStore((state) => state.deleteSession)
-  const activeRun = useSessionStore((state) => state.activeRun)
+  const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
@@ -112,9 +112,8 @@ export function TabBar({
   // A draft that was never prompted cannot be reopened from the dashboard, so
   // closing its tab deletes it outright — everywhere, including the phone.
   function close(sessionId: string): void {
-    if (activeRun !== null && activeRun.sessionId === sessionId) {
-      void window.anticode.cancelRun(activeRun.runId)
-    }
+    for (const run of Object.values(activeRuns)) if (run.sessionId === sessionId) void window.anticode.cancelRun(run.runId)
+    for (const [runId, run] of Object.entries(mirrorRuns)) if (run.sessionId === sessionId) void window.anticode.cancelRun(runId)
     const session = sessions.find((entry) => entry.id === sessionId)
     if (session !== undefined && session.messages.length === 0) {
       void window.anticode.closeSession(sessionId)
@@ -150,7 +149,7 @@ export function TabBar({
         {sessions.filter((session) => !session.closed).map((session) => {
           const isActive = session.id === activeSessionId
           const running =
-            activeRun?.sessionId === session.id ||
+            Object.values(activeRuns).some((run) => run.sessionId === session.id) ||
             Object.values(mirrorRuns).some((entry) => entry.sessionId === session.id)
           return (
             <div

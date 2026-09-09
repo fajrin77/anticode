@@ -56,9 +56,13 @@ export function normalizeBaseURL(url: string): string {
 }
 
 export function addCustomProvider(input: Omit<CustomProviderConfig, 'id'>): CustomProviderConfig {
+  const baseURL = normalizeBaseURL(input.baseURL)
+  const url = new URL(baseURL)
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Base URL must use http or https')
+  if (!['openai', 'ollama'].includes(input.kind)) throw new Error('Unknown provider type')
   const config: CustomProviderConfig = {
     ...input,
-    baseURL: normalizeBaseURL(input.baseURL),
+    baseURL,
     id: `custom:${randomUUID()}`
   }
   save([...load(), config])

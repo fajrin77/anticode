@@ -1,6 +1,7 @@
+import { beginRun, finishRun, cancelRun, cancelSessionRuns, runForSession } from '../runs'
 import http from 'node:http'
 import os from 'node:os'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
@@ -10,7 +11,8 @@ import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
 import { listProviders } from '../providers'
 import {
-  cachedCatalogue,
+  listModels,
+  persistSessions,
   createRemoteSession,
   deleteSession,
   getSession,
@@ -24,10 +26,12 @@ import { approvals } from '../ipc'
 import { forgetRun, forward, registerRun, subscribe } from './bus'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
-const PORT = 8680
+const PORT = Number(process.env['ANTICODE_REMOTE_PORT'] || 8680)
 
 let server: http.Server | null = null
 let lastError: string | null = null
+const eventStreams = new Set<http.ServerResponse>()
+let transition: Promise<unknown> = Promise.resolve()
 
 export function getRemoteStatus(): RemoteStatus {
   const persisted = loadPersistedSettings().remote
@@ -40,7 +44,7 @@ export function getRemoteStatus(): RemoteStatus {
   const ip = lanAddress() ?? '<your-mac-ip>'
   return {
     enabled: true,
-    url: `http://${ip}:${PORT}/?token=${persisted.token}`,
+    url: `http://${ip}:${typeof server?.address() === 'object' ? (server.address() as { port: number } | null)?.port ?? PORT : PORT}/?token=${persisted.token}`,
     token: persisted.token,
     error: null
   }
@@ -55,7 +59,12 @@ function lanAddress(): string | null {
   return null
 }
 
-export async function setRemoteEnabled(enabled: boolean): Promise<RemoteStatus> {
+export function setRemoteEnabled(enabled: boolean, port = PORT): Promise<RemoteStatus> {
+  const result = transition.then(() => changeRemoteEnabled(enabled, port))
+  transition = result.catch(() => undefined)
+  return result
+}
+async function changeRemoteEnabled(enabled: boolean, port: number): Promise<RemoteStatus> {
   if (!enabled) {
     await closeServer()
     savePersistedSettings({
@@ -64,6 +73,7 @@ export async function setRemoteEnabled(enabled: boolean): Promise<RemoteStatus> 
     return getRemoteStatus()
   }
 
+  if (server?.listening) return getRemoteStatus()
   lastError = null
   const token = persistedToken()
   savePersistedSettings({ remote: { enabled: true, token, port: PORT } })
@@ -75,7 +85,15 @@ export async function setRemoteEnabled(enabled: boolean): Promise<RemoteStatus> 
   httpServer.on('error', (error) => {
     lastError = (error as Error).message
   })
-  await new Promise<void>((resolve) => httpServer.listen(PORT, '0.0.0.0', resolve))
+  try {
+    await new Promise<void>((resolve, reject) => {
+      httpServer.once('error', reject)
+      httpServer.listen(port, '0.0.0.0', () => { httpServer.off('error', reject); resolve() })
+    })
+  } catch (error) {
+    lastError = (error as Error).message
+    server = null
+  }
   return getRemoteStatus()
 }
 
@@ -83,7 +101,11 @@ async function closeServer(): Promise<void> {
   const existing = server
   if (existing === null) return
   server = null
-  await new Promise<void>((resolve) => existing.close(() => resolve()))
+  for (const stream of eventStreams) stream.end()
+  await new Promise<void>((resolve) => {
+    existing.close(() => resolve())
+    existing.closeAllConnections()
+  })
 }
 
 /** Auto-start on boot when the persisted flag says so. */
@@ -96,6 +118,7 @@ export async function restoreRemoteServer(): Promise<void> {
 /** Issues a fresh pairing token; old links die instantly because every
  * request re-reads the persisted settings. The server itself stays up. */
 export async function regenerateRemoteToken(): Promise<RemoteStatus> {
+  for (const stream of eventStreams) stream.end()
   const enabled = loadPersistedSettings().remote?.enabled === true
   savePersistedSettings({
     remote: { enabled, token: randomUUID().replace(/-/g, ''), port: PORT }
@@ -125,9 +148,8 @@ function json(res: http.ServerResponse, code: number, body: unknown): void {
 }
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
-
   try {
+    const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/' || url.pathname === '/index.html') {
       if (!authorised(url, req)) return deny(res)
       const html = await readFile(
@@ -161,6 +183,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       const provider = typeof body.provider === 'string' ? body.provider : ''
       const model = typeof body.model === 'string' ? body.model : ''
       if (provider === '') return json(res, 400, { error: 'provider is required' })
+      if (model === '') await listModels(provider)
       selectProvider({ provider, model })
       return json(res, 200, { ok: true, status: getStatus() })
     }
@@ -173,14 +196,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (req.method === 'GET' && sessionMatch !== null) {
       const messages = loadSessionMessages(sessionMatch[1] ?? '')
       if (messages === null) return json(res, 404, { error: 'Unknown session' })
-      return json(res, 200, { messages })
+      return json(res, 200, { messages, runId: runForSession(sessionMatch[1] ?? '') })
     }
 
     if (req.method === 'DELETE' && sessionMatch !== null) {
       const id = sessionMatch[1] ?? ''
-      for (const [runId, owner] of remoteRunSessions) {
-        if (owner === id) remoteRuns.get(runId)?.abort()
-      }
+      cancelSessionRuns(id)
       deleteSession(id)
       return json(res, 200, { ok: true })
     }
@@ -189,9 +210,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, await startPrompt(body))
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/approvals') {
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      const runId = runForSession(sessionId)
+      return json(res, 200, { requests: approvals.listPending().filter((request) => request.runId === runId) })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/approval') {
+      if (typeof body.requestId !== 'string' || !['approve', 'reject', 'always'].includes(String(body.decision))) throw new Error('Invalid approval response')
+      const pending = approvals.listPending().find((request) => request.requestId === body.requestId)
+      if (!pending) throw new Error('This approval is no longer pending')
+      approvals.resolve(body.requestId, body.decision as 'approve' | 'reject' | 'always')
+      return json(res, 200, { ok: true })
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cancel') {
       const runId = typeof body.runId === 'string' ? body.runId : ''
-      remoteRuns.get(runId)?.abort()
+      cancelRun(runId)
       return json(res, 200, { ok: true })
     }
 
@@ -204,7 +238,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, await readWorkspaceFile(String(body.sessionId ?? url.searchParams.get('sessionId') ?? ''), url.searchParams.get('path') ?? '.'))
     }
     if (filesMatch && req.method === 'POST') {
-      return json(res, 200, await writeWorkspaceFile(String(body.sessionId ?? ''), String(body.path ?? ''), typeof body.content === 'string' ? body.content : ''))
+      return json(res, 200, await writeWorkspaceFile(String(body.sessionId ?? ''), String(body.path ?? ''), typeof body.content === 'string' ? body.content : '', typeof body.version === 'string' ? body.version : null))
     }
 
     if (req.method === 'POST' && url.pathname === '/api/git') {
@@ -222,30 +256,18 @@ function deny(res: http.ServerResponse): void {
   res.end(JSON.stringify({ error: 'Unauthorised — open the pairing URL' }))
 }
 
-function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8')
-      try {
-        resolve(raw === '' ? {} : (JSON.parse(raw) as Record<string, unknown>))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-const remoteRuns = new Map<string, AbortController>()
-const remoteRunSessions = new Map<string, string>()
-
-/** True while a phone-initiated run is executing in the session. */
-export function hasRemoteRun(sessionId: string): boolean {
-  for (const owner of remoteRunSessions.values()) {
-    if (owner === sessionId) return true
+async function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let bytes = 0
+  for await (const chunk of req) {
+    bytes += Buffer.byteLength(chunk)
+    if (bytes > 2 * 1024 * 1024) throw new Error('Request too large (limit 2 MB)')
+    chunks.push(Buffer.from(chunk))
   }
-  return false
+  const raw = Buffer.concat(chunks).toString('utf8')
+  const body: unknown = raw === '' ? {} : JSON.parse(raw)
+  if (body === null || Array.isArray(body) || typeof body !== 'object') throw new Error('Expected a JSON object')
+  return body as Record<string, unknown>
 }
 
 /** Provider list plus the catalogue of the current provider, for the phone picker. */
@@ -255,22 +277,14 @@ async function modelsPayload(): Promise<{
   providers: { id: string; label: string; available: boolean; models: string[] }[]
 }> {
   const status = getStatus()
+  const catalogue = await listModels(status.provider)
   const providers = listProviders().map((entry) => ({
     id: entry.id,
     label: entry.label,
     available: entry.credentialAvailable,
-    models: entry.id === status.provider ? (listModelsSync(entry.id) ?? []) : []
+    models: entry.id === status.provider ? catalogue.models : []
   }))
   return { provider: status.provider, model: status.model, providers }
-}
-
-/** Catalogue from the runtime cache; a cold cache stays empty rather than slow. */
-function listModelsSync(providerId: string): string[] | null {
-  try {
-    return cachedCatalogue(providerId)
-  } catch {
-    return null
-  }
 }
 
 /** Creates a session straight from the phone, validating the folder up front. */
@@ -292,58 +306,47 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (prompt === '') throw new Error('Prompt is empty')
 
+  const status = getStatus()
+  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Provider is not ready')
   let sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
-  if (sessionId !== '' && loadSessionMessages(sessionId) === null) sessionId = ''
-
-  if (sessionId === '') {
-    const mode = body.mode === 'chat' ? 'chat' : 'code'
-    const folder = typeof body.folder === 'string' && body.folder !== '' ? body.folder : null
-    if (mode === 'code' && folder === null) {
-      throw new Error('anticode needs a project folder — send one as "folder"')
-    }
-    sessionId = createRemoteSession(mode, folder)
-    // No window round-trip exists for remote sessions; the desktop picks them
-    // up on its next restart of the renderer store.
-  }
-
-  const runId = randomUUID()
-  const controller = new AbortController()
-  remoteRuns.set(runId, controller)
-  controller.signal.addEventListener('abort', () => remoteRuns.delete(runId), { once: true })
-
+  if (sessionId !== '' && loadSessionMessages(sessionId) === null) throw new Error('Unknown session')
+  if (sessionId === '') sessionId = createPhoneSession(body).sessionId
   const agent = getSession(sessionId, approvals)
+  const runId = randomUUID()
+  const controller = beginRun(runId, sessionId)
   registerRun(runId, sessionId)
   forward({ type: 'prompt', runId, text: prompt, sessionId } as RoutedAgentEvent)
-  remoteRunSessions.set(runId, sessionId)
-  void agent
-    .run({
-      runId,
-      prompt,
-      signal: controller.signal,
-      emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent)
-    })
-    .finally(() => {
-      forgetRun(runId)
-      remoteRuns.delete(runId)
-      remoteRunSessions.delete(runId)
-    })
+  void agent.run({
+    runId, prompt, signal: controller.signal,
+    emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent)
+  }).catch((error: Error) => {
+    forward({ type: 'error', runId, message: error.message, sessionId } as RoutedAgentEvent)
+  }).finally(() => {
+    forgetRun(runId)
+    finishRun(runId)
+    persistSessions()
+  })
 
   return { sessionId, runId }
 }
 
 function openEventStream(url: URL, res: http.ServerResponse): void {
   const sessionId = url.searchParams.get('sessionId') ?? ''
+  if (loadSessionMessages(sessionId) === null) { json(res, 404, { error: 'Unknown session' }); return }
+  eventStreams.add(res)
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
     connection: 'keep-alive'
   })
+  res.write(': connected\n\n')
   const send = (event: AgentEvent): void => {
     res.write(`data: ${JSON.stringify(event)}\n\n`)
   }
   const unsubscribe = subscribe(sessionId, send)
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000)
   res.on('close', () => {
+    eventStreams.delete(res)
     clearInterval(heartbeat)
     unsubscribe()
   })
@@ -365,16 +368,21 @@ async function readWorkspaceFile(sessionId: string, relativePath: string): Promi
         .sort((a, b) => a.localeCompare(b))
     }
   }
+  if (info.size > 2 * 1024 * 1024) throw new Error('File too large for the editor (limit 2 MB)')
   const content = await readFile(target, 'utf8')
-  return { kind: 'file', path: relativePath, content }
+  if (content.includes('\0')) throw new Error('Binary files cannot be edited as text')
+  return { kind: 'file', path: relativePath, content, version: createHash('sha256').update(content).digest('hex') }
 }
 
-async function writeWorkspaceFile(sessionId: string, relativePath: string, content: string): Promise<unknown> {
+async function writeWorkspaceFile(sessionId: string, relativePath: string, content: string, version: string | null): Promise<unknown> {
   const root = sessionWorkspaceRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   const target = resolveInWorkspace(root, relativePath)
+  if (runForSession(sessionId) !== null) throw new Error('Wait for the agent to finish before editing files')
+  const current = await readFile(target, 'utf8')
+  if (version === null || createHash('sha256').update(current).digest('hex') !== version) throw new Error('File changed since it was opened. Reload it before saving.')
   await writeFile(target, content, 'utf8')
-  return { ok: true, path: relativePath, bytes: Buffer.byteLength(content) }
+  return { ok: true, path: relativePath, bytes: Buffer.byteLength(content), version: createHash('sha256').update(content).digest('hex') }
 }
 
 function runGit(sessionId: string, action: string, message: string): Promise<unknown> {

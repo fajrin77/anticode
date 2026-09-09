@@ -35,11 +35,20 @@ export const fetchUrlTool = defineTool({
   execute: async (input, context) => {
     let response: Response
     try {
-      response = await fetch(input.url, { signal: context.signal, redirect: 'follow' })
+      response = await fetch(input.url, { signal: AbortSignal.any([context.signal, AbortSignal.timeout(DEFAULT_TIMEOUT)]), redirect: 'follow' })
     } catch (error) {
       throw new ToolError(`Failed to fetch ${input.url}: ${describe(error)}`)
     }
-    const body = await response.text()
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+    let body = ''
+    try {
+      while (reader && body.length <= MAX_TEXT) {
+        const part = await reader.read()
+        if (part.done) break
+        body += decoder.decode(part.value, { stream: true }).slice(0, MAX_TEXT + 1 - body.length)
+      }
+    } finally { await reader?.cancel() }
     return `HTTP ${response.status} ${response.headers.get('content-type') ?? ''}\n\n${clip(body)}`
   }
 })
@@ -60,9 +69,9 @@ export const browserNavigateTool = defineTool({
       .default('load')
       .describe('Wait condition before the page counts as loaded')
   }),
-  execute: async (input) =>
+  execute: async (input, context) =>
     withPage(async (page) => {
-      clearNetworkRecords()
+      clearNetworkRecords(context.sessionId)
       try {
         const response = await page.goto(input.url, {
           waitUntil: input.wait_for,
@@ -72,7 +81,7 @@ export const browserNavigateTool = defineTool({
       } catch (error) {
         throw new ToolError(`Failed to open ${input.url}: ${describe(error)}`)
       }
-    })
+    }, context.sessionId)
 })
 
 export const browserGetTextTool = defineTool({
@@ -84,8 +93,8 @@ export const browserGetTextTool = defineTool({
   schema: z.object({
     selector: z.string().optional().describe('CSS selector; leave empty for the whole page')
   }),
-  execute: async (input) => {
-    const page = requirePage()
+  execute: async (input, context) => {
+    const page = requirePage(context.sessionId)
     try {
       if (input.selector === undefined) {
         return clip(await page.innerText('body'))
@@ -111,8 +120,8 @@ export const browserScreenshotTool = defineTool({
   schema: z.object({
     full_page: z.boolean().default(false).describe('True to capture the full page height')
   }),
-  execute: async (input) => {
-    const page = requirePage()
+  execute: async (input, context) => {
+    const page = requirePage(context.sessionId)
     let raw: Buffer
     try {
       raw = await page.screenshot({ fullPage: input.full_page, type: 'png' })
@@ -138,13 +147,13 @@ export const browserClickTool = defineTool({
   readOnly: false,
   risk: 'medium',
   schema: z.object({ selector: z.string().min(1).describe('CSS selector of the element to click') }),
-  preview: async (input) => ({
+  preview: async (input, context) => ({
     kind: 'command',
-    subject: requirePage().url(),
+    subject: requirePage(context.sessionId).url(),
     detail: `Click element: ${input.selector}`
   }),
-  execute: async (input) => {
-    const page = requirePage()
+  execute: async (input, context) => {
+    const page = requirePage(context.sessionId)
     try {
       await page.locator(input.selector).first().click({ timeout: DEFAULT_TIMEOUT })
     } catch (error) {
@@ -163,13 +172,13 @@ export const browserFillTool = defineTool({
     selector: z.string().min(1).describe('CSS selector of the input element'),
     value: z.string().describe('The value to type in')
   }),
-  preview: async (input) => ({
+  preview: async (input, context) => ({
     kind: 'command',
-    subject: requirePage().url(),
+    subject: requirePage(context.sessionId).url(),
     detail: `Fill ${input.selector} with:\n${input.value}`
   }),
-  execute: async (input) => {
-    const page = requirePage()
+  execute: async (input, context) => {
+    const page = requirePage(context.sessionId)
     try {
       await page.locator(input.selector).first().fill(input.value, { timeout: DEFAULT_TIMEOUT })
     } catch (error) {
@@ -189,8 +198,8 @@ export const readNetworkRequestsTool = defineTool({
   schema: z.object({
     filter: z.string().optional().describe('Only show URLs containing this text')
   }),
-  execute: async (input) => {
-    const matched = networkRecords().filter(
+  execute: async (input, context) => {
+    const matched = networkRecords(context.sessionId).filter(
       (record) => input.filter === undefined || record.url.includes(input.filter)
     )
     if (matched.length === 0) return '(no requests recorded)'

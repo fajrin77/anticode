@@ -6,11 +6,14 @@ import type { ApprovalGate, AuthorizeRequest } from './types'
 import type { ApprovalPolicy } from './policy'
 
 export class ApprovalCoordinator implements ApprovalGate {
+  private readonly requests = new Map<string, ApprovalRequest>()
+  listPending(): ApprovalRequest[] { return [...this.requests.values()] }
   private readonly pending = new Map<string, (decision: ApprovalDecision) => void>()
 
   constructor(
     private readonly policy: ApprovalPolicy,
-    private readonly sender: () => WebContents | null
+    private readonly sender: () => WebContents | null,
+    private readonly onDismissed?: (requestId: string) => void
   ) {}
 
   resolve(requestId: string, decision: ApprovalDecision): void {
@@ -18,10 +21,10 @@ export class ApprovalCoordinator implements ApprovalGate {
   }
 
   async authorize(request: AuthorizeRequest): Promise<boolean> {
-    if (!this.policy.needsApproval(request.toolName, request.risk)) return true
+    if (request.signal.aborted) return false
+    if (!this.policy.needsApproval(request.toolName, request.risk, request.sessionId)) return true
 
     const target = this.sender()
-    if (!target || target.isDestroyed()) return false
 
     // §8: a high-risk call must be approved individually every single time.
     const allowAlways = request.risk !== 'high'
@@ -35,16 +38,16 @@ export class ApprovalCoordinator implements ApprovalGate {
     }
 
     const decision = await this.awaitDecision(payload, target, request.signal)
-    if (decision === 'always' && allowAlways) this.policy.allowAlways(request.toolName)
+    if (decision === 'always' && allowAlways) this.policy.allowAlways(request.toolName, request.sessionId)
     return decision !== 'reject'
   }
 
   private awaitDecision(
     payload: ApprovalRequest,
-    target: WebContents,
+    target: WebContents | null,
     signal: AbortSignal
   ): Promise<ApprovalDecision> {
-    if (target.isDestroyed()) return Promise.resolve('reject')
+    if (signal.aborted || target?.isDestroyed()) return Promise.resolve('reject')
 
     return new Promise((resolve) => {
       // A closed window must not leave the run waiting forever — on macOS the
@@ -52,16 +55,19 @@ export class ApprovalCoordinator implements ApprovalGate {
       const onDestroyed = (): void => settle('reject')
       const settle = (decision: ApprovalDecision): void => {
         this.pending.delete(payload.requestId)
+        this.requests.delete(payload.requestId)
+        this.onDismissed?.(payload.requestId)
         signal.removeEventListener('abort', onAbort)
-        target.off('destroyed', onDestroyed)
+        target?.off('destroyed', onDestroyed)
         resolve(decision)
       }
       const onAbort = (): void => settle('reject')
 
       this.pending.set(payload.requestId, settle)
+      this.requests.set(payload.requestId, payload)
       signal.addEventListener('abort', onAbort, { once: true })
-      target.once('destroyed', onDestroyed)
-      target.send(IpcChannel.APPROVAL_REQUEST, payload)
+      target?.once('destroyed', onDestroyed)
+      target?.send(IpcChannel.APPROVAL_REQUEST, payload)
     })
   }
 }

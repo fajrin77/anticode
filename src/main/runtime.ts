@@ -1,3 +1,6 @@
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import path from 'node:path'
+import { cancelSessionRuns, runForSession, hasRuns } from './runs'
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
@@ -25,6 +28,8 @@ const AUTO_PICK_LIMIT = 25
 interface LiveSession {
   spec: SessionSpec
   agent: AgentSession | null
+  messages: Message[]
+  selection?: ProviderSelection
 }
 
 let workspaceRoot: string | null = null
@@ -61,6 +66,16 @@ export function setWorkspaceRoot(root: string): void {
  * disappeared. Called once after the env file is loaded.
  */
 export function initPersistedState(): void {
+  try {
+    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[] }[]
+    if (Array.isArray(saved)) for (const entry of saved) {
+      if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
+          !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
+          !Array.isArray(entry.messages) || !entry.messages.every((message) =>
+            ['user', 'assistant'].includes(message.role) && Array.isArray(message.content))) continue
+      sessions.set(entry.spec.sessionId, { spec: entry.spec, messages: entry.messages, agent: null })
+    }
+  } catch { /* First launch or unreadable archive: keep the original file untouched. */ }
   const persisted = loadPersistedSettings()
   if (persisted.autoApprove !== undefined) {
     policy.setAutoApprove(persisted.autoApprove)
@@ -78,23 +93,22 @@ export function initPersistedState(): void {
 /** Drops the active selection so the next current() falls back to built-ins. */
 export function resetProviderSelection(): void {
   selection = null
-  for (const session of sessions.values()) session.agent = null
 }
 
-/**
- * Agents are discarded on a provider switch: pending tool-call ids and message
- * shapes are provider-specific, and replaying one provider's half-finished turn
- * through another is not something we can make safe.
- */
+/** Switch only between runs; adapters retain the completed conversation. */
 export function selectProvider(next: ProviderSelection): void {
+  if (!listProviders().some((provider) => provider.id === next.provider && provider.credentialAvailable)) {
+    throw new Error('Provider unavailable. Configure its credentials first.')
+  }
+  if (hasRuns()) throw new Error('Wait for running sessions to finish before changing provider or model.')
   const model = next.model.trim()
   selection = {
     provider: next.provider,
     // Fall back to whatever the catalogue offers so switching provider never
     // lands on an empty model box the user has to fill in by hand.
-    model: model !== '' ? model : (catalogues.get(next.provider)?.models[0] ?? '')
+    model: model !== '' ? model : ((catalogues.get(next.provider)?.models.length ?? 0) <= AUTO_PICK_LIMIT ? catalogues.get(next.provider)?.models[0] ?? '' : '')
   }
-  for (const session of sessions.values()) session.agent = null
+
   savePersistedSettings({ provider: selection.provider, model: selection.model })
 }
 
@@ -121,7 +135,7 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
   const autoPick = catalogue.models.length <= AUTO_PICK_LIMIT ? catalogue.models[0] : undefined
   if (active.provider === provider && active.model === '' && autoPick !== undefined) {
     selection = { provider, model: autoPick }
-    for (const session of sessions.values()) session.agent = null
+
     savePersistedSettings({ provider, model: autoPick })
   }
   return catalogue
@@ -141,18 +155,27 @@ export function setOnSessionClosed(sink: (sessionId: string) => void): void {
 }
 
 export function createSession(spec: SessionSpec): void {
-  sessions.set(spec.sessionId, { spec, agent: null })
+  const previous = sessions.get(spec.sessionId)
+  if (previous && (runForSession(spec.sessionId) !== null || (previous.agent?.messageCount ?? previous.messages.length) > 0)) {
+    if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return
+    throw new Error('An existing conversation cannot be rebound to another folder')
+  }
+  sessions.set(spec.sessionId, { spec, agent: null, messages: [] })
+  persistSessions()
   sessionCreatedSink?.(spec)
 }
 
 /** Closing a desktop tab only archives it, so this stays silent. */
 export function closeSession(sessionId: string): void {
-  sessions.delete(sessionId)
+  deleteSession(sessionId)
 }
 
 /** A hard delete (phone-initiated): the session is gone everywhere. */
 export function deleteSession(sessionId: string): void {
+  cancelSessionRuns(sessionId)
+  sessions.get(sessionId)?.agent?.dispose()
   sessions.delete(sessionId)
+  persistSessions()
   sessionClosedSink?.(sessionId)
 }
 
@@ -189,14 +212,18 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     throw new Error('A code session needs a project folder')
   }
 
-  if (!live.agent) {
-    const active = current()
+  const active = current()
+  if (!live.agent || live.selection?.provider !== active.provider || live.selection?.model !== active.model) {
+    const history = live.agent?.snapshot().messages ?? live.messages
     live.agent = new AgentSession(
       createProvider(active.provider, active.model),
       gate,
       live.spec.mode,
-      live.spec.workspaceRoot
+      live.spec.workspaceRoot,
+      history,
+      live.spec.sessionId
     )
+    live.selection = { ...active }
   }
   return live.agent
 }
@@ -207,6 +234,7 @@ export function providerIds(): ProviderId[] {
 
 export interface SessionSummary {
   id: string
+  title: string
   mode: SessionMode
   workspaceRoot: string | null
   messageCount: number
@@ -224,9 +252,10 @@ export function setRunningProbe(probe: (sessionId: string) => boolean): void {
 export function listSessionSummaries(): SessionSummary[] {
   return [...sessions.values()].map((live) => ({
     id: live.spec.sessionId,
+    title: live.spec.mode === 'code' && live.spec.workspaceRoot ? path.basename(live.spec.workspaceRoot) : live.agent?.title ?? live.messages.find((message) => message.role === 'user')?.content.find((block) => block.type === 'text')?.text.slice(0, 60) ?? 'New session',
     mode: live.spec.mode,
     workspaceRoot: live.spec.workspaceRoot,
-    messageCount: live.agent?.snapshot().messages.length ?? 0,
+    messageCount: live.agent?.messageCount ?? live.messages.length,
     running: runningProbe?.(live.spec.sessionId) ?? false
   }))
 }
@@ -257,7 +286,7 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
 export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null {
   const live = sessions.get(sessionId)
   if (live === undefined) return null
-  return toSnapshot(live.agent?.snapshot().messages ?? [])
+  return toSnapshot(live.agent?.snapshot().messages ?? live.messages)
 }
 
 export function sessionWorkspaceRoot(sessionId: string): string | null {
@@ -270,3 +299,16 @@ export function createRemoteSession(mode: SessionMode, workspaceRoot: string | n
   createSession({ sessionId, mode, workspaceRoot })
   return sessionId
 }
+
+/** Atomic snapshots at turn completion and shutdown; never save credentials here. */
+export function persistSessions(): void {
+  const directory = app.getPath('userData')
+  const target = path.join(directory, 'sessions.json')
+  const data = [...sessions.values()].map((live) => ({ spec: live.spec, messages: live.agent?.snapshot().messages ?? live.messages }))
+  try {
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(`${target}.tmp`, JSON.stringify(data), { mode: 0o600 })
+    renameSync(`${target}.tmp`, target)
+  } catch (error) { console.error('Could not save session history:', (error as Error).message) }
+}
+export function listSessionSpecs(): SessionSpec[] { return [...sessions.values()].map((live) => live.spec) }

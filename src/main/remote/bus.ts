@@ -26,7 +26,9 @@ export function forward(event: AgentEvent): void {
   if (event.type === 'end' || event.type === 'error') runSessions.delete(event.runId)
 
   for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.webContents.send(IpcChannel.AGENT_EVENT, event)
+    try {
+      if (!window.isDestroyed()) window.webContents.send(IpcChannel.AGENT_EVENT, { ...event, sessionId })
+    } catch { /* A closing window must not interrupt other viewers. */ }
   }
 
   const set = listeners.get(sessionId)

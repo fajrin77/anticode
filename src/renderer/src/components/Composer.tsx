@@ -45,8 +45,17 @@ export function Composer({
   hero = false,
   heroExtra
 }: ComposerProps): JSX.Element {
-  const [draft, setDraft] = useState('')
-  const [attached, setAttached] = useState<AttachmentInfo[]>([])
+  const session = useActiveSession()
+  const savedDraft = useSessionStore((state) => state.drafts[session?.id ?? ''])
+  const draft = savedDraft?.text ?? ''
+  const attached = savedDraft?.attachments ?? []
+  const setDraft = (text: string): void => { if (session) useSessionStore.getState().updateDraft(session.id, { text }) }
+  const setAttached = (next: AttachmentInfo[] | ((items: AttachmentInfo[]) => AttachmentInfo[])): void => {
+    if (session) {
+      const previous = useSessionStore.getState().drafts[session.id]?.attachments ?? []
+      useSessionStore.getState().updateDraft(session.id, { attachments: typeof next === 'function' ? next(previous) : next })
+    }
+  }
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<'none' | 'model' | 'mode' | 'folder'>('none')
@@ -54,8 +63,8 @@ export function Composer({
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
 
-  const session = useActiveSession()
-  const activeRun = useSessionStore((state) => state.activeRun)
+  const activeRun = useSessionStore((state) => Object.values(state.activeRuns).find((run) => run.sessionId === session?.id) ?? null)
+  const mirrorRunId = useSessionStore((state) => Object.entries(state.mirrorRuns).find(([, run]) => run.sessionId === session?.id)?.[0] ?? null)
   const addMessage = useSessionStore((state) => state.addMessage)
   const setActiveRun = useSessionStore((state) => state.setActiveRun)
   const updateSessionConfig = useSessionStore((state) => state.updateSessionConfig)
@@ -67,7 +76,7 @@ export function Composer({
 
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
-  const isStreaming = activeRun !== null && session !== undefined && activeRun.sessionId === session.id
+  const isStreaming = activeRun !== null || mirrorRunId !== null
   // A code session is only usable once it is bound to a folder; chat never needs one.
   const sessionReady =
     session !== undefined && (session.mode === 'chat' || session.projectRoot !== null)
@@ -123,7 +132,7 @@ export function Composer({
   // Pause stops the run mid-task; resume sends a continuation instruction so
   // the agent picks up exactly where its history left off.
   async function resume(): Promise<void> {
-    if (session === undefined) return
+    if (session === undefined || isStreaming) return
     resumeSession(session.id)
     const runId = crypto.randomUUID()
     const messageId = crypto.randomUUID()
@@ -145,8 +154,9 @@ export function Composer({
       })
     } catch (failure) {
       setError((failure as Error).message)
+      useSessionStore.getState().appendText(session.id, messageId, (failure as Error).message)
       useSessionStore.getState().settleMessage(messageId)
-      setActiveRun(null)
+      setActiveRun(null, runId)
     }
   }
 
@@ -182,23 +192,24 @@ export function Composer({
     addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
     setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
 
+    try {
     // The first prompt finalises a fresh session's binding: the main process
     // session is (re)created with the mode and folder chosen in the hero.
     if (session.messages.length === 0) {
-      void window.anticode.createSession({
+      await window.anticode.createSession({
         sessionId: session.id,
         mode: session.mode,
         workspaceRoot: session.mode === 'code' ? session.projectRoot : null
       })
     }
 
-    try {
       await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt, attachmentIds })
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the composer.
       setError((failure as Error).message)
+      useSessionStore.getState().appendText(session.id, messageId, (failure as Error).message)
       useSessionStore.getState().settleMessage(messageId)
-      setActiveRun(null)
+      setActiveRun(null, runId)
     }
   }
 
@@ -233,7 +244,7 @@ export function Composer({
                 <span className="max-w-48 truncate font-mono">{item.name}</span>
                 <button
                   type="button"
-                  onClick={() => setAttached((c) => c.filter((a) => a.id !== item.id))}
+                  onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
                   className="text-faint hover:text-text"
                 >
                   ×
@@ -299,7 +310,7 @@ export function Composer({
             }
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 void send()
               }
@@ -344,7 +355,7 @@ export function Composer({
               onClick={() => {
                 if (isStreaming && !isPaused) {
                   pauseSession(session?.id ?? '')
-                  void window.anticode.cancelRun(activeRun.runId)
+                  void window.anticode.cancelRun(activeRun?.runId ?? mirrorRunId ?? '')
                   return
                 }
                 if (isPaused) {
@@ -353,7 +364,7 @@ export function Composer({
                 }
                 void send()
               }}
-              disabled={!isStreaming && !isPaused && !canSend}
+              disabled={(isPaused && isStreaming) || (!isStreaming && !isPaused && !canSend)}
               aria-label={isPaused ? 'Resume' : isStreaming ? 'Pause' : 'Send'}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                 isPaused

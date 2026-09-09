@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import type { JSX } from 'react'
 import { TabBar } from './components/TabBar'
 import { SessionView } from './components/SessionView'
@@ -19,9 +19,11 @@ import type {
 type View = 'dashboard' | 'session' | 'settings'
 
 export function App(): JSX.Element {
+  const finishedRuns = useRef(new Set<string>())
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [status, setStatus] = useState<SessionStatus | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [appError, setAppError] = useState<string | null>(null)
   const [view, setView] = useState<View>('dashboard')
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
 
@@ -90,9 +92,35 @@ export function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    let active = true
+    void window.anticode.listSessions().then(async (specs) => {
+      if (!active) return
+      const store = useSessionStore.getState()
+      for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
+      for (const spec of specs) {
+        store.addExternalSession(spec)
+        const messages = await window.anticode.getSessionSnapshot(spec.sessionId)
+        if (active && messages !== null && !sessionBusy(spec.sessionId)) store.importSnapshot(spec.sessionId, messages)
+      }
+      for (const run of await window.anticode.listRuns()) {
+        if (active && !finishedRuns.current.has(run.runId) && !useSessionStore.getState().activeRuns[run.runId]) store.mirrorStart(run.runId, run.sessionId)
+      }
+    }).catch((error: Error) => setAppError(error.message))
+    const refresh = () => { void window.anticode.getStatus().then(setStatus).catch((error: Error) => setAppError(error.message)) }
+    const timer = window.setInterval(refresh, 5000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+
+  useEffect(() => {
     return window.anticode.onApprovalRequest((request) => {
       setApprovals((queue) => [...queue, request])
     })
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.anticode.onApprovalDismissed((id) => setApprovals((queue) => queue.filter((request) => request.requestId !== id)))
+    void window.anticode.pendingApprovals().then((pending) => setApprovals((queue) => [...queue, ...pending.filter((request) => !queue.some((entry) => entry.requestId === request.requestId))]))
+    return unsubscribe
   }, [])
 
   // Sessions created on the phone land in the desktop immediately, with their
@@ -106,7 +134,7 @@ export function App(): JSX.Element {
       store.addExternalSession(spec)
       if (known) return
       void window.anticode.getSessionSnapshot(spec.sessionId).then((messages) => {
-        if (messages !== null) useSessionStore.getState().importSnapshot(spec.sessionId, messages)
+        if (messages !== null && !sessionBusy(spec.sessionId)) useSessionStore.getState().importSnapshot(spec.sessionId, messages)
       })
     })
   }, [])
@@ -116,10 +144,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     return window.anticode.onSessionClosed((sessionId) => {
       const store = useSessionStore.getState()
-      const run = store.activeRun
-      if (run !== null && run.sessionId === sessionId) {
+      const run = Object.values(store.activeRuns).find((entry) => entry.sessionId === sessionId)
+      if (run !== undefined) {
         void window.anticode.cancelRun(run.runId)
-        store.setActiveRun(null)
+        store.setActiveRun(null, run.runId)
       }
       store.deleteSession(sessionId)
     })
@@ -129,27 +157,18 @@ export function App(): JSX.Element {
    * would wipe the streamed transcript and the just-typed prompt. */
   const sessionBusy = (sessionId: string): boolean => {
     const state = useSessionStore.getState()
-    if (state.activeRun?.sessionId === sessionId) return true
+    if (Object.values(state.activeRuns).some((run) => run.sessionId === sessionId)) return true
     return Object.values(state.mirrorRuns).some((entry) => entry.sessionId === sessionId)
-  }
-
-  const importWhenQuiet = (
-    sessionId: string,
-    summary?: { model: string; durationMs: number }
-  ): void => {
-    if (sessionBusy(sessionId)) return
-    void window.anticode.getSessionSnapshot(sessionId).then((messages) => {
-      if (messages !== null) useSessionStore.getState().importSnapshot(sessionId, messages)
-      if (summary !== undefined) {
-        useSessionStore.getState().stampLastSummary(sessionId, summary)
-      }
-    })
   }
 
   useEffect(() => {
     return window.anticode.onAgentEvent((event) => {
+      if (event.type === 'end' || event.type === 'error') {
+        finishedRuns.current.add(event.runId)
+        setApprovals((queue) => queue.filter((request) => request.runId !== event.runId))
+      }
       const store = useSessionStore.getState()
-      const run = store.activeRun
+      const run = store.activeRuns[event.runId]
       /** Model label for the closing summary card. */
       const modelOf = (sessionId: string): string =>
         store.sessions.find((session) => session.id === sessionId)?.model ?? ''
@@ -158,7 +177,7 @@ export function App(): JSX.Element {
         durationMs: Date.now() - startedAt
       })
 
-      if (run !== null && run.runId === event.runId) {
+      if (run !== undefined) {
         switch (event.type) {
           case 'prompt':
             break
@@ -177,17 +196,16 @@ export function App(): JSX.Element {
           case 'error':
             store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
             store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
-            store.setActiveRun(null)
+            store.setActiveRun(null, event.runId)
             break
           case 'end': {
             const pausedNow = useSessionStore.getState().pausedSessions[run.sessionId] === true
             // A deliberate pause is not a failure — no [cancelled] scar.
-            if (event.reason === 'cancelled' && pausedNow) break
-            if (event.reason !== 'complete') {
+            if (event.reason !== 'complete' && !(event.reason === 'cancelled' && pausedNow)) {
               store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
             }
             store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
-            store.setActiveRun(null)
+            store.setActiveRun(null, event.runId)
             break
           }
         }
@@ -199,6 +217,7 @@ export function App(): JSX.Element {
       switch (event.type) {
         case 'prompt':
           store.addUserPrompt(event.sessionId, event.text)
+          store.mirrorStart(event.runId, event.sessionId)
           break
         case 'text_delta':
           store.appendText(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
@@ -228,7 +247,7 @@ export function App(): JSX.Element {
             `\n${event.message}`
           )
           store.mirrorSettle(event.runId, summary)
-          importWhenQuiet(event.sessionId, summary)
+
           break
         }
         case 'end': {
@@ -236,7 +255,7 @@ export function App(): JSX.Element {
           const summary =
             entry !== undefined ? summaryOf(event.sessionId, entry.startedAt) : undefined
           store.mirrorSettle(event.runId, summary)
-          importWhenQuiet(event.sessionId, summary)
+
           break
         }
       }
@@ -267,6 +286,7 @@ export function App(): JSX.Element {
       .then(() => window.anticode.listModels(provider))
       .then(() => window.anticode.getStatus())
       .then(setStatus)
+      .catch((error: Error) => setAppError(error.message))
   }, [])
 
   const toggleAutoApprove = useCallback((enabled: boolean) => {
@@ -282,6 +302,8 @@ export function App(): JSX.Element {
 
   return (
     <div className="flex h-full flex-col">
+      {appError && <div role="alert" className="flex items-center justify-between bg-raised px-6 py-2 text-del">{appError}<button onClick={() => setAppError(null)}>Dismiss</button></div>}
+      {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
       <TabBar
         dashboardActive={view === 'dashboard'}
         onDashboard={() => setView('dashboard')}
@@ -329,14 +351,8 @@ export function App(): JSX.Element {
           ) : (
             <>
               <SessionView />
-              {pending && (
-                <ApprovalModal
-                  key={pending.requestId}
-                  request={pending}
-                  onDecide={(decision) => decide(pending.requestId, decision)}
-                />
-              )}
               <Composer
+                key={activeSessionId}
                 status={status}
                 providers={providers}
                 onSelectProvider={selectProvider}

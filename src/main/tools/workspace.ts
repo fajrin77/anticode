@@ -1,11 +1,11 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, lstatSync } from 'node:fs'
 import path from 'node:path'
 import { ToolError } from './types'
 
 function assertInside(root: string, candidate: string): void {
   const relative = path.relative(root, candidate)
   if (relative === '') return
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  if ((relative === '..' || relative.startsWith(`..${path.sep}`)) || path.isAbsolute(relative)) {
     throw new ToolError(`Access outside the workspace is denied: ${candidate}`)
   }
 }
@@ -13,6 +13,12 @@ function assertInside(root: string, candidate: string): void {
 function nearestExisting(target: string): string {
   let probe = target
   while (!existsSync(probe)) {
+    try {
+      if (lstatSync(probe).isSymbolicLink()) throw new ToolError(`Broken symlink is denied: ${probe}`)
+    } catch (error) {
+      if (error instanceof ToolError) throw error
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && (error as NodeJS.ErrnoException).code !== 'ENOTDIR') throw error
+    }
     const parent = path.dirname(probe)
     if (parent === probe) return probe
     probe = parent

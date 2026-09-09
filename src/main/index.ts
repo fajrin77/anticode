@@ -2,7 +2,8 @@ import { app, shell, BrowserWindow, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { loadEnvFile } from './config'
-import { initPersistedState } from './runtime'
+import { cancelAllRuns } from './runs'
+import { initPersistedState, persistSessions } from './runtime'
 import { restoreRemoteServer } from './remote/server'
 import { closeBrowser } from './browser'
 
@@ -83,5 +84,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  cancelAllRuns()
+  persistSessions()
   void closeBrowser()
 })

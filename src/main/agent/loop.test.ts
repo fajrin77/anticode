@@ -153,14 +153,14 @@ describe('AgentSession', () => {
       [
         turn([{ type: 'tool_use', id: 't1', name: 'run_command', input: { command: 'echo x' } }], 'tool_use'),
         turn([{ type: 'text', text: 'lanjut' }], 'end_turn')
-      ],
-      (index) => {
-        if (index === 0) controller.abort()
-      }
+      ]
     )
 
     const session = new AgentSession(provider, allowAll, 'code', root)
-    const emit = (event: AgentEvent): void => void events.push(event)
+    const emit = (event: AgentEvent): void => {
+      events.push(event)
+      if (event.type === 'usage' && event.runId === 'run-1') controller.abort()
+    }
     const base = { emit }
 
     await session.run({ ...base, runId: 'run-1', prompt: 'pertama', signal: controller.signal })
@@ -254,7 +254,8 @@ describe('AgentSession', () => {
     await writeFile(path.join(root, 'a.txt'), 'isi')
     const provider = new FakeProvider([
       turn([{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'a.txt' } }], 'tool_use'),
-      turn([{ type: 'text', text: 'ok' }], 'end_turn')
+      turn([{ type: 'text', text: 'ok' }], 'end_turn'),
+      turn([{ type: 'text', text: 'next' }], 'end_turn')
     ])
 
     const session = new AgentSession(provider, allowAll, 'code', root)
@@ -262,13 +263,13 @@ describe('AgentSession', () => {
 
     await session.run({
       runId: 'run-1',
-      prompt: 'x'.repeat(500_000),
+      prompt: 'x'.repeat(300_000),
       signal: new AbortController().signal,
       emit
     })
     await session.run({
       runId: 'run-2',
-      prompt: 'kedua',
+      prompt: 'y'.repeat(200_000),
       signal: new AbortController().signal,
       emit
     })
@@ -366,4 +367,63 @@ describe('AgentSession', () => {
     expect(calls).toBe(1)
     expect(events.at(-1)?.type).toBe('error')
   })
+})
+
+it('retains all prompt turns that still fit the context budget', async () => {
+  const provider = new FakeProvider([turn([{ type: 'text', text: 'ok' }], 'end_turn')])
+  const session = new AgentSession(provider, allowAll, 'chat', null, [
+    { role: 'user', content: [{ type: 'text', text: 'x'.repeat(400_000) }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'old' }] },
+    { role: 'user', content: [{ type: 'text', text: 'keep this prompt' }] }
+  ])
+  await session.run({ runId: 'trim', prompt: 'latest', signal: new AbortController().signal, emit: () => {} })
+  expect(provider.sent[0]?.flatMap(m => m.content).filter(b => b.type === 'text').map(b => b.text)).toEqual(['keep this prompt', 'latest'])
+})
+it('rejects simultaneous run calls before adding the second user prompt', async () => {
+  const provider = new FakeProvider([turn([{ type: 'text', text: 'ok' }], 'end_turn')])
+  const session = new AgentSession(provider, allowAll, 'chat')
+  const params = { runId: 'one', prompt: 'first', signal: new AbortController().signal, emit: () => {} }
+  const first = session.run(params)
+  await expect(session.run({ ...params, runId: 'two', prompt: 'second' })).rejects.toThrow(/already active/)
+  await first
+  expect(session.snapshot().messages.filter(m => m.role === 'user')).toHaveLength(1)
+})
+it('does not execute a write if cancellation happens during authorization', async () => {
+  const controller = new AbortController()
+  const provider = new FakeProvider([turn([{ type: 'tool_use', id: 't', name: 'write_file', input: {path: 'cancelled.txt', content: 'bad'} }], 'tool_use')])
+  const session = new AgentSession(provider, {authorize: async () => { controller.abort(); return true }}, 'code', root)
+  await session.run({ runId: 'cancel', prompt: 'write', signal: controller.signal, emit: () => {} })
+  await expect(readFile(path.join(root, 'cancelled.txt'))).rejects.toThrow()
+})
+
+it('cancels even when a provider ignores its abort signal', async () => {
+  const controller = new AbortController()
+  const provider: LLMProvider = { name: 'stalled', model: 'stalled', async *chat() {
+    yield { type: 'text_delta', text: 'partial' }
+    await new Promise(() => {})
+  } }
+  const session = new AgentSession(provider, allowAll, 'chat')
+  const events: AgentEvent[] = []
+  await session.run({ runId: 'stalled', prompt: 'start', signal: controller.signal, emit: (event) => {
+    events.push(event)
+    if (event.type === 'text_delta') controller.abort()
+  } })
+  expect(events.at(-1)).toMatchObject({type: 'end', reason: 'cancelled'})
+})
+
+it('keeps the full transcript even when replay history is trimmed', async () => {
+  const provider = new FakeProvider([turn([{type:'text',text:'ok'}], 'end_turn')])
+  const session = new AgentSession(provider, allowAll, 'chat', null, [
+    {role:'user',content:[{type:'text',text:'old'.repeat(150000)}]},
+    {role:'assistant',content:[{type:'text',text:'old answer'}]}
+  ])
+  await session.run({runId:'trim',prompt:'new prompt',signal:new AbortController().signal,emit:()=>{}})
+  expect(provider.sent[0]).toHaveLength(1)
+  expect(session.snapshot().messages).toHaveLength(4)
+})
+it('stops a single oversized prompt before calling the provider', async () => {
+  const provider = new FakeProvider([])
+  await new AgentSession(provider, allowAll, 'chat').run({runId:'huge',prompt:'x'.repeat(500000),signal:new AbortController().signal,emit:event=>events.push(event)})
+  expect(provider.sent).toHaveLength(0)
+  expect(events.at(-1)).toMatchObject({type:'error',message:expect.stringContaining('context budget')})
 })

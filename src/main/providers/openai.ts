@@ -112,6 +112,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
   private readonly maxTokensField: 'max_completion_tokens' | 'max_tokens'
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+    params.signal.throwIfAborted()
     // Some OpenAI-compatible gateways reject an empty tools array, so the key
     // is omitted entirely when there is nothing to offer (chat mode).
     const tools = params.tools.length > 0 ? toChatTools(params.tools) : undefined

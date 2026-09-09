@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { SessionMode, SessionSpec, SnapshotMessage } from '@shared/ipc'
+import { persist } from 'zustand/middleware'
+import type { AttachmentInfo, SessionMode, SessionSpec, SnapshotMessage } from '@shared/ipc'
 
 export type Role = 'user' | 'assistant'
 export type ToolStatus = 'running' | 'ok' | 'error'
@@ -73,12 +74,14 @@ export interface ActiveRun {
 }
 
 interface SessionState {
+  drafts: Record<string, { text: string; attachments: AttachmentInfo[] }>
+  updateDraft: (id: string, patch: Partial<{ text: string; attachments: AttachmentInfo[] }>) => void
   projects: Project[]
   sessions: Session[]
   /** Running totals per provider+model, kept across sessions for the dashboard. */
   usage: UsageEntry[]
   activeSessionId: string | null
-  activeRun: ActiveRun | null
+  activeRuns: Record<string, ActiveRun>
   /** Phone-initiated runs mirrored live here: runId → placeholder message. */
   mirrorRuns: Record<string, { sessionId: string; messageId: string; startedAt: number }>
   /** Sessions the user paused; their runs were stopped, resume re-prompts. */
@@ -140,7 +143,7 @@ interface SessionState {
     outputTokens: number
   ) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
-  setActiveRun: (run: ActiveRun | null) => void
+  setActiveRun: (run: ActiveRun | null, runId?: string) => void
 }
 
 function baseName(root: string): string {
@@ -191,12 +194,14 @@ function mapMessage(
   }
 }
 
-export const useSessionStore = create<SessionState>((set, get) => ({
+export const useSessionStore = create<SessionState>()(persist((set, get) => ({
+  drafts: {},
+  updateDraft: (id, patch) => set((state) => ({ drafts: { ...state.drafts, [id]: { text: '', attachments: [], ...state.drafts[id], ...patch } } })),
   projects: [],
   sessions: [],
   usage: [],
   activeSessionId: null,
-  activeRun: null,
+  activeRuns: {},
   mirrorRuns: {},
   pausedSessions: {},
   nextColour: 0,
@@ -282,6 +287,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessions: state.sessions.map((session) => {
         if (session.id !== sessionId) return session
         const converted: Message[] = []
+        const results = new Map(messages.flatMap((message) => message.blocks.filter((block) => block.type === 'tool_result').map((block) => [block.toolUseId, block] as const)))
         for (const message of messages) {
           const parts: MessagePart[] = []
           for (const block of message.blocks) {
@@ -293,21 +299,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                 toolUseId: block.id,
                 name: block.name,
                 input: block.input,
-                status: 'ok',
-                output: ''
+                status: results.get(block.id)?.isError ? 'error' : results.has(block.id) ? 'ok' : 'error',
+                output: results.get(block.id)?.content ?? 'Interrupted before a result was recorded.'
               })
-            } else {
-              for (let i = parts.length - 1; i >= 0; i--) {
-                const part = parts[i]
-                if (part === undefined) continue
-                if (part.kind === 'tool' && part.toolUseId === block.toolUseId) {
-                  part.output = block.content
-                  part.status = block.isError ? 'error' : 'ok'
-                  break
-                }
-              }
             }
           }
+          if (parts.length === 0) continue
           converted.push({
             id: crypto.randomUUID(),
             role: message.role,
@@ -315,7 +312,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             pending: false
           })
         }
-        return { ...session, messages: converted }
+        const firstPrompt = converted.find((message) => message.role === 'user')?.parts.find((part) => part.kind === 'text')?.text
+        return { ...session, messages: converted, title: session.mode === 'chat' && firstPrompt ? firstPrompt.slice(0, 60) : session.title }
       })
     })),
 
@@ -393,7 +391,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         state.activeSessionId === id
           ? (remaining.filter((session) => !session.closed).at(-1)?.id ?? null)
           : state.activeSessionId
-      return { sessions: remaining, activeSessionId }
+      return { sessions: remaining, activeSessionId,
+        activeRuns: Object.fromEntries(Object.entries(state.activeRuns).filter(([, run]) => run.sessionId !== id)),
+        mirrorRuns: Object.fromEntries(Object.entries(state.mirrorRuns).filter(([, run]) => run.sessionId !== id))
+      }
     }),
 
   // Closing a tab archives the session instead of deleting it, and lands on
@@ -512,7 +513,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }))
     })),
 
-  setActiveRun: (run) => set({ activeRun: run }),
+  setActiveRun: (run, runId) => set((state) => {
+    const activeRuns = { ...state.activeRuns }
+    if (run) activeRuns[run.runId] = run
+    else if (runId) delete activeRuns[runId]
+    return { activeRuns }
+  }),
 
   addUserPrompt: (sessionId, text) =>
     set((state) => ({
@@ -547,6 +553,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       delete paused[sessionId]
       return { pausedSessions: paused }
     })
+}), {
+  name: 'anticode-session-metadata',
+  partialize: (state) => ({ drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, nextColour: state.nextColour,
+    sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 
 export function useActiveSession(): Session | undefined {
@@ -556,7 +566,7 @@ export function useActiveSession(): Session | undefined {
 }
 
 // Debugging hook: lets CDP inspect the live session state in packaged builds.
-window.__store = useSessionStore
+if (typeof window !== 'undefined') window.__store = useSessionStore
 
 /**
  * Ordered glass gradients for session badges. Sessions take the next entry on

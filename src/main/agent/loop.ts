@@ -1,3 +1,5 @@
+import { closeBrowser } from '../browser'
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
@@ -62,7 +64,7 @@ function isTransient(error: unknown): boolean {
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
+    const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
     const onAbort = (): void => {
       clearTimeout(timer)
       reject(new Error('dibatalkan'))
@@ -93,6 +95,8 @@ function blockCost(block: ContentBlock): number {
 
 export class AgentSession {
   private readonly history: Message[] = []
+  private readonly transcript: Message[] = []
+  private running = false
   private readonly byName = new Map<string, Tool>(tools.map((tool) => [tool.name, tool]))
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
@@ -102,27 +106,43 @@ export class AgentSession {
     private readonly provider: LLMProvider,
     private readonly gate: ApprovalGate,
     private readonly mode: SessionMode = 'code',
-    private readonly workspaceRoot: string | null = null
-  ) {}
+    private readonly workspaceRoot: string | null = null,
+    initialHistory: Message[] = [],
+    private readonly scope: string = randomUUID()
+  ) {
+    this.history.push(...structuredClone(initialHistory))
+    this.transcript.push(...this.history)
+    this.sealPendingToolUses()
+  }
 
   async run(params: RunParams): Promise<void> {
+    if (this.running) throw new Error('A run is already active in this session')
+    this.running = true
+    try { await this.runExclusive(params) } finally { this.running = false }
+  }
+
+  private async runExclusive(params: RunParams): Promise<void> {
     const { runId, prompt, signal, emit } = params
     // A cancelled previous run may have left images behind; never leak them
     // into this turn's history.
     this.pendingImages = []
-    this.history.push({
+    this.record({
       role: 'user',
       content: [...(params.attachments ?? []), { type: 'text', text: prompt }]
     })
 
+    let usedTokens = 0
     try {
-      for (;;) {
+      for (let step = 0; ; step++) {
+        if (usedTokens >= 2_000_000) throw new Error('Run paused after 2 million total tokens. Send a continuation to proceed.')
+        if (step >= 100) throw new Error('Run paused after 100 model turns. Send a continuation to proceed.')
         if (signal.aborted) break
 
         this.condenseHistory()
         this.trimHistory()
         const response = await this.requestTurn(params)
-        this.history.push({ role: 'assistant', content: response.content })
+        usedTokens += response.usage.inputTokens + response.usage.outputTokens
+        this.record({ role: 'assistant', content: response.content })
         emit({
           type: 'usage',
           runId,
@@ -132,6 +152,7 @@ export class AgentSession {
           outputTokens: response.usage.outputTokens
         })
 
+        if (signal.aborted) break
         if (response.stopReason !== 'tool_use') {
           emit({
             type: 'end',
@@ -147,7 +168,7 @@ export class AgentSession {
 
         const calls = response.content.filter(isToolUse)
         const results = await this.executeCalls(calls, params)
-        this.history.push({ role: 'user', content: [...results, ...this.pendingImages] })
+        this.record({ role: 'user', content: [...results, ...this.pendingImages] })
         this.pendingImages = []
       }
     } catch (error) {
@@ -180,19 +201,30 @@ export class AgentSession {
   private async streamTurn(params: RunParams): Promise<LLMResponse> {
     let response: LLMResponse | null = null
 
-    for await (const event of this.provider.chat({
-      system: this.systemPrompt(),
-      messages: this.history,
-      // Chat mode is offered no tools at all, so the model cannot reach the disk.
+    const iterator = this.provider.chat({
+      system: this.systemPrompt(), messages: this.history,
       tools: this.mode === 'code' ? toolDefinitions() : [],
-      maxTokens: MAX_TOKENS,
-      signal: params.signal
-    })) {
-      if (event.type === 'text_delta') {
-        params.emit({ type: 'text_delta', runId: params.runId, text: event.text })
-      } else {
-        response = event.response
+      maxTokens: MAX_TOKENS, signal: params.signal
+    })[Symbol.asyncIterator]()
+    let rejectAbort: (reason: unknown) => void = () => {}
+    const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
+    const onAbort = (): void => rejectAbort(new Error('Cancelled by the user'))
+    params.signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      params.signal.throwIfAborted()
+      for (;;) {
+        const next = await Promise.race([iterator.next(), cancelled])
+        if (next.done) break
+        params.signal.throwIfAborted()
+        const event = next.value
+        if (event.type === 'text_delta') params.emit({ type: 'text_delta', runId: params.runId, text: event.text })
+        else response = event.response
       }
+    } finally {
+      params.signal.removeEventListener('abort', onAbort)
+      // Some SDK iterators do not settle next() promptly on abort. Do not make
+      // stopping the run depend on their iterator.return() finishing first.
+      void iterator.return?.().catch(() => undefined)
     }
 
     if (!response) throw new Error('Provider returned no response')
@@ -253,12 +285,13 @@ export class AgentSession {
         message.role === 'user' && !message.content.some((block) => block.type === 'tool_result')
       if (!isPlainUserPrompt) continue
       const suffix = suffixCosts[i]
-      if (suffix !== undefined && suffix <= MAX_HISTORY_TOKENS) cut = i
+      if (suffix !== undefined && suffix <= MAX_HISTORY_TOKENS) { cut = i; break }
     }
 
-    // Nothing fits (one turn alone is over budget): keep the newest prompt and
-    // let the provider speak for itself rather than sending an empty history.
-    if (cut <= 0) return
+    // Do not repeatedly send an oversized single turn to the provider. A new
+    // user prompt supplies a safe boundary for the next continuation.
+    if (cut < 0) throw new Error('This turn exceeds the context budget. Send a shorter continuation or start a new session.')
+    if (cut === 0) return
     this.history.splice(0, cut)
   }
 
@@ -286,6 +319,7 @@ export class AgentSession {
     const { runId, emit } = params
     emit({ type: 'tool_start', runId, toolUseId: call.id, name: call.name, input: call.input })
 
+    if (params.signal.aborted) return this.finishCall(params, call.id, 'Cancelled by the user.', true)
     const tool = this.byName.get(call.name)
     if (!tool) {
       return this.finishCall(params, call.id, `Unknown tool: ${call.name}`, true)
@@ -294,13 +328,14 @@ export class AgentSession {
     if (this.workspaceRoot === null) {
       return this.finishCall(params, call.id, 'This session has no file access.', true)
     }
-    const context = { workspaceRoot: this.workspaceRoot, signal: params.signal }
+    const context = { workspaceRoot: this.workspaceRoot, signal: params.signal, sessionId: this.scope }
 
     try {
       const prepared = tool.prepare(call.input)
 
       const approved = await this.gate.authorize({
         runId,
+        sessionId: this.scope,
         toolName: tool.name,
         risk: prepared.risk,
         preview: () => prepared.preview(context),
@@ -310,6 +345,7 @@ export class AgentSession {
         return this.finishCall(params, call.id, 'Rejected by the user.', true, true)
       }
 
+      params.signal.throwIfAborted()
       const output = await prepared.execute(context)
       this.pendingImages.push(
         ...output.images.map((image) => ({
@@ -318,7 +354,7 @@ export class AgentSession {
           data: image.data
         }))
       )
-      return this.finishCall(params, call.id, truncate(output.text), false)
+      return this.finishCall(params, call.id, truncate(output.text), output.isError === true)
     } catch (error) {
       return this.finishCall(params, call.id, describeError(error), true)
     }
@@ -354,7 +390,7 @@ export class AgentSession {
     const pending = last.content.filter(isToolUse)
     if (pending.length === 0) return
 
-    this.history.push({
+    this.record({
       role: 'user',
       content: pending.map((block) => ({
         type: 'tool_result' as const,
@@ -387,9 +423,19 @@ export class AgentSession {
     return this.projectInstructions
   }
 
+  get title(): string {
+    return this.transcript.find((message) => message.role === 'user')?.content.find((block) => block.type === 'text')?.text.slice(0, 60) ?? 'New session'
+  }
+
+  get messageCount(): number { return this.transcript.length }
+
+  private record(message: Message): void { this.history.push(message); this.transcript.push(message) }
+
+  dispose(): void { void closeBrowser(this.scope) }
+
   /** A copy of the replayed history, for the remote API and dashboards. */
   snapshot(): { messages: Message[] } {
-    return { messages: structuredClone(this.history) }
+    return { messages: structuredClone(this.transcript) }
   }
 
   private systemPrompt(): string {

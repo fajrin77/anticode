@@ -1,5 +1,7 @@
 # anticode
 
+Versi **0.0.2** memperbaiki kontrol run desktop/HP, approval, konteks, browser per sesi, persistence, dan editor remote. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, dan `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong.
+
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
 Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh satu tool termasuk Excel,
@@ -103,9 +105,8 @@ dibungkus envelope `{"data": {...}}`, sedangkan chunk streaming-nya justru bentu
 Adapter ini memakai streaming, jadi tidak terpengaruh.
 
 Ollama dan Clinepass memakai adapter yang sama dengan OpenAI karena keduanya bicara format
-`/v1/chat/completions`. Berganti provider mengosongkan riwayat percakapan: id tool call dan bentuk
-pesan bersifat spesifik per provider, dan memutar ulang giliran yang setengah jadi dari satu provider
-ke provider lain bukan sesuatu yang bisa dijamin aman.
+`/v1/chat/completions`. Pergantian provider/model dilakukan di antara run dan mempertahankan
+percakapan yang sudah selesai. Adapter menerjemahkan blok pesan sesuai format provider tujuan.
 
 ## Tool dan tier risiko
 
@@ -198,8 +199,8 @@ src/
 
 ## Browser
 
-Tool browser memakai satu Chromium headless dan satu halaman untuk seluruh app; agent memang bekerja
-di satu halaman pada satu waktu. Chromium-nya diunduh terpisah:
+Tool browser memakai Chromium headless dengan context dan halaman terpisah per sesi, sehingga
+navigasi pada satu sesi tidak mengganti halaman sesi lain. Chromium-nya diunduh terpisah:
 
 ```bash
 npx playwright install chromium
@@ -289,7 +290,7 @@ yang jauh lebih kecil.
 
 ## Yang sudah dan belum diuji
 
-Sudah, otomatis: 86 test mencakup kedua puluh tool, penjagaan batas workspace termasuk lolos-symlink,
+Sudah, otomatis: 122 test mencakup kedua puluh tool, penjagaan batas workspace termasuk lolos-symlink,
 pembuatan skema, deteksi perintah destruktif, aturan tier risiko, attachment handler (kompresi
 gambar, transparansi, batas ukuran, berkas di luar workspace), tool browser terhadap server HTTP
 lokal (navigasi, ekstraksi teks, klik, isi form, catatan network, screenshot), serta agent loop lewat provider
@@ -323,4 +324,4 @@ akan menurunkan exceljs ke 3.x yang breaking, jadi sengaja tidak dilakukan.
 
 **Fase 5 — Computer use.** Screenshot layar penuh dan kontrol mouse/keyboard, dijalankan terisolasi.
 
-Fase 6 persistence + MCP. Sampai fase itu, daftar project dan sesi hilang saat app ditutup.
+Persistence sesi tersedia sejak 0.0.2: transcript tersimpan di direktori data aplikasi dan dipulihkan saat restart. Integrasi MCP masih menjadi pekerjaan berikutnya.

@@ -123,3 +123,14 @@ describe('browser tools', () => {
     expect(browserFillTool.prepare({ selector: '#nama', value: 'x' }).risk).toBe('medium')
   })
 })
+
+it('isolates browser pages and navigation between sessions', async () => {
+  const a = { ...context, sessionId: 'a' }, b = { ...context, sessionId: 'b' }
+  await Promise.all([
+    browserNavigateTool.prepare({ url: origin }).execute(a),
+    browserNavigateTool.prepare({ url: origin }).execute(b)
+  ])
+  await browserClickTool.prepare({ selector: '#tombol' }).execute(a)
+  expect((await browserGetTextTool.prepare({ selector: '#judul' }).execute(a)).text).toBe('Sudah diklik')
+  expect((await browserGetTextTool.prepare({ selector: '#judul' }).execute(b)).text).toBe('Halaman Uji')
+})

@@ -410,6 +410,7 @@ function Remote(): JSX.Element {
   return (
     <>
       <h1 className="mb-6 text-[19px] text-text">Remote</h1>
+      {remote?.error && <p role="alert" className="mb-4 text-del">{remote.error}</p>}
 
       <div className="overflow-hidden rounded-xl border border-line">
         <SettingRow

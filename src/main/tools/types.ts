@@ -4,6 +4,7 @@ import type { RiskTier, ToolPreview } from '@shared/ipc'
 export class ToolError extends Error {}
 
 export interface ToolContext {
+  sessionId?: string
   workspaceRoot: string
   signal: AbortSignal
 }
@@ -18,6 +19,7 @@ export interface ToolImage {
  * text-only — so the loop appends them to the same user turn instead.
  */
 export interface ToolOutput {
+  isError?: boolean
   text: string
   images: ToolImage[]
 }
@@ -88,6 +90,7 @@ export function defineTool<S extends z.ZodType>(spec: ToolSpec<S>): Tool {
             ? spec.preview(input, context)
             : { kind: 'text', subject: spec.name, detail: JSON.stringify(input, null, 2) },
         execute: async (context) => {
+          context.signal.throwIfAborted()
           const result = await spec.execute(input, context)
           return typeof result === 'string' ? { text: result, images: [] } : result
         }

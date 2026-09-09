@@ -164,7 +164,7 @@ const STAT_PATTERN = /\(\+(\d+)(?:\s*-\s*(\d+))?\)/
 function fileStats(parts: MessagePart[]): FileStat[] {
   const files = new Map<string, FileStat>()
   for (const part of parts) {
-    if (part.kind !== 'tool') continue
+    if (part.kind !== 'tool' || part.status !== 'ok') continue
     if (!['edit_file', 'write_file', 'delete_file'].includes(part.name)) continue
     const path =
       part.input !== null &&

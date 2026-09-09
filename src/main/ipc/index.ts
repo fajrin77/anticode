@@ -1,4 +1,6 @@
+import { beginRun, finishRun, cancelRun, runForSession, hasRuns, listActiveRuns } from '../runs'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import path from 'node:path'
 import { stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { IpcChannel } from '@shared/ipc'
@@ -16,11 +18,14 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import {
-  closeSession,
+  deleteSession,
   createSession,
   getSession,
+  persistSessions,
   getStatus,
   listModels,
+  listSessionSpecs,
+  sessionWorkspaceRoot,
   loadSessionMessages,
   policy,
   resetProviderSelection,
@@ -36,17 +41,17 @@ import { AttachmentError, prepareAttachment, toContentBlocks } from '../attachme
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
 import { forgetRun, forward, registerRun } from '../remote/bus'
-import { getRemoteStatus, hasRemoteRun, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
+import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
 
-const activeRuns = new Map<string, AbortController>()
-const activeRunSessions = new Map<string, string>()
 const attachments = new Map<string, AttachmentInfo>()
 
 let lastSender: WebContents | null = null
 
-const approvals = new ApprovalCoordinator(policy, () => lastSender)
+const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSender.isDestroyed() ? lastSender : BrowserWindow.getAllWindows()[0]?.webContents ?? null, (requestId) => {
+  for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IpcChannel.APPROVAL_DISMISSED, requestId)
+})
 
 /** The remote server reuses the same gate and targets the desktop window. */
 export { approvals }
@@ -61,6 +66,10 @@ function emit(event: AgentEvent, sessionId: string): void {
 }
 
 export function registerIpcHandlers(): void {
+  ipcMain.handle(IpcChannel.RUN_LIST, () => listActiveRuns())
+  ipcMain.handle(IpcChannel.ATTACH_RELEASE, (_event, ids: string[]) => { for (const id of ids) attachments.delete(id) })
+  ipcMain.handle(IpcChannel.APPROVAL_PENDING, () => approvals.listPending())
+  ipcMain.handle(IpcChannel.SESSION_LIST, () => listSessionSpecs())
   ipcMain.handle(
     IpcChannel.APP_INFO,
     (): AppInfo => ({
@@ -112,6 +121,7 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(IpcChannel.PROVIDER_REMOVE, (_event, id: string): ProviderInfo[] => {
+    if (hasRuns()) throw new Error('Wait for running sessions to finish before removing a provider')
     removeCustomProvider(id)
     if (getStatus().provider === id) resetProviderSelection()
     return listProviders()
@@ -154,14 +164,8 @@ export function registerIpcHandlers(): void {
     const prepared = settled
       .filter((entry): entry is PromiseFulfilledResult<AttachmentInfo> => entry.status === 'fulfilled')
       .map((entry) => entry.value)
+    if (failures.length > 0) throw new AttachmentError(failures.join('\n'))
     for (const item of prepared) attachments.set(item.id, item)
-
-    if (failures.length > 0) {
-      if (prepared.length === 0) throw new AttachmentError(failures.join('\n'))
-      throw new AttachmentError(
-        `${prepared.length} attached, ${failures.length} failed:\n${failures.join('\n')}`
-      )
-    }
     return prepared
   }
 
@@ -202,7 +206,7 @@ export function registerIpcHandlers(): void {
 
   setRunningProbe(
     (sessionId) =>
-      [...activeRunSessions.values()].includes(sessionId) || hasRemoteRun(sessionId)
+      runForSession(sessionId) !== null
   )
 
   setOnSessionClosed((sessionId) => {
@@ -214,49 +218,19 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.SESSION_CLOSE, (_event, sessionId: string): void => {
-    closeSession(sessionId)
+    deleteSession(sessionId)
   })
 
   ipcMain.handle(IpcChannel.AGENT_SEND, (event, req: AgentRequest): void => {
     lastSender = event.sender
-
-    // Events only travel through the bus, so the run must be registered even
-    // when the send is refused — the error has to reach the windows.
-    registerRun(req.runId, req.sessionId)
-
-    // Two interleaved runs would corrupt one agent's replayed history.
-    for (const [runId, owner] of activeRunSessions) {
-      if (owner === req.sessionId && runId !== req.runId) {
-        emit(
-          { type: 'error', runId: req.runId, message: 'A run is already active in this session' },
-          req.sessionId
-        )
-        forgetRun(req.runId)
-        return
-      }
-    }
-
-    // Surface the prompt instantly on every viewer, before any model call.
-    emit({ type: 'prompt', runId: req.runId, text: req.prompt }, req.sessionId)
+    if (typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > 200_000 || !Array.isArray(req.attachmentIds)) throw new Error('Enter a prompt of at most 200,000 characters')
 
     const status = getStatus()
-    if (!status.providerReady) {
-      // The send is refused before any run starts; releasing the attachments
-      // here keeps them from leaking — the renderer has already dropped them.
-      for (const id of req.attachmentIds) attachments.delete(id)
-      emit({
-        type: 'error',
-        runId: req.runId,
-        message: status.blockedReason ?? 'Agent is not ready'
-      }, req.sessionId)
-      forgetRun(req.runId)
-      return
-    }
-
-    if (activeRuns.has(req.runId)) return
-    const controller = new AbortController()
-    activeRuns.set(req.runId, controller)
-    activeRunSessions.set(req.runId, req.sessionId)
+    if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+    const agent = getSession(req.sessionId, approvals)
+    const controller = beginRun(req.runId, req.sessionId)
+    registerRun(req.runId, req.sessionId)
+    emit({ type: 'prompt', runId: req.runId, text: req.prompt }, req.sessionId)
 
     void (async () => {
       try {
@@ -264,10 +238,14 @@ export function registerIpcHandlers(): void {
           req.attachmentIds
             .map((id) => attachments.get(id))
             .filter((item): item is AttachmentInfo => item !== undefined)
-            .map(toContentBlocks)
+            .map((item) => {
+              const root = sessionWorkspaceRoot(req.sessionId)
+              const relative = root === null ? null : path.relative(root, item.path)
+              return toContentBlocks({ ...item, workspacePath: relative !== null && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? relative : null })
+            })
         )
 
-        await getSession(req.sessionId, approvals).run({
+        await agent.run({
           runId: req.runId,
           prompt: req.prompt,
           signal: controller.signal,
@@ -279,13 +257,13 @@ export function registerIpcHandlers(): void {
       } finally {
         for (const id of req.attachmentIds) attachments.delete(id)
         forgetRun(req.runId)
-        activeRuns.delete(req.runId)
-        activeRunSessions.delete(req.runId)
+        finishRun(req.runId)
+        persistSessions()
       }
     })()
   })
 
   ipcMain.handle(IpcChannel.AGENT_CANCEL, (_event, runId: string): void => {
-    activeRuns.get(runId)?.abort()
+    cancelRun(runId)
   })
 }

@@ -1,6 +1,7 @@
 import type { RiskTier, ToolPreview } from '@shared/ipc'
 
 export interface AuthorizeRequest {
+  sessionId?: string
   runId: string
   toolName: string
   risk: RiskTier

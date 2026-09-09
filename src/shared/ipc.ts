@@ -7,13 +7,18 @@ export const IpcChannel = {
   PROVIDER_SELECT: 'provider:select',
   PROVIDER_MODELS: 'provider:models',
   POLICY_SET: 'policy:set',
+  SESSION_LIST: 'session:list',
   SESSION_CREATE: 'session:create',
   SESSION_CLOSE: 'session:close',
   ATTACH_CHOOSE: 'attachment:choose',
   ATTACH_ADD: 'attachment:add',
+  RUN_LIST: 'agent:runs',
   AGENT_SEND: 'agent:send',
   AGENT_CANCEL: 'agent:cancel',
   AGENT_EVENT: 'agent:event',
+  APPROVAL_DISMISSED: 'approval:dismissed',
+  APPROVAL_PENDING: 'approval:pending',
+  ATTACH_RELEASE: 'attachment:release',
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_RESPOND: 'approval:respond',
   PROVIDER_ADD: 'provider:add',
@@ -212,6 +217,11 @@ export interface AnticodeApi {
   /** Fires when a session is deleted from the remote phone. */
   onSessionClosed: (listener: (sessionId: string) => void) => () => void
   getSessionSnapshot: (sessionId: string) => Promise<SnapshotMessage[] | null>
+  listSessions: () => Promise<SessionSpec[]>
+  releaseAttachments: (ids: string[]) => Promise<void>
+  pendingApprovals: () => Promise<ApprovalRequest[]>
+  onApprovalDismissed: (listener: (requestId: string) => void) => () => void
+  listRuns: () => Promise<{ runId: string; sessionId: string; startedAt: number }[]>
   getAppInfo: () => Promise<AppInfo>
   getStatus: () => Promise<SessionStatus>
   chooseWorkspace: () => Promise<SessionStatus>

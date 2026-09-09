@@ -68,7 +68,6 @@ function DashboardComposer({
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
 
-  const activeRun = useSessionStore((state) => state.activeRun)
   const openSession = useSessionStore((state) => state.openSession)
   const addMessage = useSessionStore((state) => state.addMessage)
   const setActiveRun = useSessionStore((state) => state.setActiveRun)
@@ -125,11 +124,7 @@ function DashboardComposer({
     // This is the moment the session comes into existence — bound straight to
     // the mode and folder chosen here.
     const sessionId = openSession(mode, folder)
-    void window.anticode.createSession({
-      sessionId,
-      mode,
-      workspaceRoot: mode === 'code' ? folder : null
-    })
+
 
     setDraft('')
     setAttached([])
@@ -145,13 +140,14 @@ function DashboardComposer({
     setActiveRun({ runId, messageId, sessionId, startedAt: Date.now() })
 
     try {
+      await window.anticode.createSession({ sessionId, mode, workspaceRoot: mode === 'code' ? folder : null })
       await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the hero.
       setError((failure as Error).message)
+      useSessionStore.getState().appendText(sessionId, messageId, (failure as Error).message)
       useSessionStore.getState().settleMessage(messageId)
-      const run = useSessionStore.getState().activeRun
-      if (run !== null && run.runId === runId) setActiveRun(null)
+      setActiveRun(null, runId)
     } finally {
       setSending(false)
     }
@@ -172,7 +168,7 @@ function DashboardComposer({
                 <span className="max-w-48 truncate font-mono">{item.name}</span>
                 <button
                   type="button"
-                  onClick={() => setAttached((c) => c.filter((a) => a.id !== item.id))}
+                  onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
                   className="text-faint hover:text-text"
                 >
                   ×
@@ -232,7 +228,7 @@ function DashboardComposer({
             placeholder="Describe the task…"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 void send()
               }
@@ -264,8 +260,8 @@ function DashboardComposer({
 
             <button
               type="button"
-              onClick={() => void (sending ? window.anticode.cancelRun(activeRun?.runId ?? '') : send())}
-              disabled={sending && activeRun === null}
+              onClick={() => void send()}
+              disabled={sending}
               aria-label={sending ? 'Sending' : 'Send'}
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] disabled:cursor-not-allowed disabled:text-faint"
             >
@@ -388,16 +384,13 @@ export function NewSessionView({
   const [query, setQuery] = useState('')
   const sessions = useSessionStore((state) => state.sessions)
   const deleteSession = useSessionStore((state) => state.deleteSession)
-  const activeRun = useSessionStore((state) => state.activeRun)
+  const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
 
   // Deleting wipes the session everywhere: cancel its run if one is live,
   // free the main-process side, then drop it from the store.
   function removeSession(id: string): void {
-    const run = useSessionStore.getState().activeRun
-    if (run !== null && run.sessionId === id) {
-      void window.anticode.cancelRun(run.runId)
-    }
+    for (const run of Object.values(activeRuns)) if (run.sessionId === id) void window.anticode.cancelRun(run.runId)
     void window.anticode.closeSession(id)
     deleteSession(id)
   }
@@ -412,7 +405,7 @@ export function NewSessionView({
   const chatSessions = listed.filter((item) => item.mode === 'chat')
   const codeSessions = listed.filter((item) => item.mode === 'code')
   const runningIds = new Set<string>([
-    ...(activeRun !== null ? [activeRun.sessionId] : []),
+    ...Object.values(activeRuns).map((run) => run.sessionId),
     ...Object.values(mirrorRuns).map((entry) => entry.sessionId)
   ])
 

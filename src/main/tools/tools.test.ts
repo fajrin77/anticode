@@ -188,3 +188,24 @@ describe('run_command', () => {
     expect(elapsed).toBeLessThan(5_000)
   })
 })
+
+it('rejects writing through a dangling symlink to an outside file', async () => {
+  const outside = path.join(path.dirname(root), `outside-${path.basename(root)}.txt`)
+  await symlink(outside, path.join(root, 'link.txt'))
+  await expect(writeFileTool.prepare({path: 'link.txt', content: 'escape'}).execute(context)).rejects.toThrow(/symlink/)
+  await expect(readFile(outside)).rejects.toThrow()
+})
+it('permits ordinary names beginning with two dots', () => {
+  expect(resolveInWorkspace(root, '..config')).toBe(path.join(root, '..config'))
+})
+
+it('marks a nonzero command exit as a tool failure', async () => {
+  const output = await runCommandTool.prepare({command: 'exit 7'}).execute(context)
+  expect(output.isError).toBe(true)
+  expect(output.text).toContain('exit code 7')
+})
+it('caps command output while reporting truncation', async () => {
+  const output = await runCommandTool.prepare({command: 'node -e "process.stdout.write(\'x\'.repeat(200000))"'}).execute(context)
+  expect(output.text.length).toBeLessThan(11000)
+  expect(output.text).toContain('truncated')
+})

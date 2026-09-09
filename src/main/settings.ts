@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import path from 'node:path'
 
 export interface RemoteSettings {
@@ -34,7 +34,9 @@ export function loadPersistedSettings(): PersistedSettings {
 export function savePersistedSettings(patch: PersistedSettings): void {
   cache = { ...loadPersistedSettings(), ...patch }
   try {
-    writeFileSync(file(), JSON.stringify(cache, null, 2), { mode: 0o600 })
+    mkdirSync(path.dirname(file()), { recursive: true })
+    writeFileSync(`${file()}.tmp`, JSON.stringify(cache, null, 2), { mode: 0o600 })
+    renameSync(`${file()}.tmp`, file())
   } catch {
     // Persistence is best-effort; the app works with defaults without it.
   }

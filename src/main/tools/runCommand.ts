@@ -17,7 +17,7 @@ interface CommandOutcome {
 function collect(chunks: string[], limit: number): string {
   const joined = chunks.join('')
   return joined.length > limit
-    ? `${joined.slice(0, limit)}\n… output truncated (${joined.length} characters total)`
+    ? `${joined.slice(0, limit)}\n… output truncated (at least ${joined.length} characters)`
     : joined
 }
 
@@ -33,6 +33,7 @@ function execute(
   signal: AbortSignal
 ): Promise<CommandOutcome> {
   return new Promise((resolve, reject) => {
+    signal.throwIfAborted()
     const child = spawn(command, {
       shell: true,
       cwd,
@@ -63,8 +64,17 @@ function execute(
 
     const stdout: string[] = []
     const stderr: string[] = []
-    child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk.toString('utf8')))
-    child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString('utf8')))
+    const capture = (chunks: string[]) => {
+      let count = 0
+      return (chunk: Buffer): void => {
+        if (count >= MAX_STREAM_CHARS + 1) return
+        const text = chunk.toString('utf8').slice(0, MAX_STREAM_CHARS + 1 - count)
+        count += text.length
+        chunks.push(text)
+      }
+    }
+    child.stdout?.on('data', capture(stdout))
+    child.stderr?.on('data', capture(stderr))
 
     // A backgrounded grandchild (dev servers, watchers) inherits the shell's
     // stdio pipes and can hold them open long after the shell itself is gone,
@@ -151,6 +161,6 @@ export const runCommandTool = defineTool({
     if (outcome.stdout.trim() === '' && outcome.stderr.trim() === '') {
       sections.push('(no output)')
     }
-    return sections.join('\n')
+    return { text: sections.join('\n'), images: [], isError: outcome.code !== 0 || outcome.timedOut || context.signal.aborted }
   }
 })

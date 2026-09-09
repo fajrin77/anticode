@@ -174,10 +174,11 @@
   </button>
 </header>
 <div id="menuDrop" class="hidden">
-  <div class="mrow" onclick="gotoNew()">New session</div>
-  <div class="mrow" onclick="gotoSessions()">Sessions</div>
-  <div class="mrow" onclick="gotoFiles()">Files</div>
+  <button class="mrow" onclick="gotoNew()">New session</button>
+  <button class="mrow" onclick="gotoSessions()">Sessions</button>
+  <button class="mrow" onclick="gotoFiles()">Files</button>
 </div>
+<div id="errorBanner" role="alert" class="hidden" style="margin:12px 16px;padding:12px;border:1px solid #945050;border-radius:8px;color:#f3aaaa;overflow-wrap:anywhere"><span id="errorMessage"></span><button style="margin-left:10px" onclick="document.getElementById('errorBanner').classList.add('hidden')">Dismiss</button></div>
 <main>
   <section id="viewChat">
     <div id="dashboard">
@@ -187,8 +188,11 @@
           <button id="modeCode" class="on" onclick="setMode('code')">anticode</button>
           <button id="modeChat" onclick="setMode('chat')">antichat</button>
         </div>
-        <input class="path hidden" id="folderInput" placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
-        <select class="wide" id="modelSelect" onchange="pickModel(this.value)"></select>
+        <input class="path" id="folderInput" placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
+        <select class="wide" id="providerSelect" aria-label="Provider" onchange="pickProvider(this.value)"></select>
+        <select class="wide" id="modelSelect" aria-label="Model" onchange="pickModel(this.value)"></select>
+        <input class="path" id="customModelId" placeholder="Custom model ID (optional)" />
+        <button onclick="applyCustomModel()">Use model ID</button>
         <div class="actions" style="margin-bottom:0">
           <button onclick="startSession()">Start</button>
         </div>
@@ -206,10 +210,10 @@
       <div class="crumb" id="crumb">/</div>
       <div class="actions">
         <button onclick="upDir()">Up</button>
-        <button id="saveBtn" onclick="saveFile()" disabled>Save</button>
-        <button id="gitStatusBtn" onclick="gitAction('status')">Git status</button>
-        <button id="gitCommitBtn" onclick="gitAction('commit')">Commit</button>
-        <button id="gitPushBtn" onclick="gitAction('push')">Push</button>
+        <button id="saveBtn" onclick="saveFile().catch(showError)" disabled>Save</button>
+        <button id="gitStatusBtn" onclick="gitAction('status').catch(showError)">Git status</button>
+        <button id="gitCommitBtn" onclick="gitAction('commit').catch(showError)">Commit</button>
+        <button id="gitPushBtn" onclick="gitAction('push').catch(showError)">Push</button>
       </div>
       <div class="crumb hidden" id="gitOut" style="max-height:150px;overflow:auto"></div>
       <textarea class="editor hidden" id="editor" spellcheck="false"></textarea>
@@ -217,6 +221,7 @@
     </div>
   </section>
 </main>
+<div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:90px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
 <div class="composer hidden" id="inputRow">
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
   <button id="sendBtn" onclick="onSendBtn()">↑</button>
@@ -226,20 +231,70 @@ const token = new URLSearchParams(location.search).get('token') || '';
 const api = (path, options) => fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + token, options);
 const jfetch = (path, options) => api(path, options).then(async (r) => {
   const body = await r.json();
-  if (!r.ok) throw new Error(body.error || r.status);
+  if (!r.ok) {
+    if (r.status === 401) {
+      stopOverviewPolling();
+      eventSource?.close(); eventSource = null; currentRunId = null;
+      throw new Error('Pairing expired. Open the current pairing link from desktop Settings → Remote.');
+    }
+    throw new Error(body.error || r.status);
+  }
   return body;
 });
 let currentSession = null;
 let currentRunId = null;
+let submitting = false;
+let streamReady = null;
+let sessionEventVersion = 0;
+let openedSessionId = null;
+let fileVersion = null;
+let savedContent = '';
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showError(error) {
+  document.getElementById('errorMessage').textContent = error?.message || String(error);
+  document.getElementById('errorBanner').classList.remove('hidden');
+}
 let eventSource = null;
 const pausedSessions = new Set();
 let currentPath = '.';
 let openedFile = null;
 let folderReady = false;
+let creatingSession = false;
 let phoneMode = 'code';
 let modelInfo = null;
 let overviewTimer = null;
 let lastSessions = [];
+
+let approvalRequestId = null;
+async function pollApprovals() {
+  const panel = document.getElementById('approvalPanel');
+  if (!currentSession) { panel.classList.add('hidden'); approvalRequestId = null; return; }
+  const id = currentSession;
+  try {
+    const { requests } = await jfetch('/api/approvals?sessionId=' + encodeURIComponent(id));
+    if (currentSession !== id) return;
+    const request = requests[0];
+    if (!request) { panel.classList.add('hidden'); approvalRequestId = null; return; }
+    if (request.requestId === approvalRequestId) return;
+    approvalRequestId = request.requestId;
+    panel.replaceChildren();
+    const title = document.createElement('strong'); title.textContent = 'Approval · ' + request.toolName + ' · ' + request.risk;
+    const detail = document.createElement('pre'); detail.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:30vh;overflow:auto'; detail.textContent = request.preview.subject + '\n' + request.preview.detail;
+    panel.append(title, detail);
+    for (const decision of ['reject', 'approve', ...(request.allowAlways ? ['always'] : [])]) {
+      const button = document.createElement('button'); button.textContent = decision === 'always' ? 'Allow this session' : decision === 'approve' ? 'Approve' : 'Reject';
+      button.style.marginRight = '8px';
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await jfetch('/api/approval', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId,decision})}); panel.classList.add('hidden'); approvalRequestId=null; }
+        catch (error) { showError(error); button.disabled=false; }
+      };
+      panel.append(button);
+    }
+    panel.classList.remove('hidden');
+  } catch { /* Poll again after a transient connection failure. */ }
+}
+setInterval(() => { void pollApprovals(); }, 1000);
 
 /* ---------- Navigation: one dropdown behind the session title ---------- */
 
@@ -249,7 +304,8 @@ function setMenuTitle(text) {
 
 function titleFor(id) {
   const s = lastSessions.find((entry) => entry.id === id);
-  if (s === undefined) return 'antichat';
+  if (s === undefined) return phoneMode === 'code' ? 'anticode' : 'antichat';
+  if (s.title) return s.title;
   return s.mode === 'code' && s.workspaceRoot
     ? s.workspaceRoot.split(/[\\/]/).pop()
     : 'antichat';
@@ -274,7 +330,7 @@ function showFilesSection() {
   document.getElementById('viewChat').classList.add('hidden');
   document.getElementById('viewFiles').classList.remove('hidden');
   document.getElementById('inputRow').classList.add('hidden');
-  void refreshFilesTab();
+  void refreshFilesTab().catch(showError);
 }
 
 function stopOverviewPolling() {
@@ -285,13 +341,16 @@ function stopOverviewPolling() {
  * re-fetches on a short cadence while it is on screen. */
 function startOverviewPolling() {
   stopOverviewPolling();
-  void loadOverview();
-  overviewTimer = setInterval(() => { void loadOverview(); }, 5000);
+  void loadOverview().catch(showError);
+  overviewTimer = setInterval(() => { void loadOverview().catch(showError); }, 5000);
 }
 
 function gotoNew() {
+  if (!canLeaveEditor()) return;
+  document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
+  currentRunId = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
   liveEl = null;
   stopOverviewPolling();
@@ -301,12 +360,16 @@ function gotoNew() {
   document.getElementById('sessionList').classList.add('hidden');
   document.getElementById('newSessionCard').classList.remove('hidden');
   setMenuTitle('anticode');
+  setMode(phoneMode);
   void loadModels();
 }
 
 function gotoSessions() {
+  if (!canLeaveEditor()) return;
+  document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
+  currentRunId = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
   liveEl = null;
   showChatSection();
@@ -319,8 +382,10 @@ function gotoSessions() {
 }
 
 function gotoFiles() {
+  document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
+  currentRunId = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
   liveEl = null;
   stopOverviewPolling();
@@ -341,11 +406,13 @@ async function loadOverview() {
   for (const s of sessions) {
     const row = document.createElement('div');
     row.className = 'row';
+    row.setAttribute('role', 'button'); row.tabIndex = 0;
+    row.onkeydown = (event) => { if (event.key === 'Enter') void openSession(s.id).catch(showError); };
     const badge = badgeFor(s);
     row.innerHTML = `<span class="badge" style="background:${badge.bg}">${s.running ? '<span class="radar"></span>' : badge.letter}</span>
-      <span class="title">${s.mode === 'code' ? 'anticode · ' : ''}${s.workspaceRoot ? s.workspaceRoot.split(/[\\\\/]/).pop() : 'chat'}</span>
+      <span class="title">${escapeHtml(s.title || (s.workspaceRoot ? s.workspaceRoot.split(/[\\\\/]/).pop() : 'chat'))}</span>
       <span class="faint">${s.messageCount} msg</span>`;
-    row.onclick = () => openSession(s.id);
+    row.onclick = () => openSession(s.id).catch(showError);
     const del = document.createElement('button');
     del.className = 'delbtn';
     del.textContent = '×';
@@ -356,9 +423,9 @@ async function loadOverview() {
       jfetch('/api/session/' + s.id, { method: 'DELETE' })
         .then(() => {
           if (currentSession === s.id) { gotoSessions(); return; }
-          void loadOverview();
+          void loadOverview().catch(showError);
         })
-        .catch((error) => alert(error.message));
+        .catch((error) => showError(error));
     };
     row.appendChild(del);
     list.appendChild(row);
@@ -376,6 +443,11 @@ async function loadModels() {
   try {
     modelInfo = await jfetch('/api/models');
   } catch { modelInfo = null; }
+  const providers = document.getElementById('providerSelect');
+  providers.replaceChildren();
+  for (const provider of modelInfo?.providers ?? []) {
+    const option = document.createElement('option'); option.value = provider.id; option.textContent = provider.label; option.disabled = !provider.available; option.selected = provider.id === modelInfo.provider; providers.append(option);
+  }
   const select = document.getElementById('modelSelect');
   if (modelInfo !== null) {
     select.innerHTML = '';
@@ -394,6 +466,14 @@ async function loadModels() {
   }
 }
 
+async function pickProvider(provider) {
+  await pickModel(provider + '|');
+}
+async function applyCustomModel() {
+  const model = document.getElementById('customModelId').value.trim();
+  if (model && modelInfo) await pickModel(modelInfo.provider + '|' + model);
+}
+
 async function pickModel(value) {
   const [provider, model] = value.split('|');
   try {
@@ -401,38 +481,52 @@ async function pickModel(value) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ provider, model })
     });
-  } catch (error) { alert('Ganti model gagal: ' + error.message); }
+  } catch (error) { showError('Ganti model gagal: ' + error.message); }
   void loadModels();
 }
 
 async function startSession() {
+  if (creatingSession) return;
   const body = { mode: phoneMode };
   if (phoneMode === 'code') {
     body.folder = document.getElementById('folderInput').value.trim();
-    if (body.folder === '') { alert('Isi dulu folder proyeknya di Mac.'); return; }
+    if (body.folder === '') { showError('Isi dulu folder proyeknya di Mac.'); return; }
   }
+  creatingSession = true;
   try {
     const { sessionId } = await jfetch('/api/session', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
     });
     await openSession(sessionId);
-  } catch (error) { alert(error.message); }
+  } catch (error) { showError(error); }
+  finally { creatingSession = false; }
 }
 
 async function openSession(id) {
   currentSession = id;
   currentRunId = null;
+  liveEl = null;
+  hideWorking();
   stopOverviewPolling();
-  const { messages } = await jfetch('/api/session/' + id);
-  renderTranscript(messages);
   closeMenu();
   showChatSection();
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
   setMenuTitle(titleFor(id));
-  listen(id);
-  window.scrollTo(0, document.body.scrollHeight);
+  await listen(id);
+  await syncSession(id);
+}
+async function syncSession(id) {
+  const version = sessionEventVersion;
+  const { messages, runId } = await jfetch('/api/session/' + id);
+  if (currentSession !== id || version !== sessionEventVersion) return;
+  currentRunId = runId;
+  hideWorking();
+  liveEl = null;
+  renderTranscript(messages);
+  if (runId) showWorking(null);
+  updateSendBtn();
 }
 
 /* Tool calls fold into three simple groups, mirroring the desktop. */
@@ -579,6 +673,7 @@ function renderTranscript(messages) {
   }
   for (const m of messages) {
     if (m.role === 'user') {
+      if (!m.blocks.some((block) => block.type === 'text' && block.text.trim())) continue;
       const div = document.createElement('div');
       div.className = 'msg user';
       const bubble = document.createElement('span');
@@ -609,7 +704,7 @@ function renderTranscript(messages) {
       if (b.type === 'text') { flushGroup(); textBuf.push(b.text); continue; }
       if (b.type !== 'tool_use') continue;
       const cat = toolCategory(b.name);
-      if (group === null || group.cat !== cat) { flushText(); group = { cat, items: [] }; }
+      if (group === null || group.cat !== cat) { flushText(); flushGroup(); group = { cat, items: [] }; }
       group.items.push({ name: b.name, input: b.input, result: results.get(b.id) });
     }
     flushGroup();
@@ -619,26 +714,34 @@ function renderTranscript(messages) {
 }
 
 function listen(id) {
+  if (eventSource && eventSource.url.includes('sessionId=' + encodeURIComponent(id) + '&') && eventSource.readyState !== EventSource.CLOSED) return streamReady;
   if (eventSource) eventSource.close();
-  eventSource = new EventSource('/api/events?sessionId=' + id + '&token=' + token);
-  eventSource.onmessage = async (e) => {
+  const source = new EventSource('/api/events?sessionId=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(token));
+  eventSource = source;
+  let connected = false;
+  streamReady = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { source.close(); reject(new Error('Connection timed out. Reopen this session.')); }, 10000);
+    source.onopen = () => { clearTimeout(timer); resolve(); if (connected) void syncSession(id).catch(showError); connected = true; };
+    source.onerror = () => { clearTimeout(timer); reject(new Error('Connection lost. Reconnecting…')); };
+  });
+  source.onmessage = async (e) => {
+    if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
-    if (event.type === 'prompt') { hideWorking(); appendUserBubble(event.text); }
-    else if (event.type === 'text_delta') { hideWorking(); appendLive(event.text); }
-    else if (event.type === 'tool_start') { showWorking(event.name); }
-    else if (event.type === 'tool_end') { /* the next event or refetch replaces this */ }
+    if (event.type !== 'usage') sessionEventVersion++;
+    if (event.type === 'prompt') { currentRunId = event.runId; liveEl = null; hideWorking(); appendUserBubble(event.text); showWorking(null); }
+    else if (event.type === 'text_delta') { currentRunId = event.runId; hideWorking(); appendLive(event.text); }
+    else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; showWorking(event.name); }
     else if (event.type === 'end' || event.type === 'error') {
-      eventSource.close(); eventSource = null;
       hideWorking();
       currentRunId = null;
+      if (event.reason === 'cancelled') pausedSessions.add(id);
       updateSendBtn();
-      try {
-        const { messages } = await jfetch('/api/session/' + id);
-        renderTranscript(messages);
-        window.scrollTo(0, document.body.scrollHeight);
-      } catch {}
+      try { await syncSession(id); } catch (error) { showError(error); }
+      if (event.type === 'error' && currentSession === id) appendLive('Error: ' + event.message);
     }
+    updateSendBtn();
   };
+  return streamReady;
 }
 
 let workingEl = null;
@@ -674,16 +777,18 @@ function appendLive(text) {
 }
 
 function sendBtnState() {
-  const running = eventSource !== null;
+  const running = currentRunId !== null;
   const paused = currentSession !== null && pausedSessions.has(currentSession);
-  if (paused) return 'resume';
   if (running) return 'running';
+  if (paused) return 'resume';
   return 'send';
 }
 
 function updateSendBtn() {
+  document.getElementById('inputRow').classList.toggle('hidden', !currentSession || !document.getElementById('viewFiles').classList.contains('hidden'));
   const btn = document.getElementById('sendBtn');
   const state = sendBtnState();
+  btn.disabled = submitting || (currentRunId !== null && pausedSessions.has(currentSession));
   btn.classList.toggle('lime', state === 'resume');
   btn.classList.toggle('stopping', state === 'running');
   btn.textContent = state === 'running' ? '❚❚' : '↑';
@@ -699,33 +804,17 @@ function onSendBtn() {
 
 async function pauseSession() {
   if (currentRunId === null || currentSession === null) return;
-  try { await api('/api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId: currentRunId }) }); } catch {}
-  pausedSessions.add(currentSession);
-  updateSendBtn();
-}
-
-const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
-
-async function resumeSession() {
-  if (currentSession === null) return;
-  pausedSessions.delete(currentSession);
-  updateSendBtn();
-  const body = { sessionId: currentSession, prompt: CONTINUE_PROMPT };
   try {
-    const res = await jfetch('/api/prompt', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
-    });
-    currentRunId = res.runId;
-    listen(currentSession);
-    showWorking(null);
-  } catch (error) { alert(error.message); }
+    await jfetch('/api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId: currentRunId }) });
+    pausedSessions.add(currentSession);
+    updateSendBtn();
+  } catch (error) { showError(error); }
 }
+const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
+async function resumeSession() { await submitPrompt(CONTINUE_PROMPT); }
 
 function appendUserBubble(text) {
   const el = document.getElementById('transcript');
-  const bubbles = el.querySelectorAll('.msg.user .bubble');
-  const last = bubbles[bubbles.length - 1];
-  if (last !== undefined && last.textContent === text) return;
   const div = document.createElement('div');
   div.className = 'msg user';
   const bubble = document.createElement('span');
@@ -739,31 +828,28 @@ function appendUserBubble(text) {
 async function sendPrompt() {
   const input = document.getElementById('prompt');
   const prompt = input.value.trim();
-  if (prompt === '') return;
-  input.value = '';
-  const body = { prompt };
-  if (currentSession) body.sessionId = currentSession;
-  else body.mode = phoneMode === 'code' ? 'chat' : phoneMode;
-  const res = await jfetch('/api/prompt', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
-  });
-  currentSession = sessionId;
-  currentRunId = res.runId;
-  updateSendBtn();
-  document.getElementById('dashboard').classList.add('hidden');
-  document.getElementById('chatView').classList.remove('hidden');
-  document.getElementById('inputRow').classList.remove('hidden');
-  setMenuTitle(titleFor(sessionId));
-  // Pull the transcript first so the just-sent prompt is visible immediately,
-  // then stream the answer on top of it.
-  try {
-    const { messages } = await jfetch('/api/session/' + sessionId);
-    liveEl = null;
-    renderTranscript(messages);
-  } catch {}
-  listen(sessionId);
-  showWorking(null);
+  if (await submitPrompt(prompt)) input.value = '';
 }
+async function submitPrompt(prompt) {
+  if (!prompt || !currentSession || currentRunId || submitting) return false;
+  const id = currentSession;
+  submitting = true;
+  updateSendBtn();
+  try {
+    await listen(id);
+    await jfetch('/api/prompt', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: id, prompt })
+    });
+    pausedSessions.delete(id);
+    // The stream is already subscribed, including for immediately completed runs.
+
+    return true;
+  } catch (error) { showError(error); return false; }
+  finally { submitting = false; updateSendBtn(); }
+}
+
+function canLeaveEditor() { return openedFile === null || document.getElementById('editor').value === savedContent || confirm('Discard unsaved file changes?'); }
 
 /* ---------- Files ---------- */
 
@@ -795,10 +881,11 @@ async function refreshFilesTab() {
 }
 
 function onSessionChange() {
+  if (!canLeaveEditor()) { document.getElementById('folderSession').value = openedSessionId; return; }
   currentPath = '.';
   openedFile = null;
   document.getElementById('editor').classList.add('hidden');
-  void renderListing();
+  void renderListing().catch(showError);
 }
 
 function setFileControlsEnabled(enabled) {
@@ -819,7 +906,7 @@ function joinPath(base, name) {
 
 function parentPath(p) {
   if (p === '.' || p === '') return '.';
-  const parts = p.split('/');
+  const parts = p.replace(/\/$/, '').split('/');
   parts.pop();
   return parts.length === 0 ? '.' : parts.join('/');
 }
@@ -828,14 +915,19 @@ async function renderListing() {
   const sessionId = document.getElementById('folderSession').value;
   if (!sessionId) return;
   document.getElementById('crumb').textContent = currentPath;
+  const requestedPath = currentPath;
   const result = await jfetch('/api/files?sessionId=' + sessionId + '&path=' + encodeURIComponent(currentPath));
+  if (requestedPath !== currentPath || sessionId !== document.getElementById('folderSession').value) return;
   const dir = document.getElementById('dirList');
   const editor = document.getElementById('editor');
   dir.innerHTML = '';
   if (result.kind !== 'directory') {
     editor.classList.remove('hidden');
     editor.value = result.content;
+    savedContent = result.content;
+    fileVersion = result.version;
     openedFile = currentPath;
+    openedSessionId = sessionId;
     document.getElementById('saveBtn').disabled = false;
     return;
   }
@@ -846,7 +938,7 @@ async function renderListing() {
     const back = document.createElement('div');
     back.className = 'dirrow';
     back.innerHTML = '<span class="back">← up</span>';
-    back.onclick = () => { currentPath = parentPath(currentPath); void renderListing(); };
+    back.onclick = () => { currentPath = parentPath(currentPath); void renderListing().catch(showError); };
     dir.appendChild(back);
   }
   const folders = result.entries.filter((e) => e.endsWith('/'));
@@ -855,38 +947,44 @@ async function renderListing() {
     const isFolder = entry.endsWith('/');
     const row = document.createElement('div');
     row.className = 'dirrow' + (isFolder ? ' folder' : '');
-    row.innerHTML = `<span class="name">${entry}</span>`;
+    row.innerHTML = `<span class="name">${escapeHtml(entry)}</span>`;
     row.onclick = () => {
       currentPath = joinPath(currentPath, entry);
-      void renderListing();
+      void renderListing().catch(showError);
     };
     dir.appendChild(row);
   }
 }
 
 function upDir() {
+  if (!canLeaveEditor()) return;
   currentPath = parentPath(currentPath);
   openedFile = null;
-  void renderListing();
+  void renderListing().catch(showError);
 }
 
 async function saveFile() {
   if (openedFile === null) return;
   const sessionId = document.getElementById('folderSession').value;
   const content = document.getElementById('editor').value;
-  await jfetch('/api/files', {
+  const saved = await jfetch('/api/files', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, path: openedFile, content })
+    body: JSON.stringify({ sessionId, path: openedFile, content, version: fileVersion })
   });
   const out = document.getElementById('gitOut');
   out.classList.remove('hidden');
   out.textContent = 'Saved ' + openedFile;
+  fileVersion = saved.version; savedContent = content;
 }
 
 async function gitAction(action) {
   const sessionId = document.getElementById('folderSession').value;
   let message = '';
-  if (action === 'commit') message = window.prompt('Commit message:') || '';
+  if (action === 'commit') {
+    message = window.prompt('Commit message (includes all project changes):');
+    if (message === null) return;
+    if (!message.trim()) { showError('Enter a commit message.'); return; }
+  }
   const result = await jfetch('/api/git', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ sessionId, action, message })
@@ -897,7 +995,7 @@ async function gitAction(action) {
 }
 
 document.getElementById('prompt').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendPrompt(); }
 });
 document.addEventListener('click', (e) => {
   const drop = document.getElementById('menuDrop');

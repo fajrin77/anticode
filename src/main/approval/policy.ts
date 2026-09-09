@@ -42,8 +42,8 @@ export class ApprovalPolicy {
     return this.autoApprove
   }
 
-  allowAlways(toolName: string): void {
-    this.alwaysAllowed.add(toolName)
+  allowAlways(toolName: string, sessionId = 'default'): void {
+    this.alwaysAllowed.add(`${sessionId}:${toolName}`)
   }
 
   /**
@@ -51,10 +51,10 @@ export class ApprovalPolicy {
    * Without it, low runs free, high always asks, and "always allow" lifts a
    * single tool to low.
    */
-  needsApproval(toolName: string, risk: RiskTier): boolean {
+  needsApproval(toolName: string, risk: RiskTier, sessionId = 'default'): boolean {
     if (this.autoApprove) return false
     if (risk === 'low') return false
     if (risk === 'high') return true
-    return !this.alwaysAllowed.has(toolName)
+    return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
   }
 }
