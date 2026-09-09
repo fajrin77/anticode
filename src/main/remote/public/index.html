@@ -228,6 +228,7 @@ let openedFile = null;
 let folderReady = false;
 let phoneMode = 'code';
 let modelInfo = null;
+let overviewTimer = null;
 let lastSessions = [];
 
 /* ---------- Navigation: one dropdown behind the session title ---------- */
@@ -265,11 +266,24 @@ function showFilesSection() {
   void refreshFilesTab();
 }
 
+function stopOverviewPolling() {
+  if (overviewTimer !== null) { clearInterval(overviewTimer); overviewTimer = null; }
+}
+
+/** The Sessions list must mirror deletions made on the desktop, so it
+ * re-fetches on a short cadence while it is on screen. */
+function startOverviewPolling() {
+  stopOverviewPolling();
+  void loadOverview();
+  overviewTimer = setInterval(() => { void loadOverview(); }, 5000);
+}
+
 function gotoNew() {
   closeMenu();
   currentSession = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
   liveEl = null;
+  stopOverviewPolling();
   showChatSection();
   document.getElementById('chatView').classList.add('hidden');
   document.getElementById('dashboard').classList.remove('hidden');
@@ -290,7 +304,7 @@ function gotoSessions() {
   document.getElementById('newSessionCard').classList.add('hidden');
   document.getElementById('sessionList').classList.remove('hidden');
   setMenuTitle('Sessions');
-  void loadOverview();
+  startOverviewPolling();
 }
 
 function gotoFiles() {
@@ -298,6 +312,7 @@ function gotoFiles() {
   currentSession = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
   liveEl = null;
+  stopOverviewPolling();
   setMenuTitle('Files');
   showFilesSection();
 }
@@ -395,6 +410,7 @@ async function startSession() {
 
 async function openSession(id) {
   currentSession = id;
+  stopOverviewPolling();
   const { messages } = await jfetch('/api/session/' + id);
   renderTranscript(messages);
   closeMenu();
