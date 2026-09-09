@@ -116,13 +116,17 @@ body {
   animation: anticode-breathe 1.6s ease-in-out infinite;
 }
 
-/* Session badges spin while their session is running. */
-@keyframes badge-spin {
+/* Session badges swap their letter for a rotating radar sweep while running. */
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-.badge-spin {
-  animation: badge-spin 1.4s linear infinite;
+.radar {
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, #d1fa22, rgba(209, 250, 34, 0) 90deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
+  animation: spin 1.2s linear infinite;
 }

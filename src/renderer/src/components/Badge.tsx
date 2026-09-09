@@ -19,9 +19,7 @@ export function Badge({ label, colour, size = 'sm', spinning = false }: BadgePro
 
   return (
     <span
-      className={`flex shrink-0 items-center justify-center rounded-[5px] font-medium text-white/95 ${dimension} ${
-        spinning ? 'badge-spin' : ''
-      }`}
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-[5px] font-medium text-white/95 ${dimension}`}
       style={{
         background: `linear-gradient(135deg, ${from}f2 0%, ${to}d9 100%)`,
         boxShadow:
@@ -29,7 +27,9 @@ export function Badge({ label, colour, size = 'sm', spinning = false }: BadgePro
         border: '1px solid rgba(255,255,255,0.14)'
       }}
     >
-      {(label[0] ?? '?').toUpperCase()}
+      {/* While working the letter is replaced by a rotating radar sweep; the
+          badge itself never rotates. */}
+      {spinning ? <span className="radar h-full w-full" /> : (label[0] ?? '?').toUpperCase()}
     </span>
   )
 }

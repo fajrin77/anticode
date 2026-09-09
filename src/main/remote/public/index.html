@@ -64,7 +64,13 @@
     color: rgba(255,255,255,.95);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
   }
-  .badge.spin { animation: spin 1.4s linear infinite; }
+  .badge .radar {
+    display: block; width: 15px; height: 15px; border-radius: 50%;
+    background: conic-gradient(from 0deg, #d1fa22, rgba(209,250,34,0) 90deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
+    animation: spin 1.2s linear infinite;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
   .msg .icode {
     font-family: ui-monospace, Menlo, monospace; font-size: 0.88em;
@@ -331,7 +337,7 @@ async function loadOverview() {
     const row = document.createElement('div');
     row.className = 'row';
     const badge = badgeFor(s);
-    row.innerHTML = `<span class="badge ${s.running ? 'spin' : ''}" style="background:${badge.bg}">${badge.letter}</span>
+    row.innerHTML = `<span class="badge" style="background:${badge.bg}">${s.running ? '<span class="radar"></span>' : badge.letter}</span>
       <span class="title">${s.mode === 'code' ? 'anticode · ' : ''}${s.workspaceRoot ? s.workspaceRoot.split(/[\\\\/]/).pop() : 'chat'}</span>
       <span class="faint">${s.messageCount} msg</span>`;
     row.onclick = () => openSession(s.id);

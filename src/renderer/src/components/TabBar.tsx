@@ -96,6 +96,7 @@ export function TabBar({
   const sessions = useSessionStore((state) => state.sessions)
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const closeSession = useSessionStore((state) => state.closeSession)
+  const deleteSession = useSessionStore((state) => state.deleteSession)
   const activeRun = useSessionStore((state) => state.activeRun)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const activeSession = useSessionStore((state) =>
@@ -105,9 +106,17 @@ export function TabBar({
   // Closing a tab archives the session (still editable from the dashboard)
   // and stops its run — otherwise the agent keeps burning tokens with no way
   // to stop it. The main-process session stays alive so history survives.
+  // A draft that was never prompted cannot be reopened from the dashboard, so
+  // closing its tab deletes it outright — everywhere, including the phone.
   function close(sessionId: string): void {
     if (activeRun !== null && activeRun.sessionId === sessionId) {
       void window.anticode.cancelRun(activeRun.runId)
+    }
+    const session = sessions.find((entry) => entry.id === sessionId)
+    if (session !== undefined && session.messages.length === 0) {
+      void window.anticode.closeSession(sessionId)
+      deleteSession(sessionId)
+      return
     }
     closeSession(sessionId)
   }
