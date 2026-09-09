@@ -13,6 +13,11 @@
   --color-dim: #9a9a9a;
   --color-faint: #6d6d6d;
 
+  /* anticode lime — the one accent. Named so it never collides with
+     Tailwind's own lime-* scale. */
+  --color-brand: #d1fa22;
+  --color-brand-strong: #c4ef1f;
+
   --color-code: #b3b0f5;
   --color-add: #5ac37f;
   --color-del: #e06c6c;
@@ -26,6 +31,14 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+/* Chromium's default focus ring is a light halo that reads as a stray
+   highlight on this palette. Keyboard focus gets the brand ring instead;
+   pointer focus stays quiet. */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
 }
 
 body {
@@ -108,7 +121,7 @@ body {
     background-color: var(--color-dim);
   }
   50% {
-    background-color: #d1fa22;
+    background-color: var(--color-brand);
   }
 }
 
@@ -125,7 +138,7 @@ body {
 
 .radar {
   border-radius: 9999px;
-  background: conic-gradient(from 0deg, #d1fa22, rgba(209, 250, 34, 0) 90deg);
+  background: conic-gradient(from 0deg, var(--color-brand), rgba(209, 250, 34, 0) 90deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
   animation: spin 1.2s linear infinite;

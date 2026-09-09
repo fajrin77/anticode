@@ -1,6 +1,6 @@
 {
   "name": "anticode",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Provider-agnostic AI coding agent desktop app",
   "main": "./out/main/index.js",
   "author": "asani",
@@ -19,7 +19,8 @@
     "pack:win": "npm run build && electron-builder --win",
     "pack:linux": "npm run build && electron-builder --linux",
     "test:desktop": "npm run build && node scripts/verify-desktop.mjs",
-    "test:packaged": "node scripts/verify-packaged.mjs"
+    "test:packaged": "node scripts/verify-packaged.mjs",
+    "test:ui": "npm run build && node scripts/verify-ui.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

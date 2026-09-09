@@ -94,8 +94,17 @@ export function Composer({
     function onOutside(event: MouseEvent): void {
       if (!boxRef.current?.contains(event.target as Node)) setMenu('none')
     }
+    // Escape dismisses the model/mode menu, matching the approval modal and
+    // the model picker; without it the only way out was a click elsewhere.
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setMenu('none')
+    }
     document.addEventListener('mousedown', onOutside)
-    return () => document.removeEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [])
 
   async function collect(promise: Promise<AttachmentInfo[]>): Promise<void> {
@@ -368,7 +377,7 @@ export function Composer({
               aria-label={isPaused ? 'Resume' : isStreaming ? 'Pause' : 'Send'}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                 isPaused
-                  ? 'bg-[#d1fa22] text-[#1a1a1a] hover:bg-[#c4ef1f]'
+                  ? 'bg-brand text-bg hover:bg-brand-strong'
                   : 'bg-hover text-text hover:bg-[#3a3a3a]'
               }`}
             >
@@ -399,7 +408,7 @@ export function Composer({
                   }
                   className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
                     session.mode === mode
-                      ? 'bg-[#d1fa22] font-medium text-[#1a1a1a]'
+                      ? 'bg-brand font-medium text-bg'
                       : 'text-dim hover:text-text'
                   }`}
                 >

@@ -25,6 +25,9 @@ export function App(): JSX.Element {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [appError, setAppError] = useState<string | null>(null)
   const [view, setView] = useState<View>('dashboard')
+  // Where Settings was opened from, so closing it returns there. Without this
+  // the gear dropped the user into a session view that may not exist.
+  const viewBeforeSettings = useRef<View>('dashboard')
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
 
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
@@ -264,12 +267,30 @@ export function App(): JSX.Element {
 
   // With no session left the dashboard is the view — it creates nothing on
   // its own; a session only comes into existence via "+" or a first prompt.
+  // A session appearing or vanishing (the phone can do either) must not yank
+  // the user out of Settings mid-edit.
   useEffect(() => {
-    if (activeSessionId === null) {
-      setView('dashboard')
-    } else {
-      setView('session')
-    }
+    setView((current) =>
+      current === 'settings' ? current : activeSessionId === null ? 'dashboard' : 'session'
+    )
+  }, [activeSessionId])
+
+  // The remembered view is only reachable while a session backs it; otherwise
+  // the dashboard is the honest destination.
+  const closeSettings = useCallback(() => {
+    const target = viewBeforeSettings.current
+    setView(target === 'session' && activeSessionId === null ? 'dashboard' : target)
+  }, [activeSessionId])
+
+  const toggleSettings = useCallback(() => {
+    setView((current) => {
+      if (current === 'settings') {
+        const target = viewBeforeSettings.current
+        return target === 'session' && activeSessionId === null ? 'dashboard' : target
+      }
+      viewBeforeSettings.current = current
+      return 'settings'
+    })
   }, [activeSessionId])
 
   const decide = useCallback((requestId: string, decision: ApprovalDecision) => {
@@ -302,14 +323,27 @@ export function App(): JSX.Element {
 
   return (
     <div className="flex h-full flex-col">
-      {appError && <div role="alert" className="flex items-center justify-between bg-raised px-6 py-2 text-del">{appError}<button onClick={() => setAppError(null)}>Dismiss</button></div>}
+      {appError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-4 bg-raised px-6 py-2 text-[13px] text-del"
+        >
+          <span className="min-w-0 flex-1">{appError}</span>
+          <button
+            type="button"
+            onClick={() => setAppError(null)}
+            className="shrink-0 rounded-md px-2 py-0.5 text-dim transition-colors hover:bg-hover hover:text-text"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
       <TabBar
         dashboardActive={view === 'dashboard'}
+        settingsActive={view === 'settings'}
         onDashboard={() => setView('dashboard')}
-        onOpenSettings={() =>
-          setView((current) => (current === 'settings' ? 'session' : 'settings'))
-        }
+        onOpenSettings={toggleSettings}
         onNewTab={startSession}
         onSelectSession={openExistingSession}
       />
@@ -322,7 +356,7 @@ export function App(): JSX.Element {
           onSelectProvider={selectProvider}
           onToggleAutoApprove={toggleAutoApprove}
           onProvidersChange={setProviders}
-          onBack={() => setView(activeSessionId === null ? 'dashboard' : 'session')}
+          onBack={closeSettings}
         />
       )}
 

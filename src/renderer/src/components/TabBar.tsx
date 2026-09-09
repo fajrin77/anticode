@@ -18,8 +18,15 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
     function onOutside(event: MouseEvent): void {
       if (!boxRef.current?.contains(event.target as Node)) setOpen(false)
     }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('mousedown', onOutside)
-    return () => document.removeEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   const totalTokens = session.inputTokens + session.outputTokens
@@ -76,6 +83,8 @@ interface TabBarProps {
   onSelectSession: (id: string) => void
   /** True while the dashboard view is on screen — lights the grid icon lime. */
   dashboardActive: boolean
+  /** True while Settings is on screen — lights the gear the same way. */
+  settingsActive: boolean
 }
 
 function GridIcon(): JSX.Element {
@@ -94,7 +103,8 @@ export function TabBar({
   onOpenSettings,
   onNewTab,
   onSelectSession,
-  dashboardActive
+  dashboardActive,
+  settingsActive
 }: TabBarProps): JSX.Element {
   const sessions = useSessionStore((state) => state.sessions)
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
@@ -138,8 +148,9 @@ export function TabBar({
         type="button"
         onClick={onDashboard}
         title="Dashboard"
-        className={`region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-text ${
-          dashboardActive ? 'text-[#d1fa22]' : 'text-faint'
+        aria-pressed={dashboardActive}
+        className={`region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand ${
+          dashboardActive ? 'text-brand' : 'text-faint'
         }`}
       >
         <GridIcon />
@@ -166,6 +177,7 @@ export function TabBar({
               <button
                 type="button"
                 onClick={() => onSelectSession(session.id)}
+                title={session.title}
                 className={`min-w-0 max-w-52 truncate text-[14px] ${
                   isActive ? 'text-text' : 'text-dim'
                 }`}
@@ -176,7 +188,7 @@ export function TabBar({
                 type="button"
                 onClick={() => close(session.id)}
                 aria-label="Close tab"
-                className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-text"
+                className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-text focus-visible:opacity-100"
               >
                 ×
               </button>
@@ -202,7 +214,10 @@ export function TabBar({
           type="button"
           onClick={onOpenSettings}
           title="Settings"
-          className="region-no-drag flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-text"
+          aria-pressed={settingsActive}
+          className={`region-no-drag flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand ${
+            settingsActive ? 'text-brand' : 'text-dim'
+          }`}
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
             <path d="M2 4.5h5.6M11.4 4.5H14M2 11.5h1.6M7.4 11.5H14" strokeLinecap="round" />

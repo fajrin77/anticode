@@ -95,8 +95,17 @@ function DashboardComposer({
     function onOutside(event: MouseEvent): void {
       if (!boxRef.current?.contains(event.target as Node)) setMenu('none')
     }
+    // Escape dismisses the model/mode menu, matching the approval modal and
+    // the model picker; without it the only way out was a click elsewhere.
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setMenu('none')
+    }
     document.addEventListener('mousedown', onOutside)
-    return () => document.removeEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [])
 
   function collect(promise: Promise<AttachmentInfo[]>): void {
@@ -286,7 +295,7 @@ function DashboardComposer({
                 onClick={() => setMode(value)}
                 className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
                   mode === value
-                    ? 'bg-[#d1fa22] font-medium text-[#1a1a1a]'
+                    ? 'bg-brand font-medium text-bg'
                     : 'text-dim hover:text-text'
                 }`}
               >
