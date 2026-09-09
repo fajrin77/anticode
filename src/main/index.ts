@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { loadEnvFile } from './config'
@@ -40,6 +40,13 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   app.setAppUserModelId('com.anticode.app')
+
+  // A packaged app takes its icon from the bundle; dev runs under Electron's
+  // own identity, so point the dock at the real one.
+  if (!app.isPackaged && process.platform === 'darwin') {
+    const icon = nativeImage.createFromPath(join(process.cwd(), 'build/icon.png'))
+    if (!icon.isEmpty()) app.dock?.setIcon(icon)
+  }
   loadEnvFile()
   registerIpcHandlers()
   createWindow()

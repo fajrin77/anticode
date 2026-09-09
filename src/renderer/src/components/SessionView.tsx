@@ -4,6 +4,7 @@ import { useActiveSession } from '../store/session'
 import type { Message } from '../store/session'
 import { ToolBlock } from './ToolBlock'
 import { RichText } from './RichText'
+import wordmark from '../assets/anticode-wordmark.svg'
 
 function MessageView({ message }: { message: Message }): JSX.Element {
   if (message.role === 'user') {
@@ -56,9 +57,14 @@ export function SessionView(): JSX.Element {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-10">
         {messages.length === 0 ? (
-          <p className="pt-16 text-[14px] text-faint">
-            Mulai dengan menuliskan instruksi di bawah.
-          </p>
+          <div className="flex h-full flex-col items-center justify-center gap-4 pb-16">
+            <img src={wordmark} alt="anticode" className="w-56 opacity-90" />
+            <p className="text-[13px] text-faint">
+              {session?.mode === 'chat'
+                ? 'Tanya apa saja. Sesi ini tidak menyentuh berkas.'
+                : 'Beri instruksi untuk mulai bekerja di folder project.'}
+            </p>
+          </div>
         ) : (
           <div className="mx-auto max-w-3xl pb-6">
             {messages.map((message) => (

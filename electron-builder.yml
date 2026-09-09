@@ -11,13 +11,16 @@ asarUnpack:
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'
 mac:
+  icon: build/icon.png
   target:
     - dmg
   category: public.app-category.developer-tools
 win:
+  icon: build/icon.png
   target:
     - nsis
 linux:
+  icon: build/icon.png
   target:
     - AppImage
   category: Development
