@@ -92,6 +92,11 @@
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
+    animation: breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { background: #9a9a9a; }
+    50% { background: #d1fa22; }
   }
   .add { color: #5ac37f; }
   .del { color: #e06c6c; }

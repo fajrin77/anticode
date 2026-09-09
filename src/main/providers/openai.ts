@@ -116,47 +116,82 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // is omitted entirely when there is nothing to offer (chat mode).
     const tools = params.tools.length > 0 ? toChatTools(params.tools) : undefined
 
-    const stream = await this.client.chat.completions.create(
-      {
-        model: this.model,
-        messages: toChatMessages(params.system, params.messages),
-        ...(tools !== undefined ? { tools } : {}),
-        stream: true,
-        stream_options: { include_usage: true },
-        [this.maxTokensField]: params.maxTokens
-      },
-      { signal: params.signal }
-    )
+    // A stalled connection would otherwise hang the whole run: abort when no
+    // chunk arrives for a while. A stall before anything streamed is treated
+    // as transient (the loop retries); a stall mid-stream is a hard error, so
+    // the turn is never silently duplicated.
+    const INACTIVITY_MS = 180_000
+    const watchdog = new AbortController()
+    const onOuterAbort = (): void => watchdog.abort()
+    params.signal.addEventListener('abort', onOuterAbort, { once: true })
+    let received = false
+    let inactivity: ReturnType<typeof setTimeout> | null = null
+    const bump = (): void => {
+      if (inactivity !== null) clearTimeout(inactivity)
+      inactivity = setTimeout(() => watchdog.abort(), INACTIVITY_MS)
+    }
+    bump()
 
     let text = ''
     let finishReason: string | null = null
     const usage = { inputTokens: 0, outputTokens: 0 }
     const calls = new Map<number, { id: string; name: string; args: string }>()
 
-    for await (const chunk of stream) {
-      if (chunk.usage) {
-        usage.inputTokens = chunk.usage.prompt_tokens
-        usage.outputTokens = chunk.usage.completion_tokens
-      }
+    try {
+      const stream = await this.client.chat.completions.create(
+        {
+          model: this.model,
+          messages: toChatMessages(params.system, params.messages),
+          ...(tools !== undefined ? { tools } : {}),
+          stream: true,
+          stream_options: { include_usage: true },
+          [this.maxTokensField]: params.maxTokens
+        },
+        { signal: watchdog.signal }
+      )
 
-      const choice = chunk.choices[0]
-      if (!choice) continue
-      if (choice.finish_reason) finishReason = choice.finish_reason
+      for await (const chunk of stream) {
+        bump()
+        if (chunk.usage) {
+          usage.inputTokens = chunk.usage.prompt_tokens
+          usage.outputTokens = chunk.usage.completion_tokens
+        }
 
-      const delta = choice.delta.content
-      if (typeof delta === 'string' && delta !== '') {
-        text += delta
-        yield { type: 'text_delta', text: delta }
-      }
+        const choice = chunk.choices[0]
+        if (!choice) continue
+        if (choice.finish_reason) finishReason = choice.finish_reason
 
-      for (const call of choice.delta.tool_calls ?? []) {
-        const existing = calls.get(call.index) ?? { id: '', name: '', args: '' }
-        calls.set(call.index, {
-          id: call.id ?? existing.id,
-          name: call.function?.name ?? existing.name,
-          args: existing.args + (call.function?.arguments ?? '')
-        })
+        const delta = choice.delta.content
+        if (typeof delta === 'string' && delta !== '') {
+          received = true
+          text += delta
+          yield { type: 'text_delta', text: delta }
+        }
+
+        for (const call of choice.delta.tool_calls ?? []) {
+          received = true
+          const existing = calls.get(call.index) ?? { id: '', name: '', args: '' }
+          calls.set(call.index, {
+            id: call.id ?? existing.id,
+            name: call.function?.name ?? existing.name,
+            args: existing.args + (call.function?.arguments ?? '')
+          })
+        }
       }
+    } catch (error) {
+      if (params.signal.aborted) throw error
+      if (watchdog.signal.aborted && !params.signal.aborted) {
+        const stall = received
+          ? new Error('Provider stream stalled mid-turn — run stopped so nothing is duplicated')
+          : Object.assign(new Error('Provider stream stalled before any data arrived'), {
+              status: 503
+            })
+        throw stall
+      }
+      throw error
+    } finally {
+      if (inactivity !== null) clearTimeout(inactivity)
+      params.signal.removeEventListener('abort', onOuterAbort)
     }
 
     const content: ContentBlock[] = []

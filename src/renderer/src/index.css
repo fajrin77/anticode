@@ -100,3 +100,18 @@ body {
 .animate-glow {
   animation: anticode-glow 1.2s ease-in-out infinite;
 }
+
+/* "working" indicator: the dot breathes grey → anticode lime, with no glow. */
+@keyframes anticode-breathe {
+  0%,
+  100% {
+    background-color: var(--color-dim);
+  }
+  50% {
+    background-color: #d1fa22;
+  }
+}
+
+.animate-breathe {
+  animation: anticode-breathe 1.6s ease-in-out infinite;
+}

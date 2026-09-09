@@ -328,7 +328,9 @@ export function Composer({
                     })
                   }
                   className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
-                    session.mode === mode ? 'bg-hover text-text' : 'text-dim hover:text-text'
+                    session.mode === mode
+                      ? 'bg-[#d1fa22] font-medium text-[#1a1a1a]'
+                      : 'text-dim hover:text-text'
                   }`}
                 >
                   {mode === 'chat' ? 'antichat' : 'anticode'}
