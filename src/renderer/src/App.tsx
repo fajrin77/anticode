@@ -99,32 +99,74 @@ export function App(): JSX.Element {
     return window.anticode.onAgentEvent((event) => {
       const store = useSessionStore.getState()
       const run = store.activeRun
-      if (!run || run.runId !== event.runId) return
+      if (run !== null && run.runId === event.runId) {
+        switch (event.type) {
+          case 'text_delta':
+            store.appendText(run.sessionId, run.messageId, event.text)
+            break
+          case 'tool_start':
+            store.startTool(run.sessionId, run.messageId, event.toolUseId, event.name, event.input)
+            break
+          case 'tool_end':
+            store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output)
+            break
+          case 'usage':
+            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
+            break
+          case 'error':
+            store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
+            store.settleMessage(run.messageId)
+            store.setActiveRun(null)
+            break
+          case 'end':
+            if (event.reason !== 'complete') {
+              store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
+            }
+            store.settleMessage(run.messageId)
+            store.setActiveRun(null)
+            break
+        }
+        return
+      }
 
+      // A run started elsewhere (the phone): mirror it live into its session,
+      // then pull the finished transcript so nothing is lost in translation.
       switch (event.type) {
         case 'text_delta':
-          store.appendText(run.sessionId, run.messageId, event.text)
+          store.appendText(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
           break
-        case 'tool_start':
-          store.startTool(run.sessionId, run.messageId, event.toolUseId, event.name, event.input)
+        case 'tool_start': {
+          const messageId = store.mirrorStart(event.runId, event.sessionId)
+          store.startTool(event.sessionId, messageId, event.toolUseId, event.name, event.input)
           break
-        case 'tool_end':
-          store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output)
-          break
-        case 'usage':
-          store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
-          break
-        case 'error':
-          store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
-          store.settleMessage(run.messageId)
-          store.setActiveRun(null)
-          break
-        case 'end':
-          if (event.reason !== 'complete') {
-            store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
+        }
+        case 'tool_end': {
+          const messageId = useSessionStore.getState().mirrorRuns[event.runId]?.messageId
+          if (messageId !== undefined) {
+            store.endTool(event.sessionId, messageId, event.toolUseId, event.ok, event.output)
           }
-          store.settleMessage(run.messageId)
-          store.setActiveRun(null)
+          break
+        }
+        case 'usage':
+          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
+          break
+        case 'error': {
+          store.appendText(
+            event.sessionId,
+            store.mirrorStart(event.runId, event.sessionId),
+            `\n${event.message}`
+          )
+          store.mirrorSettle(event.runId)
+          void window.anticode.getSessionSnapshot(event.sessionId).then((messages) => {
+            if (messages !== null) useSessionStore.getState().importSnapshot(event.sessionId, messages)
+          })
+          break
+        }
+        case 'end':
+          store.mirrorSettle(event.runId)
+          void window.anticode.getSessionSnapshot(event.sessionId).then((messages) => {
+            if (messages !== null) useSessionStore.getState().importSnapshot(event.sessionId, messages)
+          })
           break
       }
     })

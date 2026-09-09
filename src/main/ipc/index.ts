@@ -11,6 +11,7 @@ import type {
   ProviderId,
   ProviderInfo,
   ProviderSelection,
+  RoutedAgentEvent,
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
@@ -50,10 +51,11 @@ export function focusApprovalTarget(sender: WebContents): void {
   lastSender = sender
 }
 
-function emit(sender: WebContents, event: AgentEvent): void {
-  forward(event)
+function emit(sender: WebContents, event: AgentEvent, sessionId: string): void {
+  const routed = { ...event, sessionId } as RoutedAgentEvent
+  forward(routed)
   if (sender.isDestroyed()) return
-  sender.send(IpcChannel.AGENT_EVENT, event)
+  sender.send(IpcChannel.AGENT_EVENT, routed)
 }
 
 export function registerIpcHandlers(): void {
@@ -212,7 +214,7 @@ export function registerIpcHandlers(): void {
         type: 'error',
         runId: req.runId,
         message: status.blockedReason ?? 'Agent is not ready'
-      })
+      }, req.sessionId)
       return
     }
 
@@ -234,11 +236,11 @@ export function registerIpcHandlers(): void {
           runId: req.runId,
           prompt: req.prompt,
           signal: controller.signal,
-          emit: (agentEvent) => emit(event.sender, agentEvent),
+          emit: (agentEvent) => emit(event.sender, agentEvent, req.sessionId),
           attachments: blocks.flat()
         })
       } catch (error) {
-        emit(event.sender, { type: 'error', runId: req.runId, message: (error as Error).message })
+        emit(event.sender, { type: 'error', runId: req.runId, message: (error as Error).message }, req.sessionId)
       } finally {
         for (const id of req.attachmentIds) attachments.delete(id)
         forgetRun(req.runId)

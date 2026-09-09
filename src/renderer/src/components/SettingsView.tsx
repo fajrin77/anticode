@@ -481,7 +481,7 @@ function Remote(): JSX.Element {
             also revokes every old link.
           </li>
           <li>Remote prompts follow the desktop approval mode. Enable Auto in General for fully unattended runs.</li>
-          <li>Sessions created remotely appear on the desktop after it restarts.</li>
+          <li>Sessions created on the phone appear here immediately, and their progress streams live on both sides.</li>
         </ul>
       </div>
     </>

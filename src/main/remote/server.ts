@@ -4,8 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentEvent } from '@shared/ipc'
-import type { RemoteStatus } from '@shared/ipc'
+import type { AgentEvent, RemoteStatus, RoutedAgentEvent } from '@shared/ipc'
 import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
 import {
@@ -242,7 +241,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
       runId,
       prompt,
       signal: controller.signal,
-      emit: (event: AgentEvent) => forward(event)
+      emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent)
     })
     .finally(() => remoteRuns.delete(runId))
 

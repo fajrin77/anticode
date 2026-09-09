@@ -174,6 +174,12 @@ export type AgentEvent =
   | { type: 'end'; runId: string; reason: AgentEndReason }
   | { type: 'error'; runId: string; message: string }
 
+/**
+ * The loop does not know its session id; the IPC and remote layers attach it
+ * when routing events, so every window can tell which transcript they touch.
+ */
+export type RoutedAgentEvent = AgentEvent & { sessionId: string }
+
 export interface RemoteStatus {
   enabled: boolean
   /** Full pairing URL for the phone, null when disabled or on error. */
@@ -218,6 +224,6 @@ export interface AnticodeApi {
   respondToApproval: (response: ApprovalResponse) => Promise<void>
   addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>
   removeProvider: (id: ProviderId) => Promise<ProviderInfo[]>
-  onAgentEvent: (listener: (event: AgentEvent) => void) => () => void
+  onAgentEvent: (listener: (event: RoutedAgentEvent) => void) => () => void
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void
 }

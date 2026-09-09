@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import type {
-  AgentEvent,
   AgentRequest,
   AnticodeApi,
   AppInfo,
@@ -12,6 +11,7 @@ import type {
   CustomProviderInput,
   ModelCatalogue,
   RemoteStatus,
+  RoutedAgentEvent,
   SnapshotMessage,
   ProviderId,
   ProviderInfo,
@@ -69,7 +69,7 @@ const api: AnticodeApi = {
   cancelRun: (runId: string) => ipcRenderer.invoke(IpcChannel.AGENT_CANCEL, runId) as Promise<void>,
   respondToApproval: (response: ApprovalResponse) =>
     ipcRenderer.invoke(IpcChannel.APPROVAL_RESPOND, response) as Promise<void>,
-  onAgentEvent: (listener) => subscribe<AgentEvent>(IpcChannel.AGENT_EVENT, listener),
+  onAgentEvent: (listener) => subscribe<RoutedAgentEvent>(IpcChannel.AGENT_EVENT, listener),
   onApprovalRequest: (listener) =>
     subscribe<ApprovalRequest>(IpcChannel.APPROVAL_REQUEST, listener)
 }

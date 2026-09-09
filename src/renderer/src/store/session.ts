@@ -71,6 +71,8 @@ interface SessionState {
   usage: UsageEntry[]
   activeSessionId: string | null
   activeRun: ActiveRun | null
+  /** Phone-initiated runs mirrored live here: runId → placeholder message. */
+  mirrorRuns: Record<string, { sessionId: string; messageId: string }>
   /** Next badge-colour index; advances on every session creation. */
   nextColour: number
 
@@ -85,6 +87,10 @@ interface SessionState {
   addExternalSession: (spec: SessionSpec) => void
   /** Fills a registered external session with its main-process transcript. */
   importSnapshot: (sessionId: string, messages: SnapshotMessage[]) => void
+  /** Opens a live mirror placeholder for a phone-initiated run; returns its message id. */
+  mirrorStart: (runId: string, sessionId: string) => string
+  /** Closes a mirror placeholder once the mirrored run settles. */
+  mirrorSettle: (runId: string) => void
   /** Sets mode and project folder on a fresh session before its first prompt. */
   updateSessionConfig: (
     id: string,
@@ -167,12 +173,13 @@ function mapMessage(
   }
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   projects: [],
   sessions: [],
   usage: [],
   activeSessionId: null,
   activeRun: null,
+  mirrorRuns: {},
   nextColour: 0,
 
   addProject: (root) =>
@@ -292,6 +299,46 @@ export const useSessionStore = create<SessionState>((set) => ({
         return { ...session, messages: converted }
       })
     })),
+
+  // A run started on the phone gets a placeholder assistant message here, so
+  // the desktop watches it stream in like any local run.
+  mirrorStart: (runId, sessionId) => {
+    const existing = get().mirrorRuns[runId]
+    if (existing !== undefined) return existing.messageId
+    const messageId = crypto.randomUUID()
+    set((state) => ({
+      mirrorRuns: { ...state.mirrorRuns, [runId]: { sessionId, messageId } },
+      sessions: mapSession(state, sessionId, (session) =>
+        session.messages.some((message) => message.id === messageId)
+          ? session
+          : {
+              ...session,
+              messages: [
+                ...session.messages,
+                { id: messageId, role: 'assistant' as const, parts: [], pending: true }
+              ]
+            }
+      )
+    }))
+    return messageId
+  },
+
+  mirrorSettle: (runId) =>
+    set((state) => {
+      const entry = state.mirrorRuns[runId]
+      if (entry === undefined) return state
+      const mirrorRuns = { ...state.mirrorRuns }
+      delete mirrorRuns[runId]
+      return {
+        mirrorRuns,
+        sessions: mapSession(state, entry.sessionId, (session) => ({
+          ...session,
+          messages: session.messages.map((message) =>
+            message.id === entry.messageId ? { ...message, pending: false } : message
+          )
+        }))
+      }
+    }),
 
   // Deleting wipes the session from the store; the caller also cancels any
   // active run and frees the main-process side.
