@@ -167,46 +167,43 @@ function RunSummaryCard({ message }: { message: Message }): JSX.Element {
   if (summary === undefined) return <></>
   const { model, durationMs } = summary
 
+  // A faint, centred footnote rather than a card — hidden until the cursor
+  // comes near, so the conversation stays the only thing on stage.
   return (
-    <div className="mt-4 rounded-xl border border-line bg-surface/60 px-4 py-3">
-      <div className="flex items-center gap-2 text-[12.5px] text-faint">
+    <div className="group mt-2 flex flex-col items-center">
+      <button
+        type="button"
+        disabled={files.length === 0}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-opacity ${
+          files.length > 0 ? 'cursor-pointer hover:text-dim' : 'cursor-default'
+        } ${open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+      >
         <span className="h-1.5 w-1.5 rounded-full bg-add" />
-        <span className="min-w-0 flex-1 truncate">
-          {model === '' ? 'done' : model} · {formatDuration(durationMs)}
-        </span>
-      </div>
-      {files.length > 0 && (
-        <>
-          <button
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            className="group mt-2 flex w-full items-center gap-2 text-left"
-          >
-            <span className="text-[13.5px] text-text">
-              {files.length} changed {files.length === 1 ? 'file' : 'files'}
+        <span>{model === '' ? 'done' : model}</span>
+        <span>·</span>
+        <span>{formatDuration(durationMs)}</span>
+        {files.length > 0 && (
+          <>
+            <span>·</span>
+            <span>
+              {files.length} {files.length === 1 ? 'file' : 'files'}
             </span>
-            <span className="text-[12.5px] text-add">+{added}</span>
-            <span className="text-[12.5px] text-del">−{removed}</span>
-            <span
-              className={`ml-auto text-[11px] text-faint transition-opacity ${
-                open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-              }`}
-            >
-              {open ? '⌃' : '⌄'}
-            </span>
-          </button>
-          {open && (
-            <div className="mt-1.5 border-t border-line-soft pt-1.5">
-              {files.map((file) => (
-                <div key={file.path} className="flex items-baseline gap-2 py-0.5 text-[12px]">
-                  <span className="min-w-0 flex-1 truncate font-mono text-dim">{file.path}</span>
-                  {file.added > 0 && <span className="text-add">+{file.added}</span>}
-                  {file.removed > 0 && <span className="text-del">−{file.removed}</span>}
-                </div>
-              ))}
+            {added > 0 && <span className="text-add">+{added}</span>}
+            {removed > 0 && <span className="text-del">−{removed}</span>}
+          </>
+        )}
+      </button>
+      {open && files.length > 0 && (
+        <div className="mt-1 flex flex-col items-center">
+          {files.map((file) => (
+            <div key={file.path} className="flex items-baseline gap-2 py-0.5 text-[12px]">
+              <span className="max-w-96 truncate font-mono text-faint">{file.path}</span>
+              {file.added > 0 && <span className="text-add">+{file.added}</span>}
+              {file.removed > 0 && <span className="text-del">−{file.removed}</span>}
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </div>
   )
