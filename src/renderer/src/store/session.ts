@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { SessionMode } from '@shared/ipc'
+import type { SessionMode, SessionSpec, SnapshotMessage } from '@shared/ipc'
 
 export type Role = 'user' | 'assistant'
 export type ToolStatus = 'running' | 'ok' | 'error'
@@ -81,6 +81,10 @@ interface SessionState {
   reopenSession: (id: string) => void
   /** Removes a session everywhere: tab, dashboard, and history. */
   deleteSession: (id: string) => void
+  /** Registers a session created elsewhere (the remote phone app). */
+  addExternalSession: (spec: SessionSpec) => void
+  /** Fills a registered external session with its main-process transcript. */
+  importSnapshot: (sessionId: string, messages: SnapshotMessage[]) => void
   /** Sets mode and project folder on a fresh session before its first prompt. */
   updateSessionConfig: (
     id: string,
@@ -214,6 +218,78 @@ export const useSessionStore = create<SessionState>((set) => ({
           next.title = baseName(next.projectRoot ?? '')
         }
         return next
+      })
+    })),
+
+  // A remote-created session lands here the moment the main process announces
+  // it, so the desktop tab bar and dashboard stay complete.
+  addExternalSession: (spec) =>
+    set((state) => {
+      if (state.sessions.some((session) => session.id === spec.sessionId)) return state
+      const session: Session = {
+        id: spec.sessionId,
+        title:
+          spec.mode === 'code' && spec.workspaceRoot !== null
+            ? baseName(spec.workspaceRoot)
+            : 'New session',
+        mode: spec.mode,
+        projectRoot: spec.workspaceRoot,
+        createdAt: Date.now(),
+        messages: [],
+        inputTokens: 0,
+        outputTokens: 0,
+        provider: null,
+        model: null,
+        lastInputTokens: 0,
+        closed: false,
+        colour: state.nextColour
+      }
+      return {
+        sessions: [...state.sessions, session],
+        nextColour: (state.nextColour + 1) % SESSION_COLOURS.length
+      }
+    }),
+
+  // Converts the main-process transcript into renderer message parts.
+  importSnapshot: (sessionId, messages) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) => {
+        if (session.id !== sessionId) return session
+        const converted: Message[] = []
+        for (const message of messages) {
+          const parts: MessagePart[] = []
+          for (const block of message.blocks) {
+            if (block.type === 'text') {
+              parts.push({ kind: 'text', text: block.text })
+            } else if (block.type === 'tool_use') {
+              parts.push({
+                kind: 'tool',
+                toolUseId: block.id,
+                name: block.name,
+                input: block.input,
+                status: 'ok',
+                output: ''
+              })
+            } else {
+              for (let i = parts.length - 1; i >= 0; i--) {
+                const part = parts[i]
+                if (part === undefined) continue
+                if (part.kind === 'tool' && part.toolUseId === block.toolUseId) {
+                  part.output = block.content
+                  part.status = block.isError ? 'error' : 'ok'
+                  break
+                }
+              }
+            }
+          }
+          converted.push({
+            id: crypto.randomUUID(),
+            role: message.role,
+            parts,
+            pending: false
+          })
+        }
+        return { ...session, messages: converted }
       })
     })),
 

@@ -83,6 +83,18 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  // Sessions created on the phone land in the desktop immediately, with their
+  // main-process transcript imported so the conversation is readable here.
+  useEffect(() => {
+    return window.anticode.onSessionCreated((spec) => {
+      const store = useSessionStore.getState()
+      store.addExternalSession(spec)
+      void window.anticode.getSessionSnapshot(spec.sessionId).then((messages) => {
+        if (messages !== null) store.importSnapshot(spec.sessionId, messages)
+      })
+    })
+  }, [])
+
   useEffect(() => {
     return window.anticode.onAgentEvent((event) => {
       const store = useSessionStore.getState()
