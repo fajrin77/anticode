@@ -94,6 +94,24 @@ try {
   await window.keyboard.press('Escape'); await window.waitForTimeout(300)
   await shot('11-mode-menu-after-escape')
 
+  // A code session with no folder must refuse to send and point at Choose
+  // folder, in the new-session tab exactly as on the dashboard. It used to
+  // send anyway and surface a raw IPC error in the transcript.
+  await window.getByRole('button',{name:'New tab',exact:true}).click()
+  await window.waitForTimeout(400)
+  await composer().fill('cek folder')
+  await composer().press('Enter')
+  await window.waitForTimeout(900)
+  await shot('12-new-session-no-folder-after-enter')
+  const leaked = await window.getByText(/needs a project folder|Error invoking/).count()
+  check('folderless code session does not reach the provider', leaked === 0 ? 'refused' : 'sent', 'refused')
+  const glowing = await window.getByRole('button',{name:/Choose folder/}).evaluate(
+    (el) => el.className.includes('animate-glow')
+  ).catch(() => false)
+  check('Choose folder glows after a blocked send', glowing ? 'glowing' : 'inert', 'glowing')
+  const kept = await composer().inputValue()
+  check('the blocked draft is kept, not swallowed', kept, 'cek folder')
+
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})

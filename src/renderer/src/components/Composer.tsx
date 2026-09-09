@@ -80,13 +80,16 @@ export function Composer({
   // A code session is only usable once it is bound to a folder; chat never needs one.
   const sessionReady =
     session !== undefined && (session.mode === 'chat' || session.projectRoot !== null)
+  const folderMissing =
+    status?.providerReady === true &&
+    session !== undefined &&
+    session.mode === 'code' &&
+    session.projectRoot === null
   const blocked = status?.providerReady !== true
     ? (status?.blockedReason ?? null)
     : sessionReady
       ? null
-      : hero
-        ? null
-        : 'This code session is not connected to a project folder'
+      : 'This code session is not connected to a project folder'
   const canSend = draft.trim() !== '' && !isStreaming && blocked === null
 
 
@@ -240,7 +243,9 @@ export function Composer({
       onDrop={onDrop}
     >
       <div className="mx-auto max-w-3xl" ref={boxRef}>
-        {blocked !== null && <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>}
+        {blocked !== null && !(hero && folderMissing) && (
+          <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
+        )}
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
 
         {attached.length > 0 && (
@@ -349,6 +354,34 @@ export function Composer({
               </span>
             )}
 
+            {/* Once a code session has messages the hero is gone, and with it
+                the only way to attach a folder — a session that reached this
+                state had no way out. The button lives here too. */}
+            {folderMissing && !hero && session !== undefined && (
+              <button
+                type="button"
+                title="Choose a project folder"
+                onClick={() => {
+                  void window.anticode.chooseWorkspace().then((next) => {
+                    if (next.workspaceRoot !== null) {
+                      updateSessionConfig(session.id, {
+                        mode: 'code',
+                        projectRoot: next.workspaceRoot
+                      })
+                    }
+                  })
+                }}
+                className={`flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-[12.5px] transition-colors ${
+                  glow ? 'animate-glow text-dim hover:text-text' : 'text-dim hover:text-text'
+                }`}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h3l1.4 1.6h5.2a1.2 1.2 0 0 1 1.2 1.2v6A1.2 1.2 0 0 1 12.3 13H2.7a1.2 1.2 0 0 1-1.2-1.2z" />
+                </svg>
+                Choose folder
+              </button>
+            )}
+
             <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
               <span className="max-w-56 truncate font-mono">{shortModel}</span>
             </Chip>
@@ -373,7 +406,10 @@ export function Composer({
                 }
                 void send()
               }}
-              disabled={(isPaused && isStreaming) || (!isStreaming && !isPaused && !canSend)}
+              disabled={
+                (isPaused && isStreaming) ||
+                (!isStreaming && !isPaused && !canSend && !folderMissing)
+              }
               aria-label={isPaused ? 'Resume' : isStreaming ? 'Pause' : 'Send'}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                 isPaused

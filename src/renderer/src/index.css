@@ -34,9 +34,11 @@ body,
 }
 
 /* Chromium's default focus ring is a light halo that reads as a stray
-   highlight on this palette. Keyboard focus gets the brand ring instead;
-   pointer focus stays quiet. */
-:focus-visible {
+   highlight on this palette. Clickable controls get the brand ring instead.
+   Text fields are deliberately left out: they show focus through the caret,
+   and a ring there would fight the composer's own outline-none styling.
+   :where() keeps this at zero specificity so any element can opt out. */
+:where(button, a, summary, [role='button'], [tabindex]:not(input, textarea)):focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
 }
