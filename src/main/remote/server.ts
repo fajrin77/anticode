@@ -33,6 +33,18 @@ import {
   releaseAttachments
 } from '../attachments/registry'
 import { forgetRun, forward, registerRun, subscribe } from './bus'
+import {
+  activeWebUrl,
+  addWebTab,
+  closeWebTab,
+  listWeb,
+  openWeb,
+  selectWebTab,
+  setWebVisible
+} from '../web'
+import { capturePhonePage } from '../browser'
+import { steerRunning } from '../steer'
+import sharp from 'sharp'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
 const PORT = Number(process.env['ANTICODE_REMOTE_PORT'] || 8680)
@@ -184,7 +196,38 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
 
     if (req.method === 'GET' && url.pathname === '/api/overview') {
-      return json(res, 200, { status: getStatus(), sessions: listSessionSummaries() })
+      return json(res, 200, {
+        status: getStatus(),
+        sessions: listSessionSummaries(),
+        web: listWeb()
+      })
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/web') {
+      return json(res, 200, { web: listWeb() })
+    }
+
+    // The phone is on the other side of the network from every localhost the
+    // agent serves, so it cannot embed the page the desktop embeds. It gets a
+    // mobile rendering of the active URL from a separate browser context.
+    if (req.method === 'GET' && url.pathname === '/api/web/shot') {
+      return sendWebShot(
+        res,
+        url.searchParams.get('sessionId') ?? '',
+        url.searchParams.get('reload') === '1'
+      )
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/web') {
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      const tabId = typeof body.tabId === 'string' ? body.tabId : undefined
+      if (body.action === 'newTab') addWebTab(sessionId, typeof body.url === 'string' ? body.url : '')
+      else if (body.action === 'closeTab' && tabId !== undefined) closeWebTab(sessionId, tabId)
+      else if (body.action === 'selectTab' && tabId !== undefined) selectWebTab(sessionId, tabId)
+      else if (typeof body.url === 'string') openWeb(sessionId, body.url, tabId)
+      else if (typeof body.visible === 'boolean') setWebVisible(sessionId, body.visible)
+      return json(res, 200, { web: listWeb() })
     }
 
     if (req.method === 'GET' && url.pathname === '/api/models') {
@@ -318,6 +361,44 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 }
 
+/**
+ * The mirror is captured at a phone's own width and its whole scrollable
+ * height, so the phone scrolls the page rather than squinting at all of it at
+ * once. 780 is enough for a retina phone without sending a poster.
+ */
+const SHOT_WIDTH = 780
+/** A page that scrolls forever must not become a picture that downloads forever. */
+const SHOT_MAX_HEIGHT = 12_000
+
+async function sendWebShot(
+  res: http.ServerResponse,
+  sessionId: string,
+  reload: boolean
+): Promise<void> {
+  const target = activeWebUrl(sessionId)
+  if (target === null) return json(res, 404, { error: 'No page is open in this session' })
+  try {
+    const raw = await capturePhonePage(sessionId, target, reload)
+    const scaled = sharp(raw).resize({ width: SHOT_WIDTH, withoutEnlargement: true })
+    const size = await scaled.toBuffer({ resolveWithObject: true })
+    const picture =
+      size.info.height > SHOT_MAX_HEIGHT
+        ? await sharp(size.data)
+            .extract({ left: 0, top: 0, width: size.info.width, height: SHOT_MAX_HEIGHT })
+            .jpeg({ quality: 72 })
+            .toBuffer()
+        : await sharp(size.data).jpeg({ quality: 72 }).toBuffer()
+    res.writeHead(200, {
+      'content-type': 'image/jpeg',
+      'content-length': String(picture.byteLength),
+      'cache-control': 'no-store'
+    })
+    res.end(picture)
+  } catch (error) {
+    json(res, 502, { error: (error as Error).message })
+  }
+}
+
 function deny(res: http.ServerResponse): void {
   res.writeHead(401, { 'content-type': 'application/json' })
   res.end(JSON.stringify({ error: 'Unauthorised — open the pairing URL' }))
@@ -372,6 +453,7 @@ function createPhoneSession(body: Record<string, unknown>): { sessionId: string 
 async function startPrompt(body: Record<string, unknown>): Promise<{
   sessionId: string
   runId: string
+  steered: boolean
 }> {
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (prompt === '') throw new Error('Prompt is empty')
@@ -381,13 +463,16 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   let sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
   if (sessionId !== '' && loadSessionMessages(sessionId) === null) throw new Error('Unknown session')
   if (sessionId === '') sessionId = createPhoneSession(body).sessionId
+  const ids = Array.isArray(body.attachmentIds)
+    ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
+    : []
+  // Sent while the session is working: the run in progress takes it.
+  const steered = await steerRunning(sessionId, prompt, ids, approvals)
+  if (steered !== null) return { sessionId, runId: steered, steered: true }
   const agent = getSession(sessionId, approvals)
   const runId = randomUUID()
   const controller = beginRun(runId, sessionId)
   registerRun(runId, sessionId)
-  const ids = Array.isArray(body.attachmentIds)
-    ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
-    : []
   const sent = attachmentsFor(sessionId, ids)
   forward({
     type: 'prompt', runId, text: prompt, sessionId, attachments: refsOf(sent)
@@ -405,7 +490,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
     persistSessions()
   })
 
-  return { sessionId, runId }
+  return { sessionId, runId, steered: false }
 }
 
 function openEventStream(url: URL, res: http.ServerResponse): void {

@@ -20,6 +20,7 @@ vi.mock('../runtime', () => ({
 vi.mock('../providers', () => ({ listProviders: () => [] }))
 vi.mock('./bus', () => ({ subscribe: () => () => {}, registerRun: () => {}, forward: () => {}, forgetRun: () => {} }))
 import { setRemoteEnabled, regenerateRemoteToken } from './server'
+import { clearWeb, noteWebUrl } from '../web'
 function origin(url: string): string { return url.replace(/http:\/\/[^:]+:/, 'http://127.0.0.1:').split('/?')[0]! }
 afterEach(async () => {
   await setRemoteEnabled(false)
@@ -95,4 +96,56 @@ it('downloads a produced file and refuses one outside the folder', async () => {
     `${base}/api/download?sessionId=test-session&path=../luar.txt&token=${status.token}`
   )
   expect(denied.status).toBe(400)
+})
+
+it('serves the browser panes, their tabs, and the sticky hide from the phone', async () => {
+  noteWebUrl('test-session', 'http://127.0.0.1:9/', 'Dev')
+  const status = await setRemoteEnabled(true, 0)
+  const base = origin(status.url!)
+  type Pane = {
+    sessionId: string
+    tabs: { id: string; url: string; title: string }[]
+    activeTabId: string
+    hidden: boolean
+    full: boolean
+  }
+  type Panes = { web: Pane[] }
+  const listed = (await (await fetch(`${base}/api/web?token=${status.token}`)).json()) as Panes
+  expect(listed.web[0]?.tabs.map((tab) => tab.url)).toEqual(['http://127.0.0.1:9/'])
+
+  const post = async (body: object): Promise<Pane | undefined> => {
+    const response = await fetch(`${base}/api/web?token=${status.token}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'test-session', ...body })
+    })
+    return ((await response.json()) as Panes).web[0]
+  }
+
+  expect((await post({ visible: false }))?.hidden).toBe(true)
+
+  // A page opened from the phone unhides the pane — the user asked for it.
+  const opened = await post({ url: 'localhost:4000' })
+  expect(opened?.hidden).toBe(false)
+  expect(opened?.tabs.map((tab) => tab.url)).toEqual(['http://localhost:4000'])
+
+  const withTab = await post({ action: 'newTab', url: 'localhost:6006' })
+  expect(withTab?.tabs.map((tab) => tab.url)).toEqual(['http://localhost:4000', 'http://localhost:6006'])
+  const first = withTab?.tabs[0]?.id ?? ''
+  expect((await post({ action: 'selectTab', tabId: first }))?.activeTabId).toBe(first)
+  expect((await post({ action: 'closeTab', tabId: first }))?.tabs.map((tab) => tab.url)).toEqual([
+    'http://localhost:6006'
+  ])
+
+  // The overview the phone polls carries the same list.
+  const overview = (await (await fetch(`${base}/api/overview?token=${status.token}`)).json()) as Panes
+  expect(overview.web[0]?.tabs.map((tab) => tab.url)).toEqual(['http://localhost:6006'])
+
+  const stranger = await fetch(`${base}/api/web?token=${status.token}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'nobody', url: 'localhost:4000' })
+  })
+  expect(stranger.status).toBe(404)
+  clearWeb('test-session')
 })

@@ -20,6 +20,7 @@ import type {
 import {
   deleteSession,
   createSession,
+  adoptSessionColour,
   getSession,
   persistSessions,
   getStatus,
@@ -51,6 +52,21 @@ import {
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
 import { forgetRun, forward, registerRun } from '../remote/bus'
+import {
+  addWebTab,
+  clearWeb,
+  closeWebTab,
+  listWeb,
+  openWeb,
+  reportWebTab,
+  selectWebTab,
+  setWebCloser,
+  setWebFull,
+  setWebSink,
+  setWebVisible
+} from '../web'
+import { closePhonePage } from '../browser'
+import { steerRunning } from '../steer'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
@@ -82,6 +98,65 @@ function emit(event: AgentEvent, sessionId: string): void {
 }
 
 export function registerIpcHandlers(): void {
+  // The pane's state is owned by the main process — the agent is what opens
+  // pages — so every window is told about a change rather than asked for one.
+  setWebSink((sessions) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IpcChannel.WEB_UPDATED, sessions)
+    }
+  })
+
+  ipcMain.handle(IpcChannel.WEB_LIST, () => listWeb())
+
+  // A pane that is forgotten takes the phone's mirror of it down too; the
+  // agent's own page is left alone, because the agent may still be using it.
+  setWebCloser((sessionId) => {
+    void closePhonePage(sessionId)
+  })
+
+  ipcMain.handle(
+    IpcChannel.WEB_OPEN,
+    (_event, sessionId: string, url: string, tabId?: string, title?: string) => {
+      openWeb(sessionId, url, tabId, typeof title === 'string' ? title : undefined)
+      return listWeb()
+    }
+  )
+
+  ipcMain.handle(IpcChannel.WEB_VISIBLE, (_event, sessionId: string, visible: boolean) => {
+    setWebVisible(sessionId, visible)
+    return listWeb()
+  })
+
+  ipcMain.handle(IpcChannel.WEB_REPORT, (_event, sessionId: string, tabId: string, url: string, title?: string) => {
+    reportWebTab(sessionId, tabId, url, title)
+    return listWeb()
+  })
+
+  ipcMain.handle(IpcChannel.WEB_FULL, (_event, sessionId: string, full: boolean) => {
+    setWebFull(sessionId, full)
+    return listWeb()
+  })
+
+  ipcMain.handle(IpcChannel.WEB_TAB_ADD, (_event, sessionId: string, url?: string) => {
+    addWebTab(sessionId, url ?? '')
+    return listWeb()
+  })
+
+  ipcMain.handle(IpcChannel.WEB_TAB_CLOSE, (_event, sessionId: string, tabId: string) => {
+    closeWebTab(sessionId, tabId)
+    return listWeb()
+  })
+
+  ipcMain.handle(IpcChannel.WEB_TAB_SELECT, (_event, sessionId: string, tabId: string) => {
+    selectWebTab(sessionId, tabId)
+    return listWeb()
+  })
+
+  ipcMain.handle(IpcChannel.WEB_FORGET, (_event, sessionId: string) => {
+    clearWeb(sessionId)
+    return listWeb()
+  })
+
   ipcMain.handle(IpcChannel.RUN_LIST, () => listActiveRuns())
   ipcMain.handle(IpcChannel.ATTACH_RELEASE, (_event, ids: string[]) => releaseAttachments(ids))
   ipcMain.handle(IpcChannel.APPROVAL_PENDING, () => approvals.listPending())
@@ -251,8 +326,12 @@ export function registerIpcHandlers(): void {
     approvals.resolve(response.requestId, response.decision)
   })
 
-  ipcMain.handle(IpcChannel.SESSION_CREATE, (_event, spec: SessionSpec): void => {
+  ipcMain.handle(IpcChannel.SESSION_CREATE, (_event, spec: SessionSpec): SessionSpec =>
     createSession(spec)
+  )
+
+  ipcMain.handle(IpcChannel.SESSION_COLOUR, (_event, sessionId: string, colour: number): void => {
+    adoptSessionColour(sessionId, colour)
   })
 
   ipcMain.handle(IpcChannel.SESSION_REVERT, (_event, sessionId: string) =>
@@ -291,12 +370,14 @@ export function registerIpcHandlers(): void {
     deleteSession(sessionId)
   })
 
-  ipcMain.handle(IpcChannel.AGENT_SEND, (event, req: AgentRequest): void => {
+  ipcMain.handle(IpcChannel.AGENT_SEND, async (event, req: AgentRequest): Promise<{ runId: string; steered: boolean }> => {
     lastSender = event.sender
     if (typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > 200_000 || !Array.isArray(req.attachmentIds)) throw new Error('Enter a prompt of at most 200,000 characters')
 
     const status = getStatus()
     if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+    const steered = await steerRunning(req.sessionId, req.prompt, req.attachmentIds, approvals)
+    if (steered !== null) return { runId: steered, steered: true }
     const agent = getSession(req.sessionId, approvals)
     const controller = beginRun(req.runId, req.sessionId)
     registerRun(req.runId, req.sessionId)
@@ -329,6 +410,7 @@ export function registerIpcHandlers(): void {
         persistSessions()
       }
     })()
+    return { runId: req.runId, steered: false }
   })
 
   ipcMain.handle(IpcChannel.AGENT_CANCEL, (_event, runId: string): void => {

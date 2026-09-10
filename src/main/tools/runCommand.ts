@@ -3,8 +3,24 @@ import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 import { isDestructiveCommand } from '../approval/policy'
+import { noteWebUrl } from '../web'
 
 const MAX_STREAM_CHARS = 10_000
+
+/**
+ * Dev servers announce themselves — "Local: http://localhost:5173/" — and that
+ * line is the whole reason the browser pane exists, so it is picked out of the
+ * output and opened without anyone having to ask for it.
+ */
+const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d{2,5})?(?:\/\S*)?/i
+
+function localServerUrl(output: string): string | null {
+  const found = LOCAL_URL.exec(output)?.[0]
+  if (found === undefined) return null
+  // Trailing punctuation from prose around the URL, and a host nothing can
+  // actually be fetched from.
+  return found.replace(/[.,;:'")\]]+$/, '').replace('0.0.0.0', 'localhost')
+}
 
 interface CommandOutcome {
   stdout: string
@@ -154,6 +170,9 @@ export const runCommandTool = defineTool({
     const status = outcome.timedOut
       ? `killed after ${input.timeout_ms} ms`
       : `exit code ${outcome.code ?? 'unknown'}`
+
+    const served = localServerUrl(`${outcome.stdout}\n${outcome.stderr}`)
+    if (served !== null) noteWebUrl(context.sessionId, served)
 
     const sections = [`$ ${input.command}`, `[${status}]`]
     if (outcome.stdout.trim() !== '') sections.push(`stdout:\n${outcome.stdout.trimEnd()}`)

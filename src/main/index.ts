@@ -1,4 +1,5 @@
 import { app, shell, BrowserWindow, nativeImage } from 'electron'
+import type { WebContents } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { loadEnvFile } from './config'
@@ -21,12 +22,27 @@ function createWindow(): void {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // The browser pane beside the transcript is a <webview>; the guest gets
+      // no preload and no Node of its own (see the guard in whenReady).
+      webviewTag: true,
       // Required for ESM preload scripts; the renderer stays isolated from Node.
       sandbox: false
     }
   })
 
   window.on('ready-to-show', () => window.show())
+
+  // The renderer sets the pane's src from a URL the agent reached, so it is
+  // pinned down here rather than trusted: no preload, no Node, http(s) only.
+  window.webContents.on('will-attach-webview', (event, preferences, params) => {
+    delete preferences.preload
+    preferences.nodeIntegration = false
+    preferences.contextIsolation = true
+    const source = String(params['src'] ?? '')
+    if (source !== '' && !source.startsWith('http://') && !source.startsWith('https://')) {
+      event.preventDefault()
+    }
+  })
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     // Only real web links go to the system browser; anything else (file:, custom
@@ -45,6 +61,19 @@ function createWindow(): void {
   }
 }
 
+/**
+ * A guest page in the browser pane is ordinary web content, so it is held to
+ * ordinary web-content rules: no Node, no preload smuggled in through the tag's
+ * attributes, and a link that wants a new window opens in the real browser
+ * rather than a chromeless one inside the app.
+ */
+function containGuest(contents: WebContents): void {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+}
+
 // Two instances would share one userData dir and fight over the remote port,
 // so a second launch just focuses the first window.
 if (!app.requestSingleInstanceLock()) {
@@ -61,6 +90,11 @@ void app.whenReady().then(() => {
   })
 
   app.setAppUserModelId('com.anticode.app')
+
+  app.on('web-contents-created', (_event, contents) => {
+    if (contents.getType() === 'webview') containGuest(contents)
+  })
+
 
   // A packaged app takes its icon from the bundle; dev runs under Electron's
   // own identity, so point the dock at the real one.

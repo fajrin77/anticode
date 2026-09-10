@@ -34,7 +34,18 @@ export const IpcChannel = {
   REMOTE_REGENERATE: 'remote:regenerate',
   SESSION_CREATED: 'session:created',
   SESSION_CLOSED: 'session:closed',
-  SESSION_SNAPSHOT: 'session:snapshot'
+  SESSION_SNAPSHOT: 'session:snapshot',
+  SESSION_COLOUR: 'session:colour',
+  WEB_LIST: 'web:list',
+  WEB_OPEN: 'web:open',
+  WEB_REPORT: 'web:report',
+  WEB_VISIBLE: 'web:visible',
+  WEB_FULL: 'web:full',
+  WEB_TAB_ADD: 'web:tabAdd',
+  WEB_TAB_CLOSE: 'web:tabClose',
+  WEB_TAB_SELECT: 'web:tabSelect',
+  WEB_FORGET: 'web:forget',
+  WEB_UPDATED: 'web:updated'
 } as const
 
 /**
@@ -125,7 +136,30 @@ export interface SessionSpec {
   sessionId: string
   mode: SessionMode
   workspaceRoot: string | null
+  /**
+   * Index into the badge palette. The main process owns it so the desktop and
+   * the phone paint a session the same colour; a desktop may propose one when
+   * it creates the session, and the main process keeps whatever it settles on.
+   */
+  colour?: number
 }
+
+/**
+ * Badge palette, shared by both viewers. The phone page carries a literal copy
+ * (it cannot import this module); a unit test holds the two to each other.
+ */
+export const SESSION_COLOURS: [string, string][] = [
+  ['#7a5cc4', '#4f3a8f'],
+  ['#3f8f86', '#2c6b64'],
+  ['#c2603f', '#8f4630'],
+  ['#3f7fc2', '#2c5e92'],
+  ['#b0873a', '#82632c'],
+  ['#8f4f7a', '#6a3c5c'],
+  ['#4f8f4f', '#386b38'],
+  ['#c24f7a', '#923a5c'],
+  ['#5c7ac2', '#43598f'],
+  ['#c27a3f', '#925c30']
+]
 
 export interface SessionStatus {
   /** The folder last picked in the Projects screen, not a per-session binding. */
@@ -178,6 +212,13 @@ export type AgentEvent =
   /** Emitted by the routing layer before the run starts, so every viewer sees
    * the prompt the moment it is sent — never only after the turn ends. */
   | { type: 'prompt'; runId: string; text: string; attachments?: AttachmentRef[] }
+  /** An instruction sent while this run was already working. The run keeps
+   * going and takes it in at its next step, instead of a second run starting.
+   * Viewers show it at once; what the run is still writing stays above it. */
+  | { type: 'steer'; runId: string; text: string; attachments?: AttachmentRef[] }
+  /** The run has read the instructions sent so far; what it writes from here
+   * on answers them, and belongs below them. */
+  | { type: 'steer_taken'; runId: string }
   | { type: 'text_delta'; runId: string; text: string }
   | { type: 'tool_start'; runId: string; toolUseId: string; name: string; input: unknown }
   | {
@@ -213,8 +254,44 @@ export interface RemoteStatus {
   error: string | null
 }
 
+/** One page in a session's browser pane. */
+export interface WebTab {
+  id: string
+  /** Empty for a tab that is open but has not been navigated to yet. */
+  url: string
+  title: string
+}
+
+/**
+ * anticode's own browser, one per session. The agent drives a single page —
+ * its Playwright page — which is always the active tab; the tabs beside it are
+ * the user's own, opened from the pane.
+ */
+export interface WebSession {
+  sessionId: string
+  tabs: WebTab[]
+  activeTabId: string
+  /**
+   * True once the user hid this session's pane. It stays true for the rest of
+   * the session, so a page the agent opens later does not shove the pane back
+   * on screen after the user has already said no.
+   */
+  hidden: boolean
+  /** True when the pane has taken the whole window instead of the right side. */
+  full: boolean
+}
+
 export type SnapshotBlock =
-  | { type: 'text'; text: string }
+  | {
+      type: 'text'
+      text: string
+      /**
+       * Set on an instruction sent while a run was working. `during` means the
+       * run took it in and carried on, so the assistant turn before it did not
+       * end the run; `after` means the run was paused before it could.
+       */
+      followUp?: 'during' | 'after'
+    }
   | { type: 'attachment'; attachment: AttachmentRef }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }
@@ -240,6 +317,29 @@ export interface RunSummary {
 }
 
 export interface AnticodeApi {
+  /** Every session that has a browser pane, hidden ones included. */
+  listWebSessions: () => Promise<WebSession[]>
+  /**
+   * Points a tab at a URL and shows the pane — the user asked for it. Without
+   * a tab id the active one is navigated. Guest navigation and title events
+   * use reportWebTab so background pages cannot change the user's selection.
+   */
+  openWebUrl: (
+    sessionId: string,
+    url: string,
+    tabId?: string,
+    title?: string
+  ) => Promise<WebSession[]>
+  setWebVisible: (sessionId: string, visible: boolean) => Promise<WebSession[]>
+  reportWebTab: (sessionId: string, tabId: string, url: string, title?: string) => Promise<WebSession[]>
+  /** Whole window versus the right-hand side. */
+  setWebFull: (sessionId: string, full: boolean) => Promise<WebSession[]>
+  addWebTab: (sessionId: string, url?: string) => Promise<WebSession[]>
+  closeWebTab: (sessionId: string, tabId: string) => Promise<WebSession[]>
+  selectWebTab: (sessionId: string, tabId: string) => Promise<WebSession[]>
+  /** Drops the pane entirely; the next page the agent opens brings it back. */
+  forgetWebSession: (sessionId: string) => Promise<WebSession[]>
+  onWebSessions: (listener: (sessions: WebSession[]) => void) => () => void
   getRemoteStatus: () => Promise<RemoteStatus>
   setRemoteEnabled: (enabled: boolean) => Promise<RemoteStatus>
   /** Issues a fresh pairing token; every previously shared link stops working. */
@@ -266,7 +366,8 @@ export interface AnticodeApi {
   selectProvider: (selection: ProviderSelection) => Promise<SessionStatus>
   listModels: (provider: ProviderId, refresh?: boolean) => Promise<ModelCatalogue>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
-  createSession: (spec: SessionSpec) => Promise<void>
+  /** Answers with the spec as the main process settled it, colour included. */
+  createSession: (spec: SessionSpec) => Promise<SessionSpec>
   closeSession: (sessionId: string) => Promise<void>
   chooseAttachments: () => Promise<AttachmentInfo[]>
   addAttachments: (paths: string[]) => Promise<AttachmentInfo[]>
@@ -281,7 +382,14 @@ export interface AnticodeApi {
   /** Save-a-copy dialog for a produced file; resolves to the chosen path. */
   saveArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   pathForFile: (file: File) => string
-  sendPrompt: (req: AgentRequest) => Promise<void>
+  /**
+   * Starts a run, or — when this session already has one working — hands the
+   * prompt to that run as a follow-up. `steered` says which happened; a steer
+   * answers with the run that was already going.
+   */
+  sendPrompt: (req: AgentRequest) => Promise<{ runId: string; steered: boolean }>
+  /** Records the colour a desktop has been showing, for a session that has none. */
+  setSessionColour: (sessionId: string, colour: number) => Promise<void>
   cancelRun: (runId: string) => Promise<void>
   respondToApproval: (response: ApprovalResponse) => Promise<void>
   addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>

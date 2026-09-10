@@ -2,6 +2,7 @@ import sharp from 'sharp'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { clearNetworkRecords, networkRecords, requirePage, withPage } from '../browser'
+import { noteWebUrl } from '../web'
 
 const MAX_TEXT = 20_000
 const MAX_IMAGE_EDGE = 1568
@@ -77,7 +78,11 @@ export const browserNavigateTool = defineTool({
           waitUntil: input.wait_for,
           timeout: DEFAULT_TIMEOUT
         })
-        return `Opened: ${page.url()} (HTTP ${response?.status() ?? 'unknown'})\nTitle: ${await page.title()}`
+        const title = await page.title()
+        // The pane beside the transcript follows the agent's page, so opening
+        // one here is what puts it on screen.
+        noteWebUrl(context.sessionId, page.url(), title)
+        return `Opened: ${page.url()} (HTTP ${response?.status() ?? 'unknown'})\nTitle: ${title}`
       } catch (error) {
         throw new ToolError(`Failed to open ${input.url}: ${describe(error)}`)
       }
@@ -159,6 +164,8 @@ export const browserClickTool = defineTool({
     } catch (error) {
       throw new ToolError(`Failed to click "${input.selector}": ${describe(error)}`)
     }
+    // A click is often a navigation; the pane should not lag a page behind.
+    noteWebUrl(context.sessionId, page.url())
     return `Clicked: ${input.selector}\nURL now: ${page.url()}`
   }
 })

@@ -39,6 +39,24 @@ interface RunParams {
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
 
+/**
+ * How a follow-up reads to the model: an addition to the task in hand, not a
+ * replacement for it. Without the framing a model tends to drop what it was
+ * doing and answer only the newest message.
+ */
+function framedFollowUp(text: string): string {
+  return (
+    '[Pesan tambahan dari pengguna, dikirim saat kamu masih mengerjakan tugas sebelumnya. ' +
+    'Tugas sebelumnya belum selesai: lanjutkan, dan kerjakan juga ini.]\n\n' +
+    text
+  )
+}
+
+interface FollowUp {
+  text: string
+  attachments: ContentBlock[]
+}
+
 function isToolUse(block: ContentBlock): block is ToolUseBlock {
   return block.type === 'tool_use'
 }
@@ -107,6 +125,9 @@ export class AgentSession {
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   private projectInstructions: string | null | undefined
+  /** Instructions sent while a run was working, waiting for its next step. */
+  private followUps: FollowUp[] = []
+  private activeSignal: AbortSignal | null = null
 
   constructor(
     private readonly provider: LLMProvider,
@@ -124,11 +145,64 @@ export class AgentSession {
   async run(params: RunParams): Promise<void> {
     if (this.running) throw new Error('A run is already active in this session')
     this.running = true
-    try { await this.runExclusive(params) } finally { this.running = false }
+    this.activeSignal = params.signal
+    try {
+      await this.runExclusive(params)
+    } finally {
+      this.running = false
+      this.activeSignal = null
+      // A pause can land between an instruction arriving and the run taking it
+      // in. It was sent, and the user saw it sent, so it goes into the history
+      // rather than vanishing — the next run (a resume) reads it there.
+      this.settleFollowUps()
+    }
+  }
+
+  /**
+   * Hands an instruction to the run that is working now. It is taken in at
+   * the run's next step — after the tools in flight return, or once the model
+   * finishes the reply it is writing — and the run carries on with both. False
+   * when there is no run to hand it to, or the one there is already stopping.
+   */
+  steer(text: string, attachments: ContentBlock[] = []): boolean {
+    if (!this.running || this.activeSignal === null || this.activeSignal.aborted) return false
+    this.followUps.push({ text, attachments })
+    return true
+  }
+
+  private takeFollowUps(during: boolean): ContentBlock[] {
+    const taken = this.followUps
+    this.followUps = []
+    return taken.flatMap((entry) => [
+      ...entry.attachments,
+      { type: 'text' as const, text: framedFollowUp(entry.text), followUp: { text: entry.text, during } }
+    ])
+  }
+
+  private settleFollowUps(): void {
+    if (this.followUps.length === 0) return
+    const blocks = this.takeFollowUps(false)
+    // Folded into the last user turn so the history keeps alternating; a fresh
+    // user turn only when the history ends on the model. Condensing gives the
+    // replayed history its own copies, so the transcript is written separately.
+    const replayed = this.history.at(-1)
+    const kept = this.transcript.at(-1)
+    if (replayed?.role === 'user' && kept?.role === 'user') {
+      replayed.content.push(...blocks)
+      if (kept.content !== replayed.content) kept.content.push(...blocks)
+    } else {
+      this.record({ role: 'user', content: blocks })
+    }
   }
 
   private async runExclusive(params: RunParams): Promise<void> {
     const { runId, prompt, signal, emit } = params
+    // Taking instructions in is what moves every viewer's reply below them.
+    const takeIn = (): ContentBlock[] => {
+      const blocks = this.takeFollowUps(true)
+      if (blocks.length > 0) emit({ type: 'steer_taken', runId })
+      return blocks
+    }
     // A cancelled previous run may have left images behind; never leak them
     // into this turn's history.
     this.pendingImages = []
@@ -156,6 +230,12 @@ export class AgentSession {
 
         if (signal.aborted) break
         if (response.stopReason !== 'tool_use') {
+          // An instruction that arrived while the model was writing its last
+          // reply keeps the run going: it is the next thing to do.
+          if (response.stopReason === 'end_turn' && this.followUps.length > 0) {
+            this.record({ role: 'user', content: takeIn() })
+            continue
+          }
           emit({
             type: 'end',
             runId,
@@ -170,7 +250,10 @@ export class AgentSession {
 
         const calls = response.content.filter(isToolUse)
         const results = await this.executeCalls(calls, params)
-        this.record({ role: 'user', content: [...results, ...this.pendingImages] })
+        // Follow-ups ride in the same user turn as the tool results, after
+        // them: the model reads what its tools did, then what was added.
+        const added = signal.aborted ? [] : takeIn()
+        this.record({ role: 'user', content: [...results, ...this.pendingImages, ...added] })
         this.pendingImages = []
       }
     } catch (error) {

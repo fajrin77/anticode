@@ -427,3 +427,99 @@ it('stops a single oversized prompt before calling the provider', async () => {
   expect(provider.sent).toHaveLength(0)
   expect(events.at(-1)).toMatchObject({type:'error',message:expect.stringContaining('context budget')})
 })
+
+describe('follow-ups sent while a run is working', () => {
+  function session(provider: LLMProvider): AgentSession {
+    return new AgentSession(provider, allowAll, 'code', root)
+  }
+
+  function start(agent: AgentSession, controller = new AbortController()): Promise<void> {
+    return agent.run({
+      runId: 'run-1',
+      prompt: 'kerjakan sesuatu',
+      signal: controller.signal,
+      emit: (event) => events.push(event)
+    })
+  }
+
+  function followUpsIn(blocks: ContentBlock[]): { text: string; during: boolean }[] {
+    return blocks.flatMap((block) =>
+      block.type === 'text' && block.followUp !== undefined ? [block.followUp] : []
+    )
+  }
+
+  it('is refused when nothing is running', () => {
+    const agent = session(new FakeProvider([]))
+    expect(agent.steer('tambah ini')).toBe(false)
+  })
+
+  it('rides with the tool results of the step in flight, and the run carries on', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'isi')
+    let agent: AgentSession | null = null
+    const provider = new FakeProvider(
+      [
+        turn([{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'a.txt' } }], 'tool_use'),
+        turn([{ type: 'text', text: 'dua-duanya beres' }], 'end_turn')
+      ],
+      (index) => {
+        // Sent while the model is still choosing its tool call.
+        if (index === 0) expect(agent?.steer('tambah juga README')).toBe(true)
+      }
+    )
+    agent = session(provider)
+    await start(agent)
+
+    const second = lastContent(provider, 1)
+    expect(second[0]).toMatchObject({ type: 'tool_result', toolUseId: 't1' })
+    expect(followUpsIn(second)).toEqual([{ text: 'tambah juga README', during: true }])
+    // The model reads it framed as an addition to the task, not a new one.
+    const framed = second.find((block) => block.type === 'text')
+    expect(framed?.type === 'text' ? framed.text : '').toMatch(/lanjutkan, dan kerjakan juga ini[\s\S]*tambah juga README/)
+    expect(events.filter((event) => event.type === 'end')).toEqual([
+      { type: 'end', runId: 'run-1', reason: 'complete' }
+    ])
+    // Viewers are told the moment it was read, so the reply moves below it then.
+    expect(events.filter((event) => event.type === 'steer_taken')).toEqual([{ type: 'steer_taken', runId: 'run-1' }])
+  })
+
+  it('keeps a run going that was about to finish', async () => {
+    let agent: AgentSession | null = null
+    const provider = new FakeProvider(
+      [
+        turn([{ type: 'text', text: 'selesai' }], 'end_turn'),
+        turn([{ type: 'text', text: 'oke, itu juga' }], 'end_turn')
+      ],
+      (index) => {
+        if (index === 0) agent?.steer('satu lagi')
+      }
+    )
+    agent = session(provider)
+    await start(agent)
+
+    expect(provider.sent).toHaveLength(2)
+    expect(followUpsIn(lastContent(provider, 1))).toEqual([{ text: 'satu lagi', during: true }])
+    expect(events.filter((event) => event.type === 'end')).toHaveLength(1)
+  })
+
+  it('is kept in the history when the run is paused before taking it in', async () => {
+    const controller = new AbortController()
+    let agent: AgentSession | null = null
+    const provider = new FakeProvider([turn([{ type: 'text', text: 'hampir' }], 'end_turn')], (index) => {
+      if (index === 0) {
+        agent?.steer('jangan lupa tes')
+        controller.abort()
+      }
+    })
+    agent = session(provider)
+    await start(agent, controller)
+
+    // Never read, so never announced as taken.
+    expect(events.some((event) => event.type === 'steer_taken')).toBe(false)
+    const history = agent.snapshot().messages
+    const last = history.at(-1)
+    expect(last?.role).toBe('user')
+    expect(followUpsIn(last?.content ?? [])).toEqual([{ text: 'jangan lupa tes', during: false }])
+    // Stopping refuses anything more.
+    expect(agent.steer('lagi')).toBe(false)
+  })
+})

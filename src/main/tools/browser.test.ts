@@ -12,6 +12,7 @@ import {
   readNetworkRequestsTool
 } from './browser'
 import { closeBrowser } from '../browser'
+import { webRecord } from '../web'
 import type { ToolContext } from './types'
 
 const PAGE = `<!doctype html>
@@ -69,6 +70,18 @@ describe('browser tools', () => {
     const output = (await browserNavigateTool.prepare({ url: origin }).execute(context)).text
     expect(output).toContain('Title: ')
     expect(output).toContain('HTTP 200')
+  })
+
+  // The pane beside the transcript follows the agent's page; opening one is
+  // what puts it on screen.
+  it('hands the page it opened to the browser pane', async () => {
+    await browserNavigateTool
+      .prepare({ url: origin })
+      .execute({ ...context, sessionId: 'browser-pane-session' })
+    const pane = webRecord('browser-pane-session')
+    expect(pane?.hidden).toBe(false)
+    // The fixture page has no <title>; what matters is that the URL arrived.
+    expect(pane?.tabs).toEqual([{ id: expect.any(String), url: `${origin}/`, title: '' }])
   })
 
   it('extracts whole-page text', async () => {

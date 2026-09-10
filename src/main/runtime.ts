@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import type { ContentBlock, Message } from './providers/types'
 import type { RunSummary, SnapshotMessage } from '@shared/ipc'
+import { SESSION_COLOURS } from '@shared/ipc'
 import type {
   ModelCatalogue,
   ProviderId,
@@ -15,6 +16,7 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { AgentSession } from './agent/loop'
+import { clearWeb, restoreWeb, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
 import { fetchModels } from './providers/models'
 import { ApprovalPolicy } from './approval/policy'
@@ -38,6 +40,12 @@ let workspaceRoot: string | null = null
 let selection: ProviderSelection | null = null
 const sessions = new Map<string, LiveSession>()
 const catalogues = new Map<ProviderId, ModelCatalogue>()
+/** Next badge colour, round-robin, so fresh sessions tell apart at a glance. */
+let nextColour = 0
+
+function validColour(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < SESSION_COLOURS.length
+}
 
 /**
  * Resolved lazily, not at module load: this module is imported before
@@ -69,7 +77,7 @@ export function setWorkspaceRoot(root: string): void {
  */
 export function initPersistedState(): void {
   try {
-    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[] }[]
+    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
@@ -81,6 +89,10 @@ export function initPersistedState(): void {
         agent: null,
         summaries: Array.isArray(entry.summaries) ? entry.summaries : []
       })
+      // The page this session had open comes back with it, so relaunching the
+      // app lands on the same local server the last run was looking at.
+      restoreWeb(entry.spec.sessionId, entry.web)
+      if (validColour(entry.spec.colour)) nextColour = (entry.spec.colour + 1) % SESSION_COLOURS.length
     }
   } catch { /* First launch or unreadable archive: keep the original file untouched. */ }
   const persisted = loadPersistedSettings()
@@ -161,15 +173,38 @@ export function setOnSessionClosed(sink: (sessionId: string) => void): void {
   sessionClosedSink = sink
 }
 
-export function createSession(spec: SessionSpec): void {
+export function createSession(spec: SessionSpec): SessionSpec {
   const previous = sessions.get(spec.sessionId)
   if (previous && (runForSession(spec.sessionId) !== null || (previous.agent?.messageCount ?? previous.messages.length) > 0)) {
-    if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return
+    if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return previous.spec
     throw new Error('An existing conversation cannot be rebound to another folder')
   }
-  sessions.set(spec.sessionId, { spec, agent: null, messages: [], summaries: [] })
+  // A session keeps its colour through a rebind; a new one takes the colour
+  // its creator proposed, or the next one round.
+  const kept = previous?.spec.colour
+  const colour = validColour(kept) ? kept : validColour(spec.colour) ? spec.colour : nextColour
+  if (!validColour(kept)) nextColour = (colour + 1) % SESSION_COLOURS.length
+  const settled: SessionSpec = {
+    sessionId: spec.sessionId,
+    mode: spec.mode,
+    workspaceRoot: spec.workspaceRoot,
+    colour
+  }
+  sessions.set(spec.sessionId, { spec: settled, agent: null, messages: [], summaries: [] })
   persistSessions()
-  sessionCreatedSink?.(spec)
+  sessionCreatedSink?.(settled)
+  return settled
+}
+
+/**
+ * Sessions saved before colours lived here have none; the desktop still shows
+ * the one it picked back then, and hands it over so the phone can match it.
+ */
+export function adoptSessionColour(sessionId: string, colour: number): void {
+  const live = sessions.get(sessionId)
+  if (live === undefined || validColour(live.spec.colour) || !validColour(colour)) return
+  live.spec = { ...live.spec, colour }
+  persistSessions()
 }
 
 /** Closing a desktop tab only archives it, so this stays silent. */
@@ -182,6 +217,7 @@ export function deleteSession(sessionId: string): void {
   cancelSessionRuns(sessionId)
   sessions.get(sessionId)?.agent?.dispose()
   sessions.delete(sessionId)
+  clearWeb(sessionId)
   persistSessions()
   sessionClosedSink?.(sessionId)
 }
@@ -247,6 +283,8 @@ export interface SessionSummary {
   messageCount: number
   /** True while a run (desktop or phone) is executing in this session. */
   running: boolean
+  /** Index into SESSION_COLOURS, or null until the desktop hands one over. */
+  colour: number | null
 }
 
 /** Injected by ipc registration so summaries can flag live runs. */
@@ -263,7 +301,8 @@ export function listSessionSummaries(): SessionSummary[] {
     mode: live.spec.mode,
     workspaceRoot: live.spec.workspaceRoot,
     messageCount: live.agent?.messageCount ?? live.messages.length,
-    running: runningProbe?.(live.spec.sessionId) ?? false
+    running: runningProbe?.(live.spec.sessionId) ?? false,
+    colour: validColour(live.spec.colour) ? live.spec.colour : null
   }))
 }
 
@@ -278,9 +317,19 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
       .map((block) => {
         if (block.type === 'text') {
           // An attachment header becomes a card rather than a line of prose.
-          return block.attachment !== undefined
-            ? { type: 'attachment' as const, attachment: block.attachment }
-            : { type: 'text' as const, text: block.text }
+          if (block.attachment !== undefined) {
+            return { type: 'attachment' as const, attachment: block.attachment }
+          }
+          // A follow-up shows as the words that were typed, not the framing
+          // the model was given around them.
+          if (block.followUp !== undefined) {
+            return {
+              type: 'text' as const,
+              text: block.followUp.text,
+              followUp: block.followUp.during ? ('during' as const) : ('after' as const)
+            }
+          }
+          return { type: 'text' as const, text: block.text }
         }
         if (block.type === 'tool_use') {
           return { type: 'tool_use' as const, id: block.id, name: block.name, input: block.input }
@@ -361,7 +410,8 @@ export function persistSessions(): void {
   const data = [...sessions.values()].map((live) => ({
     spec: live.spec,
     messages: live.agent?.snapshot().messages ?? live.messages,
-    summaries: live.summaries
+    summaries: live.summaries,
+    web: webRecord(live.spec.sessionId)
   }))
   try {
     mkdirSync(directory, { recursive: true })

@@ -15,6 +15,16 @@ const workspace = path.join(directory, 'workspace'); await mkdir(workspace)
 await writeFile(path.join(workspace, 'hello.txt'), 'original')
 await writeFile(path.join(workspace, '<b>literal.txt'), 'literal filename')
 let calls = 0
+/** A page for the browser pane to point at, standing in for a dev server. */
+async function createStaticPage() {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' })
+    res.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Halaman Lokal</title><style>body{margin:0}main{height:1800px;background:linear-gradient(white,lightblue)}@media(min-width:600px){main{background:red}}</style><main><h1>Halaman Lokal</h1></main><footer>End of page</footer>')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return { server, origin: `http://127.0.0.1:${server.address().port}` }
+}
+
 const stub = createServer(async (req, res) => {
   if (req.url.endsWith('/models')) { res.setHeader('content-type','application/json'); res.end(JSON.stringify({data:[{id:'test-model'},{id:'test-model-2'}]})); return }
   let raw = ''; for await (const part of req) raw += part
@@ -90,11 +100,19 @@ try {
   assert.equal(await readFile(path.join(workspace,'hello.txt'),'utf8'),'written by approved tool')
   log('remote tool approval appears in Settings and writes the fixture file')
   const remoteRun = await api('/api/prompt', {sessionId,prompt:'slow remote lock'})
-  await assert.rejects(api('/api/prompt', {sessionId,prompt:'duplicate'}), /already active/)
-  await assert.rejects(window.evaluate(({sessionId}) => window.anticode.sendPrompt({sessionId,runId:crypto.randomUUID(),prompt:'duplicate desktop',attachmentIds:[]}), {sessionId}), /already active/)
+  // A second prompt no longer bounces off a working session: from either
+  // device it joins the run that is going, rather than starting a rival one.
+  const phoneJoin = await api('/api/prompt', {sessionId,prompt:'duplicate'})
+  assert.deepEqual([phoneJoin.runId, phoneJoin.steered], [remoteRun.runId, true])
+  const desktopJoin = await window.evaluate(({sessionId}) => window.anticode.sendPrompt({sessionId,runId:crypto.randomUUID(),prompt:'duplicate desktop',attachmentIds:[]}), {sessionId})
+  assert.deepEqual([desktopJoin.runId, desktopJoin.steered], [remoteRun.runId, true])
   await window.evaluate((runId)=>window.anticode.cancelRun(runId),remoteRun.runId)
   for (let i=0;i<50;i++) { if (!(await api('/api/session/'+sessionId)).runId) break; await new Promise(r=>setTimeout(r,20)) }
   assert.equal((await api('/api/session/'+sessionId)).runId,null)
+  // Paused before it could take them in, the two follow-ups are kept, not lost.
+  const kept = (await api('/api/session/'+sessionId)).messages.flatMap((m) => m.blocks)
+    .filter((b) => b.type === 'text' && b.followUp === 'after').map((b) => b.text)
+  assert.deepEqual(kept, ['duplicate', 'duplicate desktop'])
   log('desktop and phone share ownership and cancellation of the same run')
   const attached = await window.evaluate((file)=>window.anticode.addAttachments([file]),path.join(workspace,'hello.txt'))
   await window.evaluate(({sessionId,attachmentId})=>window.anticode.sendPrompt({sessionId,runId:crypto.randomUUID(),prompt:'attachment test',attachmentIds:[attachmentId]}), {sessionId,attachmentId:attached[0].id})
@@ -193,6 +211,9 @@ try {
   }, specs)
   assert(first.some(m=>m.blocks.some(b=>b.type==='text' && b.text==='after model switch')))
   log('changing model preserves completed conversation history')
+  // A page the session had open is part of the session: it comes back with it,
+  // so relaunching lands on the same local server the last run was watching.
+  await window.evaluate((id) => window.anticode.openWebUrl(id, 'http://127.0.0.1:4173/orders'), sessionId)
   await app.close()
   app = await electron.launch({args:[bootstrap],env,cwd:directory})
   window = await app.firstWindow()
@@ -202,6 +223,11 @@ try {
   await window.getByText('Fixture reply: desktop-first',{exact:true}).waitFor()
   await window.getByText('Fixture reply: after model switch',{exact:true}).waitFor()
   log('full app restart restores sessions and conversation history')
+  const restoredPane = await window.evaluate(async (id) =>
+    (await window.anticode.listWebSessions()).find((entry) => entry.sessionId === id), sessionId)
+  assert.deepEqual(restoredPane?.tabs.map((tab) => tab.url), ['http://127.0.0.1:4173/orders'])
+  assert.equal(restoredPane?.hidden, false)
+  log('a restart reopens the page the session had open')
   // The closing line used to vanish on reload, because only the renderer knew
   // what a run had cost. It is written down now, so it comes back too.
   const restored = await window.evaluate(async () => {
@@ -231,7 +257,7 @@ try {
     await screen.waitForTimeout(600)
 
     const stuck = await screen.evaluate(() => {
-      const ids = ['menuDrop','errorBanner','chatView','viewFiles','inputRow','stagedRow','quoteRow',
+      const ids = ['menuDrop','errorBanner','chatView','viewFiles','viewWeb','webFrame','webLoading','inputRow','stagedRow','quoteRow',
                    'fileInput','editor','gitOut','approvalPanel','replyBtn','useModelBtn',
                    'dashboard','sessionList','newSessionCard']
       return ids.filter((id) => {
@@ -317,6 +343,155 @@ try {
     await screen.evaluate(() => closeImage())
     assert.equal(await screen.$eval('#imgViewer', (el) => getComputedStyle(el).display === 'none'), true)
     log('an attached picture opens on the phone, and only its own files are served')
+
+    // The Web screen sits between Sessions and Files in the one dropdown, and
+    // shows the page the desktop has beside its transcript. The phone cannot
+    // embed it — every localhost the agent serves lives on the Mac — so what
+    // it gets is a separate mobile rendering of the active URL.
+    const menuOrder = await screen.evaluate(() =>
+      [...document.querySelectorAll('#menuDrop .mrow')].map((el) => el.textContent.trim()))
+    assert.deepEqual(menuOrder, ['New session','Sessions','Web','Files'])
+
+    const page = await createStaticPage()
+    try {
+      await window.evaluate(([id, url]) => window.anticode.openWebUrl(id, url), [sessionId, page.origin])
+      await screen.evaluate(() => gotoWeb())
+      await screen.waitForTimeout(800)
+      assert.equal(await screen.$eval('#viewWeb', (el) => getComputedStyle(el).display !== 'none'), true)
+      assert.equal(await screen.$eval('#inputRow', (el) => getComputedStyle(el).display === 'none'), true)
+      assert.match(await screen.$eval('#webNote', (el) => el.textContent), new RegExp(page.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      assert.equal(await screen.$eval('#webSession', (el) => el.value), sessionId)
+
+      const picture = await fetch(`http://127.0.0.1:18680/api/web/shot?sessionId=${sessionId}&token=${remote.token}`)
+      assert.equal(picture.status, 200)
+      assert.equal(picture.headers.get('content-type'), 'image/jpeg')
+      const bytes = Buffer.from(await picture.arrayBuffer())
+      const size = await sharp(bytes).metadata()
+      // Rendered at a phone's width and its whole height — something to scroll
+      // with a thumb, not a desktop page shrunk to a postage stamp.
+      assert.equal(size.width, 780)
+      assert.ok(size.height > size.width, `the page picture is not phone-shaped: ${size.width}x${size.height}`)
+      await screen.waitForFunction(() => document.getElementById('webShot').naturalWidth > 0, null, { timeout: 15000 })
+      const drawn = await screen.$eval('#webShot', (el) => ({
+        width: el.getBoundingClientRect().width,
+        viewport: window.innerWidth
+      }))
+      assert.ok(drawn.width >= drawn.viewport - 2, `the page is not drawn edge to edge: ${drawn.width}px of ${drawn.viewport}`)
+      const scroll = await screen.evaluate(() => {
+        const main = document.scrollingElement;
+        main.scrollTop = main.scrollHeight;
+        return { top: main.scrollTop, height: main.clientHeight, total: main.scrollHeight };
+      })
+      assert.ok(scroll.top > 500 && scroll.total > scroll.height, 'the mobile page must scroll beyond the first screen')
+      await screen.screenshot({ path: path.join(directory, 'phone-web-scrolled.png') })
+      await screen.evaluate(() => { document.scrollingElement.scrollTop = 0 })
+      await screen.screenshot({ path: path.join(directory, 'phone-web.png') })
+      assert.equal(await screen.$$eval('#menuDrop .mrow span', (els) => els.length), 0, 'the Web row carries a dot')
+      log('the phone renders the session page at phone width, edge to edge')
+
+      // Tabs reach the phone too: a new one appears as a chip and can be closed.
+      await screen.evaluate(() => document.querySelector('#webTabs .wadd').click())
+      await screen.waitForTimeout(500)
+      assert.equal(await screen.$$eval('#webTabs .wtab', (els) => els.length), 2)
+      await screen.evaluate(() => [...document.querySelectorAll('#webTabs .wtab .wx')].at(-1).click())
+      await screen.waitForTimeout(500)
+      assert.equal(await screen.$$eval('#webTabs .wtab', (els) => els.length), 1)
+      log('the phone opens and closes tabs')
+
+      // Hiding is one decision the whole app shares: hidden on the phone is
+      // hidden beside the transcript too, and it stays that way until asked.
+      await screen.evaluate(() => toggleWebHidden())
+      await screen.waitForTimeout(400)
+      assert.equal(await screen.$eval('#webHideBtn', (el) => el.textContent), 'Show')
+      const paneOf = () => window.evaluate(async (id) =>
+        (await window.anticode.listWebSessions()).find((entry) => entry.sessionId === id), sessionId)
+      assert.equal((await paneOf()).hidden, true)
+      await screen.evaluate(() => toggleWebHidden())
+      await screen.waitForTimeout(400)
+      assert.equal((await paneOf()).hidden, false)
+      log('the phone can hide and show the session page')
+
+      // The same colour on both screens: the phone's overview carries the
+      // index the desktop paints with, and its badge wears that palette entry.
+      const overview = await api('/api/overview')
+      const desktopColour = await window.evaluate((id) =>
+        window.__store.getState().sessions.find((s) => s.id === id)?.colour, sessionId)
+      const phoneColour = overview.sessions.find((s) => s.id === sessionId)?.colour
+      assert.equal(phoneColour, desktopColour, 'the phone and the desktop paint this session differently')
+      log('the phone paints each session in the desktop colour')
+    } finally {
+      await new Promise((resolve) => page.server.close(resolve))
+    }
+    // Typing on the phone: the box wears a hairline of lime, not the blue ring.
+    await screen.evaluate((id) => openSession(id), sessionId)
+    await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
+
+    // A picture staged above the box opens full size before it is sent, from
+    // the phone's own copy — the same viewer a sent one opens in.
+    const stagedPicture = await sharp({create:{width:300,height:200,channels:3,background:'#3f7fc2'}}).png().toBuffer()
+    await screen.setInputFiles('#fileInput', { name: 'staged.png', mimeType: 'image/png', buffer: stagedPicture })
+    await screen.waitForSelector('#stagedRow .chip.pic', { timeout: 10000 })
+    await screen.click('#stagedRow .chip.pic')
+    const stagedView = await screen.evaluate(() => ({
+      open: !document.getElementById('imgViewer').classList.contains('hidden'),
+      name: document.getElementById('imgName').textContent,
+      local: document.getElementById('imgFull').src.startsWith('blob:')
+    }))
+    assert.deepEqual(stagedView, { open: true, name: 'staged.png', local: true })
+    await screen.evaluate(() => { closeImage(); document.querySelector('#stagedRow .x').click() })
+    assert.equal(await screen.$$eval('#stagedRow .chip', (els) => els.length), 0)
+    log('a staged picture opens full size on the phone before it is sent')
+    await screen.focus('#prompt')
+    const ring = await screen.$eval('#prompt', (el) => {
+      const style = getComputedStyle(el)
+      return { border: style.borderTopColor, outline: style.outlineStyle }
+    })
+    assert.equal(ring.border, 'rgb(209, 250, 34)')
+    assert.equal(ring.outline, 'none')
+    log('the phone prompt wears lime while typed in')
+
+    // A prompt sent while the session works joins that run. The box empties
+    // the moment it is sent, the button is the desktop's own square to pause
+    // and arrow to send, and the reaction is written in the same words.
+    const slow = await api('/api/prompt', { sessionId, prompt: 'slow phone work' })
+    await screen.waitForFunction(() => currentRunId !== null, null, { timeout: 5000 })
+    const pauseGlyph = await screen.$eval('#sendBtn', (el) => {
+      const square = el.querySelector('.sq')
+      if (square === null) return null
+      const style = getComputedStyle(square)
+      return { width: style.width, height: style.height, radius: style.borderTopLeftRadius, label: el.getAttribute('aria-label') }
+    })
+    assert.deepEqual(pauseGlyph, { width: '10px', height: '10px', radius: '2px', label: 'Pause' })
+    await screen.fill('#prompt', 'tambah dari hp')
+    assert.equal(await screen.$eval('#sendBtn', (el) => el.getAttribute('aria-label')), 'Send')
+    assert.equal(await screen.$eval('#sendBtn', (el) => el.querySelector('svg') !== null), true)
+    const cleared = await screen.evaluate(() => {
+      const pending = sendPrompt()
+      const now = document.getElementById('prompt').value
+      return pending.then(() => now)
+    })
+    assert.equal(cleared, '', 'the phone kept the sent prompt in the box')
+    await screen.waitForFunction((label) =>
+      [...document.querySelectorAll('#transcript .notice')].some((el) => el.textContent === label),
+      'wait a minutes, bi***', { timeout: 5000 })
+    const desktopSaw = await window.evaluate(async ([id, runId]) => {
+      for (let i = 0; i < 50; i++) {
+        const session = window.__store.getState().sessions.find((s) => s.id === id)
+        const said = session.messages.some((m) => m.parts.some((p) => p.kind === 'notice' && p.text === 'wait a minutes, bi***'))
+        const typed = session.messages.some((m) => m.role === 'user' && m.parts.some((p) => p.kind === 'text' && p.text === 'tambah dari hp'))
+        if (said && typed) return runId
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      return null
+    }, [sessionId, slow.runId])
+    assert.equal(desktopSaw, slow.runId, 'the desktop never showed the phone follow-up')
+    await screen.waitForFunction(() => currentRunId === null, null, { timeout: 15000 })
+    const snapshot = await api('/api/session/' + sessionId)
+    const followUp = snapshot.messages.flatMap((m) => m.blocks).find((b) => b.type === 'text' && b.text === 'tambah dari hp')
+    assert.equal(followUp?.followUp, 'during', 'the run did not take the phone follow-up in')
+    log('a phone prompt sent mid-run joins the run, on both screens')
+
+    assert.deepEqual(phoneErrors, [])
   } finally {
     await phone.close()
   }

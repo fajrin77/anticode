@@ -8,6 +8,8 @@ import type {
   SessionSpec,
   SnapshotMessage
 } from '@shared/ipc'
+import { SESSION_COLOURS } from '@shared/ipc'
+import { FOLLOW_UP_LABEL } from '../labels'
 
 export type Role = 'user' | 'assistant'
 export type ToolStatus = 'running' | 'ok' | 'error'
@@ -160,6 +162,16 @@ interface SessionState {
   closeSession: (id: string) => void
 
   addMessage: (message: Message) => void
+  /**
+   * An instruction joined a run that was already working. It is written under
+   * the reply in progress, with the app's reaction to it; the reply itself
+   * keeps streaming above until the run takes the instruction in.
+   */
+  steerRun: (runId: string, sessionId: string, text: string, attachments?: AttachmentRef[]) => void
+  /** The run read the instructions: the reply so far closes, a fresh one opens below them. */
+  takeSteer: (runId: string, sessionId: string) => void
+  /** Drops messages the composer drew before the main process decided otherwise. */
+  removeMessages: (sessionId: string, ids: string[]) => void
   /** Adds a remotely-sent user prompt unless it is already the last one. */
   addUserPrompt: (sessionId: string, text: string, attachments?: AttachmentRef[]) => void
   /** Notes a pause or a resume in a session's transcript, never twice running. */
@@ -317,7 +329,18 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   // it, so the desktop tab bar and dashboard stay complete.
   addExternalSession: (spec) =>
     set((state) => {
-      if (state.sessions.some((session) => session.id === spec.sessionId)) return state
+      // The main process owns colours now; a session this window already
+      // knows takes the one it settled on, so both viewers paint it the same.
+      if (state.sessions.some((session) => session.id === spec.sessionId)) {
+        if (spec.colour === undefined) return state
+        return {
+          sessions: state.sessions.map((session) =>
+            session.id === spec.sessionId && session.colour !== spec.colour
+              ? { ...session, colour: spec.colour ?? session.colour }
+              : session
+          )
+        }
+      }
       const session: Session = {
         id: spec.sessionId,
         title:
@@ -334,11 +357,11 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         model: null,
         lastInputTokens: 0,
         closed: false,
-        colour: state.nextColour
+        colour: spec.colour ?? state.nextColour
       }
       return {
         sessions: [...state.sessions, session],
-        nextColour: (state.nextColour + 1) % SESSION_COLOURS.length
+        nextColour: ((spec.colour ?? state.nextColour) + 1) % SESSION_COLOURS.length
       }
     }),
 
@@ -369,10 +392,15 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         if (session.id !== sessionId) return session
         const converted: Message[] = []
         const results = new Map(messages.flatMap((message) => message.blocks.filter((block) => block.type === 'tool_result').map((block) => [block.toolUseId, block] as const)))
+        // An assistant turn followed by an instruction the run took in did not
+        // end its run, so it carries no closing line; see the summaries below.
+        const continued = new Set<Message>()
         for (const message of messages) {
           const parts: MessagePart[] = []
+          let followUp: 'during' | 'after' | undefined
           for (const block of message.blocks) {
             if (block.type === 'text') {
+              if (block.followUp !== undefined) followUp = block.followUp
               parts.push({ kind: 'text', text: block.text })
             } else if (block.type === 'attachment') {
               // Consecutive attachments belong to one send, so they share a strip.
@@ -395,18 +423,34 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           // messages between them. A live run is one message here, so a
           // restored one has to fold the same way or it reads differently.
           const previous = converted.at(-1)
-          if (message.role === 'assistant' && previous?.role === 'assistant') {
+          if (message.role === 'assistant' && previous?.role === 'assistant' && !previous.parts.some((part) => part.kind === 'notice')) {
             previous.parts.push(...parts)
             continue
           }
+          if (followUp === 'during' && previous?.role === 'assistant') continued.add(previous)
           converted.push({
             id: crypto.randomUUID(),
             role: message.role,
             parts,
             pending: false
           })
+          // The reaction a live follow-up got is part of the story after a
+          // reload too.
+          if (followUp !== undefined) {
+            converted.push({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              parts: [{ kind: 'notice', text: FOLLOW_UP_LABEL }],
+              pending: false
+            })
+          }
         }
-        const turns = converted.filter((message) => message.role === 'assistant')
+        const turns = converted.filter(
+          (message) =>
+            message.role === 'assistant' &&
+            !continued.has(message) &&
+            !message.parts.every((part) => part.kind === 'notice')
+        )
         const offset = turns.length - summaries.length
         turns.forEach((message, index) => {
           const summary = summaries[index - offset]
@@ -553,18 +597,83 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       )
     })),
 
-  endTool: (sessionId, messageId, toolUseId, ok, output) =>
+  // Found by its id wherever it sits: a follow-up moves the run on to a fresh
+  // reply while tools the earlier one started are still finishing.
+  endTool: (sessionId, _messageId, toolUseId, ok, output) =>
     set((state) => ({
-      sessions: mapSession(state, sessionId, (session) =>
-        mapMessage(session, messageId, (message) => ({
-          ...message,
-          parts: message.parts.map((part) =>
-            part.kind === 'tool' && part.toolUseId === toolUseId
-              ? { ...part, status: ok ? 'ok' : 'error', output }
-              : part
-          )
+      sessions: mapSession(state, sessionId, (session) => ({
+        ...session,
+        messages: session.messages.map((message) =>
+          message.parts.some((part) => part.kind === 'tool' && part.toolUseId === toolUseId)
+            ? {
+                ...message,
+                parts: message.parts.map((part) =>
+                  part.kind === 'tool' && part.toolUseId === toolUseId
+                    ? { ...part, status: ok ? 'ok' : 'error', output }
+                    : part
+                )
+              }
+            : message
+        )
+      }))
+    })),
+
+  steerRun: (_runId, sessionId, text, attachments) =>
+    set((state) => {
+      const parts: MessagePart[] =
+        attachments !== undefined && attachments.length > 0
+          ? [{ kind: 'attachments', items: attachments }, { kind: 'text', text }]
+          : [{ kind: 'text', text }]
+      return {
+        sessions: mapSession(state, sessionId, (session) => ({
+          ...session,
+          messages: [
+            ...session.messages,
+            { id: crypto.randomUUID(), role: 'user' as const, parts, pending: false },
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant' as const,
+              parts: [{ kind: 'notice' as const, text: FOLLOW_UP_LABEL }],
+              pending: false
+            }
+          ]
         }))
-      )
+      }
+    }),
+
+  takeSteer: (runId, sessionId) =>
+    set((state) => {
+      const own = state.activeRuns[runId]
+      const mirror = state.mirrorRuns[runId]
+      const current = own?.messageId ?? mirror?.messageId
+      const next = crypto.randomUUID()
+      return {
+        sessions: mapSession(state, sessionId, (session) => ({
+          ...session,
+          messages: [
+            // An empty placeholder — nothing streamed yet — has nothing to keep.
+            ...session.messages.flatMap((message) =>
+              message.id !== current
+                ? [message]
+                : message.parts.length === 0
+                  ? []
+                  : [{ ...message, pending: false }]
+            ),
+            { id: next, role: 'assistant' as const, parts: [], pending: true }
+          ]
+        })),
+        activeRuns: own !== undefined ? { ...state.activeRuns, [runId]: { ...own, messageId: next } } : state.activeRuns,
+        mirrorRuns:
+          mirror !== undefined ? { ...state.mirrorRuns, [runId]: { ...mirror, messageId: next } } : state.mirrorRuns
+      }
+    }),
+
+  removeMessages: (sessionId, ids) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => ({
+        ...session,
+        messages: session.messages.filter((message) => !ids.includes(message.id))
+      }))
     })),
 
   addUsage: (sessionId, provider, model, inputTokens, outputTokens) =>
@@ -704,19 +813,5 @@ export function useActiveSession(): Session | undefined {
 // Debugging hook: lets CDP inspect the live session state in packaged builds.
 if (typeof window !== 'undefined') window.__store = useSessionStore
 
-/**
- * Ordered glass gradients for session badges. Sessions take the next entry on
- * creation, so fresh sessions are visually distinct until the palette wraps.
- */
-export const SESSION_COLOURS: [string, string][] = [
-  ['#7a5cc4', '#4f3a8f'],
-  ['#3f8f86', '#2c6b64'],
-  ['#c2603f', '#8f4630'],
-  ['#3f7fc2', '#2c5e92'],
-  ['#b0873a', '#82632c'],
-  ['#8f4f7a', '#6a3c5c'],
-  ['#4f8f4f', '#386b38'],
-  ['#c24f7a', '#923a5c'],
-  ['#5c7ac2', '#43598f'],
-  ['#c27a3f', '#925c30']
-]
+/** The badge palette lives in the shared contract so the phone can match it. */
+export { SESSION_COLOURS }

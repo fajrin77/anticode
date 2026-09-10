@@ -31,7 +31,12 @@ const contentSecurityPolicy: Plugin = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self'"
+      "connect-src 'self'",
+      // The browser pane's <webview> is a guest with its own process, not a
+      // frame of this document, but naming it here keeps the policy honest
+      // about what the window is allowed to embed.
+      "frame-src 'self' http: https:",
+      "child-src 'self' http: https:"
     ].join('; ')
     return html.replace(
       '<head>',

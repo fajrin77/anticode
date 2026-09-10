@@ -35,6 +35,13 @@ const stub = createServer(async (req, res) => {
   res.end('data: [DONE]\n\n')
 })
 await new Promise(r=>stub.listen(0,'127.0.0.1',r))
+// Something for the browser pane to point at — a dev server, as far as it knows.
+const site = createServer((_req, res) => {
+  res.writeHead(200, {'content-type':'text/html'})
+  res.end('<!doctype html><title>Halaman Lokal</title><h1>Halaman Lokal</h1>')
+})
+await new Promise(r=>site.listen(0,'127.0.0.1',r))
+const siteOrigin = `http://127.0.0.1:${site.address().port}`
 const bootstrap = path.join(directory,'bootstrap.cjs')
 await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); import(${JSON.stringify(path.resolve('out/main/index.js'))});`)
 const env={...process.env,CLINEPASS_API_KEY:'fixture-key',CLINEPASS_BASE_URL:`http://127.0.0.1:${stub.address().port}/v1`,CLINEPASS_MODEL:'test-model',ANTICODE_REMOTE_PORT:'18681'}
@@ -43,7 +50,7 @@ const app = await electron.launch({args:[bootstrap],env,cwd:directory})
 const window = await app.firstWindow()
 await window.setViewportSize({width:1280,height:820})
 const shot = async (name) => { await window.screenshot({path:path.join(shots,name+'.png')}); console.log('shot:',name) }
-const composer = () => window.getByPlaceholder(/Ask anything|Describe the task/)
+const composer = () => window.getByPlaceholder(/Ask anything|Describe the task|Add to the task/)
 try {
   const colourOf = async (locator) => locator.evaluate((el) => getComputedStyle(el).color)
   const LIME = 'rgb(209, 250, 34)'
@@ -151,6 +158,15 @@ try {
   check('an attached image carries a thumbnail', staged.thumbnail, 'data:image/jpeg;base64,')
   await window.waitForTimeout(300)
   await shot('13-composer-with-attachment')
+  // Staged is not sent: the picture can be checked at full size first.
+  await window.getByTitle('View tangkapan.png').click(); await window.waitForTimeout(400)
+  check('a staged picture opens full size before sending',
+    await window.getByRole('dialog', { name: 'tangkapan.png' }).count(), 1)
+  await shot('13b-staged-picture-open')
+  await window.keyboard.press('Escape'); await window.waitForTimeout(250)
+  check('the staged picture closes on Escape',
+    await window.getByRole('dialog', { name: 'tangkapan.png' }).count(), 0)
+  await limeOnHover('composer: staged file name', window.locator('button.group\\/name span').first())
   await composer().fill('lihat gambar ini')
   await composer().press('Enter')
   await window.getByText(/Fixture reply/).last().waitFor()
@@ -159,6 +175,36 @@ try {
   const bracketed = await window.getByText('[tangkapan.png]').count()
   check('no bracketed filename is left in the prompt', bracketed === 0 ? 'clean' : 'bracketed', 'clean')
   await shot('14-attachment-in-transcript')
+
+  // A file can be dropped anywhere in the session, not only on the text box:
+  // here, on the transcript. It lands on the draft like the + button's would.
+  const stagedCount = () => window.evaluate(() => {
+    const state = window.__store.getState()
+    return state.drafts[state.activeSessionId]?.attachments?.length ?? 0
+  })
+  const beforeDrop = await stagedCount()
+  await window.evaluate(() => {
+    const target = document.querySelector('[data-transcript]')
+    window.__drop = new DataTransfer()
+    window.__drop.items.add(new File(['halo dari file'], 'dijatuhkan.txt', { type: 'text/plain' }))
+    target.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: window.__drop }))
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: window.__drop }))
+  })
+  await window.waitForTimeout(200)
+  check('drop: the whole session offers to take the file',
+    await window.getByText('Drop to attach').count(), 1)
+  await shot('14b-drop-over-transcript')
+  await window.evaluate(() => {
+    const target = document.querySelector('[data-transcript]')
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__drop }))
+  })
+  await window.waitForTimeout(700)
+  check('drop: a file dropped on the transcript is staged', await stagedCount(), beforeDrop + 1)
+  check('drop: the sheet goes once the file lands', await window.getByText('Drop to attach').count(), 0)
+  await window.evaluate(() => {
+    const state = window.__store.getState()
+    state.updateDraft(state.activeSessionId, { attachments: [] })
+  })
 
   // A produced document is offered back, not just mentioned in a tool output.
   await window.evaluate(() => {
@@ -195,7 +241,10 @@ try {
   await limeOnHover('dashboard: model chip', window.locator('button:has(span.font-mono)'))
   await limeOnHover('dashboard: approval chip', window.getByText('Default',{exact:true}))
   await limeOnHover('dashboard: antichat label', window.getByRole('button',{name:'antichat',exact:true}))
+  // A dead arrow does not light up; with words in the box it is live, and lime.
+  await composer().fill('draft')
   await limeOnHover('dashboard: send arrow', window.getByRole('button',{name:'Send'}))
+  await composer().fill('')
   await limeOnHover('dashboard: session row title', window.locator('.group button div.truncate'))
   await window.getByText('Default',{exact:true}).click(); await window.waitForTimeout(250)
   await limeOnHover('dashboard: approval menu hint', window.getByText('Skip prompts for medium risk'))
@@ -210,16 +259,113 @@ try {
   await window.getByRole('button',{name:/Fixture reply|halo dunia/}).first().click().catch(() => {})
   await window.locator('header .group button').first().click(); await window.waitForTimeout(400)
   await limeOnHover('tab bar: usage icon', window.getByTitle('Session usage'))
+  await limeOnHover('tab bar: browser icon', window.locator('[data-browser-toggle]'))
   await limeOnHover('tab bar: new tab +', window.getByRole('button',{name:'New tab',exact:true}))
   await limeOnHover('tab bar: close x', window.getByRole('button',{name:'Close tab'}))
   await limeOnHover('session: attach +', window.getByTitle('Attach files'))
   await composer().fill('draft')
   await limeOnHover('session: send arrow', window.getByRole('button',{name:'Send'}))
+  await composer().fill('  ')
+  check('session: an empty box leaves the send arrow dead',
+    await window.getByRole('button',{name:'Send',exact:true}).isDisabled() ? 'dead' : 'live', 'dead')
+  const sessionBefore = await window.evaluate(() => {
+    const state = window.__store.getState()
+    return state.sessions.find((s) => s.id === state.activeSessionId)?.messages.length
+  })
+  await composer().press('Enter'); await window.waitForTimeout(300)
+  check('session: Enter on an empty box sends nothing', await window.evaluate(() => {
+    const state = window.__store.getState()
+    return state.sessions.find((s) => s.id === state.activeSessionId)?.messages.length
+  }), sessionBefore)
   await composer().fill('')
   await limeOnHover('transcript: run summary',
     window.locator('div.group > div button').filter({ hasText: 'test-model' }))
   await limeOnHover('transcript: copy button', window.getByTitle('Copy this reply'))
   await shot('17-lime-session')
+
+  // The browser pane takes the right-hand side; the transcript gives up width
+  // for it instead of being covered, and hiding it hands that width back.
+  const transcriptWidth = () =>
+    window.locator('[data-transcript]').first().evaluate((el) => el.getBoundingClientRect().width)
+  const wideBefore = await transcriptWidth()
+  const browserToggle = window.locator('[data-browser-toggle]')
+  await browserToggle.click(); await window.waitForTimeout(500)
+  const pane = window.locator('[data-web-panel]')
+  check('browser: the pane opens beside the transcript', await pane.count(), 1)
+  const paneWidth = await pane.evaluate((el) => el.getBoundingClientRect().width)
+  check('browser: the pane has real width', paneWidth > 300 ? 'wide' : `${paneWidth}px`, 'wide')
+  const narrowed = await transcriptWidth()
+  check('browser: the transcript shifts left', narrowed < wideBefore ? 'shifted' : 'unmoved', 'shifted')
+  check('browser: the icon lights while the pane is open', await colourOf(browserToggle), LIME)
+  await limeOnHover('browser: address bar reload', pane.getByTitle('Reload'))
+  await limeOnHover('browser: hide button', pane.getByTitle('Hide browser'))
+  // Typing an address is the other half of "anticode has a browser of its
+  // own": the pane loads it without the agent being involved at all.
+  await pane.getByLabel('Address').fill(siteOrigin)
+  await window.keyboard.press('Enter')
+  await window.waitForTimeout(900)
+  const guest = pane.locator('webview')
+  check('browser: an address typed in the pane loads', await guest.count(), 1)
+  // The guest reports the page it settled on back to the main process, so the
+  // src comes back normalised — a trailing slash the address bar never typed.
+  const loaded = await guest.getAttribute('src')
+  check('browser: the guest points where it was told',
+    loaded.startsWith(siteOrigin) ? 'there' : loaded, 'there')
+  check('browser: the address bar follows the page',
+    await pane.getByLabel('Address').inputValue(), loaded)
+  await shot('17b-browser-pane')
+
+  // No dot on the icon, ever: the icon's own colour is the only state it has.
+  check('browser: the tab-bar icon carries no dot',
+    await browserToggle.locator('span').count(), 0)
+
+  // Tabs: a second page beside the first, and the first is still there.
+  await pane.getByRole('button', { name: 'New tab', exact: true }).click()
+  await window.waitForTimeout(400)
+  check('browser: a new tab opens', await pane.getByRole('button', { name: 'Close tab' }).count(), 2)
+  await pane.getByLabel('Address').fill(siteOrigin + '/kedua')
+  await window.keyboard.press('Enter')
+  await window.waitForTimeout(900)
+  check('browser: each tab keeps its own page', await pane.locator('webview').count(), 2)
+  const painted = await pane.locator('webview').evaluateAll((els) =>
+    els.filter((el) => getComputedStyle(el).display !== 'none').length)
+  check('browser: only the active tab is painted', painted, 1)
+  await limeOnHover('browser: tab label', pane.getByRole('button', { name: 'Halaman Lokal' }).first())
+  await limeOnHover('browser: new tab +', pane.getByRole('button', { name: 'New tab', exact: true }))
+  await shot('17c-browser-tabs')
+
+  const activeBeforeReport = await window.evaluate(async () =>
+    (await window.anticode.listWebSessions())[0].activeTabId)
+  await pane.locator('webview').first().evaluate((el) => {
+    el.dispatchEvent(new CustomEvent('page-title-updated'))
+  })
+  await window.waitForTimeout(200)
+  check('browser: a background title update keeps the selected tab',
+    await window.evaluate(async () => (await window.anticode.listWebSessions())[0].activeTabId), activeBeforeReport)
+
+  // Full size: the page takes the whole window, then gives it back.
+  await pane.getByTitle('Fill the window').click()
+  await window.waitForTimeout(500)
+  const fullWidth = await pane.evaluate((el) => el.getBoundingClientRect().width)
+  check('browser: full size takes the whole window',
+    fullWidth >= 1270 ? 'whole' : `${fullWidth}px`, 'whole')
+  check('browser: the transcript steps aside at full size',
+    await window.locator('[data-transcript]').first().isVisible() ? 'visible' : 'aside', 'aside')
+  check('browser: the full-size toggle lights while on',
+    await colourOf(pane.getByTitle('Shrink to the side')), LIME)
+  await shot('17d-browser-full')
+  await pane.getByTitle('Shrink to the side').click()
+  await window.waitForTimeout(500)
+  check('browser: shrinking brings the transcript back',
+    await window.locator('[data-transcript]').first().isVisible() ? 'visible' : 'aside', 'visible')
+  await limeOnHover('browser: full-size toggle', pane.getByTitle('Fill the window'))
+
+  await browserToggle.click()
+  await window.mouse.move(400, 400)
+  await window.waitForTimeout(500)
+  const restored = await transcriptWidth()
+  check('browser: hiding hands the width back', restored === wideBefore ? 'restored' : `${restored}`, 'restored')
+  check('browser: the icon goes quiet again', await colourOf(browserToggle), 'rgb(154, 154, 154)')
 
   await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
   await limeOnHover('model picker: model row', window.locator('button.font-mono'))
@@ -271,7 +417,7 @@ try {
   await composer().fill('slow please'); await composer().press('Enter')
   await window.waitForTimeout(700)
   await window.getByRole('button',{name:'Pause'}).click(); await window.waitForTimeout(500)
-  const pauseLine = window.getByText('Okay, taking a break mate!')
+  const pauseLine = window.getByText('Okay, Take a break mate!')
   check('pause: the marker is in the transcript', await pauseLine.count() > 0 ? 'said' : 'silent', 'said')
   const markerStyle = await pauseLine.evaluate((el) => {
     const s = getComputedStyle(el)
@@ -287,7 +433,16 @@ try {
   check('pause: the marker turns lime on hover', await colourOnHover(pauseLine, LIME), LIME)
   await shot('20-pause-marker')
 
-  await window.getByRole('button',{name:'Resume'}).click(); await window.waitForTimeout(900)
+  // Paused, the button resumes — with a play mark, not the send arrow, which
+  // read as sending an empty prompt. Typing turns it back into a send.
+  const resumeButton = window.getByRole('button',{name:'Resume'})
+  check('pause: resume wears a play mark, not an arrow',
+    await resumeButton.locator('svg path').getAttribute('d').then((d) => d.startsWith('M5 3.2') ? 'play' : 'arrow'), 'play')
+  await composer().fill('ganti rencana')
+  check('pause: typing turns resume into send', await window.getByRole('button',{name:'Send',exact:true}).count(), 1)
+  await composer().fill('')
+  check('pause: an empty box goes back to resume', await resumeButton.count(), 1)
+  await resumeButton.click(); await window.waitForTimeout(900)
   const resumeLine = window.getByText('ah sh**, here we go again')
   check('resume: the marker is in the transcript', await resumeLine.count() > 0 ? 'said' : 'silent', 'said')
   check('resume: the marker is grey',
@@ -299,6 +454,55 @@ try {
       .filter((p) => p.kind === 'text' && p.text.startsWith('Lanjutkan pekerjaan')).length)
   check('resume: the continuation paragraph stays out of the transcript', typed === 0 ? 'hidden' : 'shown', 'hidden')
   await shot('21-resume-marker')
+
+  // An instruction sent while the session is working joins that run: the box
+  // empties at once, the instruction shows as sent, the app reacts in its own
+  // voice, and the run carries on to answer both — one run, one closing line.
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  // An empty box sends nothing — not by Enter, not by the button, which is
+  // dead rather than pressable-and-silent.
+  const everything = () => window.evaluate(() => {
+    const state = window.__store.getState()
+    return `${state.sessions.length}/${state.sessions.reduce((sum, s) => sum + s.messages.length, 0)}`
+  })
+  const beforeEmpty = await everything()
+  await composer().fill('   ')
+  await composer().press('Enter'); await window.waitForTimeout(300)
+  check('dashboard: an empty box leaves the send arrow dead',
+    await window.getByRole('button',{name:'Send',exact:true}).isDisabled() ? 'dead' : 'live', 'dead')
+  await window.getByRole('button',{name:'Send',exact:true}).click({ force: true }); await window.waitForTimeout(300)
+  check('dashboard: an empty box sends nothing', await everything(), beforeEmpty)
+  await composer().fill('slow first'); await composer().press('Enter')
+  await window.waitForTimeout(700)
+  check('follow-up: an empty box offers pause', await window.getByRole('button',{name:'Pause',exact:true}).count(), 1)
+  await composer().fill('tambah ini')
+  check('follow-up: typing turns pause into send', await window.getByRole('button',{name:'Send',exact:true}).count(), 1)
+  await composer().press('Enter'); await window.waitForTimeout(500)
+  check('follow-up: the box empties at once', await composer().inputValue(), '')
+  const followMarker = window.getByText('wait a minutes, bi***')
+  check('follow-up: the marker is written', await followMarker.count() > 0 ? 'said' : 'silent', 'said')
+  check('follow-up: the marker is grey', await followMarker.first().evaluate((el) => getComputedStyle(el).color), 'rgb(154, 154, 154)')
+  check('follow-up: the instruction shows as sent',
+    await window.locator('div.rounded-xl', { hasText: 'tambah ini' }).count() > 0 ? 'sent' : 'missing', 'sent')
+  await window.getByText(/Fixture reply: \[Pesan tambahan/).waitFor({ timeout: 15000 })
+  await window.waitForTimeout(500)
+  const followRun = await window.evaluate(() => {
+    const state = window.__store.getState()
+    const session = state.sessions.find((s) => s.id === state.activeSessionId)
+    const text = (m) => m.parts.filter((p) => p.kind === 'text').map((p) => p.text).join('')
+    const replies = session.messages.filter((m) => m.role === 'assistant' && !m.parts.some((p) => p.kind === 'notice'))
+    return {
+      firstReply: text(replies[0] ?? { parts: [] }),
+      closing: session.messages.filter((m) => m.summary !== undefined).length,
+      order: session.messages.map((m) => m.role === 'user' ? 'user' : m.parts.some((p) => p.kind === 'notice') ? 'notice' : 'reply')
+    }
+  })
+  check('follow-up: the run answers both, and closes once', followRun.closing, 1)
+  check('follow-up: instruction, reaction, then the reply', followRun.order.join(' '), 'user reply user notice reply')
+  // What the run was still writing when the instruction arrived stays above it.
+  check('follow-up: the reply in progress finishes above it', followRun.firstReply, 'Fixture reply: slow first')
+  await shot('21b-follow-up')
 
   // The line that closes a run: model, copy, how long, what it cost — no dot.
   await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
@@ -473,5 +677,5 @@ try {
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})
 } finally {
-  if (!process.argv.includes('--keep-open')) { await app.close(); await new Promise(r=>stub.close(r)) }
+  if (!process.argv.includes('--keep-open')) { await app.close(); await new Promise(r=>stub.close(r)); await new Promise(r=>site.close(r)) }
 }

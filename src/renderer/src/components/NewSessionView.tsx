@@ -272,7 +272,14 @@ function DashboardComposer({
             <button
               type="button"
               onClick={() => void send()}
-              disabled={sending}
+              // An empty box has nothing to send, so the arrow is dead rather
+              // than pressable-and-silent. With words typed it stays live even
+              // without a folder, so pressing it shows what is missing.
+              disabled={
+                sending ||
+                draft.trim() === '' ||
+                (!ready && !(status?.providerReady === true && mode === 'code' && folder === null))
+              }
               aria-label={sending ? 'Sending' : 'Send'}
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
             >

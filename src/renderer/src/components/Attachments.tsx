@@ -47,16 +47,7 @@ export function Attachments({
   // A picture opens here, over the conversation; anything else still belongs
   // to the app the OS keeps for it.
   const [viewing, setViewing] = useState<{ name: string; src: string } | null>(null)
-  const open = (item: AttachmentRef): void => {
-    if (item.kind !== 'image') {
-      void window.anticode.openAttachment(item.path)
-      return
-    }
-    void window.anticode.readAttachmentImage(item.path).then((src) => {
-      if (src === null) void window.anticode.openAttachment(item.path)
-      else setViewing({ name: item.name, src })
-    })
-  }
+  const open = (item: AttachmentRef): void => openAttachment(item, setViewing)
 
   return (
     <div className={`flex flex-wrap gap-2 ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
@@ -104,8 +95,27 @@ export function Attachments({
   )
 }
 
+/**
+ * Opens an attachment the way the transcript does: a picture here, in the app,
+ * anything else in the app the OS keeps for it. Shared by the transcript and
+ * the composer, so a staged screenshot can be checked before it is sent.
+ */
+export function openAttachment(
+  item: Pick<AttachmentRef, 'kind' | 'name' | 'path'>,
+  show: (picture: { name: string; src: string }) => void
+): void {
+  if (item.kind !== 'image') {
+    void window.anticode.openAttachment(item.path)
+    return
+  }
+  void window.anticode.readAttachmentImage(item.path).then((src) => {
+    if (src === null) void window.anticode.openAttachment(item.path)
+    else show({ name: item.name, src })
+  })
+}
+
 /** A picture at full size, over the conversation. Escape or a click dismisses. */
-function ImageViewer({
+export function ImageViewer({
   name,
   src,
   onClose

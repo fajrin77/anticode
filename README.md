@@ -1,6 +1,6 @@
 # anticode
 
-Versi **0.0.3** memperbaiki sejumlah detail UI/UX (hover ikon dashboard, navigasi keluar dari Settings, Escape pada popover, focus ring). Versi **0.0.2** memperbaiki kontrol run desktop/HP, approval, konteks, browser per sesi, persistence, dan editor remote. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
+Versi **0.0.7** menambah tab dan mode full size pada browser, layar Web HP yang dirender selebar HP, instruksi susulan yang bergabung ke run yang sedang berjalan, drop berkas di seluruh area sesi, warna sesi yang sama di HP dan desktop, serta tombol kirim yang tidak pernah bisa mengirim kolom kosong. Versi **0.0.6** memberi anticode browsernya sendiri: sebuah halaman yang terbuka menggeser transkrip ke kiri dan tampil di panel kanan, dengan ikon yang menyembunyikannya untuk seterusnya di sesi itu, dan layar Web di HP. Versi **0.0.3** memperbaiki sejumlah detail UI/UX (hover ikon dashboard, navigasi keluar dari Settings, Escape pada popover, focus ring). Versi **0.0.2** memperbaiki kontrol run desktop/HP, approval, konteks, browser per sesi, persistence, dan editor remote. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
 
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
@@ -165,10 +165,26 @@ tiga pengecualian (aksi merusak tetap merah, kontrol yang sudah berlatar lime te
 aktif memakai warna penuh) ada di [CLAUDE.md](CLAUDE.md), dan dijaga oleh sapuan hover di
 `npm run test:ui`.
 
+## Instruksi susulan
+
+Prompt yang dikirim saat sesi sedang bekerja tidak ditolak dan tidak memulai run kedua: ia bergabung
+ke run yang berjalan. Gelembungnya langsung tampil bersama baris "wait a minutes, bi***", tulisan yang
+sedang dibuat model tetap di atasnya, dan pada langkah berikutnya (setelah tool yang berjalan kembali,
+atau begitu balasan terakhir selesai) run membaca instruksi itu sebagai tambahan tugas lalu lanjut
+mengerjakan keduanya. Satu run, satu baris penutup. Kalau di-pause sebelum sempat dibaca, instruksinya
+tetap tersimpan di riwayat untuk resume.
+
+Tombolnya mengikuti isi kolom: kosong saat bekerja berarti **pause** (kotak), ada tulisan berarti
+**kirim** (panah), dan saat jeda dengan kolom kosong berarti **resume** (segitiga play, lime). Kolom
+kosong tidak pernah bisa mengirim. Desktop dan HP memakai ikon dan kata-kata yang sama, dan warna
+badge sesi dipegang main process supaya kedua layar melukis sesi dengan warna yang sama.
+
 ## Lampiran
 
-Klik **+**, seret berkas ke kolom input, atau tempel tangkapan layar langsung dari clipboard. Di HP,
-tombol **+** di composer membuka pemilih berkas dan mengunggahnya ke Mac. Berkas dirutekan
+Klik **+**, seret berkas ke mana saja di area sesi (transkrip, ruang kosong, atau kolom input), atau
+tempel tangkapan layar langsung dari clipboard. Gambar yang sudah menempel di atas kolom input bisa
+diklik untuk dilihat ukuran penuh sebelum dikirim, sama seperti sesudahnya. Di HP, tombol **+** di
+composer membuka pemilih berkas dan mengunggahnya ke Mac. Berkas dirutekan
 berdasarkan ekstensi: gambar di-resize ke sisi terpanjang 1568 px lalu dikirim sebagai blok gambar;
 xlsx, docx, dan pdf diringkas jadi teks; berkas teks dan kode dibaca apa adanya. Batasnya 20 MB per
 berkas dan pratinjau dipotong di 2000 karakter agar tidak menghabiskan konteks.
@@ -217,6 +233,7 @@ src/
 │   ├── providers/     Abstraksi LLM + adapter Anthropic, OpenAI-compatible, Gemini
 │   ├── approval/      Tier risiko, kebijakan sesi, dan jembatan dialog
 │   ├── tools/         Satu modul per tool, skema Zod, penjaga batas workspace
+│   ├── web.ts         Halaman yang dibuka tiap sesi, untuk panel browser
 │   └── ipc/           Registrasi handler ipcMain
 ├── preload/           contextBridge — satu-satunya jembatan renderer ke main
 ├── shared/ipc.ts      Kontrak tunggal antar-proses
@@ -235,12 +252,52 @@ npx playwright install chromium
 Tanpa itu `browser_navigate` gagal dengan pesan yang menyebutkan perintah di atas. `fetch_url` tetap
 jalan karena memakai HTTP biasa tanpa browser.
 
+### Panel browser di sebelah transkrip
+
+anticode punya browser sendiri. Begitu sebuah halaman terbuka di satu sesi, transkrip bergeser ke
+kiri dan halaman itu tampil di panel kanan — keduanya tetap terpakai sekaligus. Panelnya bisa
+ditarik lebarnya, punya tab, address bar sendiri, dan tombol back/forward/reload. Tombol
+**full size** membuat panel mengisi seluruh jendela anticode; tombol yang sama mengecilkannya
+kembali ke samping, dan transkrip muncul lagi persis di tempat ditinggalkan.
+
+Tab di belakang tetap hidup, tidak dimuat ulang saat dipindah. Agent mengemudikan satu halaman per
+sesi, jadi yang dibukanya selalu masuk ke tab aktif; tab lain milik pengguna. Menutup tab terakhir
+menyembunyikan panel, bukan melupakannya.
+Pembaruan judul atau navigasi dari tab di belakang tidak memindahkan tab aktif ataupun membuka
+panel yang sedang disembunyikan. Ikon Web desktop dan pilihan Web HP tidak memakai dot lime.
+
+Ada tiga cara sebuah halaman sampai ke sana:
+
+- `browser_navigate` (dan `browser_click` yang berpindah halaman) melapor ke panel.
+- `run_command` yang menyalakan dev server: baris `Local: http://localhost:5173/` di outputnya
+  dibaca, jadi `npm run dev` membuka panelnya sendiri tanpa diminta.
+- Diketik langsung di address bar panel — `localhost:5173` cukup, skemanya diisikan.
+
+Ikon browser di kanan tab bar menyalakan dan mematikan panel. **Sekali disembunyikan, sesi itu tetap
+sembunyi**: halaman baru yang dibuka agent hanya memperbarui isinya diam-diam, tidak memaksa panel
+muncul lagi. Hanya ikon itu yang mengembalikannya.
+
+Daftar tab, tab aktif, dan ukuran penuh ikut tersimpan: menutup lalu membuka lagi app
+mengembalikan sesi ke halaman yang terakhir dilihatnya. Panelnya `<webview>` Electron — tanpa
+preload, tanpa Node, hanya http/https — jadi ia browser sungguhan, bukan tangkapan layar.
+
 ## Remote (HP)
 
 Settings → Remote mengaktifkan server HTTP di Mac (port 8680). Buka URL pairing-nya di browser HP
 lewat Wi-Fi yang sama, lalu "Add to Home Screen" agar terlihat seperti app. Fitur: daftar session,
-chat dengan agent (live streaming), dan editor file workspace lengkap dengan git commit/push —
-edit repo yang terhubung langsung dari HP.
+chat dengan agent (live streaming), editor file workspace lengkap dengan git commit/push — edit repo
+yang terhubung langsung dari HP — dan layar **Web**, di dropdown antara Sessions dan Files.
+
+Layar Web menampilkan halaman tab aktif sesi, dirender di Mac sebagai gambar, bukan `<webview>`:
+setiap `localhost` yang dilayani ada di Mac, tidak terjangkau dari HP. Gambarnya diambil dari
+halaman berukuran HP tersendiri (390 px, user agent iPhone), bukan dari halaman agent — jadi situs
+memakai tata letak mobile-nya sendiri, seluruh tingginya ikut, dan HP tinggal menggulirnya dari
+tepi ke tepi layar. Halaman agent tidak pernah diubah ukurannya. Tab tampil sebagai chip yang bisa
+dipilih, ditutup, dan ditambah. Tombol Hide-nya sama stickynya dengan yang di desktop, dan
+keputusannya dibagi — disembunyikan di HP berarti tersembunyi juga di samping transkrip.
+Pratinjau HP berupa gambar yang bisa di-scroll; tautan dan formulir di dalam gambar belum bisa
+dioperasikan. Tekan Reload untuk memperbarui isi halaman. Tinggi gambar dibatasi 12.000 piksel
+(sekitar 6.000 piksel tampilan pada lebar 390 px).
 
 Laptop yang ditutup lidah-nya akan sleep dan remote mati: colok charger + aktifkan "Prevent
 automatic sleeping when the display is off", atau jalankan `caffeinate -s`. Di luar rumah, pakai

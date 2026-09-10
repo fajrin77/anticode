@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ClipboardEvent, DragEvent, JSX } from 'react'
+import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { ModelPicker } from './ModelPicker'
-import { formatBytes } from './Attachments'
+import { formatBytes, ImageViewer, openAttachment } from './Attachments'
 import type {
   AttachmentInfo,
   ProviderId,
@@ -22,14 +22,9 @@ interface ComposerProps {
   heroExtra?: JSX.Element
 }
 
-/** What the pause button writes into the transcript on either side of a break. */
-export const PAUSE_LABEL = 'Okay, taking a break mate!'
-export const RESUME_LABEL = 'ah sh**, here we go again'
+import { CONTINUE_PROMPT, PAUSE_LABEL, RESUME_LABEL } from '../labels'
 
-/** The instruction a resume actually sends; the phone sends the same words.
- * Both sides show RESUME_LABEL in its place, never this paragraph. */
-export const CONTINUE_PROMPT =
-  'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.'
+export { CONTINUE_PROMPT, FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../labels'
 
 /** Spread-based encoding blows the call stack on megabyte images. */
 function toBase64(buffer: ArrayBuffer): string {
@@ -86,7 +81,7 @@ export function Composer({
       useSessionStore.getState().updateDraft(session.id, { attachments: typeof next === 'function' ? next(previous) : next })
     }
   }
-  const [dragging, setDragging] = useState(false)
+  const [viewing, setViewing] = useState<{ name: string; src: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<'none' | 'model' | 'mode' | 'folder'>('none')
   const [shake, setShake] = useState(false)
@@ -122,7 +117,17 @@ export function Composer({
     : sessionReady
       ? null
       : 'This code session is not connected to a project folder'
-  const canSend = draft.trim() !== '' && !isStreaming && blocked === null
+  // A prompt typed while the session is working is sent too: it joins the run
+  // in progress as a follow-up rather than waiting for it to end.
+  const canSend = draft.trim() !== '' && blocked === null
+  /** Working, with something typed: the button sends it rather than pausing. */
+  const steering = isStreaming && !isPaused && draft.trim() !== ''
+  /**
+   * Paused, with nothing typed: the button picks the work back up. It wears a
+   * play mark of its own — as a send arrow it read as sending an empty prompt.
+   * Paused with something typed, it sends that instead.
+   */
+  const resuming = isPaused && !isStreaming && draft.trim() === ''
 
 
   useEffect(() => {
@@ -171,14 +176,6 @@ export function Composer({
     }
   }
 
-  function onDrop(event: DragEvent<HTMLDivElement>): void {
-    event.preventDefault()
-    setDragging(false)
-    const paths = Array.from(event.dataTransfer.files).map((file) =>
-      window.anticode.pathForFile(file)
-    )
-    if (paths.length > 0) void collect(window.anticode.addAttachments(paths))
-  }
 
   // Blocked because anticode has no folder: shake the composer and glow the
   // Choose folder button until a folder is picked.
@@ -269,6 +266,28 @@ export function Composer({
     // A quoted passage travels with the prompt so the model answers the part
     // that was selected, and shows in the transcript for the same reason.
     const shown = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
+
+    // The session is working: this joins that run. The main process tells
+    // every viewer — this one included — and the transcript is drawn from
+    // that, so nothing is drawn here that the phone would not also see.
+    if (isStreaming) {
+      const kept = { text: draft, attachments: attached, quote }
+      setDraft('')
+      setAttached([])
+      clearQuote()
+      try {
+        await window.anticode.sendPrompt({
+          sessionId: session.id,
+          runId: crypto.randomUUID(),
+          prompt: shown,
+          attachmentIds
+        })
+      } catch (failure) {
+        setError((failure as Error).message)
+        useSessionStore.getState().updateDraft(session.id, kept)
+      }
+      return
+    }
     // The files are drawn as pictures and cards; only the typed prompt is text.
     const parts: MessagePart[] =
       attached.length > 0
@@ -281,7 +300,11 @@ export function Composer({
     setDraft('')
     setAttached([])
     clearQuote()
-    addMessage({ id: crypto.randomUUID(), role: 'user', parts, pending: false })
+    // A new prompt ends a pause as surely as Resume does; left set, the pause
+    // button stayed dead for the whole of the run this starts.
+    if (isPaused) resumeSession(session.id)
+    const userMessageId = crypto.randomUUID()
+    addMessage({ id: userMessageId, role: 'user', parts, pending: false })
 
     const messageId = crypto.randomUUID()
     const runId = crypto.randomUUID()
@@ -299,7 +322,13 @@ export function Composer({
       })
     }
 
-      await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds })
+      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds })
+      // A run started elsewhere a moment ago took this as a follow-up; the
+      // steer event draws it, so what was drawn here for a new run goes.
+      if (outcome.steered) {
+        useSessionStore.getState().removeMessages(session.id, [userMessageId, messageId])
+        setActiveRun(null, runId)
+      }
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the composer.
       setError((failure as Error).message)
@@ -317,15 +346,10 @@ export function Composer({
       : null
 
   return (
-    <div
-      className={hero ? 'shrink-0 px-10' : 'shrink-0 px-10 pb-6'}
-      onDragOver={(event) => {
-        event.preventDefault()
-        setDragging(true)
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
-    >
+    <div className={hero ? 'shrink-0 px-10' : 'shrink-0 px-10 pb-6'}>
+      {viewing !== null && (
+        <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />
+      )}
       <div className="mx-auto max-w-3xl" ref={boxRef}>
         {blocked !== null && !(hero && folderMissing) && (
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
@@ -358,20 +382,33 @@ export function Composer({
                 className="group/chip relative flex items-center gap-2 rounded-lg border border-line bg-surface p-1.5 pr-7 text-[12px] text-dim"
               >
                 {item.thumbnail !== null ? (
-                  <img
-                    src={item.thumbnail}
-                    alt={item.name}
-                    className="h-9 w-9 rounded-md object-cover"
-                  />
+                  // Staged is not sent: a screenshot is checked here, at full
+                  // size, the same way it can be once it is in the transcript.
+                  <button
+                    type="button"
+                    title={`View ${item.name}`}
+                    onClick={() => openAttachment(item, setViewing)}
+                    className="shrink-0 overflow-hidden rounded-md ring-brand transition-shadow hover:ring-1"
+                  >
+                    <img
+                      src={item.thumbnail}
+                      alt={item.name}
+                      className="h-9 w-9 object-cover"
+                    />
+                  </button>
                 ) : (
                   <span className="flex h-9 w-9 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-faint">
                     {item.kind === 'binary' ? 'BIN' : item.kind.slice(0, 3).toUpperCase()}
                   </span>
                 )}
-                <span className="min-w-0">
-                  <span className="block max-w-44 truncate text-text">{item.name}</span>
+                <button
+                  type="button"
+                  onClick={() => openAttachment(item, setViewing)}
+                  className="group/name min-w-0 text-left"
+                >
+                  <span className="block max-w-44 truncate text-text transition-colors group-hover/name:text-brand">{item.name}</span>
                   <span className="block text-[11px] text-faint">{formatBytes(item.size)}</span>
-                </span>
+                </button>
                 <button
                   type="button"
                   title="Remove"
@@ -386,9 +423,9 @@ export function Composer({
         )}
 
         <div
-          className={`relative rounded-xl border bg-surface transition-colors ${
-            dragging ? 'border-dim' : 'border-line'
-          } ${shake ? 'animate-shake' : ''}`}
+          className={`relative rounded-xl border border-line bg-surface transition-colors ${
+            shake ? 'animate-shake' : ''
+          }`}
         >
           {menu === 'model' && (
             <ModelPicker
@@ -435,8 +472,8 @@ export function Composer({
             rows={1}
             value={draft}
             placeholder={
-              dragging
-                ? 'Drop files here'
+              isStreaming && !isPaused
+                ? 'Add to the task…'
                 : session?.mode === 'chat'
                   ? 'Ask anything…'
                   : 'Describe the task…'
@@ -531,30 +568,43 @@ export function Composer({
             <button
               type="button"
               onClick={() => {
+                if (steering) {
+                  void send()
+                  return
+                }
                 if (isStreaming && !isPaused) {
                   pauseSession(session?.id ?? '')
                   void window.anticode.cancelRun(activeRun?.runId ?? mirrorRunId ?? '')
                   addNotice(session?.id ?? '', PAUSE_LABEL)
                   return
                 }
-                if (isPaused) {
+                if (resuming) {
                   void resume()
                   return
                 }
                 void send()
               }}
+              // Nothing typed and nothing to resume or pause: nothing to press.
+              // Typed but blocked stays live only when a folder is what is
+              // missing, so pressing it points at the folder button.
               disabled={
                 (isPaused && isStreaming) ||
-                (!isStreaming && !isPaused && !canSend && !folderMissing)
+                (!isStreaming &&
+                  !resuming &&
+                  (draft.trim() === '' || (!canSend && !folderMissing)))
               }
-              aria-label={isPaused ? 'Resume' : isStreaming ? 'Pause' : 'Send'}
+              aria-label={resuming ? 'Resume' : steering ? 'Send' : isStreaming ? 'Pause' : 'Send'}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
-                isPaused
+                resuming
                   ? 'bg-brand text-bg hover:bg-brand-strong'
                   : 'bg-hover text-text hover:bg-[#3a3a3a] hover:text-brand'
               }`}
             >
-              {isStreaming && !isPaused ? (
+              {resuming ? (
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+                  <path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" />
+                </svg>
+              ) : isStreaming && !isPaused && !steering ? (
                 <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
               ) : (
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
+import { useWebSession } from '../store/web'
 import { Badge } from './Badge'
 
 function formatNumber(value: number): string {
@@ -85,6 +86,37 @@ interface TabBarProps {
   dashboardActive: boolean
   /** True while Settings is on screen — lights the gear the same way. */
   settingsActive: boolean
+}
+
+/**
+ * Shows and hides the browser pane for the session on screen. Hiding is sticky
+ * for the rest of that session — a page the agent opens later updates the pane
+ * quietly instead of pushing it back on screen — so this button is the only
+ * way back. A session with no page at all gets a blank pane with an address
+ * bar, which is the other half of "anticode has a browser of its own".
+ */
+function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
+  const entry = useWebSession(sessionId)
+  const shown = entry !== undefined && !entry.hidden
+
+  return (
+    <button
+      type="button"
+      onClick={() => void window.anticode.setWebVisible(sessionId, !shown)}
+      title={shown ? 'Hide browser' : 'Show browser'}
+      aria-pressed={shown}
+      data-browser-toggle
+      className={`region-no-drag flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand ${
+        shown ? 'text-brand' : 'text-dim'
+      }`}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+        <rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" />
+        <path d="M1.7 6h12.6" />
+        <path d="M4.3 4.35h.01M6.2 4.35h.01" strokeLinecap="round" strokeWidth="1.6" />
+      </svg>
+    </button>
+  )
 }
 
 function GridIcon(): JSX.Element {
@@ -209,6 +241,7 @@ export function TabBar({
       {/* Usage and settings sit on the same row as the session tabs — outside
           the scrolling strip, whose overflow would clip the usage popover. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
+        {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
         {activeSession !== undefined && <UsageButton session={activeSession} />}
         <button
           type="button"

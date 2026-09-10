@@ -219,6 +219,10 @@
   }
   #stagedRow .chip img, .att img { display: block; border-radius: 6px; object-fit: cover; }
   #stagedRow .chip img { width: 34px; height: 34px; }
+  /* A staged picture opens full size before it is sent, as it does after. */
+  #stagedRow .chip.pic { cursor: pointer; }
+  #stagedRow .chip.pic:active { border-color: #d1fa22; }
+  #stagedRow .chip.pic:active .nm { color: #d1fa22; }
   #stagedRow .chip .nm { display: block; font-size: 12.5px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #stagedRow .chip .sz { display: block; font-size: 11px; color: #6d6d6d; }
   #stagedRow .chip .x {
@@ -255,12 +259,20 @@
     flex: 1; background: #202020; border: 1px solid #303030; border-radius: 10px;
     color: #ededed; padding: 10px 12px; resize: none; min-height: 44px;
   }
+  /* The browser's own focus ring is a thick blue halo that belongs to no one's
+     palette. A field being typed in wears one hairline of lime instead. */
+  .composer textarea:focus, input.path:focus, select.wide:focus, textarea.editor:focus {
+    outline: none; border-color: #d1fa22; box-shadow: 0 0 0 0.5px #d1fa22;
+  }
+  /* The send and pause glyphs are the desktop's own, drawn, not typed. */
+  #sendBtn { display: flex; align-items: center; justify-content: center; min-width: 52px; }
+  #sendBtn .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
   .composer button {
     background: #2e2e2e; color: #ededed; border: none; border-radius: 10px;
     padding: 0 18px;
   }
   .composer button:disabled { color: #6d6d6d; }
-  .composer button.stopping { font-size: 12px; letter-spacing: 1px; }
+
   .composer button.lime { background: #d1fa22; color: #1a1a1a; }
   .mode { display: flex; gap: 8px; margin-bottom: 10px; }
   .mode button {
@@ -286,6 +298,8 @@
     flex: 1; min-width: 0; background: #2e2e2e; color: #ededed;
     border: 1px solid #303030; border-radius: 8px; padding: 9px 13px;
   }
+  /* Layar sentuh tidak punya hover; ditekan adalah padanannya, dan lime. */
+  .actions button:active:not(:disabled) { color: #d1fa22; }
   /* Appears only once a model id has been typed, so it reads as the thing to
      press next — same box as Start, its own colour. */
   .actions button.alt { background: #d1fa22; color: #1a1a1a; border-color: #d1fa22; }
@@ -297,6 +311,32 @@
   .dirrow .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dirrow.folder .name { color: #b3b0f5; }
   .back { color: #9a9a9a; cursor: pointer; padding: 4px 2px; }
+  /* The session's tabs, as chips: the active one reads as pressed. */
+  #webTabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 2px; }
+  #webTabs .wtab {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 60%;
+    background: #272727; border: 1px solid #303030; border-radius: 8px;
+    padding: 6px 8px 6px 10px; color: #9a9a9a; font-size: 14px;
+  }
+  #webTabs .wtab.on { color: #ededed; border-color: #4a4a4a; background: #2e2e2e; }
+  #webTabs .wtab .wlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #webTabs .wtab .wx { background: none; border: none; color: #6d6d6d; font-size: 17px; padding: 0 2px; }
+  #webTabs .wtab:active .wlabel, #webTabs .wtab .wx:active { color: #d1fa22; }
+  #webTabs .wadd {
+    flex-shrink: 0; background: none; border: 1px dashed #3a3a3a; border-radius: 8px;
+    color: #9a9a9a; font-size: 17px; padding: 4px 12px;
+  }
+  #webTabs .wadd:active { color: #d1fa22; border-color: #d1fa22; }
+  /* The page is rendered at a phone's width and its whole height, so it is
+     read the way a phone reads a page: full width, scrolled with a thumb. The
+     frame sits outside the card and out of main's padding, edge to edge, to
+     give the page every pixel the screen has. */
+  #webFrame { margin: 0 -16px; border-top: 1px solid #303030; background: #fff; position: relative; }
+  #webShot { display: block; width: 100%; height: auto; }
+  #webLoading {
+    position: sticky; top: 0; background: #202020; color: #9a9a9a;
+    font-size: 13px; padding: 6px 14px; border-bottom: 1px solid #303030;
+  }
 </style>
 </head>
 <body>
@@ -310,6 +350,7 @@
   <div class="mcol">
     <button class="mrow" onclick="gotoNew()">New session</button>
     <button class="mrow" onclick="gotoSessions()">Sessions</button>
+    <button class="mrow" onclick="gotoWeb()">Web</button>
     <button class="mrow" onclick="gotoFiles()">Files</button>
   </div>
 </div>
@@ -336,6 +377,24 @@
     </div>
     <div id="chatView" class="hidden">
       <div id="transcript"></div>
+    </div>
+  </section>
+  <section id="viewWeb" class="hidden">
+    <div class="card">
+      <select class="wide" id="webSession" aria-label="Session" onchange="pickWebSession(this.value)"></select>
+      <div id="webTabs"></div>
+      <input class="path" id="webAddress" placeholder="localhost:5173" autocapitalize="off" autocorrect="off" spellcheck="false"
+        enterkeyhint="go" onkeydown="if (event.key === 'Enter') openWebAddress().catch(showError)" />
+      <div class="actions">
+        <button onclick="openWebAddress().catch(showError)">Open</button>
+        <button onclick="refreshWebShot(true).catch(showError)">Reload</button>
+        <button id="webHideBtn" onclick="toggleWebHidden().catch(showError)">Hide</button>
+      </div>
+      <div class="crumb" id="webNote" style="margin-bottom:0">No page yet — the agent opens one, or type an address.</div>
+    </div>
+    <div id="webFrame" class="hidden">
+      <div id="webLoading" class="hidden">Loading…</div>
+      <img id="webShot" alt="" />
     </div>
   </section>
   <section id="viewFiles" class="hidden">
@@ -377,7 +436,7 @@
   <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
-  <button id="sendBtn" onclick="onSendBtn()">↑</button>
+  <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
@@ -416,6 +475,9 @@ let phoneMode = 'code';
 let modelInfo = null;
 let overviewTimer = null;
 let lastSessions = [];
+let webList = [];
+let webSessionId = null;
+let webTimer = null;
 
 let approvalRequestId = null;
 async function pollApprovals() {
@@ -483,14 +545,26 @@ function closeMenu() {
 function showChatSection() {
   document.getElementById('viewChat').classList.remove('hidden');
   document.getElementById('viewFiles').classList.add('hidden');
+  document.getElementById('viewWeb').classList.add('hidden');
+  stopWebPolling();
   updateSendBtn();
 }
 
 function showFilesSection() {
   document.getElementById('viewChat').classList.add('hidden');
+  document.getElementById('viewWeb').classList.add('hidden');
   document.getElementById('viewFiles').classList.remove('hidden');
   document.getElementById('inputRow').classList.add('hidden');
+  stopWebPolling();
   void refreshFilesTab().catch(showError);
+}
+
+function showWebSection() {
+  document.getElementById('viewChat').classList.add('hidden');
+  document.getElementById('viewFiles').classList.add('hidden');
+  document.getElementById('viewWeb').classList.remove('hidden');
+  document.getElementById('inputRow').classList.add('hidden');
+  startWebPolling();
 }
 
 function stopOverviewPolling() {
@@ -547,7 +621,24 @@ function gotoSessions() {
   startOverviewPolling();
 }
 
+/** The page the desktop has beside its transcript, as far as a phone can
+ * follow it: this is a picture of the agent's own browser, because every
+ * localhost it serves lives on the Mac, not here. */
+function gotoWeb() {
+  if (!canLeaveEditor()) return;
+  document.getElementById('approvalPanel').classList.add('hidden');
+  closeMenu();
+  currentSession = null;
+  currentRunId = null;
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  liveEl = null;
+  stopOverviewPolling();
+  setMenuTitle('Web');
+  showWebSection();
+}
+
 function gotoFiles() {
+  if (!canLeaveEditor()) return;
   document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
@@ -562,8 +653,9 @@ function gotoFiles() {
 /* ---------- Chat ---------- */
 
 async function loadOverview() {
-  const { sessions } = await jfetch('/api/overview');
+  const { sessions, web } = await jfetch('/api/overview');
   lastSessions = sessions;
+  if (Array.isArray(web)) webList = web;
   const list = document.getElementById('sessionList');
   list.innerHTML = '<div class="muted" style="padding:4px 2px">Sessions</div>';
   if (sessions.length === 0) {
@@ -774,13 +866,20 @@ const BADGE_COLOURS = [
   ['#c27a3f', '#925c30']
 ];
 
+/* The colour is the main process's, the same index the desktop paints; a hash
+ * only stands in for a session saved before colours were kept there, until the
+ * desktop hands its colour over. */
 function badgeFor(s) {
   const title = s.mode === 'code'
     ? (s.workspaceRoot ? s.workspaceRoot.split(/[\\/]/).pop() : 'session')
     : 'antichat';
-  let hash = 0;
-  for (const ch of s.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const [c1, c2] = BADGE_COLOURS[hash % BADGE_COLOURS.length];
+  let index = Number.isInteger(s.colour) ? s.colour : null;
+  if (index === null) {
+    let hash = 0;
+    for (const ch of s.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    index = hash;
+  }
+  const [c1, c2] = BADGE_COLOURS[index % BADGE_COLOURS.length];
   return { letter: title.charAt(0).toUpperCase(), bg: `linear-gradient(135deg, ${c1}f2, ${c2}d9)` };
 }
 
@@ -975,7 +1074,11 @@ function foldTurns(messages) {
     if (m.role === 'assistant' && last !== undefined && last.role === 'assistant') {
       last.blocks.push(...blocks);
     } else {
-      turns.push({ role: m.role, blocks });
+      // An assistant turn followed by a follow-up the run took in did not end
+      // that run: it gets no closing line, the turn after it does.
+      const followUp = m.role === 'user' ? blocks.find((b) => b.type === 'text' && b.followUp)?.followUp : undefined;
+      if (followUp === 'during' && last !== undefined && last.role === 'assistant') last.continued = true;
+      turns.push({ role: m.role, blocks, followUp });
     }
   }
   return turns;
@@ -991,7 +1094,7 @@ function renderTranscript(messages, summaries) {
   // One summary per assistant turn, oldest first — the main process drops the
   // ones whose run never answered, so the two lists line up from the end.
   const list = Array.isArray(summaries) ? summaries : [];
-  const turnCount = foldTurns(messages).filter((turn) => turn.role === 'assistant').length;
+  const turnCount = foldTurns(messages).filter((turn) => turn.role === 'assistant' && !turn.continued).length;
   const offset = turnCount - list.length;
   let turnIndex = 0;
   const results = new Map();
@@ -1021,6 +1124,7 @@ function renderTranscript(messages, summaries) {
         div.appendChild(bubble);
       }
       el.appendChild(div);
+      if (m.followUp) appendNotice(FOLLOW_UP_LABEL);
       continue;
     }
     const div = document.createElement('div');
@@ -1058,8 +1162,9 @@ function renderTranscript(messages, summaries) {
     for (const target of documentsProduced(produced)) {
       div.appendChild(artifactEl(currentSession, target));
     }
-    const summary = list[turnIndex - offset];
-    turnIndex++;
+    // A turn the run carried on from takes no closing line or place in the list.
+    const summary = m.continued ? undefined : list[turnIndex - offset];
+    if (!m.continued) turnIndex++;
     if (summary !== undefined) {
       const said = m.blocks.filter((b) => b.type === 'text').map((b) => b.text).join('');
       div.appendChild(runSummaryEl(summary, said));
@@ -1083,15 +1188,32 @@ function listen(id) {
     if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
     if (event.type === 'prompt') {
-      currentRunId = event.runId; liveEl = null; liveGroup = null; hideWorking();
+      currentRunId = event.runId; liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
       else appendUserBubble(event.text, event.attachments);
+      showWorking();
+    }
+    else if (event.type === 'steer') {
+      // Shown the moment it is sent, under everything; the run keeps writing
+      // above it until it takes the instruction in.
+      currentRunId = event.runId;
+      const bubble = appendUserBubble(event.text, event.attachments);
+      if (steerAnchor === null) steerAnchor = bubble;
+      appendNotice(FOLLOW_UP_LABEL);
+    }
+    else if (event.type === 'steer_taken') {
+      // From here the run answers the new instructions: its output goes below
+      // them, and steps still in flight settle where they were drawn.
+      currentRunId = event.runId; steerAnchor = null; liveEl = null; hideWorking();
+      if (liveGroup !== null) sealedGroups.push(liveGroup);
+      liveGroup = null;
       showWorking();
     }
     else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output); }
     else if (event.type === 'end' || event.type === 'error') {
+      steerAnchor = null;
       hideWorking();
       liveGroup = null;
       currentRunId = null;
@@ -1115,7 +1237,7 @@ function showWorking() {
     const label = document.createElement('span');
     workingEl.appendChild(dot);
     workingEl.appendChild(label);
-    document.getElementById('transcript').appendChild(workingEl);
+    placeLive(workingEl);
   }
   workingEl.lastChild.textContent = 'working';
   window.scrollTo(0, document.body.scrollHeight);
@@ -1137,9 +1259,22 @@ function liveToolStart(toolUseId, name, input) {
   redrawLiveGroup();
 }
 
+/* Groups a follow-up closed off while their steps were still running. */
+let sealedGroups = [];
+
 function liveToolEnd(toolUseId, ok, output) {
   const item = liveGroup?.items.find((entry) => entry.id === toolUseId);
-  if (item === undefined) return;
+  if (item === undefined) {
+    const sealed = sealedGroups.find((group) => group.items.some((entry) => entry.id === toolUseId));
+    const entry = sealed?.items.find((candidate) => candidate.id === toolUseId);
+    if (sealed === undefined || entry === undefined) return;
+    entry.result = { content: output, isError: !ok };
+    const el = document.getElementById('transcript');
+    const next = toolGroupEl(sealed.items);
+    if (sealed.el !== null && el.contains(sealed.el)) el.replaceChild(next, sealed.el);
+    sealed.el = next;
+    return;
+  }
   item.result = { content: output, isError: !ok };
   redrawLiveGroup();
 }
@@ -1150,7 +1285,7 @@ function redrawLiveGroup() {
   const el = document.getElementById('transcript');
   const next = toolGroupEl(liveGroup.items);
   if (liveGroup.el !== null && el.contains(liveGroup.el)) el.replaceChild(next, liveGroup.el);
-  else el.appendChild(next);
+  else placeLive(next);
   liveGroup.el = next;
   if (liveGroup.items.some((item) => item.result === undefined)) hideWorking();
   else showWorking();
@@ -1158,13 +1293,24 @@ function redrawLiveGroup() {
 }
 
 let liveEl = null;
+/* The first instruction sent into the working run, until the run takes it in.
+ * What the run is still writing belongs above it, so live output is placed
+ * before this rather than at the end of the transcript. */
+let steerAnchor = null;
+
+function placeLive(node) {
+  const el = document.getElementById('transcript');
+  if (steerAnchor !== null && el.contains(steerAnchor)) el.insertBefore(node, steerAnchor);
+  else el.appendChild(node);
+}
+
 function appendLive(text) {
   if (syncing) liveBuffer += text;
   const el = document.getElementById('transcript');
   if (liveEl === null || !el.contains(liveEl)) {
     liveEl = document.createElement('div');
     liveEl.className = 'msg assistant';
-    el.appendChild(liveEl);
+    placeLive(liveEl);
   }
   liveEl.textContent += text;
   window.scrollTo(0, document.body.scrollHeight);
@@ -1191,6 +1337,10 @@ function renderStaged() {
   for (const item of staged) {
     const chip = document.createElement('div');
     chip.className = 'chip';
+    if (item.kind === 'image' && (item.localUrl || item.thumbnail)) {
+      chip.classList.add('pic');
+      chip.onclick = () => openImage({ name: item.name, thumbnail: item.localUrl || item.thumbnail });
+    }
     if (item.thumbnail) {
       const img = document.createElement('img');
       img.src = item.thumbnail;
@@ -1215,7 +1365,12 @@ function renderStaged() {
     remove.className = 'x';
     remove.textContent = '×';
     remove.title = 'Remove';
-    remove.onclick = () => { staged = staged.filter((entry) => entry.id !== item.id); renderStaged(); };
+    remove.onclick = (event) => {
+      event.stopPropagation();
+      if (item.localUrl) URL.revokeObjectURL(item.localUrl);
+      staged = staged.filter((entry) => entry.id !== item.id);
+      renderStaged();
+    };
     chip.appendChild(remove);
     row.appendChild(chip);
   }
@@ -1240,7 +1395,9 @@ async function onFilesPicked(files) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: file.name, data })
       });
-      staged.push(info);
+      // The phone still holds the picture it just sent up, so the full-size
+      // view of a staged one needs no round trip at all.
+      staged.push(file.type.startsWith('image/') ? { ...info, localUrl: URL.createObjectURL(file) } : info);
       renderStaged();
     } catch (error) { showError(error); }
   }
@@ -1354,20 +1511,35 @@ function artifactEl(sessionId, target) {
 function sendBtnState() {
   const running = currentRunId !== null;
   const paused = currentSession !== null && pausedSessions.has(currentSession);
+  // Working, with something typed: the button sends it into the run as a
+  // follow-up instead of pausing. Empty, it pauses, as before.
+  const typed = document.getElementById('prompt').value.trim() !== '';
+  if (running && !paused && typed) return 'send';
   if (running) return 'running';
-  if (paused) return 'resume';
+  // Paused with something typed: that is sent, and it ends the pause.
+  if (paused && !typed) return 'resume';
   return 'send';
 }
 
+const SEND_GLYPH = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const PAUSE_GLYPH = '<span class="sq" aria-hidden="true"></span>';
+const RESUME_GLYPH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z"/></svg>';
+
 function updateSendBtn() {
-  document.getElementById('inputRow').classList.toggle('hidden', !currentSession || !document.getElementById('viewFiles').classList.contains('hidden'));
+  document.getElementById('inputRow').classList.toggle('hidden', !currentSession
+    || !document.getElementById('viewFiles').classList.contains('hidden')
+    || !document.getElementById('viewWeb').classList.contains('hidden'));
   const btn = document.getElementById('sendBtn');
   const state = sendBtnState();
   btn.disabled = submitting || (currentRunId !== null && pausedSessions.has(currentSession));
   btn.classList.toggle('lime', state === 'resume');
-  btn.classList.toggle('stopping', state === 'running');
-  btn.textContent = state === 'running' ? '❚❚' : '↑';
-  btn.title = state === 'resume' ? 'Resume' : state === 'running' ? 'Pause' : 'Send';
+  // Same glyphs as the desktop: an arrow to send, a square to pause, a play
+  // mark to resume — never the send arrow, which read as sending nothing.
+  const glyph = state === 'running' ? PAUSE_GLYPH : state === 'resume' ? RESUME_GLYPH : SEND_GLYPH;
+  if (btn.dataset.glyph !== state) { btn.innerHTML = glyph; btn.dataset.glyph = state; }
+  const label = state === 'resume' ? 'Resume' : state === 'running' ? 'Pause' : 'Send';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
 }
 
 function onSendBtn() {
@@ -1386,9 +1558,10 @@ async function pauseSession() {
     updateSendBtn();
   } catch (error) { showError(error); }
 }
-/* The words the pause button leaves in the transcript, matching the desktop. */
-const PAUSE_LABEL = 'Okay, taking a break mate!';
+/* The words the app leaves in the transcript, matching the desktop's labels. */
+const PAUSE_LABEL = 'Okay, Take a break mate!';
 const RESUME_LABEL = 'ah sh**, here we go again';
+const FOLLOW_UP_LABEL = 'wait a minutes, bi***';
 /* What a resume actually asks for; the transcript shows RESUME_LABEL instead. */
 const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
 async function resumeSession() { await submitPrompt(CONTINUE_PROMPT); }
@@ -1413,6 +1586,7 @@ function appendUserBubble(text, files) {
   div.appendChild(bubble);
   el.appendChild(div);
   window.scrollTo(0, document.body.scrollHeight);
+  return div;
 }
 
 /* ---------- Replying to a selected passage ---------- */
@@ -1482,13 +1656,30 @@ document.addEventListener('pointerdown', (event) => {
   clearQuote();
 });
 
+/* The box empties the moment the prompt goes, not when the server answers —
+ * waiting left the sent words sitting there as if nothing had happened, and
+ * the iOS keyboard could commit a pending word back into the cleared box. A
+ * refused send puts the words back. */
 async function sendPrompt() {
   const input = document.getElementById('prompt');
   const prompt = input.value.trim();
-  if (await submitPrompt(prompt)) input.value = '';
+  if (!prompt || !currentSession || submitting) return;
+  input.value = '';
+  input.dispatchEvent(new Event('input'));
+  const sent = await submitPrompt(prompt);
+  if (!sent && input.value.trim() === '') {
+    input.value = prompt;
+    input.dispatchEvent(new Event('input'));
+  } else if (sent && input.value.trim() === prompt) {
+    input.value = '';
+  }
+  updateSendBtn();
 }
 async function submitPrompt(prompt) {
-  if (!prompt || !currentSession || currentRunId || submitting) return false;
+  // A prompt sent while the session is working is taken by that run as a
+  // follow-up; only a resume needs the run to be over.
+  if (!prompt || !currentSession || submitting) return false;
+  if (prompt === CONTINUE_PROMPT && currentRunId) return false;
   const id = currentSession;
   if (quoted !== '' && prompt !== CONTINUE_PROMPT) {
     prompt = quoted.replace(/^/gm, '> ') + '\n\n' + prompt;
@@ -1502,6 +1693,7 @@ async function submitPrompt(prompt) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId: id, prompt, attachmentIds })
     });
+    for (const item of staged) if (item.localUrl) URL.revokeObjectURL(item.localUrl);
     staged = [];
     renderStaged();
     clearQuote();
@@ -1514,6 +1706,209 @@ async function submitPrompt(prompt) {
 }
 
 function canLeaveEditor() { return openedFile === null || document.getElementById('editor').value === savedContent || confirm('Discard unsaved file changes?'); }
+
+/* ---------- Web ---------- */
+
+function webEntry() {
+  return webList.find((entry) => entry.sessionId === webSessionId) ?? null;
+}
+
+function activeTabOf(entry) {
+  if (entry === null) return null;
+  return entry.tabs.find((tab) => tab.id === entry.activeTabId) ?? entry.tabs[0] ?? null;
+}
+
+function hasPage(entry) {
+  return entry.tabs.some((tab) => tab.url !== '');
+}
+
+/** Picks up where the last session left off: the pane the desktop is showing
+ * wins, and failing that the most recent session that has a page at all. */
+function defaultWebSession() {
+  const shown = webList.find((entry) => !entry.hidden && hasPage(entry));
+  if (shown !== undefined) return shown.sessionId;
+  const any = webList.find((entry) => hasPage(entry));
+  return any?.sessionId ?? webList[0]?.sessionId ?? null;
+}
+
+function pickWebSession(id) {
+  webSessionId = id === '' ? null : id;
+  renderWeb();
+  void refreshWebShot().catch(showError);
+}
+
+function labelForWebSession(id) {
+  const session = lastSessions.find((entry) => entry.id === id);
+  if (session === undefined) return 'Session';
+  return session.title || (session.workspaceRoot ? session.workspaceRoot.split(/[\\/]/).pop() : 'chat');
+}
+
+function tabLabel(tab) {
+  if (tab.title) return tab.title;
+  if (tab.url === '') return 'New tab';
+  try { return new URL(tab.url).host; } catch { return tab.url; }
+}
+
+async function postWeb(body) {
+  const { web } = await jfetch('/api/web', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: webSessionId, ...body })
+  });
+  webList = web;
+  renderWeb();
+}
+
+function renderWebTabs(entry) {
+  const strip = document.getElementById('webTabs');
+  strip.innerHTML = '';
+  if (entry === null) return;
+  for (const tab of entry.tabs) {
+    const chip = document.createElement('div');
+    chip.className = 'wtab' + (tab.id === entry.activeTabId ? ' on' : '');
+    chip.setAttribute('role', 'button');
+    const label = document.createElement('span');
+    label.className = 'wlabel';
+    label.textContent = tabLabel(tab);
+    chip.appendChild(label);
+    chip.onclick = () => {
+      if (tab.id === entry.activeTabId) return;
+      void postWeb({ action: 'selectTab', tabId: tab.id }).then(() => refreshWebShot()).catch(showError);
+    };
+    const close = document.createElement('button');
+    close.className = 'wx';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Close tab');
+    close.onclick = (event) => {
+      event.stopPropagation();
+      void postWeb({ action: 'closeTab', tabId: tab.id }).then(() => refreshWebShot()).catch(showError);
+    };
+    chip.appendChild(close);
+    strip.appendChild(chip);
+  }
+  const add = document.createElement('button');
+  add.className = 'wadd';
+  add.textContent = '+';
+  add.setAttribute('aria-label', 'New tab');
+  add.onclick = () => {
+    void postWeb({ action: 'newTab' })
+      .then(() => document.getElementById('webAddress').focus())
+      .catch(showError);
+  };
+  strip.appendChild(add);
+}
+
+function renderWeb() {
+  const select = document.getElementById('webSession');
+  select.innerHTML = '';
+  for (const entry of webList) {
+    const option = document.createElement('option');
+    option.value = entry.sessionId;
+    option.textContent = labelForWebSession(entry.sessionId) + (entry.hidden ? ' · hidden' : '');
+    select.appendChild(option);
+  }
+  select.classList.toggle('hidden', webList.length === 0);
+  if (webSessionId !== null) select.value = webSessionId;
+
+  const entry = webEntry();
+  const tab = activeTabOf(entry);
+  renderWebTabs(entry);
+  const note = document.getElementById('webNote');
+  const frame = document.getElementById('webFrame');
+  document.getElementById('webHideBtn').textContent = entry?.hidden ? 'Show' : 'Hide';
+  document.getElementById('webHideBtn').disabled = entry === null;
+  if (entry === null) {
+    note.textContent = 'No page open yet — start one from a session, or type an address.';
+    frame.classList.add('hidden');
+    return;
+  }
+  note.textContent = tab === null || tab.url === '' ? 'Type an address for this tab.' : tab.url;
+  frame.classList.toggle('hidden', tab === null || tab.url === '');
+}
+
+async function refreshWebList() {
+  const { web } = await jfetch('/api/web');
+  webList = web;
+  if (webSessionId === null || !webList.some((entry) => entry.sessionId === webSessionId)) {
+    webSessionId = defaultWebSession();
+  }
+  renderWeb();
+}
+
+/* What the picture on screen shows, so a poll only re-renders when the page
+ * actually moved — a tall page that reloads under your thumb loses your place. */
+let shownWebKey = null;
+let webShotRequest = 0;
+
+async function refreshWebShot(reload) {
+  const entry = webEntry();
+  const tab = activeTabOf(entry);
+  if (entry === null || tab === null || tab.url === '') {
+    shownWebKey = null;
+    webShotRequest++;
+    document.getElementById('webShot').removeAttribute('src');
+    return;
+  }
+  const key = entry.sessionId + ' ' + tab.id + ' ' + tab.url;
+  if (!reload && key === shownWebKey) return;
+  const request = ++webShotRequest;
+  const changed = key !== shownWebKey;
+  shownWebKey = key;
+  const shot = document.getElementById('webShot');
+  if (changed) shot.removeAttribute('src');
+  const loading = document.getElementById('webLoading');
+  loading.classList.remove('hidden');
+  const next = new Image();
+  next.onload = () => {
+    if (request !== webShotRequest) return;
+    shot.src = next.src;
+    loading.classList.add('hidden');
+  };
+  next.onerror = () => {
+    if (request !== webShotRequest) return;
+    loading.textContent = 'The page could not be rendered — tap Reload.';
+    shownWebKey = null;
+  };
+  loading.textContent = 'Loading…';
+  // Rendered on demand at a phone's width, so the cache is stepped around.
+  next.src = '/api/web/shot?sessionId=' + encodeURIComponent(entry.sessionId)
+    + (reload ? '&reload=1' : '') + '&token=' + token + '&t=' + Date.now();
+}
+
+async function openWebAddress() {
+  const typed = document.getElementById('webAddress').value.trim();
+  if (typed === '' || webSessionId === null) return;
+  const url = /^https?:\/\//i.test(typed) ? typed : 'http://' + typed;
+  const tab = activeTabOf(webEntry());
+  await postWeb({ url, ...(tab !== null ? { tabId: tab.id } : {}) });
+  document.getElementById('webAddress').value = '';
+  document.getElementById('webAddress').blur();
+  await refreshWebShot();
+}
+
+/** The same sticky hide the desktop has: once off, a page the agent opens
+ * later updates the pane quietly instead of pushing it back on screen. */
+async function toggleWebHidden() {
+  const entry = webEntry();
+  if (entry === null) return;
+  await postWeb({ visible: entry.hidden });
+}
+
+function stopWebPolling() {
+  webShotRequest++;
+  if (webTimer !== null) { clearInterval(webTimer); webTimer = null; }
+}
+
+function startWebPolling() {
+  stopWebPolling();
+  shownWebKey = null;
+  void refreshWebList()
+    .then(() => refreshWebShot())
+    .catch(showError);
+  webTimer = setInterval(() => {
+    void refreshWebList().then(() => refreshWebShot()).catch(() => {});
+  }, 4000);
+}
 
 /* ---------- Files ---------- */
 
@@ -1674,6 +2069,8 @@ async function gitAction(action) {
 document.getElementById('prompt').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendPrompt(); }
 });
+// Typing while the session works turns the pause button into a send button.
+document.getElementById('prompt').addEventListener('input', () => updateSendBtn());
 document.addEventListener('click', (e) => {
   const drop = document.getElementById('menuDrop');
   if (!drop.classList.contains('hidden') && !drop.contains(e.target) && e.target.closest('#menuBtn') === null) {

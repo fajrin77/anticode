@@ -7,6 +7,7 @@ import { writeFileTool } from './writeFile'
 import { editFileTool } from './editFile'
 import { listDirectoryTool } from './listDirectory'
 import { runCommandTool } from './runCommand'
+import { activeWebUrl, listWeb } from '../web'
 import { resolveInWorkspace } from './workspace'
 import type { ToolContext } from './types'
 
@@ -174,6 +175,22 @@ describe('run_command', () => {
       .prepare({ command: 'sleep 5', timeout_ms: 1000 })
       .execute(context)).text
     expect(output).toContain('killed after 1000 ms')
+  })
+
+  // A dev server announcing its address is the whole reason the browser pane
+  // exists, so the line is picked out of the output rather than waited on.
+  it('opens the browser pane on a dev server it sees start', async () => {
+    await runCommandTool
+      .prepare({ command: 'echo "  Local:   http://localhost:4321/"' })
+      .execute({ ...context, sessionId: 'run-command-session' })
+    expect(activeWebUrl('run-command-session')).toBe('http://localhost:4321/')
+  })
+
+  it('leaves the pane alone when nothing was served', async () => {
+    await runCommandTool
+      .prepare({ command: 'echo "no server here"' })
+      .execute({ ...context, sessionId: 'quiet-session' })
+    expect(listWeb().some((entry) => entry.sessionId === 'quiet-session')).toBe(false)
   })
 
   it('does not hang when a background grandchild holds the stdio pipes', async () => {

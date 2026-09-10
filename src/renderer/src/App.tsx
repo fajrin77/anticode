@@ -8,6 +8,9 @@ import { SettingsView } from './components/SettingsView'
 import { CONTINUE_PROMPT, RESUME_LABEL } from './components/Composer'
 import { ApprovalModal } from './components/ApprovalModal'
 import { useSessionStore } from './store/session'
+import { useWebSession, useWebStore } from './store/web'
+import { WebPanel } from './components/WebPanel'
+import { DropZone } from './components/DropZone'
 import type {
   AppInfo,
   ApprovalDecision,
@@ -39,11 +42,18 @@ export function App(): JSX.Element {
   // the dashboard and only bound to the main-process session on first send.
   const startSession = useCallback(() => {
     const sessionId = openSession('code', null)
-    void window.anticode.createSession({
-      sessionId,
-      mode: 'code',
-      workspaceRoot: null
-    })
+    // The colour this window just painted is offered to the main process,
+    // which owns colours so the phone paints the session the same; whatever it
+    // settles on is what both show.
+    const colour = useSessionStore.getState().sessions.find((entry) => entry.id === sessionId)?.colour
+    void window.anticode
+      .createSession({
+        sessionId,
+        mode: 'code',
+        workspaceRoot: null,
+        ...(colour !== undefined ? { colour } : {})
+      })
+      .then((settled) => useSessionStore.getState().addExternalSession(settled))
   }, [openSession])
 
   // Cmd/Ctrl+N mints a fresh session, exactly like the "+" tab.
@@ -103,6 +113,12 @@ export function App(): JSX.Element {
       for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
       for (const spec of specs) {
         store.addExternalSession(spec)
+        // Saved before the main process kept colours: hand over the one this
+        // window has been showing, so the phone matches it from now on.
+        if (spec.colour === undefined) {
+          const shown = useSessionStore.getState().sessions.find((entry) => entry.id === spec.sessionId)?.colour
+          if (shown !== undefined) void window.anticode.setSessionColour(spec.sessionId, shown)
+        }
         const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
         if (active && snapshot !== null && !sessionBusy(spec.sessionId)) {
           store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
@@ -121,6 +137,14 @@ export function App(): JSX.Element {
     return window.anticode.onApprovalRequest((request) => {
       setApprovals((queue) => [...queue, request])
     })
+  }, [])
+
+  // The browser panes are owned by the main process — the agent opens pages,
+  // and the phone has to see the same ones — so the renderer only mirrors them.
+  useEffect(() => {
+    const setSessions = useWebStore.getState().setSessions
+    void window.anticode.listWebSessions().then(setSessions)
+    return window.anticode.onWebSessions(setSessions)
   }, [])
 
   useEffect(() => {
@@ -199,6 +223,12 @@ export function App(): JSX.Element {
         switch (event.type) {
           case 'prompt':
             break
+          case 'steer':
+            store.steerRun(event.runId, run.sessionId, event.text, event.attachments)
+            break
+          case 'steer_taken':
+            store.takeSteer(event.runId, run.sessionId)
+            break
           case 'text_delta':
             store.appendText(run.sessionId, run.messageId, event.text)
             break
@@ -241,6 +271,16 @@ export function App(): JSX.Element {
           if (event.text === CONTINUE_PROMPT) store.addNotice(event.sessionId, RESUME_LABEL)
           else store.addUserPrompt(event.sessionId, event.text, event.attachments)
           store.mirrorStart(event.runId, event.sessionId)
+          break
+        case 'steer':
+          // A follow-up to a run this window only watches — from the phone,
+          // or joined before this window caught the run's start.
+          store.mirrorStart(event.runId, event.sessionId)
+          store.steerRun(event.runId, event.sessionId, event.text, event.attachments)
+          break
+        case 'steer_taken':
+          store.mirrorStart(event.runId, event.sessionId)
+          store.takeSteer(event.runId, event.sessionId)
           break
         case 'text_delta':
           store.appendText(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
@@ -341,6 +381,7 @@ export function App(): JSX.Element {
   )
   const isFreshSession =
     activeSession !== undefined && activeSession.messages.length === 0
+  const web = useWebSession(activeSessionId)
 
   return (
     <div className="flex h-full flex-col">
@@ -393,29 +434,52 @@ export function App(): JSX.Element {
       )}
 
       {view === 'session' && (
-        <>
-          {isFreshSession ? (
-            <NewSessionView
-              session={activeSession}
-              status={status}
-              providers={providers}
-              onSelectProvider={selectProvider}
-              onToggleAutoApprove={toggleAutoApprove}
-              onSelectSession={openExistingSession}
+        // The transcript gives up the right-hand side to the browser pane
+        // rather than being covered by it: both stay usable at once, which is
+        // the point of watching a page the agent is working on.
+        <div className="flex min-h-0 flex-1">
+          {/* Full size hands the whole window to the page. The transcript is
+              only set aside, not unmounted — its scroll and draft are where
+              they were when the pane shrinks back. */}
+          <div
+            className={`flex min-w-0 flex-1 flex-col ${
+              web !== undefined && web.full && !web.hidden ? 'hidden' : ''
+            }`}
+          >
+            <DropZone key={activeSessionId ?? 'none'} sessionId={activeSessionId ?? ''}>
+              {isFreshSession ? (
+                <NewSessionView
+                  session={activeSession}
+                  status={status}
+                  providers={providers}
+                  onSelectProvider={selectProvider}
+                  onToggleAutoApprove={toggleAutoApprove}
+                  onSelectSession={openExistingSession}
+                />
+              ) : (
+                <>
+                  <SessionView />
+                  <Composer
+                    key={activeSessionId}
+                    status={status}
+                    providers={providers}
+                    onSelectProvider={selectProvider}
+                    onToggleAutoApprove={toggleAutoApprove}
+                  />
+                </>
+              )}
+            </DropZone>
+          </div>
+          {activeSessionId !== null && web !== undefined && (
+            <WebPanel
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              entry={web}
+              open={!web.hidden}
+              onHide={() => void window.anticode.setWebVisible(activeSessionId, false)}
             />
-          ) : (
-            <>
-              <SessionView />
-              <Composer
-                key={activeSessionId}
-                status={status}
-                providers={providers}
-                onSelectProvider={selectProvider}
-                onToggleAutoApprove={toggleAutoApprove}
-              />
-            </>
           )}
-        </>
+        </div>
       )}
     </div>
   )

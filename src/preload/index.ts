@@ -18,7 +18,8 @@ import type {
   ProviderInfo,
   ProviderSelection,
   SessionSpec,
-  SessionStatus
+  SessionStatus,
+  WebSession
 } from '../shared/ipc'
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -30,6 +31,24 @@ function subscribe<T>(channel: string, listener: (payload: T) => void): () => vo
 }
 
 const api: AnticodeApi = {
+  listWebSessions: () => ipcRenderer.invoke(IpcChannel.WEB_LIST) as Promise<WebSession[]>,
+  reportWebTab: (sessionId, tabId, url, title) =>
+    ipcRenderer.invoke(IpcChannel.WEB_REPORT, sessionId, tabId, url, title) as Promise<WebSession[]>,
+  openWebUrl: (sessionId: string, url: string, tabId?: string, title?: string) =>
+    ipcRenderer.invoke(IpcChannel.WEB_OPEN, sessionId, url, tabId, title) as Promise<WebSession[]>,
+  setWebVisible: (sessionId: string, visible: boolean) =>
+    ipcRenderer.invoke(IpcChannel.WEB_VISIBLE, sessionId, visible) as Promise<WebSession[]>,
+  setWebFull: (sessionId: string, full: boolean) =>
+    ipcRenderer.invoke(IpcChannel.WEB_FULL, sessionId, full) as Promise<WebSession[]>,
+  addWebTab: (sessionId: string, url?: string) =>
+    ipcRenderer.invoke(IpcChannel.WEB_TAB_ADD, sessionId, url) as Promise<WebSession[]>,
+  closeWebTab: (sessionId: string, tabId: string) =>
+    ipcRenderer.invoke(IpcChannel.WEB_TAB_CLOSE, sessionId, tabId) as Promise<WebSession[]>,
+  selectWebTab: (sessionId: string, tabId: string) =>
+    ipcRenderer.invoke(IpcChannel.WEB_TAB_SELECT, sessionId, tabId) as Promise<WebSession[]>,
+  forgetWebSession: (sessionId: string) =>
+    ipcRenderer.invoke(IpcChannel.WEB_FORGET, sessionId) as Promise<WebSession[]>,
+  onWebSessions: (listener) => subscribe<WebSession[]>(IpcChannel.WEB_UPDATED, listener),
   listSessions: () => ipcRenderer.invoke(IpcChannel.SESSION_LIST) as Promise<SessionSpec[]>,
   releaseAttachments: (ids) => ipcRenderer.invoke(IpcChannel.ATTACH_RELEASE, ids) as Promise<void>,
   pendingApprovals: () => ipcRenderer.invoke(IpcChannel.APPROVAL_PENDING) as Promise<ApprovalRequest[]>,
@@ -68,7 +87,9 @@ const api: AnticodeApi = {
   removeProvider: (id: ProviderId) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
   createSession: (spec: SessionSpec) =>
-    ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<void>,
+    ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<SessionSpec>,
+  setSessionColour: (sessionId: string, colour: number) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_COLOUR, sessionId, colour) as Promise<void>,
   closeSession: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_CLOSE, sessionId) as Promise<void>,
   chooseAttachments: () =>
@@ -88,7 +109,7 @@ const api: AnticodeApi = {
   // Electron removed File.path; a dropped file's location comes from here.
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   sendPrompt: (req: AgentRequest) =>
-    ipcRenderer.invoke(IpcChannel.AGENT_SEND, req) as Promise<void>,
+    ipcRenderer.invoke(IpcChannel.AGENT_SEND, req) as Promise<{ runId: string; steered: boolean }>,
   cancelRun: (runId: string) => ipcRenderer.invoke(IpcChannel.AGENT_CANCEL, runId) as Promise<void>,
   respondToApproval: (response: ApprovalResponse) =>
     ipcRenderer.invoke(IpcChannel.APPROVAL_RESPOND, response) as Promise<void>,

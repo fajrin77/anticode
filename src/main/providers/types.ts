@@ -14,7 +14,18 @@ export type ContentBlock =
    * transcript can redraw the file card, even after the image itself was
    * elided from the replayed history.
    */
-  | { type: 'text'; text: string; attachment?: AttachmentRef }
+  | {
+      type: 'text'
+      text: string
+      attachment?: AttachmentRef
+      /**
+       * An instruction the user sent while the run was working. `text` is what
+       * the model reads (the words, framed as an addition to the task); this is
+       * the words as typed, for viewers. `during` is false when the run was
+       * paused before it could take the instruction in.
+       */
+      followUp?: { text: string; during: boolean }
+    }
   | { type: 'image'; mediaType: string; data: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }
