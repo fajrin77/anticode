@@ -14,6 +14,8 @@ import {
   setWebFull,
   setWebSink,
   setWebVisible,
+  stepWebHistory,
+  webHistoryOf,
   webRecord
 } from './web'
 
@@ -182,5 +184,33 @@ describe('browser pane state', () => {
     clearWeb(SESSION)
     expect(webRecord(SESSION)).toBeNull()
     expect(closer).toHaveBeenCalledWith(SESSION)
+  })
+
+  it('steps Back and Forward through the pages the active tab has visited', () => {
+    openWeb(SESSION, 'http://localhost:5173/')
+    openWeb(SESSION, 'http://localhost:5173/orders')
+    const tabId = webRecord(SESSION)!.activeTabId
+    // The desktop webview reports a link it followed.
+    reportWebTab(SESSION, tabId, 'http://localhost:5173/orders/7')
+    expect(webHistoryOf(SESSION)).toEqual({ back: true, forward: false })
+    stepWebHistory(SESSION, -1)
+    stepWebHistory(SESSION, -1)
+    expect(urls()).toEqual(['http://localhost:5173/'])
+    expect(webHistoryOf(SESSION)).toEqual({ back: false, forward: true })
+    stepWebHistory(SESSION, 1)
+    expect(urls()).toEqual(['http://localhost:5173/orders'])
+    // The desktop pane echoing the page it was pointed at moves nothing.
+    reportWebTab(SESSION, tabId, 'http://localhost:5173/orders')
+    expect(webHistoryOf(SESSION)).toEqual({ back: true, forward: true })
+    // The pane reporting the root with its trailing slash is the same page.
+    stepWebHistory(SESSION, -1)
+    reportWebTab(SESSION, tabId, 'http://localhost:5173/')
+    expect(webHistoryOf(SESSION)).toEqual({ back: false, forward: true })
+    stepWebHistory(SESSION, 1)
+    // A new page drops what was ahead, as a browser does.
+    openWeb(SESSION, 'http://localhost:5173/new')
+    expect(webHistoryOf(SESSION)).toEqual({ back: true, forward: false })
+    stepWebHistory(SESSION, 1)
+    expect(urls()).toEqual(['http://localhost:5173/new'])
   })
 })

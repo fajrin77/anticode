@@ -90,6 +90,47 @@ function artifactPath(sessionId: string, relativePath: string): string {
   return resolveInWorkspace(root, relativePath)
 }
 
+/**
+ * Default or Auto, pressed on the desktop or the phone. Prompts from both obey
+ * the one policy, so both screens are told which it is.
+ */
+export function setApprovalMode(enabled: boolean): SessionStatus {
+  policy.setAutoApprove(enabled)
+  savePersistedSettings({ autoApprove: enabled })
+  announceStatus()
+  return getStatus()
+}
+
+function announceProviders(): void {
+  const providers = listProviders()
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send(IpcChannel.PROVIDERS_UPDATED, providers)
+  }
+}
+
+/** A provider added from either screen shows in every window's list at once. */
+export function addProvider(input: CustomProviderInput): ProviderInfo[] {
+  addCustomProvider({
+    label: input.label.trim() !== '' ? input.label.trim() : 'Provider',
+    kind: input.kind,
+    baseURL: input.baseURL.trim(),
+    apiKey: input.apiKey.trim()
+  })
+  announceProviders()
+  return listProviders()
+}
+
+export function removeProvider(id: string): ProviderInfo[] {
+  if (hasRuns()) throw new Error('Wait for running sessions to finish before removing a provider')
+  removeCustomProvider(id)
+  if (getStatus().provider === id) {
+    resetProviderSelection()
+    announceStatus()
+  }
+  announceProviders()
+  return listProviders()
+}
+
 export function registerIpcHandlers(): void {
   // The pane's state is owned by the main process — the agent is what opens
   // pages — so every window is told about a change rather than asked for one.
@@ -191,32 +232,18 @@ export function registerIpcHandlers(): void {
       listModels(provider, refresh === true)
   )
 
-  ipcMain.handle(IpcChannel.POLICY_SET, (_event, enabled: boolean): SessionStatus => {
-    policy.setAutoApprove(enabled)
-    savePersistedSettings({ autoApprove: enabled })
-    announceStatus()
-    return getStatus()
-  })
+  ipcMain.handle(IpcChannel.POLICY_SET, (_event, enabled: boolean): SessionStatus =>
+    setApprovalMode(enabled === true)
+  )
 
   ipcMain.handle(
     IpcChannel.PROVIDER_ADD,
-    (_event, input: CustomProviderInput): ProviderInfo[] => {
-      addCustomProvider({
-        label: input.label.trim() !== '' ? input.label.trim() : 'Provider',
-        kind: input.kind,
-        baseURL: input.baseURL.trim(),
-        apiKey: input.apiKey.trim()
-      })
-      return listProviders()
-    }
+    (_event, input: CustomProviderInput): ProviderInfo[] => addProvider(input)
   )
 
-  ipcMain.handle(IpcChannel.PROVIDER_REMOVE, (_event, id: string): ProviderInfo[] => {
-    if (hasRuns()) throw new Error('Wait for running sessions to finish before removing a provider')
-    removeCustomProvider(id)
-    if (getStatus().provider === id) resetProviderSelection()
-    return listProviders()
-  })
+  ipcMain.handle(IpcChannel.PROVIDER_REMOVE, (_event, id: string): ProviderInfo[] =>
+    removeProvider(id)
+  )
 
   ipcMain.handle(IpcChannel.REMOTE_STATUS, (): ReturnType<typeof getRemoteStatus> =>
     getRemoteStatus()

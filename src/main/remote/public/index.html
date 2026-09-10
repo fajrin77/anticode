@@ -46,7 +46,7 @@
     cursor: pointer; color: #ededed; font-size: 19px; text-align: left;
   }
   #menuDrop .mrow:active { color: #d1fa22; }
-  main { padding: 12px 16px 120px; }
+  main { padding: 12px 16px 160px; }
   .card {
     background: #202020; border: 1px solid #303030; border-radius: 12px;
     padding: 10px 14px; margin-bottom: 8px;
@@ -337,6 +337,50 @@
     position: sticky; top: 0; background: #202020; color: #9a9a9a;
     font-size: 13px; padding: 6px 14px; border-bottom: 1px solid #303030;
   }
+  /* The desktop composer's chip row, under the box: the model, Default or
+     Auto, and Revert while paused. Plain words that turn lime under a finger. */
+  #chipRow { flex: 0 0 100%; display: flex; align-items: center; gap: 2px; min-width: 0; }
+  #chipRow .grow { flex: 1; }
+  .composer #chipRow button {
+    background: none; color: #9a9a9a; padding: 4px 8px; border-radius: 8px; font-size: 13px;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .composer #chipRow button:active { color: #d1fa22; background: #262626; }
+  .composer #chipRow #modelChip { font-family: ui-monospace, Menlo, monospace; max-width: 52vw; }
+  .composer #chipRow #revertBtn { flex: none; color: #ededed; }
+  /* Settings rise from the bottom over whatever is open, so a chat is still
+     there, where it was, once they close. */
+  #settingsSheet {
+    position: fixed; inset: 0; z-index: 40; background: rgba(26,26,26,.75);
+    display: flex; align-items: flex-end;
+  }
+  #settingsSheet .sheet {
+    width: 100%; max-height: 88vh; overflow: auto; background: #202020;
+    border-top: 1px solid #303030; border-radius: 16px 16px 0 0;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  .sheet .shead { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 17px; }
+  .sheet .shead button { background: none; border: none; color: #ededed; font-size: 15px; padding: 6px 4px; }
+  .sheet .shead button:active { color: #d1fa22; }
+  .ssec { padding: 12px 0 4px; border-top: 1px solid #2a2a2a; margin-top: 10px; }
+  .ssec > .muted { margin-bottom: 8px; font-size: 14px; }
+  .ssec .mode { margin-bottom: 6px; }
+  .mode button:active { color: #d1fa22; }
+  .usage { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 14px; }
+  .usage span:nth-child(odd) { color: #6d6d6d; }
+  .prow { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #262626; font-size: 15px; }
+  .prow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Removing a provider is destructive: red, never lime. */
+  .prow .px { flex: none; background: none; border: none; color: #6d6d6d; font-size: 18px; line-height: 1; padding: 2px 6px; }
+  .prow .px:active { color: #e06c6c; }
+  #providerList { margin-bottom: 10px; }
+  .serr { margin: 8px 0 0; padding: 8px 10px; border: 1px solid #945050; border-radius: 8px; color: #f3aaaa; font-size: 14px; overflow-wrap: anywhere; }
+  #sessionSearch { margin-bottom: 8px; }
+  /* Back and Forward are arrows, as in the desktop pane, so five fit a phone. */
+  .actions button.navbtn { flex: 0 0 44px; padding: 5px 0; font-size: 22px; line-height: 1; }
+  /* A diff waiting for approval reads the way the desktop draws it. */
+  .dadd { color: #5ac37f; }
+  .ddel { color: #e06c6c; }
 </style>
 </head>
 <body>
@@ -352,6 +396,7 @@
     <button class="mrow" onclick="gotoSessions()">Sessions</button>
     <button class="mrow" onclick="gotoWeb()">Web</button>
     <button class="mrow" onclick="gotoFiles()">Files</button>
+    <button class="mrow" onclick="openSettings()">Settings</button>
   </div>
 </div>
 <div id="errorBanner" role="alert" class="hidden" style="margin:12px 16px;padding:12px;border:1px solid #945050;border-radius:8px;color:#f3aaaa;overflow-wrap:anywhere"><span id="errorMessage"></span><button style="margin-left:10px" onclick="document.getElementById('errorBanner').classList.add('hidden')">Dismiss</button></div>
@@ -364,7 +409,9 @@
           <button id="modeCode" class="on" onclick="setMode('code')">anticode</button>
           <button id="modeChat" onclick="setMode('chat')">antichat</button>
         </div>
-        <input class="path" id="folderInput" placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
+        <input class="path" id="folderInput" list="knownFolders" autocapitalize="off" autocorrect="off" spellcheck="false"
+          placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
+        <datalist id="knownFolders"></datalist>
         <select class="wide" id="providerSelect" aria-label="Provider" onchange="pickProvider(this.value)"></select>
         <select class="wide" id="modelSelect" aria-label="Model" onchange="pickModel(this.value)"></select>
         <input class="path" id="customModelId" placeholder="Custom model ID (optional)" oninput="updateModelIdBtn()" />
@@ -373,6 +420,8 @@
           <button id="useModelBtn" class="alt hidden" onclick="applyCustomModel()">Use model ID</button>
         </div>
       </div>
+      <input class="path hidden" id="sessionSearch" type="search" placeholder="Search sessions"
+        autocapitalize="off" autocorrect="off" spellcheck="false" oninput="renderSessionList()" />
       <div id="sessionList" class="card"></div>
     </div>
     <div id="chatView" class="hidden">
@@ -386,6 +435,8 @@
       <input class="path" id="webAddress" placeholder="localhost:5173" autocapitalize="off" autocorrect="off" spellcheck="false"
         enterkeyhint="go" onkeydown="if (event.key === 'Enter') openWebAddress().catch(showError)" />
       <div class="actions">
+        <button id="webBackBtn" class="navbtn" aria-label="Back" title="Back" onclick="stepWeb('back').catch(showError)" disabled>&#8249;</button>
+        <button id="webFwdBtn" class="navbtn" aria-label="Forward" title="Forward" onclick="stepWeb('forward').catch(showError)" disabled>&#8250;</button>
         <button onclick="openWebAddress().catch(showError)">Open</button>
         <button onclick="refreshWebShot(true).catch(showError)">Reload</button>
         <button id="webHideBtn" onclick="toggleWebHidden().catch(showError)">Hide</button>
@@ -415,7 +466,7 @@
     </div>
   </section>
 </main>
-<div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:90px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
+<div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:130px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
 <div id="imgViewer" class="hidden">
   <div class="vhead">
     <span class="vname" id="imgName"></span>
@@ -437,6 +488,50 @@
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
   <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
+  <div id="chipRow">
+    <button id="modelChip" onclick="openSettings('model')" title="Model">…</button>
+    <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
+    <span class="grow"></span>
+    <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
+  </div>
+</div>
+<div id="settingsSheet" class="hidden" onclick="if (event.target === this) closeSettings()">
+  <div class="sheet">
+    <div class="shead"><span>Settings</span><button onclick="closeSettings()">Close</button></div>
+    <div class="serr hidden" id="settingsError"></div>
+    <div class="ssec" id="secMode">
+      <div class="muted">Approval</div>
+      <div class="mode">
+        <button id="policyDefault" onclick="setPolicy(false)">Default</button>
+        <button id="policyAuto" onclick="setPolicy(true)">Auto</button>
+      </div>
+      <div class="faint" id="policyHint"></div>
+    </div>
+    <div class="ssec" id="secModel">
+      <div class="muted">Model</div>
+      <select class="wide" id="setProvider" aria-label="Provider" onchange="pickProvider(this.value)"></select>
+      <select class="wide" id="setModel" aria-label="Model" onchange="pickModel(this.value)"></select>
+      <input class="path" id="setCustomModel" placeholder="Custom model ID" autocapitalize="off" autocorrect="off" spellcheck="false"
+        enterkeyhint="done" onkeydown="if (event.key === 'Enter') applySettingsModel()" />
+      <div class="actions"><button onclick="applySettingsModel()">Use model ID</button></div>
+    </div>
+    <div class="ssec" id="secUsage">
+      <div class="muted" id="usageTitle">Session usage</div>
+      <div id="usageGrid"></div>
+    </div>
+    <div class="ssec" id="secProviders">
+      <div class="muted">Providers</div>
+      <div id="providerList"></div>
+      <input class="path" id="provLabel" placeholder="Name — OpenRouter, LM Studio, …" />
+      <select class="wide" id="provKind" aria-label="Provider kind">
+        <option value="openai">OpenAI-compatible (cloud)</option>
+        <option value="ollama">Local server (Ollama, LM Studio)</option>
+      </select>
+      <input class="path" id="provURL" placeholder="Base URL, e.g. https://openrouter.ai/api/v1" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <input class="path" id="provKey" type="password" placeholder="API key (not needed for a local server)" autocomplete="off" />
+      <div class="actions" style="margin-bottom:0"><button onclick="addPhoneProvider()">Add provider</button></div>
+    </div>
+  </div>
 </div>
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
@@ -464,6 +559,12 @@ function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (c) => ({'
 function showError(error) {
   document.getElementById('errorMessage').textContent = error?.message || String(error);
   document.getElementById('errorBanner').classList.remove('hidden');
+  // Settings cover the banner; a failure there has to be said there.
+  if (!document.getElementById('settingsSheet').classList.contains('hidden')) {
+    const inSheet = document.getElementById('settingsError');
+    inSheet.textContent = error?.message || String(error);
+    inSheet.classList.remove('hidden');
+  }
 }
 let eventSource = null;
 /* A mirror of the Mac's pauses: pressed here or on the desktop, the main
@@ -480,6 +581,12 @@ let lastSessions = [];
 let webList = [];
 let webSessionId = null;
 let webTimer = null;
+/** Back and Forward for each pane's active tab, as the Mac tracks them. */
+let webHistory = {};
+/** Provider, model and Default/Auto, as the Mac last reported them. */
+let lastStatus = null;
+/** What the open session has used, from its last sync. */
+let lastUsage = null;
 
 let approvalRequestId = null;
 async function pollApprovals() {
@@ -488,6 +595,7 @@ async function pollApprovals() {
   const id = currentSession;
   try {
     const { requests, exists, status } = await jfetch('/api/approvals?sessionId=' + encodeURIComponent(id));
+    if (status) noteStatus(status);
     if (currentSession !== id) return;
     // Deleted from the desktop while it was open here: leave rather than sit
     // on a session that no longer exists.
@@ -504,7 +612,15 @@ async function pollApprovals() {
     approvalRequestId = request.requestId;
     panel.replaceChildren();
     const title = document.createElement('strong'); title.textContent = 'Approval · ' + request.toolName + ' · ' + request.risk;
-    const detail = document.createElement('pre'); detail.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:30vh;overflow:auto'; detail.textContent = request.preview.subject + '\n' + request.preview.detail;
+    const detail = document.createElement('pre'); detail.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:30vh;overflow:auto';
+    detail.textContent = request.preview.subject + '\n';
+    for (const line of String(request.preview.detail).split('\n')) {
+      const span = document.createElement('span');
+      if (request.preview.kind === 'diff' && /^\+(?!\+\+)/.test(line)) span.className = 'dadd';
+      else if (request.preview.kind === 'diff' && /^-(?!--)/.test(line)) span.className = 'ddel';
+      span.textContent = line + '\n';
+      detail.appendChild(span);
+    }
     panel.append(title, detail);
     for (const decision of ['reject', 'approve', ...(request.allowAlways ? ['always'] : [])]) {
       const button = document.createElement('button'); button.textContent = decision === 'always' ? 'Allow this session' : decision === 'approve' ? 'Approve' : 'Reject';
@@ -598,10 +714,12 @@ function gotoNew() {
   document.getElementById('chatView').classList.add('hidden');
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('sessionList').classList.add('hidden');
+  document.getElementById('sessionSearch').classList.add('hidden');
   document.getElementById('newSessionCard').classList.remove('hidden');
   setMenuTitle('anticode');
   setMode(phoneMode);
   void loadModels();
+  void jfetch('/api/overview').then(({ sessions }) => fillKnownFolders(sessions)).catch(() => undefined);
 }
 
 function gotoSessions() {
@@ -620,6 +738,7 @@ function gotoSessions() {
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('newSessionCard').classList.add('hidden');
   document.getElementById('sessionList').classList.remove('hidden');
+  document.getElementById('sessionSearch').classList.remove('hidden');
   setMenuTitle('Sessions');
   startOverviewPolling();
 }
@@ -656,16 +775,41 @@ function gotoFiles() {
 /* ---------- Chat ---------- */
 
 async function loadOverview() {
-  const { sessions, web, status } = await jfetch('/api/overview');
-  if (status && (modelInfo?.provider !== status.provider || modelInfo?.model !== status.model)) void loadModels();
+  const { sessions, web, history, status } = await jfetch('/api/overview');
+  if (status) noteStatus(status);
   lastSessions = sessions;
+  fillKnownFolders(sessions);
   if (Array.isArray(web)) webList = web;
+  if (history) webHistory = history;
+  renderSessionList();
+}
+
+/** The folders sessions already use, offered when a new one is started — the
+ * phone's stand-in for the desktop's folder picker and project list. */
+function fillKnownFolders(sessions) {
+  const list = document.getElementById('knownFolders');
+  list.replaceChildren();
+  for (const root of [...new Set(sessions.map((s) => s.workspaceRoot).filter(Boolean))]) {
+    const option = document.createElement('option');
+    option.value = root;
+    list.appendChild(option);
+  }
+}
+
+/** The list, narrowed by the search box the way the desktop dashboard's is. */
+function renderSessionList() {
+  const sessions = lastSessions;
+  const needle = document.getElementById('sessionSearch').value.trim().toLowerCase();
+  const shown = sessions.filter((s) => needle === '' ||
+    [s.title, s.workspaceRoot].some((value) => (value || '').toLowerCase().includes(needle)));
   const list = document.getElementById('sessionList');
   list.innerHTML = '<div class="muted" style="padding:4px 2px">Sessions</div>';
   if (sessions.length === 0) {
     list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — start one from the menu.</div>';
+  } else if (shown.length === 0) {
+    list.innerHTML += '<div class="faint" style="padding:4px 2px">No session matches.</div>';
   }
-  for (const s of sessions) {
+  for (const s of shown) {
     const row = document.createElement('div');
     row.className = 'row';
     row.setAttribute('role', 'button'); row.tabIndex = 0;
@@ -705,12 +849,20 @@ async function loadModels() {
   try {
     modelInfo = await jfetch('/api/models');
   } catch { modelInfo = null; }
-  const providers = document.getElementById('providerSelect');
+  fillModelPickers('providerSelect', 'modelSelect');
+  fillModelPickers('setProvider', 'setModel');
+  updateChips();
+  renderProviders();
+}
+
+/** The same pickers in two places: the new-session card and Settings. */
+function fillModelPickers(providerId, modelId) {
+  const providers = document.getElementById(providerId);
   providers.replaceChildren();
   for (const provider of modelInfo?.providers ?? []) {
     const option = document.createElement('option'); option.value = provider.id; option.textContent = provider.label; option.disabled = !provider.available; option.selected = provider.id === modelInfo.provider; providers.append(option);
   }
-  const select = document.getElementById('modelSelect');
+  const select = document.getElementById(modelId);
   if (modelInfo !== null) {
     select.innerHTML = '';
     const current = document.createElement('option');
@@ -735,6 +887,14 @@ async function pickProvider(provider) {
 function updateModelIdBtn() {
   const typed = document.getElementById('customModelId').value.trim();
   document.getElementById('useModelBtn').classList.toggle('hidden', typed === '');
+}
+
+async function applySettingsModel() {
+  const field = document.getElementById('setCustomModel');
+  const model = field.value.trim();
+  if (model && modelInfo) await pickModel(modelInfo.provider + '|' + model);
+  field.value = '';
+  field.blur();
 }
 
 async function applyCustomModel() {
@@ -833,6 +993,7 @@ async function syncSession(id) {
   hideWorking();
   liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null;
   renderTranscript(payload.messages, payload.summaries);
+  lastUsage = { id, summaries: payload.summaries ?? [], messages: (payload.messages ?? []).length };
   for (const event of payload.events ?? []) await applyStreamEvent(id, event);
   appliedRevision = payload.revision ?? 0;
   if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
@@ -1563,6 +1724,9 @@ function updateSendBtn() {
   const label = state === 'resume' ? 'Resume' : state === 'running' ? 'Pause' : 'Send';
   btn.title = label;
   btn.setAttribute('aria-label', label);
+  // Revert sits beside Resume, as on the desktop: paused, and nothing running.
+  document.getElementById('revertBtn').classList.toggle('hidden',
+    !(currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null));
 }
 
 function onSendBtn() {
@@ -1779,13 +1943,21 @@ function tabLabel(tab) {
 }
 
 async function postWeb(body) {
-  const { web } = await jfetch('/api/web', {
+  const { web, history } = await jfetch('/api/web', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ sessionId: webSessionId, ...body })
   });
   webList = web;
+  if (history) webHistory = history;
   renderWeb();
+}
+
+/** Back or Forward on the active tab; the desktop pane follows the page. */
+async function stepWeb(action) {
+  if (webSessionId === null) return;
+  await postWeb({ action });
+  await refreshWebShot();
 }
 
 function renderWebTabs(entry) {
@@ -1846,6 +2018,9 @@ function renderWeb() {
   const frame = document.getElementById('webFrame');
   document.getElementById('webHideBtn').textContent = entry?.hidden ? 'Show' : 'Hide';
   document.getElementById('webHideBtn').disabled = entry === null;
+  const nav = (entry !== null && webHistory[entry.sessionId]) || {};
+  document.getElementById('webBackBtn').disabled = nav.back !== true;
+  document.getElementById('webFwdBtn').disabled = nav.forward !== true;
   if (entry === null) {
     note.textContent = 'No page open yet — start one from a session, or type an address.';
     frame.classList.add('hidden');
@@ -1856,8 +2031,9 @@ function renderWeb() {
 }
 
 async function refreshWebList() {
-  const { web } = await jfetch('/api/web');
+  const { web, history } = await jfetch('/api/web');
   webList = web;
+  if (history) webHistory = history;
   if (webSessionId === null || !webList.some((entry) => entry.sessionId === webSessionId)) {
     webSessionId = defaultWebSession();
   }
@@ -2125,6 +2301,154 @@ async function restoreLastSession() {
     if (!sessions.some((entry) => entry.id === remembered)) { forgetLastSession(); gotoSessions(); return; }
     await openSession(remembered);
   } catch { forgetLastSession(); gotoSessions(); }
+}
+
+/* ---------- Settings, Revert, and the composer chips ---------- */
+
+function noteStatus(status) {
+  const modelMoved = modelInfo?.provider !== status.provider || modelInfo?.model !== status.model;
+  lastStatus = status;
+  if (modelMoved) void loadModels();
+  updateChips();
+}
+
+/** The model and Default/Auto under the box, as the desktop composer shows them. */
+function updateChips() {
+  const model = modelInfo?.model || lastStatus?.model || '';
+  document.getElementById('modelChip').textContent = model === '' ? 'pick a model' : model;
+  document.getElementById('modeChip').textContent = lastStatus?.autoApprove === true ? 'Auto' : 'Default';
+  if (!document.getElementById('settingsSheet').classList.contains('hidden')) renderSettings();
+}
+
+function openSettings(section) {
+  closeMenu();
+  document.getElementById('settingsError').classList.add('hidden');
+  document.getElementById('settingsSheet').classList.remove('hidden');
+  renderSettings();
+  void loadModels();
+  void jfetch('/api/overview').then(({ status }) => { if (status) noteStatus(status); }).catch(() => undefined);
+  const target = section === 'model' ? 'secModel' : section === 'mode' ? 'secMode' : null;
+  if (target !== null) document.getElementById(target).scrollIntoView({ block: 'start' });
+}
+
+function closeSettings() {
+  document.getElementById('settingsSheet').classList.add('hidden');
+  document.getElementById('settingsError').classList.add('hidden');
+}
+
+function renderSettings() {
+  const auto = lastStatus?.autoApprove === true;
+  document.getElementById('policyDefault').classList.toggle('on', !auto);
+  document.getElementById('policyAuto').classList.toggle('on', auto);
+  document.getElementById('policyHint').textContent = auto
+    ? 'Run everything without asking. Turn Auto off to be asked again.'
+    : 'Ask before changing anything.';
+  const grid = document.getElementById('usageGrid');
+  grid.replaceChildren();
+  if (currentSession === null || lastUsage?.id !== currentSession) {
+    document.getElementById('usageTitle').textContent = 'Session usage';
+    grid.className = 'faint';
+    grid.textContent = 'Open a session to see what it has used.';
+  } else {
+    document.getElementById('usageTitle').textContent = 'Session usage · ' + titleFor(currentSession);
+    grid.className = 'usage';
+    const input = lastUsage.summaries.reduce((sum, entry) => sum + (entry.inputTokens || 0), 0);
+    const output = lastUsage.summaries.reduce((sum, entry) => sum + (entry.outputTokens || 0), 0);
+    for (const [name, value] of [['Input tokens', input], ['Output tokens', output],
+      ['Total tokens', input + output], ['Messages', lastUsage.messages]]) {
+      const label = document.createElement('span'); label.textContent = name;
+      const figure = document.createElement('span'); figure.textContent = value.toLocaleString('en-US');
+      grid.append(label, figure);
+    }
+  }
+  renderProviders();
+}
+
+function renderProviders() {
+  const list = document.getElementById('providerList');
+  list.replaceChildren();
+  for (const provider of modelInfo?.providers ?? []) {
+    const row = document.createElement('div');
+    row.className = 'prow';
+    const name = document.createElement('span');
+    name.className = 'nm';
+    name.textContent = provider.label;
+    const state = document.createElement('span');
+    state.className = 'faint';
+    state.textContent = provider.id === modelInfo.provider ? 'in use' : provider.available ? '' : 'no key';
+    row.append(name, state);
+    if (provider.custom) {
+      const remove = document.createElement('button');
+      remove.className = 'px';
+      remove.textContent = '\u00d7';
+      remove.setAttribute('aria-label', 'Remove ' + provider.label);
+      remove.onclick = () => void removePhoneProvider(provider);
+      row.appendChild(remove);
+    }
+    list.appendChild(row);
+  }
+}
+
+async function setPolicy(enabled) {
+  try {
+    const { status } = await jfetch('/api/policy', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoApprove: enabled })
+    });
+    noteStatus(status);
+  } catch (error) { showError(error); }
+}
+
+async function addPhoneProvider() {
+  const value = (id) => document.getElementById(id).value.trim();
+  const kind = value('provKind');
+  if (value('provURL') === '' || (kind === 'openai' && value('provKey') === '')) {
+    showError(kind === 'openai' ? 'Fill in the base URL and the API key first.' : 'Fill in the base URL first.');
+    return;
+  }
+  try {
+    modelInfo = await jfetch('/api/providers', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: value('provLabel'), kind, baseURL: value('provURL'), apiKey: value('provKey') })
+    });
+    for (const id of ['provLabel', 'provURL', 'provKey']) document.getElementById(id).value = '';
+    document.getElementById('settingsError').classList.add('hidden');
+    fillModelPickers('providerSelect', 'modelSelect');
+    fillModelPickers('setProvider', 'setModel');
+    renderProviders();
+  } catch (error) { showError(error); }
+}
+
+async function removePhoneProvider(provider) {
+  if (!confirm('Remove ' + provider.label + '? Its key is deleted from the Mac.')) return;
+  try {
+    modelInfo = await jfetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' });
+    fillModelPickers('providerSelect', 'modelSelect');
+    fillModelPickers('setProvider', 'setModel');
+    updateChips();
+    renderProviders();
+  } catch (error) { showError(error); }
+}
+
+/* Paused because the prompt was wrong: the exchange comes back out of the Mac's
+ * history and the prompt goes back in the box, ready to be fixed and sent. */
+async function revertTurn() {
+  const id = currentSession;
+  if (id === null || currentRunId !== null) return;
+  try {
+    const { prompt } = await jfetch('/api/revert', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: id })
+    });
+    pausedSessions.delete(id);
+    if (typeof prompt === 'string' && currentSession === id) {
+      const input = document.getElementById('prompt');
+      input.value = prompt;
+      input.dispatchEvent(new Event('input'));
+    }
+    if (currentSession === id) await syncSession(id);
+  } catch (error) { showError(error); }
+  updateSendBtn();
 }
 
 void restoreLastSession();

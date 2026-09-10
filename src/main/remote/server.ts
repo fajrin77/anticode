@@ -27,7 +27,7 @@ import {
   selectProvider,
   sessionWorkspaceRoot
 } from '../runtime'
-import { approvals } from '../ipc'
+import { addProvider, approvals, removeProvider, setApprovalMode } from '../ipc'
 import {
   registerAttachmentData,
 } from '../attachments/registry'
@@ -40,7 +40,9 @@ import {
   listWeb,
   openWeb,
   selectWebTab,
-  setWebVisible
+  setWebVisible,
+  stepWebHistory,
+  webHistoryOf
 } from '../web'
 import { capturePhonePage } from '../browser'
 import { submitPrompt } from '../prompts'
@@ -199,12 +201,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, {
         status: getStatus(),
         sessions: listSessionSummaries(),
-        web: listWeb()
+        ...webPayload()
       })
     }
 
     if (req.method === 'GET' && url.pathname === '/api/web') {
-      return json(res, 200, { web: listWeb() })
+      return json(res, 200, webPayload())
     }
 
     // The phone is on the other side of the network from every localhost the
@@ -225,9 +227,35 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       if (body.action === 'newTab') addWebTab(sessionId, typeof body.url === 'string' ? body.url : '')
       else if (body.action === 'closeTab' && tabId !== undefined) closeWebTab(sessionId, tabId)
       else if (body.action === 'selectTab' && tabId !== undefined) selectWebTab(sessionId, tabId)
+      else if (body.action === 'back') stepWebHistory(sessionId, -1)
+      else if (body.action === 'forward') stepWebHistory(sessionId, 1)
       else if (typeof body.url === 'string') openWeb(sessionId, body.url, tabId)
       else if (typeof body.visible === 'boolean') setWebVisible(sessionId, body.visible)
-      return json(res, 200, { web: listWeb() })
+      return json(res, 200, webPayload())
+    }
+
+    // Default or Auto: the same switch as the desktop's composer chip, and the
+    // one policy every prompt obeys, wherever it was sent from.
+    if (req.method === 'POST' && url.pathname === '/api/policy') {
+      if (typeof body.autoApprove !== 'boolean') return json(res, 400, { error: 'autoApprove must be true or false' })
+      return json(res, 200, { status: setApprovalMode(body.autoApprove) })
+    }
+
+    // Providers the user added in Settings, managed from either screen.
+    if (req.method === 'POST' && url.pathname === '/api/providers') {
+      const kind = body.kind === 'ollama' ? 'ollama' : 'openai'
+      const text = (value: unknown): string => (typeof value === 'string' ? value : '')
+      if (text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
+      if (kind === 'openai' && text(body.apiKey).trim() === '') return json(res, 400, { error: 'API key is required' })
+      addProvider({ label: text(body.label), kind, baseURL: text(body.baseURL), apiKey: text(body.apiKey) })
+      return json(res, 200, await modelsPayload())
+    }
+    const providerMatch = /^\/api\/providers\/(.+)$/.exec(url.pathname)
+    if (req.method === 'DELETE' && providerMatch !== null) {
+      const id = decodeURIComponent(providerMatch[1] ?? '')
+      if (!id.startsWith('custom:')) return json(res, 400, { error: 'Only providers added in Settings can be removed' })
+      removeProvider(id)
+      return json(res, 200, await modelsPayload())
     }
 
     if (req.method === 'GET' && url.pathname === '/api/models') {
@@ -407,6 +435,12 @@ async function sendWebShot(
   }
 }
 
+/** The panes, and for each one whether its active tab can go Back or Forward. */
+function webPayload(): { web: ReturnType<typeof listWeb>; history: Record<string, { back: boolean; forward: boolean }> } {
+  const web = listWeb()
+  return { web, history: Object.fromEntries(web.map((entry) => [entry.sessionId, webHistoryOf(entry.sessionId)])) }
+}
+
 function deny(res: http.ServerResponse): void {
   res.writeHead(401, { 'content-type': 'application/json' })
   res.end(JSON.stringify({ error: 'Unauthorised — open the pairing URL' }))
@@ -433,7 +467,7 @@ async function readBody(
 async function modelsPayload(): Promise<{
   provider: string
   model: string
-  providers: { id: string; label: string; available: boolean; models: string[] }[]
+  providers: { id: string; label: string; available: boolean; custom: boolean; models: string[] }[]
 }> {
   const status = getStatus()
   const catalogue = await listModels(status.provider)
@@ -441,6 +475,7 @@ async function modelsPayload(): Promise<{
     id: entry.id,
     label: entry.label,
     available: entry.credentialAvailable,
+    custom: entry.id.startsWith('custom:'),
     models: entry.id === status.provider ? catalogue.models : []
   }))
   const selected = getStatus()

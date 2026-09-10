@@ -350,7 +350,7 @@ try {
     // it gets is a separate mobile rendering of the active URL.
     const menuOrder = await screen.evaluate(() =>
       [...document.querySelectorAll('#menuDrop .mrow')].map((el) => el.textContent.trim()))
-    assert.deepEqual(menuOrder, ['New session','Sessions','Web','Files'])
+    assert.deepEqual(menuOrder, ['New session','Sessions','Web','Files','Settings'])
 
     const page = await createStaticPage()
     try {
@@ -410,6 +410,24 @@ try {
       await screen.waitForTimeout(400)
       assert.equal((await paneOf()).hidden, false)
       log('the phone can hide and show the session page')
+
+      // Back and Forward, which the desktop pane has, from the phone too.
+      await window.evaluate(([id, url]) => window.anticode.openWebUrl(id, url), [sessionId, page.origin + '/two'])
+      await screen.evaluate(() => refreshWebList())
+      await screen.waitForFunction(() => !document.getElementById('webBackBtn').disabled, null, { timeout: 5000 })
+      await screen.click('#webBackBtn')
+      const activeUrl = async () => {
+        const pane = await paneOf()
+        return pane.tabs.find((tab) => tab.id === pane.activeTabId).url.replace(/\/$/, '')
+      }
+      assert.equal(await activeUrl(), page.origin)
+      await screen.waitForFunction(() => !document.getElementById('webFwdBtn').disabled, null, { timeout: 5000 })
+      await screen.click('#webFwdBtn')
+      assert.equal(await activeUrl(), page.origin + '/two')
+      const navFits = await screen.$$eval('#viewWeb .actions button', (els) => els.every((el) => el.scrollWidth <= el.clientWidth + 1))
+      assert.ok(navFits, 'a Web action button is cut off')
+      await screen.screenshot({ path: path.join(directory, 'phone-web-nav.png') })
+      log('the phone steps Back and Forward, and the desktop pane follows')
 
       // The same colour on both screens: the phone's overview carries the
       // index the desktop paints with, and its badge wears that palette entry.
@@ -609,6 +627,72 @@ try {
     await screen.setViewportSize({ width: 390, height: 844 })
     await screen.screenshot({ path: path.join(directory, 'phone-chat-verified.png') })
     log('phone chat fits narrow, wide, and landscape viewports')
+
+    // Everything the desktop can do from its composer and Settings, the phone
+    // can do too — and the desktop sees it done.
+    // Revert: paused on the phone, the last exchange comes back out of the
+    // history on both screens and the prompt goes back in the phone's box.
+    await api('/api/prompt', { sessionId, prompt: 'slow revert me' })
+    await screen.waitForFunction(() => currentRunId !== null, null, { timeout: 5000 })
+    await screen.click('#sendBtn')
+    await screen.waitForFunction(() => !document.getElementById('revertBtn').classList.contains('hidden') &&
+      document.getElementById('sendBtn').getAttribute('aria-label') === 'Resume', null, { timeout: 10000 })
+    await screen.click('#revertBtn')
+    await screen.waitForFunction(() => document.getElementById('prompt').value === 'slow revert me', null, { timeout: 5000 })
+    assert.equal(await screen.$eval('#transcript', (el) => el.textContent.includes('slow revert me')), false)
+    assert.equal(await screen.$eval('#revertBtn', (el) => el.classList.contains('hidden')), true)
+    assert.ok(!(await api('/api/session/' + sessionId)).messages.some((m) => m.blocks.some((b) => b.type === 'text' && b.text === 'slow revert me')))
+    await window.waitForFunction((id) => !window.__store.getState().sessions.find((s) => s.id === id).messages
+      .some((m) => m.parts.some((p) => p.kind === 'text' && p.text === 'slow revert me')), sessionId, { timeout: 5000 })
+    assert.equal(await window.evaluate((id) => window.__store.getState().pausedSessions[id] === true, sessionId), false)
+    await screen.fill('#prompt', '')
+    log('the phone reverts a paused turn, on both screens')
+
+    // Default or Auto, from the phone's composer chip; the desktop chip follows.
+    assert.equal(await screen.$eval('#modeChip', (el) => el.textContent), 'Default')
+    await screen.click('#modeChip')
+    await screen.waitForSelector('#settingsSheet:not(.hidden)')
+    await screen.click('#policyAuto')
+    await screen.waitForFunction(() => document.getElementById('modeChip').textContent === 'Auto', null, { timeout: 5000 })
+    assert.equal((await window.evaluate(() => window.anticode.getStatus())).autoApprove, true)
+    await window.getByRole('button', { name: 'Auto', exact: true }).waitFor()
+    await screen.click('#policyDefault')
+    await screen.waitForFunction(() => document.getElementById('modeChip').textContent === 'Default', null, { timeout: 5000 })
+    assert.equal((await window.evaluate(() => window.anticode.getStatus())).autoApprove, false)
+    log('the phone switches Default and Auto, and the desktop follows')
+
+    // Session usage, as the desktop's usage popover shows it.
+    const usage = await screen.$eval('#usageGrid', (el) => el.textContent)
+    assert.match(usage, /Input tokens[\d,]+Output tokens[\d,]+Total tokens[\d,]+Messages\d+/)
+    log('the phone shows what the open session has used')
+
+    // A provider added on the phone appears in the desktop's list; removed, it goes.
+    await screen.fill('#provLabel', 'Phone Local')
+    await screen.selectOption('#provKind', 'ollama')
+    await screen.fill('#provURL', 'http://127.0.0.1:9/v1')
+    await screen.click('#secProviders .actions button')
+    await screen.waitForFunction(() => [...document.querySelectorAll('#providerList .nm')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
+    assert.ok((await window.evaluate(() => window.anticode.listProviders())).some((p) => p.label === 'Phone Local'))
+    await screen.evaluate(() => document.querySelector('#settingsSheet .sheet').scrollTo(0, 0))
+    await screen.screenshot({ path: path.join(directory, 'phone-settings.png') })
+    screen.once('dialog', (dialog) => void dialog.accept())
+    await screen.click('#providerList .prow:has(.nm:text-is("Phone Local")) .px')
+    await screen.waitForFunction(() => ![...document.querySelectorAll('#providerList .nm')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
+    assert.ok(!(await window.evaluate(() => window.anticode.listProviders())).some((p) => p.label === 'Phone Local'))
+    await screen.click('#settingsSheet .shead button')
+    log('the phone adds and removes a provider, and the desktop list follows')
+
+    // Searching sessions, as the desktop dashboard does.
+    await screen.evaluate(() => gotoSessions())
+    await screen.waitForSelector('#sessionList .row')
+    const everyRow = await screen.$$eval('#sessionList .row', (els) => els.length)
+    await screen.fill('#sessionSearch', 'workspace')
+    const matched = await screen.$$eval('#sessionList .row .title', (els) => els.map((el) => el.textContent))
+    assert.ok(matched.length >= 1 && matched.length < everyRow, `search did not narrow: ${matched.length} of ${everyRow}`)
+    await screen.fill('#sessionSearch', 'no-such-session-anywhere')
+    assert.equal(await screen.$$eval('#sessionList .row', (els) => els.length), 0)
+    await screen.fill('#sessionSearch', '')
+    log('the phone searches its sessions')
 
     assert.deepEqual(phoneErrors, [])
   } finally {

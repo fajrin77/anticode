@@ -25,6 +25,7 @@ export const IpcChannel = {
   SESSION_PAUSED_LIST: 'session:pausedList',
   SESSION_HISTORY: 'session:history',
   STATUS_UPDATED: 'session:statusUpdated',
+  PROVIDERS_UPDATED: 'provider:updated',
   SESSION_REVERT: 'session:revert',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
@@ -382,6 +383,8 @@ export interface AnticodeApi {
   getStatus: () => Promise<SessionStatus>
   /** Fires when the provider or model is changed from the phone. */
   onStatus: (listener: (status: SessionStatus) => void) => () => void
+  /** Fires when a provider is added or removed, from either screen. */
+  onProviders: (listener: (providers: ProviderInfo[]) => void) => () => void
   chooseWorkspace: () => Promise<SessionStatus>
   setWorkspace: (root: string) => Promise<SessionStatus>
   listProviders: () => Promise<ProviderInfo[]>

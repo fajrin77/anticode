@@ -57,6 +57,7 @@ const api: AnticodeApi = {
   getAppInfo: () => ipcRenderer.invoke(IpcChannel.APP_INFO) as Promise<AppInfo>,
   getStatus: () => ipcRenderer.invoke(IpcChannel.STATUS) as Promise<SessionStatus>,
   onStatus: (listener) => subscribe<SessionStatus>(IpcChannel.STATUS_UPDATED, listener),
+  onProviders: (listener) => subscribe<ProviderInfo[]>(IpcChannel.PROVIDERS_UPDATED, listener),
   chooseWorkspace: () => ipcRenderer.invoke(IpcChannel.WORKSPACE_CHOOSE) as Promise<SessionStatus>,
   setWorkspace: (root: string) =>
     ipcRenderer.invoke(IpcChannel.WORKSPACE_SET, root) as Promise<SessionStatus>,

@@ -147,7 +147,9 @@ export function App(): JSX.Element {
     const timer = window.setInterval(refresh, 5000)
     // A model picked on the phone shows here the moment it is picked.
     const unsubscribe = window.anticode.onStatus(setStatus)
-    return () => { active = false; window.clearInterval(timer); unsubscribe() }
+    // So does a provider added or removed there.
+    const unsubscribeProviders = window.anticode.onProviders(setProviders)
+    return () => { active = false; window.clearInterval(timer); unsubscribe(); unsubscribeProviders() }
   }, [])
 
   useEffect(() => {

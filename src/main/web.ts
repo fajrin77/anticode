@@ -16,6 +16,12 @@ export interface WebRecord {
 }
 
 const pages = new Map<string, WebRecord>()
+/**
+ * Where each tab has been, for Back and Forward from the phone. The desktop
+ * pane has its webview's own history; the phone has only this. Kept beside
+ * the record, not in it, so the tabs viewers are told about stay as they were.
+ */
+const histories = new Map<string, { entries: string[]; index: number }>()
 let sink: ((sessions: WebSession[]) => void) | null = null
 let closer: ((sessionId: string) => void) | null = null
 let counter = 0
@@ -77,14 +83,69 @@ function same(a: WebRecord | undefined, b: WebRecord): boolean {
 }
 
 /**
+ * A tab arrived at a URL. Landing on the page just behind or just ahead is
+ * read as Back or Forward, the way the desktop webview reports them; anything
+ * else is a new page and drops what was ahead.
+ */
+function visit(tabId: string, typed: string): void {
+  if (typed === '') return
+  // "http://host:5173" typed and "http://host:5173/" reported are one page.
+  let url = typed
+  try { url = new URL(typed).href } catch { /* kept as it was */ }
+  const history = histories.get(tabId)
+  if (history === undefined) {
+    histories.set(tabId, { entries: [url], index: 0 })
+    return
+  }
+  if (history.entries[history.index] === url) return
+  if (history.entries[history.index - 1] === url) history.index -= 1
+  else if (history.entries[history.index + 1] === url) history.index += 1
+  else {
+    history.entries = [...history.entries.slice(0, history.index + 1), url].slice(-50)
+    history.index = history.entries.length - 1
+  }
+}
+
+/**
  * Writes a record back and tells everyone, unless nothing actually changed —
  * the pane reports its own navigations back here, and an echo must not loop.
  */
 function commit(sessionId: string, record: WebRecord): void {
   const existing = pages.get(sessionId)
+  for (const tab of record.tabs) visit(tab.id, tab.url)
+  for (const tab of existing?.tabs ?? []) {
+    if (!record.tabs.some((kept) => kept.id === tab.id)) histories.delete(tab.id)
+  }
   if (same(existing, record)) return
   pages.set(sessionId, record)
   announce()
+}
+
+/**
+ * Back or Forward on the active tab, from the phone. The tab is pointed at
+ * the page behind or ahead; the desktop pane follows it like any other page.
+ */
+export function stepWebHistory(sessionId: string, step: -1 | 1): void {
+  const record = pages.get(sessionId)
+  if (record === undefined) return
+  const tab = activeTab(record)
+  const history = tab === undefined ? undefined : histories.get(tab.id)
+  const url = history?.entries[(history?.index ?? 0) + step]
+  if (tab === undefined || history === undefined || url === undefined) return
+  history.index += step
+  commit(sessionId, {
+    ...record,
+    tabs: record.tabs.map((entry) => (entry.id === tab.id ? { ...entry, url, title: '' } : entry))
+  })
+}
+
+/** Whether the active tab has a page behind it and ahead of it. */
+export function webHistoryOf(sessionId: string): { back: boolean; forward: boolean } {
+  const record = pages.get(sessionId)
+  const tab = record === undefined ? undefined : activeTab(record)
+  const history = tab === undefined ? undefined : histories.get(tab.id)
+  if (history === undefined) return { back: false, forward: false }
+  return { back: history.index > 0, forward: history.index < history.entries.length - 1 }
 }
 
 /**
@@ -227,6 +288,7 @@ export function setWebFull(sessionId: string, full: boolean): void {
 
 /** Forgets the pane; a page the agent opens later starts it over, unhidden. */
 export function clearWeb(sessionId: string): void {
+  for (const tab of pages.get(sessionId)?.tabs ?? []) histories.delete(tab.id)
   if (!pages.delete(sessionId)) return
   closer?.(sessionId)
   announce()
