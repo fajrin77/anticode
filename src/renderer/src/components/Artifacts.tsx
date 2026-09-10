@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import type { MessagePart } from '../store/session'
+import { usePreviewStore } from '../store/preview'
 
 /** Files a person opens rather than reads as code — worth offering to save. */
 const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip']
@@ -40,6 +41,7 @@ export function Artifacts({
 }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<Record<string, string>>({})
+  const preview = usePreviewStore((state) => state.open)
 
   return (
     <div className="my-3 flex flex-col gap-1.5">
@@ -48,26 +50,24 @@ export function Artifacts({
           key={target}
           className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2"
         >
-          <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-dim">
-            {extensionOf(target).slice(1, 5).toUpperCase() || 'FILE'}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-mono text-[12.5px] text-text">{target}</span>
-            {saved[target] !== undefined && (
-              <span className="block truncate text-[11px] text-add">Saved to {saved[target]}</span>
-            )}
-          </span>
+          {/* The file itself is the button: it opens here, in the session. */}
           <button
             type="button"
-            onClick={() => {
-              void window.anticode
-                .openArtifact(sessionId, target)
-                .then((failure) => setError(failure))
-                .catch((failure: Error) => setError(failure.message))
-            }}
-            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
+            onClick={() => preview({ kind: 'artifact', sessionId, path: target })}
+            title="Preview"
+            className="group flex min-w-0 flex-1 items-center gap-3 text-left"
           >
-            Open
+            <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-dim transition-colors group-hover:text-brand">
+              {extensionOf(target).slice(1, 5).toUpperCase() || 'FILE'}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-mono text-[12.5px] text-text transition-colors group-hover:text-brand">
+                {target}
+              </span>
+              {saved[target] !== undefined && (
+                <span className="block truncate text-[11px] text-add">Saved to {saved[target]}</span>
+              )}
+            </span>
           </button>
           <button
             type="button"

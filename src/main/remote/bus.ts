@@ -1,17 +1,18 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { AgentEvent, SessionPause, SessionSnapshot, RoutedAgentEvent, RunSummary } from '@shared/ipc'
+import type { AgentEvent, SessionPause, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
 import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries } from '../runtime'
 import { clearPause, isPaused, runForSession } from '../runs'
 
 /**
- * What a session's phone stream carries: its runs, whether it is paused, and
- * word that its history changed underneath (a turn was reverted).
+ * What a session's phone stream carries: its runs, whether it is paused, word
+ * that its history changed underneath (a turn was reverted), and its name.
  */
 export type StreamEvent = (
   | AgentEvent
   | { type: 'pause'; paused: boolean }
   | { type: 'history' }
+  | { type: 'title'; title: string }
 ) & { revision?: number }
 type Listener = (event: StreamEvent) => void
 
@@ -145,6 +146,12 @@ export function announcePause(sessionId: string, paused: boolean): void {
 export function announceHistory(sessionId: string, from: 'desktop' | 'phone'): void {
   if (from === 'phone') toWindows(IpcChannel.SESSION_HISTORY, sessionId)
   toStreams(sessionId, { type: 'history', revision: ++revision })
+}
+
+/** A session got its name; the desktop tab and the phone header both follow. */
+export function announceSessionTitle(sessionId: string, title: string): void {
+  toWindows(IpcChannel.SESSION_TITLE, { sessionId, title } satisfies SessionTitle)
+  toStreams(sessionId, { type: 'title', title })
 }
 
 /** The model was switched from the phone; the desktop chip follows at once, not on its next poll. */

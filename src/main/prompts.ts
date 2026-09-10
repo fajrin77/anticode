@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentRequest } from '@shared/ipc'
 import type { ApprovalGate } from './approval/types'
 import { attachmentsFor, blocksOf, refsOf, releaseAttachments } from './attachments/registry'
-import { getSession, getStatus, persistSessions } from './runtime'
+import { announceTitle, getSession, getStatus, persistSessions } from './runtime'
 import { beginRun, finishRun, runForSession } from './runs'
 import { forward, registerRun } from './remote/bus'
 
@@ -61,5 +61,8 @@ async function admit(req: AgentRequest, gate: ApprovalGate): Promise<{ runId: st
     forward(terminal ?? { type: 'end', runId: req.runId, reason: 'complete' })
     persistSessions()
   })
+  // The run records its prompt before its first await, so the history already
+  // holds it here — and an antichat's first prompt is what names it.
+  announceTitle(req.sessionId)
   return { runId: req.runId, steered: false }
 }

@@ -182,11 +182,26 @@ try {
   assert.deepEqual(['A1','B1','C1'].map(a=>chatResult.worksheets[0].getCell(a).fill.fgColor.argb), ['FFC00000','FFC00000','FF808080'])
   assert.equal((await readFile(path.join(chatFolder,'Template_Import_Data_Barang.xlsx'))).length > 0, true)
   assert.equal((await api('/api/overview')).sessions.find(s=>s.id===chatSession).title, 'chat-format-fixture: ubah header biru jadi merah')
+  // The desktop tab takes its name from the main process as well; a chat
+  // started on the phone used to stay "New session" there.
+  const desktopTitle = () => window.evaluate((id)=>window.__store.getState().sessions.find(s=>s.id===id)?.title, chatSession)
+  for (let i=0;i<100 && await desktopTitle() !== 'chat-format-fixture: ubah header biru jadi merah';i++) await new Promise(r=>setTimeout(r,20))
+  assert.equal(await desktopTitle(), 'chat-format-fixture: ubah header biru jadi merah', 'the desktop tab kept the placeholder name of a phone antichat')
+  // The result opens in place rather than as a download: the Mac renders the
+  // workbook, fills included, and the attachment it came from opens the same way.
+  const shownResult = await api(`/api/preview?sessionId=${chatSession}&path=${encodeURIComponent('Template_Import_Data_Barang-merah.xlsx')}`)
+  assert.equal(shownResult.kind, 'pages')
+  assert.match(shownResult.pages[0].html, /background:#C00000/)
+  const chatAttachment = (await api('/api/session/'+chatSession)).messages.flatMap((m)=>m.blocks).find((b)=>b.type==='attachment').attachment
+  const shownAttachment = await api(`/api/preview?sessionId=${chatSession}&attachment=1&path=${encodeURIComponent(chatAttachment.path)}`)
+  assert.match(shownAttachment.pages[0].html, /background:#1F4E78/)
+  const notAttached = await fetch(`http://127.0.0.1:18680/api/view?sessionId=${chatSession}&attachment=1&path=${encodeURIComponent('/etc/hosts')}&token=${remote.token}`)
+  assert.equal(notAttached.status,400)
   await fetch(`http://127.0.0.1:18680/api/session/${chatSession}?token=${remote.token}`,{method:'DELETE'})
   let chatFolderGone = false
   for (let i=0;i<50 && !chatFolderGone;i++) { chatFolderGone = await readFile(path.join(chatFolder,'Template_Import_Data_Barang.xlsx')).then(()=>false,()=>true); if (!chatFolderGone) await new Promise(r=>setTimeout(r,20)) }
   assert.equal(chatFolderGone, true, 'deleting an antichat session left its folder behind')
-  log('antichat edits an attached workbook with no folder chosen or approval asked, and it downloads back')
+  log('antichat edits an attached workbook with no folder chosen or approval asked; it opens in place and downloads back')
   await writeFile(path.join(workspace,'laporan.pdf'),'fixture pdf')
   const download = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=laporan.pdf&token=${remote.token}`)
   assert.equal(download.status,200)
@@ -402,6 +417,31 @@ try {
     await screen.evaluate(() => closeImage())
     assert.equal(await screen.$eval('#imgViewer', (el) => getComputedStyle(el).display === 'none'), true)
     log('an attached picture opens on the phone, and only its own files are served')
+
+    // A produced workbook opens in place on the phone too, drawn by the Mac
+    // with its fills — tapping it no longer means downloading it first.
+    const tapped = await screen.evaluate(() => {
+      const row = [...document.querySelectorAll('#transcript .artifact')].find((el) => el.textContent.includes('-merah.xlsx'))
+      row?.click()
+      return row !== undefined
+    })
+    assert.equal(tapped, true, 'no produced workbook in the phone transcript')
+    await screen.waitForSelector('#fileBody iframe', { timeout: 10000 })
+    const producedCell = screen.frameLocator('#fileBody iframe').locator('td').first()
+    assert.equal(await producedCell.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(192, 0, 0)')
+    assert.match(await screen.$eval('#fileDownload', (el) => el.getAttribute('href')), /^\/api\/download\?/)
+    await screen.screenshot({ path: path.join(directory, 'phone-file-viewer.png') })
+    await screen.evaluate(() => closeFileViewer())
+    // The workbook that was attached opens the same way; it has nothing to download.
+    await screen.evaluate(() => [...document.querySelectorAll('#transcript .att.file')].find((el) => el.textContent.includes('Template_Import'))?.click())
+    await screen.waitForSelector('#fileBody iframe', { timeout: 10000 })
+    const attachedCell = screen.frameLocator('#fileBody iframe').locator('td').first()
+    assert.equal(await attachedCell.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(31, 78, 120)')
+    assert.equal(await screen.$eval('#fileDownload', (el) => getComputedStyle(el).display), 'none')
+    await screen.evaluate(() => closeFileViewer())
+    assert.equal(await screen.$eval('#fileViewer', (el) => getComputedStyle(el).display), 'none')
+    assert.deepEqual(phoneErrors, [])
+    log('a produced file and an attached one open in place on the phone')
 
     // The Web screen sits between Sessions and Files in the one dropdown, and
     // shows the page the desktop has beside its transcript. The phone cannot
@@ -723,7 +763,7 @@ try {
         attachButton: glyph(document.getElementById('attachBtn')),
         hint: (() => {
           const hint = document.getElementById('promptHint')
-          return { shown: getComputedStyle(hint).display, wrap: getComputedStyle(hint).whiteSpace, lines: Math.round(hint.getBoundingClientRect().height / parseFloat(getComputedStyle(hint).lineHeight)) }
+          return { text: hint.textContent, shown: getComputedStyle(hint).display, wrap: getComputedStyle(hint).whiteSpace, lines: Math.round(hint.getBoundingClientRect().height / parseFloat(getComputedStyle(hint).lineHeight)) }
         })(),
         subtitle: (() => {
           const title = document.getElementById('menuTitle').textContent
@@ -733,6 +773,9 @@ try {
           setMenuTitle(title, sub, true)
           return shown
         })(),
+        // The corner glow is one screen-sized layer; on the page it tiled in bands.
+        pageBackground: getComputedStyle(document.body).backgroundImage,
+        glow: getComputedStyle(document.body, '::before').position + ' ' + getComputedStyle(document.body, '::before').backgroundImage.includes('radial-gradient'),
         composerBlur: shell.backdropFilter,
         composerBackground: shell.backgroundColor,
         bottomGap: innerHeight - box.bottom,
@@ -752,9 +795,11 @@ try {
     assert.equal(glass.menuButton, 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)', 'the menu button shows its box at rest')
     assert.equal(glass.attachButton, 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)', 'the attach button shows its box at rest')
     // The empty box's hint stays on one line; a narrow phone fades its end.
-    assert.deepEqual(glass.hint, { shown: 'block', wrap: 'nowrap', lines: 1 })
+    assert.deepEqual(glass.hint, { text: 'Message…', shown: 'block', wrap: 'nowrap', lines: 1 })
     // A session named after its folder shows its name once, in white.
     assert.equal(glass.subtitle, 'none', 'the header repeats the session name as its subtitle')
+    assert.equal(glass.pageBackground, 'none', 'the phone glow is painted on the page again, where it tiles')
+    assert.equal(glass.glow, 'fixed true', 'the phone glow is no longer a fixed layer')
     assert.notEqual(glass.composerBlur, 'none', 'the phone composer lost its glass blur')
     assert.match(glass.composerBackground, /rgba\(.+, 0\.58\)/)
     assert.ok(glass.bottomGap <= 5, `the phone composer sits ${glass.bottomGap}px above the bottom`)

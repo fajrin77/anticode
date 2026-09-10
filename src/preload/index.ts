@@ -9,6 +9,7 @@ import type {
   ApprovalResponse,
   AttachmentInfo,
   CustomProviderInput,
+  FilePreview,
   ModelCatalogue,
   RemoteStatus,
   RoutedAgentEvent,
@@ -19,6 +20,7 @@ import type {
   SessionPause,
   SessionSpec,
   SessionStatus,
+  SessionTitle,
   WebSession
 } from '../shared/ipc'
 
@@ -75,6 +77,7 @@ const api: AnticodeApi = {
     subscribe<SessionSpec>(IpcChannel.SESSION_CREATED, listener),
   onSessionClosed: (listener: (sessionId: string) => void) =>
     subscribe<string>(IpcChannel.SESSION_CLOSED, listener),
+  onSessionTitle: (listener) => subscribe<SessionTitle>(IpcChannel.SESSION_TITLE, listener),
   revertLastTurn: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_REVERT, sessionId) as Promise<string | null>,
   getSessionSnapshot: (sessionId: string) =>
@@ -105,6 +108,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ARTIFACT_OPEN, sessionId, relativePath) as Promise<string | null>,
   saveArtifact: (sessionId: string, relativePath: string) =>
     ipcRenderer.invoke(IpcChannel.ARTIFACT_SAVE, sessionId, relativePath) as Promise<string | null>,
+  previewFile: (sessionId: string | null, target: string) =>
+    ipcRenderer.invoke(IpcChannel.FILE_PREVIEW, sessionId, target) as Promise<FilePreview>,
   // Electron removed File.path; a dropped file's location comes from here.
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   sendPrompt: (req: AgentRequest) =>

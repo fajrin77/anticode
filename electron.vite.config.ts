@@ -34,9 +34,10 @@ const contentSecurityPolicy: Plugin = {
       "connect-src 'self'",
       // The browser pane's <webview> is a guest with its own process, not a
       // frame of this document, but naming it here keeps the policy honest
-      // about what the window is allowed to embed.
-      "frame-src 'self' http: https:",
-      "child-src 'self' http: https:"
+      // about what the window is allowed to embed. blob: is the file viewer's
+      // PDF frame, which Chromium's own PDF viewer draws.
+      "frame-src 'self' blob: http: https:",
+      "child-src 'self' blob: http: https:"
     ].join('; ')
     return html.replace(
       '<head>',

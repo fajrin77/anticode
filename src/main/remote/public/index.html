@@ -15,10 +15,18 @@
     --glass-border: rgba(255,255,255,.13);
   }
   * { box-sizing: border-box; }
+  html { background: #1a1a1a; }
   body {
-    margin: 0; background: radial-gradient(circle at 18% -8%, rgba(255,255,255,.045), transparent 32%), radial-gradient(circle at 84% 108%, rgba(255,255,255,.025), transparent 38%), #1a1a1a; color: #ededed;
+    margin: 0; color: #ededed;
     font: 16px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* The soft light in two corners lives on its own layer, pinned to the
+     screen. Painted on the page it was sized to the page, and a page shorter
+     than the screen repeated it in bands down the glass, like steps. */
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(circle at 18% -8%, rgba(255,255,255,.045), transparent 32%), radial-gradient(circle at 84% 108%, rgba(255,255,255,.025), transparent 38%);
   }
   /* 16px+ on every control keeps Safari from zooming on focus. */
   input, textarea, select, button { font-size: 16px; }
@@ -250,6 +258,30 @@
   #imgViewer .vbody { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
   #imgViewer .vbody img { display: block; margin: auto; max-width: 100%; }
   #imgViewer.zoomed .vbody img { max-width: none; width: 200%; margin: 0; }
+  /* A file opens over the conversation too, rendered by the Mac — a workbook
+     with its colours, a document as paper — instead of leaving as a download. */
+  #fileViewer { position: fixed; inset: 0; z-index: 60; background: rgba(26,26,26,.98); display: flex; flex-direction: column; }
+  #fileViewer .vhead {
+    flex: none; display: flex; align-items: center; gap: 6px;
+    padding: calc(10px + env(safe-area-inset-top)) 10px 8px 16px; color: #9a9a9a; font-size: 13px;
+  }
+  #fileViewer .vname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ededed; font-size: 14px; }
+  #fileViewer .vbtn { flex: none; background: none; border: none; color: #ededed; font-size: 14px; padding: 6px 10px; text-decoration: none; }
+  #fileViewer .vbtn:active { color: #d1fa22; }
+  #fileTabs { flex: none; display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px; scrollbar-width: none; }
+  #fileTabs:empty { display: none; }
+  #fileTabs button {
+    flex: none; background: none; border: 1px solid transparent; border-radius: 9px; color: #9a9a9a;
+    font-size: 13px; padding: 5px 10px; white-space: nowrap;
+  }
+  #fileTabs button.on { color: #ededed; border-color: var(--glass-border); background: var(--glass-control); }
+  #fileTabs button:active { color: #d1fa22; }
+  #fileNote { flex: none; padding: 0 16px 8px; color: #8a8a8a; font-size: 12px; }
+  #fileNote:empty { display: none; }
+  #fileBody { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
+  #fileBody iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+  #fileBody img { display: block; margin: auto; max-width: 100%; }
+  #fileBody .vmsg { padding: 28px 20px; color: #9a9a9a; font-size: 14px; text-align: center; }
   .att img { cursor: zoom-in; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
@@ -319,6 +351,8 @@
     flex: 1; min-width: 0; font: 12.5px ui-monospace, Menlo, monospace;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .artifact, .att.file { cursor: pointer; }
+  .artifact:active .nm, .artifact:active .tag, .att.file:active .nm, .att.file:active .tag { color: #d1fa22; }
   .artifact a, .dirrow .dl { color: #d1fa22; text-decoration: none; font-size: 13.5px; flex: none; }
   .dirrow .dl { padding: 0 6px; }
   .composer .promptbox { position: relative; flex: 1; min-width: 0; }
@@ -598,6 +632,16 @@
   </div>
   <div class="vbody" id="imgBody"><img id="imgFull" alt="" /></div>
 </div>
+<div id="fileViewer" class="hidden">
+  <div class="vhead">
+    <span class="vname" id="fileName"></span>
+    <a class="vbtn hidden" id="fileDownload">Download</a>
+    <button class="vbtn" onclick="closeFileViewer()">Tutup</button>
+  </div>
+  <div id="fileTabs"></div>
+  <div id="fileNote"></div>
+  <div id="fileBody"></div>
+</div>
 <button id="replyBtn" class="hidden"
   onpointerdown="event.preventDefault(); quoteSelection()">Balas</button>
 <div class="composer hidden" id="inputRow">
@@ -610,8 +654,8 @@
   <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
   <div class="promptbox">
-    <textarea id="prompt" placeholder=" " aria-placeholder="Don't work today, just vibes." rows="1"></textarea>
-    <span class="prompthint" id="promptHint" aria-hidden="true">Don't work today, just vibes.</span>
+    <textarea id="prompt" placeholder=" " aria-placeholder="Message…" rows="1"></textarea>
+    <span class="prompthint" id="promptHint" aria-hidden="true">Message…</span>
   </div>
   <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
   <div id="chipRow">
@@ -772,6 +816,15 @@ function setMenuTitle(text, subtitle = '', canGoBack = false) {
   const same = subtitle.trim().toLowerCase() === String(text).trim().toLowerCase();
   document.getElementById('menuSubtitle').textContent = same ? '' : subtitle;
   document.getElementById('headerBack').classList.toggle('placeholder', !canGoBack);
+}
+
+/** The open session's name over its kind — antichat, or the folder it works in. */
+function showSessionHeader(id) {
+  const spec = lastSessions.find((entry) => entry.id === id);
+  const subtitle = spec?.mode === 'code'
+    ? (spec.workspaceRoot?.split(/[\\/]/).filter(Boolean).pop() || 'anticode')
+    : 'antichat';
+  setMenuTitle(titleFor(id), subtitle, true);
 }
 
 function titleFor(id) {
@@ -1092,11 +1145,7 @@ async function openSession(id) {
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
-  const spec = lastSessions.find((entry) => entry.id === id);
-  const subtitle = spec?.mode === 'code'
-    ? (spec.workspaceRoot?.split(/[\\/]/).filter(Boolean).pop() || 'anticode')
-    : 'antichat';
-  setMenuTitle(titleFor(id), subtitle, true);
+  showSessionHeader(id);
   await listen(id);
   await syncSession(id);
 }
@@ -1511,6 +1560,14 @@ async function applyStreamEvent(id, event) {
         pausedSessions.delete(id);
       }
     }
+    else if (event.type === 'title') {
+      // Named by the main process once its first prompt is in — from here or the desktop.
+      const spec = lastSessions.find((entry) => entry.id === id);
+      if (spec !== undefined) spec.title = event.title;
+      // Made here a moment ago, so not in the last overview yet.
+      if (currentSession === id && spec === undefined) setMenuTitle(event.title, phoneMode === 'code' ? 'anticode' : 'antichat', true);
+      else if (currentSession === id) showSessionHeader(id);
+    }
     else if (event.type === 'prompt') {
       currentRunId = event.runId; liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
@@ -1802,6 +1859,10 @@ function attachmentsEl(items) {
     size.textContent = formatBytes(item.size);
     label.append(name, size);
     card.append(tag, label);
+    if (item.path && currentSession !== null) {
+      const sessionId = currentSession;
+      card.onclick = () => openFileViewer(sessionId, item.path, true);
+    }
     wrap.appendChild(card);
   }
   return wrap;
@@ -1838,12 +1899,107 @@ function artifactEl(sessionId, target) {
   name.className = 'nm';
   name.textContent = target;
   const link = document.createElement('a');
-  link.href = '/api/download?sessionId=' + encodeURIComponent(sessionId) +
-    '&path=' + encodeURIComponent(target) + '&token=' + encodeURIComponent(token);
+  link.href = downloadUrl(sessionId, target);
   link.textContent = 'Download';
   link.setAttribute('download', target.split('/').pop());
+  link.onclick = (event) => event.stopPropagation();
   row.append(tag, name, link);
+  // Tapping the file itself opens it here; Download is still one tap away.
+  row.onclick = () => openFileViewer(sessionId, target, false);
   return row;
+}
+
+function downloadUrl(sessionId, target) {
+  return '/api/download?sessionId=' + encodeURIComponent(sessionId) +
+    '&path=' + encodeURIComponent(target) + '&token=' + encodeURIComponent(token);
+}
+
+/* ---------- Looking at a file without leaving the session ---------- */
+
+let viewerSeq = 0;
+
+/** A produced file by its path in the session's folder, or an attachment by its own. */
+async function openFileViewer(sessionId, target, attachment) {
+  const seq = ++viewerSeq;
+  const name = target.split(/[\\/]/).pop();
+  document.getElementById('fileName').textContent = name;
+  const download = document.getElementById('fileDownload');
+  download.classList.toggle('hidden', attachment);
+  if (!attachment) {
+    download.href = downloadUrl(sessionId, target);
+    download.setAttribute('download', name);
+  }
+  document.getElementById('fileTabs').innerHTML = '';
+  document.getElementById('fileNote').textContent = '';
+  showViewerMessage('Membuka…');
+  document.getElementById('fileViewer').classList.remove('hidden');
+  const query = 'sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(target) +
+    (attachment ? '&attachment=1' : '');
+  let preview;
+  try {
+    preview = await jfetch('/api/preview?' + query);
+  } catch (error) {
+    if (seq === viewerSeq) showViewerMessage(error.message || String(error));
+    return;
+  }
+  if (seq !== viewerSeq) return;
+  const body = document.getElementById('fileBody');
+  const raw = '/api/view?' + query + '&token=' + encodeURIComponent(token);
+  if (preview.kind === 'image') {
+    const img = document.createElement('img');
+    img.src = raw;
+    img.alt = preview.name;
+    body.replaceChildren(img);
+  } else if (preview.kind === 'pdf') {
+    const frame = document.createElement('iframe');
+    frame.src = raw;
+    frame.title = preview.name;
+    body.replaceChildren(frame);
+  } else if (preview.kind === 'pages') {
+    showViewerPages(preview.pages);
+  } else {
+    showViewerMessage(preview.reason);
+  }
+}
+
+/** A workbook's sheets become tabs; one-page documents show no tab row at all. */
+function showViewerPages(pages) {
+  const tabs = document.getElementById('fileTabs');
+  tabs.innerHTML = '';
+  const show = (index) => {
+    const pageEntry = pages[index];
+    document.getElementById('fileNote').textContent = pageEntry.note || '';
+    [...tabs.children].forEach((button, i) => button.classList.toggle('on', i === index));
+    const frame = document.createElement('iframe');
+    // The page is the Mac's rendering of a file, not code to run: no scripts,
+    // no forms, no reaching back into this page.
+    frame.setAttribute('sandbox', '');
+    frame.srcdoc = pageEntry.html;
+    frame.title = pageEntry.label;
+    document.getElementById('fileBody').replaceChildren(frame);
+  };
+  if (pages.length > 1) {
+    pages.forEach((pageEntry, index) => {
+      const button = document.createElement('button');
+      button.textContent = pageEntry.label;
+      button.onclick = () => show(index);
+      tabs.appendChild(button);
+    });
+  }
+  show(0);
+}
+
+function showViewerMessage(text) {
+  const message = document.createElement('div');
+  message.className = 'vmsg';
+  message.textContent = text;
+  document.getElementById('fileBody').replaceChildren(message);
+}
+
+function closeFileViewer() {
+  ++viewerSeq;
+  document.getElementById('fileViewer').classList.add('hidden');
+  document.getElementById('fileBody').replaceChildren();
 }
 
 function sendBtnState() {

@@ -16,6 +16,7 @@ import type {
   AgentRequest,
   AppInfo,
   ApprovalResponse,
+  FilePreview,
   ModelCatalogue,
   ProviderId,
   ProviderInfo,
@@ -37,6 +38,7 @@ import {
   selectProvider,
   setOnSessionClosed,
   setOnSessionCreated,
+  setOnSessionTitled,
   setRunningProbe,
   setWorkspaceRoot
 } from '../runtime'
@@ -50,7 +52,8 @@ import {
 } from '../attachments/registry'
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
-import { announceHistory, announcePause, announceStatus, sessionSnapshot } from '../remote/bus'
+import { announceHistory, announcePause, announceSessionTitle, announceStatus, sessionSnapshot } from '../remote/bus'
+import { previewFile } from '../preview'
 import {
   addWebTab,
   clearWeb,
@@ -349,6 +352,14 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  // Looked at in the app, not handed to another one: a produced file by its
+  // path in the session's folder, an attachment by the absolute path it has.
+  ipcMain.handle(
+    IpcChannel.FILE_PREVIEW,
+    (_event, sessionId: string | null, target: string): Promise<FilePreview> =>
+      previewFile(sessionId === null ? target : artifactPath(sessionId, target), true)
+  )
+
   ipcMain.handle(IpcChannel.APPROVAL_RESPOND, (_event, response: ApprovalResponse): void => {
     approvals.resolve(response.requestId, response.decision)
   })
@@ -378,6 +389,8 @@ export function registerIpcHandlers(): void {
       }
     }
   })
+
+  setOnSessionTitled(announceSessionTitle)
 
   setRunningProbe(
     (sessionId) =>

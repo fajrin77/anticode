@@ -140,6 +140,8 @@ interface SessionState {
   deleteSession: (id: string) => void
   /** Registers a session created elsewhere (the remote phone app). */
   addExternalSession: (spec: SessionSpec) => void
+  /** The name the main process gave a session; viewers never make one up. */
+  setSessionTitle: (sessionId: string, title: string) => void
   /** Fills a registered external session with its main-process transcript. */
   importSnapshot: (
     sessionId: string,
@@ -318,7 +320,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     ),
 
   // A fresh session starts as an unnamed chat; picking anticode binds the
-  // folder and renames the tab to it, chat renames from the first prompt.
+  // folder and renames the tab to it; a chat is named by the main process
+  // once its first prompt arrives.
   updateSessionConfig: (id, patch) =>
     set((state) => ({
       sessions: state.sessions.map((session) => {
@@ -335,24 +338,27 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   // it, so the desktop tab bar and dashboard stay complete.
   addExternalSession: (spec) =>
     set((state) => {
-      // The main process owns colours now; a session this window already
-      // knows takes the one it settled on, so both viewers paint it the same.
+      // The main process owns colours and names; a session this window already
+      // knows takes the ones it settled on, so both viewers show it the same.
+      // A draft whose folder was picked here but not yet sent keeps the name
+      // of that folder until the main process is told about it.
       if (state.sessions.some((session) => session.id === spec.sessionId)) {
-        if (spec.colour === undefined) return state
         return {
-          sessions: state.sessions.map((session) =>
-            session.id === spec.sessionId && session.colour !== spec.colour
-              ? { ...session, colour: spec.colour ?? session.colour }
-              : session
-          )
+          sessions: state.sessions.map((session) => {
+            if (session.id !== spec.sessionId) return session
+            const bound =
+              session.mode === spec.mode && (spec.mode === 'chat' || session.projectRoot === spec.workspaceRoot)
+            const colour = spec.colour ?? session.colour
+            const title = bound && spec.title !== undefined ? spec.title : session.title
+            return colour === session.colour && title === session.title ? session : { ...session, colour, title }
+          })
         }
       }
       const session: Session = {
         id: spec.sessionId,
         title:
-          spec.mode === 'code' && spec.workspaceRoot !== null
-            ? baseName(spec.workspaceRoot)
-            : 'New session',
+          spec.title ??
+          (spec.mode === 'code' && spec.workspaceRoot !== null ? baseName(spec.workspaceRoot) : 'New session'),
         mode: spec.mode,
         projectRoot: spec.workspaceRoot,
         createdAt: Date.now(),
@@ -370,6 +376,13 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         nextColour: ((spec.colour ?? state.nextColour) + 1) % SESSION_COLOURS.length
       }
     }),
+
+  setSessionTitle: (sessionId, title) =>
+    set((state) =>
+      state.sessions.some((session) => session.id === sessionId && session.title !== title)
+        ? { sessions: mapSession(state, sessionId, (session) => ({ ...session, title })) }
+        : state
+    ),
 
   // Converts the main-process transcript into renderer message parts.
   // A run is either the desktop's own or one mirrored from the phone; the
@@ -462,8 +475,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           const summary = summaries[index - offset]
           if (summary !== undefined) message.summary = summary
         })
-        const firstPrompt = converted.find((message) => message.role === 'user')?.parts.find((part) => part.kind === 'text')?.text
-        return { ...session, messages: converted, title: session.mode === 'chat' && firstPrompt ? firstPrompt.slice(0, 60) : session.title }
+        return { ...session, messages: converted }
       })
     })),
 
@@ -563,13 +575,10 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   addMessage: (message) =>
     set((state) => ({
+      // The name is not decided here: the main process names an antichat
+      // from this prompt once it has it, and tells every viewer.
       sessions: mapActive(state, (session) => ({
         ...session,
-        title:
-          session.messages.length === 0 && message.role === 'user' && session.mode === 'chat'
-            ? (message.parts.find((part) => part.kind === 'text')?.text ?? session.title)
-                .slice(0, 60)
-            : session.title,
         messages: [...session.messages, message]
       }))
     })),

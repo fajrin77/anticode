@@ -45,7 +45,8 @@ async function convertLegacy(filePath: string): Promise<ArrayBuffer> {
   return Uint8Array.from(data).buffer
 }
 
-async function open(filePath: string): Promise<ExcelJS.Workbook> {
+/** Shared with the in-app viewer, so a legacy .xls opens there the same way. */
+export async function open(filePath: string): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook()
   if (path.extname(filePath).toLowerCase() === '.xls') {
     try {
@@ -72,7 +73,7 @@ function pickSheet(workbook: ExcelJS.Workbook, name?: string): ExcelJS.Worksheet
   return sheet
 }
 
-function columnName(index: number): string {
+export function columnName(index: number): string {
   let name = ''
   for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) {
     name = String.fromCharCode(65 + ((n - 1) % 26)) + name

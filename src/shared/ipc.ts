@@ -42,6 +42,8 @@ export const IpcChannel = {
   SESSION_CLOSED: 'session:closed',
   SESSION_SNAPSHOT: 'session:snapshot',
   SESSION_COLOUR: 'session:colour',
+  SESSION_TITLE: 'session:title',
+  FILE_PREVIEW: 'file:preview',
   WEB_LIST: 'web:list',
   WEB_OPEN: 'web:open',
   WEB_REPORT: 'web:report',
@@ -148,7 +150,38 @@ export interface SessionSpec {
    * it creates the session, and the main process keeps whatever it settles on.
    */
   colour?: number
+  /**
+   * The session's name, filled in by the main process on the way out — a
+   * folder's name, or antichat's first prompt. Viewers show it, never derive it.
+   */
+  title?: string
 }
+
+export interface SessionTitle {
+  sessionId: string
+  title: string
+}
+
+/** One page of a rendered preview: a sheet of a workbook, or the whole document. */
+export interface PreviewPage {
+  label: string
+  /** A complete, script-free HTML document, drawn in a sandboxed frame. */
+  html: string
+  /** Set when only part of the file fits, e.g. "First 500 of 12,000 rows". */
+  note?: string
+}
+
+/**
+ * A file shown inside the app rather than handed to another one. Documents
+ * are rendered to HTML by the main process, so the desktop and the phone show
+ * the same thing; pictures and PDFs are drawn by the viewer itself, from bytes
+ * (`data`, base64) on the desktop and from a URL on the phone.
+ */
+export type FilePreview =
+  | { kind: 'pages'; name: string; pages: PreviewPage[] }
+  | { kind: 'image'; name: string; mime: string; data?: string }
+  | { kind: 'pdf'; name: string; data?: string }
+  | { kind: 'none'; name: string; reason: string }
 
 /**
  * Badge palette, shared by both viewers. The phone page carries a literal copy
@@ -369,6 +402,8 @@ export interface AnticodeApi {
   onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
   /** Fires when a session is deleted from the remote phone. */
   onSessionClosed: (listener: (sessionId: string) => void) => () => void
+  /** Fires when the main process renames a session — antichat's first prompt. */
+  onSessionTitle: (listener: (change: SessionTitle) => void) => () => void
   /** Drops the last exchange and returns its prompt, for retyping. */
   revertLastTurn: (sessionId: string) => Promise<string | null>
   getSessionSnapshot: (
@@ -406,6 +441,11 @@ export interface AnticodeApi {
   openArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   /** Save-a-copy dialog for a produced file; resolves to the chosen path. */
   saveArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
+  /**
+   * Renders a file for the in-app viewer: a produced one by its path inside
+   * the session's folder, or an attachment (sessionId null) by absolute path.
+   */
+  previewFile: (sessionId: string | null, target: string) => Promise<FilePreview>
   pathForFile: (file: File) => string
   /**
    * Starts a run, or — when this session already has one working — hands the

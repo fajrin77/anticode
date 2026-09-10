@@ -1,6 +1,6 @@
 # anticode
 
-Versi **0.0.15** membuat antichat bisa mengedit file hanya dengan melampirkannya: setiap sesi antichat punya folder privat di data app, lampiran disalin ke sana, antichat mengeditnya dengan tool dokumen (file, Excel, Word, PDF — tanpa terminal, hapus, atau internet) tanpa meminta approval, dan hasilnya muncul sebagai Download di desktop dan HP; folder itu ikut terhapus bersama sesinya. Di HP, petunjuk composer kini selalu satu baris dan memudar bila tidak muat, dan nama sesi di header tidak lagi tampil dobel. Versi **0.0.14** mengganti contoh teks composer di dashboard, sesi, dan HP menjadi "Don't work today, just vibes." Versi **0.0.13** membuat chrome lebih bersih: tab dan tombol ikon di header serta composer desktop hanya menampilkan font/ikon, kotak glass-nya muncul saat kursor mendekat; di HP hal yang sama berlaku untuk tombol header dan composer (kotak muncul saat disentuh), dan composer HP tidak lagi bergaris lime saat diketik. Header desktop dan HP kini memakai blur bertingkat yang memudar ke bawah tanpa garis tepi, dengan transkrip menggulir di bawahnya. Versi **0.0.12** menyatukan material glassmorphism pada tombol, tab, composer, menu, kartu rute HP, browser, dan Settings desktop; header tab desktop kini memakai blur bergradasi tanpa bilah hitam solid, dan jarak bawah composer desktop kembali ke 24 px. Versi **0.0.11** membuat glassmorphism lebih nyata: composer desktop mengambang langsung di atas transkrip tanpa footer hitam, composer dan header HP lebih transparan, fade nama model berasal dari hurufnya sendiri, serta popup tiga titik menjadi popover glass yang ringkas dan menempel ke tombol. Versi **0.0.10** menyatukan composer desktop dan HP dalam kotak glass yang tumbuh bersama teks, kutipan, gambar, dan berkas terlampir. Header HP kini blur/glass, nama model panjang memudar sebelum memakai lebih dari setengah lebar composer, dan ruang Revert tetap tersedia. Alur Excel juga lengkap: upload desktop/HP masuk ke workspace sesi, `.xlsx`, `.xlsm`, dan `.xls` bisa dibaca, format warna/bold dapat diubah per range, lalu workbook hasil muncul sebagai unduhan. Versi **0.0.9** membawa semua fungsi desktop ke HP: Revert, chip model dan Default/Auto di bawah kolom input, menu Settings, cari sesi, saran folder, dan Back/Forward di layar Web. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
+Versi **0.0.16** membuat berkas bisa dilihat langsung di dalam sesi: klik kartu berkas hasil atau lampiran dan berkas terbuka di viewer — workbook lengkap dengan warnanya, Word sebagai kertas, PowerPoint sebagai teks slide, teks, gambar, dan PDF — di desktop maupun HP, tanpa diunduh dulu. Judul sesi kini ditentukan main process, jadi antichat yang dimulai dari HP tidak lagi bernama "New session" di desktop. Latar HP tidak lagi berpita seperti tangga, dan petunjuk composer HP kembali menjadi "Message…". Versi **0.0.15** membuat antichat bisa mengedit file hanya dengan melampirkannya: setiap sesi antichat punya folder privat di data app, lampiran disalin ke sana, antichat mengeditnya dengan tool dokumen (file, Excel, Word, PDF — tanpa terminal, hapus, atau internet) tanpa meminta approval, dan hasilnya muncul sebagai Download di desktop dan HP; folder itu ikut terhapus bersama sesinya. Di HP, petunjuk composer kini selalu satu baris dan memudar bila tidak muat, dan nama sesi di header tidak lagi tampil dobel. Versi **0.0.14** mengganti contoh teks composer di dashboard, sesi, dan HP menjadi "Don't work today, just vibes." Versi **0.0.13** membuat chrome lebih bersih: tab dan tombol ikon di header serta composer desktop hanya menampilkan font/ikon, kotak glass-nya muncul saat kursor mendekat; di HP hal yang sama berlaku untuk tombol header dan composer (kotak muncul saat disentuh), dan composer HP tidak lagi bergaris lime saat diketik. Header desktop dan HP kini memakai blur bertingkat yang memudar ke bawah tanpa garis tepi, dengan transkrip menggulir di bawahnya. Versi **0.0.12** menyatukan material glassmorphism pada tombol, tab, composer, menu, kartu rute HP, browser, dan Settings desktop; header tab desktop kini memakai blur bergradasi tanpa bilah hitam solid, dan jarak bawah composer desktop kembali ke 24 px. Versi **0.0.11** membuat glassmorphism lebih nyata: composer desktop mengambang langsung di atas transkrip tanpa footer hitam, composer dan header HP lebih transparan, fade nama model berasal dari hurufnya sendiri, serta popup tiga titik menjadi popover glass yang ringkas dan menempel ke tombol. Versi **0.0.10** menyatukan composer desktop dan HP dalam kotak glass yang tumbuh bersama teks, kutipan, gambar, dan berkas terlampir. Header HP kini blur/glass, nama model panjang memudar sebelum memakai lebih dari setengah lebar composer, dan ruang Revert tetap tersedia. Alur Excel juga lengkap: upload desktop/HP masuk ke workspace sesi, `.xlsx`, `.xlsm`, dan `.xls` bisa dibaca, format warna/bold dapat diubah per range, lalu workbook hasil muncul sebagai unduhan. Versi **0.0.9** membawa semua fungsi desktop ke HP: Revert, chip model dan Default/Auto di bawah kolom input, menu Settings, cari sesi, saran folder, dan Back/Forward di layar Web. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
 
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
@@ -198,8 +198,9 @@ berkas dan pratinjau dipotong di 2000 karakter agar tidak menghabiskan konteks.
 
 Di transkrip, lampiran tampil sebagaimana dikirim: gambar sebagai gambar (thumbnail 320 px yang ikut
 tersimpan di riwayat sesi, jadi masih terlihat setelah app dibuka ulang), berkas lain sebagai kartu
-bernama dan berukuran. Klik untuk membukanya di aplikasi bawaan sistem. Thumbnail-lah satu-satunya
-salinan; berkas aslinya tidak dipindahkan ke mana-mana.
+bernama dan berukuran. Klik untuk membukanya di dalam app: gambar dalam ukuran penuh, berkas lain di
+viewer berkas (lihat [Berkas hasil](#berkas-hasil)). Thumbnail-lah satu-satunya salinan; berkas
+aslinya tidak dipindahkan ke mana-mana.
 
 Bila berkas kebetulan berada di dalam workspace, path relatifnya ikut diberitahukan ke model supaya
 tool bisa membukanya penuh. Berkas dari luar folder — unggahan HP, tangkapan layar yang ditempel, atau
@@ -220,17 +221,26 @@ Pratinjau workbook memuat ringkasan format per range (fill, warna teks, bold) di
 permintaan seperti "ubah header biru jadi merah" bisa dijawab tanpa menebak sel mana yang biru. Berkas
 Excel 97-2003 (`.xls`) dikonversi di memori saat dibaca sehingga file asli tidak disentuh; hasil edit
 baru ditulis sebagai `.xlsx`. Judul sesi antichat diambil dari prompt yang diketik, bukan dari header
-lampiran yang dikirim di depannya.
+lampiran yang dikirim di depannya. Judul itu ditentukan main process dan dikirim ke setiap jendela
+desktop dan ke HP begitu prompt pertama masuk riwayat, dari mana pun prompt itu diketik.
 
 ## Berkas hasil
 
-Dokumen yang dibuat atau diformat agent — pdf, xlsx, docx, csv, pptx, zip — muncul sebagai kartu di bawah jawaban,
-dengan **Open** (buka di aplikasi sistem) dan **Download** (simpan salinan lewat dialog Save). Kartu
+Dokumen yang dibuat atau diformat agent — pdf, xlsx, docx, csv, pptx, zip — muncul sebagai kartu di bawah jawaban.
+Klik kartunya dan berkas terbuka di viewer di dalam sesi, tanpa diunduh dulu; **Download** di kartu
+menyimpan salinan lewat dialog Save, dan **Open in app** di viewer membukanya di aplikasi sistem. Kartu
 itu dibaca ulang dari tool call yang berhasil, jadi tetap ada setelah sesi dibuka lagi. Berkas kode
 biasa sengaja tidak ikut — tempatnya di diff, bukan di daftar unduhan.
 
-Dari HP, kartu yang sama menyediakan tautan unduh, dan setiap berkas di tab **Files** punya tombol
-`↓`. Unduhan diresolusi di dalam folder sesi, jadi path di luar folder ditolak.
+Viewer dirender oleh main process (`src/main/preview.ts`), jadi desktop dan HP menampilkan hal yang
+sama: workbook per sheet lengkap dengan fill, warna teks, bold, perataan, border, dan merge (500 baris
+dan 60 kolom pertama); CSV sebagai grid; Word sebagai kertas; PowerPoint sebagai teks tiap slide;
+teks dan kode apa adanya; gambar dan PDF digambar oleh viewer bawaan. Halaman hasil render tampil di
+iframe ber-sandbox, jadi tidak ada script dari berkas yang berjalan.
+
+Dari HP, ketuk kartu yang sama untuk membukanya di layar penuh; **Download** tetap satu ketukan.
+Setiap berkas di tab **Files** punya tombol `↓`. Unduhan dan pratinjau diresolusi di dalam folder
+sesi, jadi path di luar folder ditolak; lampiran hanya bisa dibuka bila riwayat sesi menyebutnya.
 
 ## Approval
 

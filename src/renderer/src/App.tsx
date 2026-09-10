@@ -10,6 +10,8 @@ import { ApprovalModal } from './components/ApprovalModal'
 import { useSessionStore } from './store/session'
 import { useWebSession, useWebStore } from './store/web'
 import { WebPanel } from './components/WebPanel'
+import { FileViewer } from './components/FileViewer'
+import { usePreviewStore } from './store/preview'
 import { DropZone } from './components/DropZone'
 import type {
   AppInfo,
@@ -222,6 +224,20 @@ export function App(): JSX.Element {
           useSessionStore.getState().importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
         }
       })
+    })
+  }, [])
+
+  // A preview belongs to the screen it was opened from; going to another
+  // session or view puts it away.
+  useEffect(() => {
+    usePreviewStore.getState().close()
+  }, [activeSessionId, view])
+
+  // Names come from the main process, wherever the prompt that earned one
+  // was typed — the phone included.
+  useEffect(() => {
+    return window.anticode.onSessionTitle(({ sessionId, title }) => {
+      useSessionStore.getState().setSessionTitle(sessionId, title)
     })
   }, [])
 
@@ -457,6 +473,7 @@ export function App(): JSX.Element {
           </button>
         </div>
       )}
+      <FileViewer />
       {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
       <TabBar
         dashboardActive={view === 'dashboard'}

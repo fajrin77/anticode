@@ -1,6 +1,6 @@
 {
   "name": "anticode",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "description": "Provider-agnostic AI coding agent desktop app",
   "main": "./out/main/index.js",
   "author": "asani",
@@ -28,6 +28,7 @@
     "diff": "^9.0.0",
     "docx": "^9.7.1",
     "exceljs": "^4.4.0",
+    "jszip": "^3.10.2",
     "mammoth": "^1.12.2",
     "openai": "^7.12.1",
     "pdf-lib": "^1.17.1",

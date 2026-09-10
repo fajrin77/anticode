@@ -7,6 +7,8 @@ import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
+import ExcelJS from 'exceljs'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
 
 const directory = await mkdtemp(path.join(tmpdir(), 'anticode-ui-'))
 const profile = path.join(directory, 'profile'); await mkdir(profile)
@@ -89,6 +91,10 @@ try {
   await window.getByRole('button',{name:'antichat',exact:true}).click()
   await composer().fill('halo dunia'); await composer().press('Enter')
   await window.getByText(/Fixture reply: halo dunia/).waitFor()
+  // The main process names an antichat from its first prompt; the tab shows that.
+  const activeTitle = () => window.evaluate(() => { const s = window.__store.getState(); return s.sessions.find((x) => x.id === s.activeSessionId)?.title })
+  for (let i = 0; i < 50 && await activeTitle() !== 'halo dunia'; i++) await window.waitForTimeout(40)
+  check('antichat: the tab is named after its first prompt', await activeTitle(), 'halo dunia')
   await window.mouse.move(640, 400); await window.waitForTimeout(200)
   const composerLayer = await window.locator('.composer-glass').last().evaluate((el) => {
     const layer = getComputedStyle(el.parentElement.parentElement)
@@ -261,6 +267,22 @@ try {
   })
 
   // A produced document is offered back, not just mentioned in a tool output.
+  // Real files sit where the session keeps them, so the viewer has something to draw.
+  const owner = await window.evaluate(() => { const s = window.__store.getState(); const x = s.sessions.find((y) => y.id === s.activeSessionId); return { id: x.id, mode: x.mode, root: x.projectRoot } })
+  const filesRoot = owner.mode === 'chat' ? path.join(profile, 'antichat', owner.id) : owner.root
+  await mkdir(filesRoot, { recursive: true })
+  const producedBook = new ExcelJS.Workbook()
+  const producedSheet = producedBook.addWorksheet('Import Data')
+  producedSheet.addRow(['NO. PART', 'NAMA', 'RSV'])
+  producedSheet.addRow(['A-1', 'Pena', 7])
+  for (const address of ['A1', 'B1']) {
+    producedSheet.getCell(address).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B050' } }
+    producedSheet.getCell(address).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+  }
+  await producedBook.xlsx.writeFile(path.join(filesRoot, 'Template.xlsx'))
+  const producedPdf = await PDFDocument.create()
+  producedPdf.addPage([420, 300]).drawText('Laporan uji', { x: 30, y: 250, size: 22, font: await producedPdf.embedFont(StandardFonts.Helvetica) })
+  await writeFile(path.join(filesRoot, 'laporan.pdf'), await producedPdf.save())
   await window.evaluate(() => {
     const store = window.__store.getState()
     store.addMessage({
@@ -275,6 +297,14 @@ try {
           input: { path: 'laporan.pdf' },
           status: 'ok',
           output: 'Saved: laporan.pdf (1 pages)'
+        },
+        {
+          kind: 'tool',
+          toolUseId: 'fixture-xlsx',
+          name: 'format_excel_cells',
+          input: { path: 'Template.xlsx' },
+          status: 'ok',
+          output: 'Formatted A1:B1'
         }
       ],
       pending: false
@@ -284,6 +314,33 @@ try {
   const offered = await window.getByRole('button',{name:'Download',exact:true}).count()
   check('a produced document is offered for download', offered > 0 ? 'offered' : 'missing', 'offered')
   await shot('15-produced-document')
+
+  // Clicking the file opens it right here, rendered — no download first.
+  const fileCard = (name) => window.locator('button[title="Preview"]').filter({ hasText: name })
+  await limeOnHover('produced document: file name', fileCard('Template.xlsx').locator('span.font-mono'))
+  await fileCard('Template.xlsx').click()
+  const viewer = window.locator('[data-file-viewer]')
+  await viewer.waitFor()
+  const firstCell = viewer.frameLocator('iframe').locator('td').first()
+  await firstCell.waitFor()
+  check('preview: the workbook keeps its header fill',
+    await firstCell.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(0, 176, 80)')
+  check('preview: and its white bold header text',
+    await firstCell.evaluate((el) => `${getComputedStyle(el).color} ${getComputedStyle(el).fontWeight}`), 'rgb(255, 255, 255) 700')
+  await shot('15b-preview-workbook')
+  await limeOnHover('preview: close', window.getByRole('button', { name: 'Close preview' }))
+  await limeOnHover('preview: open in app', viewer.getByRole('button', { name: 'Open in app' }))
+  await limeOnHover('preview: download', viewer.getByRole('button', { name: 'Download', exact: true }))
+  await window.keyboard.press('Escape')
+  check('preview: Escape goes back to the conversation', await viewer.count(), 0)
+  await fileCard('laporan.pdf').click()
+  await viewer.waitFor()
+  await viewer.locator('iframe[src^="blob:"]').waitFor()
+  await window.waitForTimeout(1200)
+  check('preview: a PDF is drawn inside the app', await viewer.locator('iframe[src^="blob:"]').count(), 1)
+  await shot('15c-preview-pdf')
+  await window.getByRole('button', { name: 'Close preview' }).click()
+  check('preview: the cross closes it', await viewer.count(), 0)
 
   // Lime is the one accent, and it marks what the cursor can touch: every icon
   // and every text button turns lime on hover. The rule is written down in

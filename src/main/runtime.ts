@@ -163,10 +163,45 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
 
 let sessionCreatedSink: ((spec: SessionSpec) => void) | null = null
 let sessionClosedSink: ((sessionId: string) => void) | null = null
+let sessionTitledSink: ((sessionId: string, title: string) => void) | null = null
+/** The name each session was last announced under, so a rename is told once. */
+const announcedTitles = new Map<string, string>()
 
 /** Called once by ipc registration; fans creations out to all windows. */
 export function setOnSessionCreated(sink: (spec: SessionSpec) => void): void {
   sessionCreatedSink = sink
+}
+
+/** Called once by ipc registration; fans renames out to every viewer. */
+export function setOnSessionTitled(sink: (sessionId: string, title: string) => void): void {
+  sessionTitledSink = sink
+}
+
+/**
+ * A session's name is decided here, never by a viewer: an anticode session is
+ * its folder, an antichat one what the user typed first. The desktop and the
+ * phone both show this, whichever of them the prompt came from.
+ */
+function titleFor(live: LiveSession): string {
+  if (live.spec.mode === 'code' && live.spec.workspaceRoot) return path.basename(live.spec.workspaceRoot)
+  return live.agent?.title ?? titleOf(live.messages)
+}
+
+function specOf(live: LiveSession): SessionSpec {
+  return { ...live.spec, title: titleFor(live) }
+}
+
+/**
+ * Tells every viewer the session's current name if it changed — called once a
+ * prompt is in its history, and after a turn is taken back out of it.
+ */
+export function announceTitle(sessionId: string): void {
+  const live = sessions.get(sessionId)
+  if (live === undefined) return
+  const title = titleFor(live)
+  if (announcedTitles.get(sessionId) === title) return
+  announcedTitles.set(sessionId, title)
+  sessionTitledSink?.(sessionId, title)
 }
 
 /** Called once by ipc registration; fans deletions (from the phone) out. */
@@ -177,7 +212,7 @@ export function setOnSessionClosed(sink: (sessionId: string) => void): void {
 export function createSession(spec: SessionSpec): SessionSpec {
   const previous = sessions.get(spec.sessionId)
   if (previous && (runForSession(spec.sessionId) !== null || (previous.agent?.messageCount ?? previous.messages.length) > 0)) {
-    if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return previous.spec
+    if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return specOf(previous)
     throw new Error('An existing conversation cannot be rebound to another folder')
   }
   // A session keeps its colour through a rebind; a new one takes the colour
@@ -191,10 +226,13 @@ export function createSession(spec: SessionSpec): SessionSpec {
     workspaceRoot: spec.workspaceRoot,
     colour
   }
-  sessions.set(spec.sessionId, { spec: settled, agent: null, messages: [], summaries: [] })
+  const live: LiveSession = { spec: settled, agent: null, messages: [], summaries: [] }
+  sessions.set(spec.sessionId, live)
   persistSessions()
-  sessionCreatedSink?.(settled)
-  return settled
+  const announced = specOf(live)
+  announcedTitles.set(spec.sessionId, announced.title ?? '')
+  sessionCreatedSink?.(announced)
+  return announced
 }
 
 /**
@@ -224,6 +262,7 @@ export function deleteSession(sessionId: string): void {
   const own = live?.spec.mode === 'chat' ? chatFilesRoot(sessionId) : null
   if (own !== null) void rm(own, { recursive: true, force: true }).catch(() => undefined)
   sessions.delete(sessionId)
+  announcedTitles.delete(sessionId)
   clearWeb(sessionId)
   persistSessions()
   sessionClosedSink?.(sessionId)
@@ -304,7 +343,7 @@ export function setRunningProbe(probe: (sessionId: string) => boolean): void {
 export function listSessionSummaries(): SessionSummary[] {
   return [...sessions.values()].map((live) => ({
     id: live.spec.sessionId,
-    title: live.spec.mode === 'code' && live.spec.workspaceRoot ? path.basename(live.spec.workspaceRoot) : live.agent?.title ?? titleOf(live.messages),
+    title: titleFor(live),
     mode: live.spec.mode,
     workspaceRoot: live.spec.workspaceRoot,
     messageCount: live.agent?.messageCount ?? live.messages.length,
@@ -383,12 +422,15 @@ export function revertLastTurn(sessionId: string): string | null {
       live.messages.length = i
       live.summaries.pop()
       persistSessions()
+      announceTitle(sessionId)
       return text.text
     }
     return null
   }
   live.summaries.pop()
   persistSessions()
+  // Taking back the first prompt takes its name back with it.
+  announceTitle(sessionId)
   return reverted
 }
 
@@ -454,4 +496,4 @@ export function persistSessions(): void {
     renameSync(`${target}.tmp`, target)
   } catch (error) { console.error('Could not save session history:', (error as Error).message) }
 }
-export function listSessionSpecs(): SessionSpec[] { return [...sessions.values()].map((live) => live.spec) }
+export function listSessionSpecs(): SessionSpec[] { return [...sessions.values()].map(specOf) }

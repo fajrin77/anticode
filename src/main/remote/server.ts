@@ -47,6 +47,7 @@ import {
 } from '../web'
 import { capturePhonePage } from '../browser'
 import { submitPrompt } from '../prompts'
+import { previewFile } from '../preview'
 import sharp from 'sharp'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
@@ -310,16 +311,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     // served — the allowlist is the transcript, not the filesystem.
     if (req.method === 'GET' && url.pathname === '/api/attachment') {
       const sessionId = url.searchParams.get('sessionId') ?? ''
-      const target = url.searchParams.get('path') ?? ''
-      const messages = loadSessionMessages(sessionId)
-      if (messages === null) return json(res, 404, { error: 'Unknown session' })
-      const known = messages.some((message) =>
-        message.blocks.some(
-          (block) => block.type === 'attachment' && block.attachment.path === target
-        )
-      )
-      if (!known) return json(res, 400, { error: 'Not an attachment of this session' })
-      return sendFile(res, target)
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      return sendFile(res, attachmentPath(sessionId, url.searchParams.get('path') ?? ''))
+    }
+
+    // A file looked at on the phone instead of downloaded to be opened
+    // elsewhere. Documents come back rendered, the same pages the desktop
+    // draws; /api/view is the file itself, inline, for pictures and PDFs.
+    if (req.method === 'GET' && (url.pathname === '/api/preview' || url.pathname === '/api/view')) {
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      const requested = url.searchParams.get('path') ?? ''
+      const target = url.searchParams.get('attachment') === '1'
+        ? attachmentPath(sessionId, requested)
+        : producedPath(sessionId, requested)
+      if (url.pathname === '/api/view') return sendFile(res, target)
+      return json(res, 200, await previewFile(target, false))
     }
 
     if (req.method === 'GET' && url.pathname === '/api/download') {
@@ -546,30 +553,54 @@ const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
   '.zip': 'application/zip'
 }
 
-/**
- * Hands a produced file to the phone as a download. The path is resolved
- * inside the session's folder, so nothing outside it can be fetched.
- */
 /** Streams a file inline — for looking at, not for saving. */
 function sendFile(res: http.ServerResponse, target: string): void {
   const info = statSync(target)
   if (!info.isFile()) throw new Error('Not a file')
+  const extension = path.extname(target).toLowerCase()
   res.writeHead(200, {
-    'content-type': MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
+    'content-type': MIME_TYPES[extension] ?? 'application/octet-stream',
     'content-length': info.size,
-    'cache-control': 'private, max-age=300'
+    'cache-control': 'private, max-age=300',
+    'x-content-type-options': 'nosniff',
+    // A picture drawn in an <img> never runs; an SVG opened on its own would,
+    // on the page's origin, with the pairing token beside it.
+    ...(extension === '.svg' ? { 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" } : {})
   })
   createReadStream(target).pipe(res)
 }
 
-function sendDownload(res: http.ServerResponse, sessionId: string, relativePath: string): void {
+/**
+ * An attached file, by the absolute path its card names. Only paths the
+ * session's own history names are served — the allowlist is the transcript,
+ * not the filesystem.
+ */
+function attachmentPath(sessionId: string, target: string): string {
+  const known = (loadSessionMessages(sessionId) ?? []).some((message) =>
+    message.blocks.some((block) => block.type === 'attachment' && block.attachment.path === target)
+  )
+  if (!known) throw new Error('Not an attachment of this session')
+  return target
+}
+
+/** A produced file, resolved inside the session's folder so nothing outside it is reachable. */
+function producedPath(sessionId: string, relativePath: string): string {
   // antichat's documents live in its own folder, not a project's.
   const root = sessionFileRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
-  const target = resolveInWorkspace(root, relativePath)
+  return resolveInWorkspace(root, relativePath)
+}
+
+/** Hands a produced file to the phone as a download. */
+function sendDownload(res: http.ServerResponse, sessionId: string, relativePath: string): void {
+  const target = producedPath(sessionId, relativePath)
   const info = statSync(target)
   if (!info.isFile()) throw new Error('Not a file')
 

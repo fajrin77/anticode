@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { AttachmentKind, AttachmentRef } from '@shared/ipc'
+import { usePreviewStore } from '../store/preview'
 
 /** Fallback tag for a name with no short extension of its own. */
 const KIND_TAG: Record<AttachmentKind, string> = {
@@ -45,7 +46,7 @@ function FileGlyph({ tag }: { tag: string }): JSX.Element {
 /**
  * The files that rode along with a prompt. Images show as pictures because
  * that is what the user actually sent; everything else gets a card naming the
- * file. Clicking either opens it in the app the OS keeps for that kind.
+ * file. Clicking either opens it here, in the app.
  */
 export function Attachments({
   items,
@@ -54,8 +55,8 @@ export function Attachments({
   items: AttachmentRef[]
   align?: 'start' | 'end'
 }): JSX.Element {
-  // A picture opens here, over the conversation; anything else still belongs
-  // to the app the OS keeps for it.
+  // A picture opens over the conversation at full size; any other file in
+  // the file viewer.
   const [viewing, setViewing] = useState<{ name: string; src: string } | null>(null)
   const open = (item: AttachmentRef): void => openAttachment(item, setViewing)
 
@@ -106,20 +107,23 @@ export function Attachments({
 }
 
 /**
- * Opens an attachment the way the transcript does: a picture here, in the app,
- * anything else in the app the OS keeps for it. Shared by the transcript and
- * the composer, so a staged screenshot can be checked before it is sent.
+ * Opens an attachment the way the transcript does, always inside the app: a
+ * picture at full size, anything else — a workbook, a document, a PDF — in
+ * the file viewer. Shared by the transcript and the composer, so a staged
+ * file can be checked before it is sent.
  */
 export function openAttachment(
   item: Pick<AttachmentRef, 'kind' | 'name' | 'path'>,
   show: (picture: { name: string; src: string }) => void
 ): void {
+  const inViewer = (): void =>
+    usePreviewStore.getState().open({ kind: 'attachment', path: item.path, name: item.name })
   if (item.kind !== 'image') {
-    void window.anticode.openAttachment(item.path)
+    inViewer()
     return
   }
   void window.anticode.readAttachmentImage(item.path).then((src) => {
-    if (src === null) void window.anticode.openAttachment(item.path)
+    if (src === null) inViewer()
     else show({ name: item.name, src })
   })
 }
