@@ -25,7 +25,7 @@ try {
   await window.getByRole('button', { name: 'antichat', exact: true }).waitFor({ timeout: 20000 })
   console.log('PASS: packaged app boots with an empty profile (title:', title + ')')
   await window.getByRole('button', { name: 'antichat', exact: true }).click()
-  await window.getByPlaceholder(/Ask anything|Describe the task/).waitFor({ timeout: 10000 })
+  await window.getByPlaceholder(/just vibes/).waitFor({ timeout: 10000 })
   console.log('PASS: new chat session opens and the composer is reachable')
   await window.getByRole('button', { name: 'Settings', exact: true }).click()
   await window.getByRole('button', { name: 'Remote', exact: true }).waitFor({ timeout: 10000 })

@@ -50,7 +50,7 @@ const app = await electron.launch({args:[bootstrap],env,cwd:directory})
 const window = await app.firstWindow()
 await window.setViewportSize({width:1280,height:820})
 const shot = async (name) => { await window.screenshot({path:path.join(shots,name+'.png')}); console.log('shot:',name) }
-const composer = () => window.getByPlaceholder(/Ask anything|Describe the task|Add to the task/)
+const composer = () => window.getByPlaceholder(/just vibes|Add to the task/)
 try {
   const colourOf = async (locator) => locator.evaluate((el) => getComputedStyle(el).color)
   const LIME = 'rgb(209, 250, 34)'
@@ -164,7 +164,7 @@ try {
   await grid.click(); await window.waitForTimeout(300)
   await gear.click(); await window.waitForTimeout(400)
   await gear.click(); await window.waitForTimeout(500)
-  const backOnDashboard = await window.getByPlaceholder('Describe the task…').isVisible().catch(()=>false)
+  const backOnDashboard = await window.getByPlaceholder("Don't work today, just vibes.").isVisible().catch(()=>false)
   check('closing Settings returns to the dashboard it was opened from', backOnDashboard ? 'dashboard' : 'elsewhere', 'dashboard')
   await shot('09-settings-closed-back-to-dashboard')
 

@@ -528,9 +528,7 @@ export function Composer({
             placeholder={
               isStreaming && !isPaused
                 ? 'Add to the task…'
-                : session?.mode === 'chat'
-                  ? 'Ask anything…'
-                  : 'Describe the task…'
+                : "Don't work today, just vibes."
             }
             onChange={(event) => setDraft(event.target.value)}
             onPaste={onPaste}

@@ -262,7 +262,7 @@ function DashboardComposer({
             ref={promptRef}
             rows={1}
             value={draft}
-            placeholder="Describe the task…"
+            placeholder="Don't work today, just vibes."
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
