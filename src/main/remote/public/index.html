@@ -125,6 +125,17 @@
      bubble, exactly like a tool-group line. */
   .notice { padding: 8px 0; color: #9a9a9a; font-size: 14px; transition: color .15s; }
   .notice:hover, .notice:active { color: #d1fa22; }
+  /* The line that closes a run: model, a copy button, how long it took, and
+     what it cost. Centred and faint, exactly as on the desktop. */
+  .runsum {
+    display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+    gap: 8px; margin-top: 8px; color: #6d6d6d; font-size: 12.5px;
+  }
+  .runsum .copy {
+    display: inline-flex; align-items: center; background: none; border: none;
+    color: #6d6d6d; padding: 2px 4px; font-size: 12.5px; line-height: 1;
+  }
+  .runsum .copy:active, .runsum:hover .copy:hover { color: #d1fa22; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -211,9 +222,12 @@
   }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
   .actions button {
-    background: #2e2e2e; color: #ededed; border: 1px solid #303030; border-radius: 8px;
-    padding: 9px 13px;
+    flex: 1; min-width: 0; background: #2e2e2e; color: #ededed;
+    border: 1px solid #303030; border-radius: 8px; padding: 9px 13px;
   }
+  /* Appears only once a model id has been typed, so it reads as the thing to
+     press next — same box as Start, its own colour. */
+  .actions button.alt { background: #d1fa22; color: #1a1a1a; border-color: #d1fa22; }
   .actions button:disabled { color: #6d6d6d; border-color: #262626; }
   .hidden { display: none; }
   .crumb { font: 14px ui-monospace, Menlo, monospace; color: #9a9a9a; margin-bottom: 8px; word-break: break-all; }
@@ -251,10 +265,10 @@
         <input class="path" id="folderInput" placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
         <select class="wide" id="providerSelect" aria-label="Provider" onchange="pickProvider(this.value)"></select>
         <select class="wide" id="modelSelect" aria-label="Model" onchange="pickModel(this.value)"></select>
-        <input class="path" id="customModelId" placeholder="Custom model ID (optional)" />
-        <button onclick="applyCustomModel()">Use model ID</button>
+        <input class="path" id="customModelId" placeholder="Custom model ID (optional)" oninput="updateModelIdBtn()" />
         <div class="actions" style="margin-bottom:0">
           <button onclick="startSession()">Start</button>
+          <button id="useModelBtn" class="alt hidden" onclick="applyCustomModel()">Use model ID</button>
         </div>
       </div>
       <div id="sessionList" class="card"></div>
@@ -543,9 +557,18 @@ async function loadModels() {
 async function pickProvider(provider) {
   await pickModel(provider + '|');
 }
+/** Nothing typed, nothing to apply — the button stays out of the way. */
+function updateModelIdBtn() {
+  const typed = document.getElementById('customModelId').value.trim();
+  document.getElementById('useModelBtn').classList.toggle('hidden', typed === '');
+}
+
 async function applyCustomModel() {
-  const model = document.getElementById('customModelId').value.trim();
+  const field = document.getElementById('customModelId');
+  const model = field.value.trim();
   if (model && modelInfo) await pickModel(modelInfo.provider + '|' + model);
+  field.value = '';
+  updateModelIdBtn();
 }
 
 async function pickModel(value) {
@@ -593,13 +616,13 @@ async function openSession(id) {
 }
 async function syncSession(id) {
   const version = sessionEventVersion;
-  const { messages, runId } = await jfetch('/api/session/' + id);
+  const { messages, summaries, runId } = await jfetch('/api/session/' + id);
   if (currentSession !== id || version !== sessionEventVersion) return;
   currentRunId = runId;
   hideWorking();
   liveEl = null;
   liveGroup = null;
-  renderTranscript(messages);
+  renderTranscript(messages, summaries);
   // The pause marker is ours, not the transcript's, so a re-sync has to put it
   // back; it disappears on its own once the session is resumed.
   if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
@@ -741,6 +764,37 @@ function toolGroupEl(items) {
  * a tool-result message wedged between each pair. The desktop draws that run
  * as a single message, so the same folding happens here before rendering.
  */
+function formatDuration(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return total < 60 ? total + 's' : Math.floor(total / 60) + 'm ' + (total % 60) + 's';
+}
+
+/** The closing line for one finished run, mirroring the desktop's footnote. */
+function runSummaryEl(summary, said) {
+  const row = document.createElement('div');
+  row.className = 'runsum';
+  const model = document.createElement('span');
+  model.textContent = summary.model === '' ? 'done' : summary.model;
+  const copy = document.createElement('button');
+  copy.className = 'copy';
+  copy.title = 'Copy this reply';
+  copy.textContent = '\u29c9';
+  const tokens = (summary.inputTokens || 0) + (summary.outputTokens || 0);
+  copy.onclick = () => {
+    const stats = [summary.model, formatDuration(summary.durationMs), tokens.toLocaleString('en-US') + ' tokens'];
+    const text = [said.trim(), stats.join(' \u00b7 ')].filter((part) => part !== '').join('\n\n');
+    void navigator.clipboard?.writeText(text).then(() => {
+      copy.textContent = 'copied';
+      setTimeout(() => { copy.textContent = '\u29c9'; }, 1500);
+    }).catch(() => { copy.textContent = '\u29c9'; });
+  };
+  const rest = document.createElement('span');
+  rest.textContent = '\u00b7 ' + formatDuration(summary.durationMs) +
+    (tokens > 0 ? ' \u00b7 ' + tokens.toLocaleString('en-US') + ' tokens' : '');
+  row.append(model, copy, rest);
+  return row;
+}
+
 function foldTurns(messages) {
   const turns = [];
   for (const m of messages) {
@@ -759,10 +813,16 @@ function foldTurns(messages) {
 /** True when the transcript ends on a tool group whose last step is still running. */
 let tailRunning = false;
 
-function renderTranscript(messages) {
+function renderTranscript(messages, summaries) {
   const el = document.getElementById('transcript');
   el.innerHTML = '';
   tailRunning = false;
+  // One summary per assistant turn, oldest first — the main process drops the
+  // ones whose run never answered, so the two lists line up from the end.
+  const list = Array.isArray(summaries) ? summaries : [];
+  const turnCount = foldTurns(messages).filter((turn) => turn.role === 'assistant').length;
+  const offset = turnCount - list.length;
+  let turnIndex = 0;
   const results = new Map();
   for (const m of messages) {
     for (const b of m.blocks) {
@@ -826,6 +886,12 @@ function renderTranscript(messages) {
     flushText();
     for (const target of documentsProduced(produced)) {
       div.appendChild(artifactEl(currentSession, target));
+    }
+    const summary = list[turnIndex - offset];
+    turnIndex++;
+    if (summary !== undefined) {
+      const said = m.blocks.filter((b) => b.type === 'text').map((b) => b.text).join('');
+      div.appendChild(runSummaryEl(summary, said));
     }
     el.appendChild(div);
   }

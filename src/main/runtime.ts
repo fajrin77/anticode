@@ -5,7 +5,7 @@ import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import type { ContentBlock, Message } from './providers/types'
-import type { SnapshotMessage } from '@shared/ipc'
+import type { RunSummary, SnapshotMessage } from '@shared/ipc'
 import type {
   ModelCatalogue,
   ProviderId,
@@ -30,6 +30,8 @@ interface LiveSession {
   agent: AgentSession | null
   messages: Message[]
   selection?: ProviderSelection
+  /** One entry per finished assistant turn, oldest first. */
+  summaries: RunSummary[]
 }
 
 let workspaceRoot: string | null = null
@@ -67,13 +69,18 @@ export function setWorkspaceRoot(root: string): void {
  */
 export function initPersistedState(): void {
   try {
-    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[] }[]
+    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[] }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
           !Array.isArray(entry.messages) || !entry.messages.every((message) =>
             ['user', 'assistant'].includes(message.role) && Array.isArray(message.content))) continue
-      sessions.set(entry.spec.sessionId, { spec: entry.spec, messages: entry.messages, agent: null })
+      sessions.set(entry.spec.sessionId, {
+        spec: entry.spec,
+        messages: entry.messages,
+        agent: null,
+        summaries: Array.isArray(entry.summaries) ? entry.summaries : []
+      })
     }
   } catch { /* First launch or unreadable archive: keep the original file untouched. */ }
   const persisted = loadPersistedSettings()
@@ -160,7 +167,7 @@ export function createSession(spec: SessionSpec): void {
     if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return
     throw new Error('An existing conversation cannot be rebound to another folder')
   }
-  sessions.set(spec.sessionId, { spec, agent: null, messages: [] })
+  sessions.set(spec.sessionId, { spec, agent: null, messages: [], summaries: [] })
   persistSessions()
   sessionCreatedSink?.(spec)
 }
@@ -294,6 +301,15 @@ export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null
   return toSnapshot(live.agent?.snapshot().messages ?? live.messages)
 }
 
+/** Closes a run: appends what it cost, for every viewer of this session. */
+export function recordRunSummary(sessionId: string, summary: RunSummary): void {
+  sessions.get(sessionId)?.summaries.push(summary)
+}
+
+export function loadSessionSummaries(sessionId: string): RunSummary[] {
+  return sessions.get(sessionId)?.summaries ?? []
+}
+
 export function sessionWorkspaceRoot(sessionId: string): string | null {
   return sessions.get(sessionId)?.spec.workspaceRoot ?? null
 }
@@ -309,7 +325,11 @@ export function createRemoteSession(mode: SessionMode, workspaceRoot: string | n
 export function persistSessions(): void {
   const directory = app.getPath('userData')
   const target = path.join(directory, 'sessions.json')
-  const data = [...sessions.values()].map((live) => ({ spec: live.spec, messages: live.agent?.snapshot().messages ?? live.messages }))
+  const data = [...sessions.values()].map((live) => ({
+    spec: live.spec,
+    messages: live.agent?.snapshot().messages ?? live.messages,
+    summaries: live.summaries
+  }))
   try {
     mkdirSync(directory, { recursive: true })
     writeFileSync(`${target}.tmp`, JSON.stringify(data), { mode: 0o600 })

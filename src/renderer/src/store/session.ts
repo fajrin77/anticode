@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type {
   AttachmentInfo,
   AttachmentRef,
+  RunSummary,
   SessionMode,
   SessionSpec,
   SnapshotMessage
@@ -30,10 +31,7 @@ export type MessagePart =
       output: string
     }
 
-export interface RunSummary {
-  model: string
-  durationMs: number
-}
+export type { RunSummary } from '@shared/ipc'
 
 export interface Message {
   id: string
@@ -85,6 +83,9 @@ export interface ActiveRun {
   /** The session that owns this run; events must land there, not in the open tab. */
   sessionId: string
   startedAt: number
+  /** Tokens seen so far, so the closing line can be drawn the moment it ends. */
+  inputTokens?: number
+  outputTokens?: number
 }
 
 interface SessionState {
@@ -97,7 +98,16 @@ interface SessionState {
   activeSessionId: string | null
   activeRuns: Record<string, ActiveRun>
   /** Phone-initiated runs mirrored live here: runId → placeholder message. */
-  mirrorRuns: Record<string, { sessionId: string; messageId: string; startedAt: number }>
+  mirrorRuns: Record<
+    string,
+    {
+      sessionId: string
+      messageId: string
+      startedAt: number
+      inputTokens?: number
+      outputTokens?: number
+    }
+  >
   /** Sessions the user paused; their runs were stopped, resume re-prompts. */
   pausedSessions: Record<string, true>
   /** Next badge-colour index; advances on every session creation. */
@@ -119,7 +129,13 @@ interface SessionState {
   /** Registers a session created elsewhere (the remote phone app). */
   addExternalSession: (spec: SessionSpec) => void
   /** Fills a registered external session with its main-process transcript. */
-  importSnapshot: (sessionId: string, messages: SnapshotMessage[]) => void
+  importSnapshot: (
+    sessionId: string,
+    messages: SnapshotMessage[],
+    summaries?: RunSummary[]
+  ) => void
+  /** Adds a run's token usage to whichever live entry owns it. */
+  addRunTokens: (runId: string, inputTokens: number, outputTokens: number) => void
   /** Puts the closing summary on the newest assistant message (post-import). */
   stampLastSummary: (sessionId: string, summary: RunSummary) => void
   /** Opens a live mirror placeholder for a phone-initiated run; returns its message id. */
@@ -315,7 +331,27 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     }),
 
   // Converts the main-process transcript into renderer message parts.
-  importSnapshot: (sessionId, messages) =>
+  // A run is either the desktop's own or one mirrored from the phone; the
+  // closing line needs its tally either way.
+  addRunTokens: (runId, inputTokens, outputTokens) =>
+    set((state) => {
+      const add = <T extends { inputTokens?: number; outputTokens?: number }>(entry: T): T => ({
+        ...entry,
+        inputTokens: (entry.inputTokens ?? 0) + inputTokens,
+        outputTokens: (entry.outputTokens ?? 0) + outputTokens
+      })
+      const active = state.activeRuns[runId]
+      if (active !== undefined) {
+        return { activeRuns: { ...state.activeRuns, [runId]: add(active) } }
+      }
+      const mirrored = state.mirrorRuns[runId]
+      if (mirrored !== undefined) {
+        return { mirrorRuns: { ...state.mirrorRuns, [runId]: add(mirrored) } }
+      }
+      return state
+    }),
+
+  importSnapshot: (sessionId, messages, summaries = []) =>
     set((state) => ({
       sessions: state.sessions.map((session) => {
         if (session.id !== sessionId) return session
@@ -358,6 +394,12 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             pending: false
           })
         }
+        const turns = converted.filter((message) => message.role === 'assistant')
+        const offset = turns.length - summaries.length
+        turns.forEach((message, index) => {
+          const summary = summaries[index - offset]
+          if (summary !== undefined) message.summary = summary
+        })
         const firstPrompt = converted.find((message) => message.role === 'user')?.parts.find((part) => part.kind === 'text')?.text
         return { ...session, messages: converted, title: session.mode === 'chat' && firstPrompt ? firstPrompt.slice(0, 60) : session.title }
       })

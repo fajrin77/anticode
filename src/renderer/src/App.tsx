@@ -103,8 +103,10 @@ export function App(): JSX.Element {
       for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
       for (const spec of specs) {
         store.addExternalSession(spec)
-        const messages = await window.anticode.getSessionSnapshot(spec.sessionId)
-        if (active && messages !== null && !sessionBusy(spec.sessionId)) store.importSnapshot(spec.sessionId, messages)
+        const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
+        if (active && snapshot !== null && !sessionBusy(spec.sessionId)) {
+          store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
+        }
       }
       for (const run of await window.anticode.listRuns()) {
         if (active && !finishedRuns.current.has(run.runId) && !useSessionStore.getState().activeRuns[run.runId]) store.mirrorStart(run.runId, run.sessionId)
@@ -137,8 +139,10 @@ export function App(): JSX.Element {
       const known = store.sessions.some((session) => session.id === spec.sessionId)
       store.addExternalSession(spec)
       if (known) return
-      void window.anticode.getSessionSnapshot(spec.sessionId).then((messages) => {
-        if (messages !== null && !sessionBusy(spec.sessionId)) useSessionStore.getState().importSnapshot(spec.sessionId, messages)
+      void window.anticode.getSessionSnapshot(spec.sessionId).then((snapshot) => {
+        if (snapshot !== null && !sessionBusy(spec.sessionId)) {
+          useSessionStore.getState().importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
+        }
       })
     })
   }, [])
@@ -180,9 +184,15 @@ export function App(): JSX.Element {
       /** Model label for the closing summary card. */
       const modelOf = (sessionId: string): string =>
         store.sessions.find((session) => session.id === sessionId)?.model ?? ''
-      const summaryOf = (sessionId: string, startedAt: number) => ({
+      const summaryOf = (
+        sessionId: string,
+        startedAt: number,
+        tokens?: { inputTokens?: number; outputTokens?: number }
+      ) => ({
         model: modelOf(sessionId),
-        durationMs: Date.now() - startedAt
+        durationMs: Date.now() - startedAt,
+        inputTokens: tokens?.inputTokens ?? 0,
+        outputTokens: tokens?.outputTokens ?? 0
       })
 
       if (run !== undefined) {
@@ -200,10 +210,11 @@ export function App(): JSX.Element {
             break
           case 'usage':
             store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
+            store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
             break
           case 'error':
             store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
-            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
+            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
             store.setActiveRun(null, event.runId)
             break
           case 'end': {
@@ -212,7 +223,7 @@ export function App(): JSX.Element {
             if (event.reason !== 'complete' && !(event.reason === 'cancelled' && pausedNow)) {
               store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
             }
-            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt))
+            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
             store.setActiveRun(null, event.runId)
             break
           }
@@ -248,11 +259,12 @@ export function App(): JSX.Element {
         }
         case 'usage':
           store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
+          store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
           break
         case 'error': {
           const entry = useSessionStore.getState().mirrorRuns[event.runId]
           const summary =
-            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt) : undefined
+            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined
           store.appendText(
             event.sessionId,
             store.mirrorStart(event.runId, event.sessionId),
@@ -265,7 +277,7 @@ export function App(): JSX.Element {
         case 'end': {
           const entry = useSessionStore.getState().mirrorRuns[event.runId]
           const summary =
-            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt) : undefined
+            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined
           store.mirrorSettle(event.runId, summary)
 
           break

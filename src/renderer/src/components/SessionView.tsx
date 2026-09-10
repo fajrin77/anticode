@@ -220,6 +220,29 @@ function fileStats(parts: MessagePart[]): FileStat[] {
   return [...files.values()]
 }
 
+/** 12,480 → "12,480"; the closing line is read, not parsed. */
+function formatNumber(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+/** What the copy button puts on the clipboard: the reply, then what it cost. */
+function summaryText(message: Message): string {
+  const said = message.parts
+    .map((part) => (part.kind === 'text' ? part.text : ''))
+    .join('')
+    .trim()
+  const summary = message.summary
+  const stats =
+    summary === undefined
+      ? []
+      : [
+          summary.model,
+          formatDuration(summary.durationMs),
+          `${formatNumber(summary.inputTokens + summary.outputTokens)} tokens`
+        ]
+  return [said, stats.join(' · ')].filter((part) => part !== '').join('\n\n')
+}
+
 function RunSummaryCard({
   message,
   open,
@@ -229,6 +252,7 @@ function RunSummaryCard({
   open: boolean
   onToggle: () => void
 }): JSX.Element {
+  const [copied, setCopied] = useState(false)
   const files = fileStats(message.parts)
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
@@ -236,43 +260,81 @@ function RunSummaryCard({
   if (summary === undefined) return <></>
   const { model, durationMs } = summary
   const steps = message.parts.filter((part) => part.kind === 'tool').length
+  const tokens = summary.inputTokens + summary.outputTokens
 
   // A faint, centred footnote rather than a card — hidden until the cursor
   // comes near, so the conversation stays the only thing on stage. Clicking
   // unfolds both the changed files and the run's tool steps.
   return (
     <div className="group mt-2 flex flex-col items-center">
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-[opacity,color] hover:text-brand ${
+      <div
+        className={`flex items-center gap-2 text-[12.5px] text-faint transition-opacity ${
           open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         }`}
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-add" />
-        <span>{model === '' ? 'done' : model}</span>
-        <span>·</span>
-        <span>{formatDuration(durationMs)}</span>
-        {steps > 0 && (
-          <>
-            <span>·</span>
-            <span>
-              {steps} {steps === 1 ? 'step' : 'steps'}
-            </span>
-            <span className="hidden sm:inline">{breakdownOf(message.parts)}</span>
-          </>
-        )}
-        {files.length > 0 && (
-          <>
-            <span>·</span>
-            <span>
-              {files.length} {files.length === 1 ? 'file' : 'files'}
-            </span>
-            {added > 0 && <span className="text-add">+{added}</span>}
-            {removed > 0 && <span className="text-del">−{removed}</span>}
-          </>
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-faint transition-colors hover:text-brand"
+        >
+          <span>{model === '' ? 'done' : model}</span>
+        </button>
+
+        {/* Between the model and its cost, where a reader's eye already is. */}
+        <button
+          type="button"
+          title="Copy this reply"
+          onClick={() => {
+            void navigator.clipboard.writeText(summaryText(message)).then(() => {
+              setCopied(true)
+              window.setTimeout(() => setCopied(false), 1500)
+            })
+          }}
+          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-faint transition-colors hover:text-brand"
+        >
+          {copied ? (
+            <span className="text-[11px]">copied</span>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+              <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" />
+              <path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v6a1.5 1.5 0 0 0 1.5 1.5h.5" />
+            </svg>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-faint transition-colors hover:text-brand"
+        >
+          <span>{formatDuration(durationMs)}</span>
+          {steps > 0 && (
+            <>
+              <span>·</span>
+              <span>
+                {steps} {steps === 1 ? 'step' : 'steps'}
+              </span>
+              <span className="hidden sm:inline">{breakdownOf(message.parts)}</span>
+            </>
+          )}
+          {files.length > 0 && (
+            <>
+              <span>·</span>
+              <span>
+                {files.length} {files.length === 1 ? 'file' : 'files'}
+              </span>
+              {added > 0 && <span className="text-add">+{added}</span>}
+              {removed > 0 && <span className="text-del">−{removed}</span>}
+            </>
+          )}
+          {tokens > 0 && (
+            <>
+              <span>·</span>
+              <span>{formatNumber(tokens)} tokens</span>
+            </>
+          )}
+        </button>
+      </div>
       {open && files.length > 0 && (
         <div className="mt-1 flex flex-col items-center">
           {files.map((file) => (

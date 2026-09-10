@@ -222,6 +222,21 @@ export interface SnapshotMessage {
   blocks: SnapshotBlock[]
 }
 
+/**
+ * What one finished run cost. Recorded in the main process so the desktop and
+ * the phone close a run with the same line, and so it survives a restart —
+ * both used to lose it the moment the transcript was reloaded.
+ *
+ * One summary per assistant turn, in order: a run that never got a response
+ * records none, which is exactly what keeps the two lists aligned.
+ */
+export interface RunSummary {
+  model: string
+  durationMs: number
+  inputTokens: number
+  outputTokens: number
+}
+
 export interface AnticodeApi {
   getRemoteStatus: () => Promise<RemoteStatus>
   setRemoteEnabled: (enabled: boolean) => Promise<RemoteStatus>
@@ -231,7 +246,9 @@ export interface AnticodeApi {
   onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
   /** Fires when a session is deleted from the remote phone. */
   onSessionClosed: (listener: (sessionId: string) => void) => () => void
-  getSessionSnapshot: (sessionId: string) => Promise<SnapshotMessage[] | null>
+  getSessionSnapshot: (
+    sessionId: string
+  ) => Promise<{ messages: SnapshotMessage[]; summaries: RunSummary[] } | null>
   listSessions: () => Promise<SessionSpec[]>
   releaseAttachments: (ids: string[]) => Promise<void>
   pendingApprovals: () => Promise<ApprovalRequest[]>

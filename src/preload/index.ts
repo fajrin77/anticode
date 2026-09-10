@@ -12,6 +12,7 @@ import type {
   ModelCatalogue,
   RemoteStatus,
   RoutedAgentEvent,
+  RunSummary,
   SnapshotMessage,
   ProviderId,
   ProviderInfo,
@@ -54,7 +55,10 @@ const api: AnticodeApi = {
   onSessionClosed: (listener: (sessionId: string) => void) =>
     subscribe<string>(IpcChannel.SESSION_CLOSED, listener),
   getSessionSnapshot: (sessionId: string) =>
-    ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<SnapshotMessage[] | null>,
+    ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<{
+      messages: SnapshotMessage[]
+      summaries: RunSummary[]
+    } | null>,
   setRemoteEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.REMOTE_SET, enabled) as Promise<RemoteStatus>,
   regenerateRemoteToken: () =>

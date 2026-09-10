@@ -216,7 +216,9 @@ try {
   await composer().fill('draft')
   await limeOnHover('session: send arrow', window.getByRole('button',{name:'Send'}))
   await composer().fill('')
-  await limeOnHover('transcript: run summary', window.locator('button:has(span.bg-add)'))
+  await limeOnHover('transcript: run summary',
+    window.locator('div.group > div button').filter({ hasText: 'test-model' }))
+  await limeOnHover('transcript: copy button', window.getByTitle('Copy this reply'))
   await shot('17-lime-session')
 
   await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
@@ -297,6 +299,29 @@ try {
       .filter((p) => p.kind === 'text' && p.text.startsWith('Lanjutkan pekerjaan')).length)
   check('resume: the continuation paragraph stays out of the transcript', typed === 0 ? 'hidden' : 'shown', 'hidden')
   await shot('21-resume-marker')
+
+  // The line that closes a run: model, copy, how long, what it cost — no dot.
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await composer().fill('ringkasan'); await composer().press('Enter')
+  await window.getByText(/Fixture reply: ringkasan/).waitFor(); await window.waitForTimeout(500)
+  const closing = window.locator('div.group > div').filter({ hasText: 'test-model' }).last()
+  const parts = await closing.evaluate((el) => el.textContent)
+  check('closing line names the model first', parts.startsWith('test-model') ? 'model' : parts.slice(0,20), 'model')
+  check('closing line reports tokens', /\d+ tokens/.test(parts) ? 'reported' : parts, 'reported')
+  check('closing line has no status dot', await closing.locator('span.bg-add').count(), 0)
+  const copyButton = closing.getByTitle('Copy this reply')
+  check('closing line offers a copy button', await copyButton.count(), 1)
+  check('the copy button sits between the model and the timing',
+    await closing.evaluate((el) => {
+      const kids = [...el.children]
+      return kids.findIndex((k) => k.getAttribute('title') === 'Copy this reply') === 1 ? 'between' : 'elsewhere'
+    }), 'between')
+  await copyButton.click(); await window.waitForTimeout(300)
+  const clipped = await window.evaluate(() => navigator.clipboard.readText())
+  check('copying yields the reply and its cost',
+    clipped.includes('Fixture reply: ringkasan') && /\d+ tokens/.test(clipped) ? 'both' : clipped.slice(0,40), 'both')
+  await shot('22-closing-line')
 
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }

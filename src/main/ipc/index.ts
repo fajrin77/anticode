@@ -27,6 +27,7 @@ import {
   listSessionSpecs,
   sessionWorkspaceRoot,
   loadSessionMessages,
+  loadSessionSummaries,
   policy,
   resetProviderSelection,
   selectProvider,
@@ -227,9 +228,12 @@ export function registerIpcHandlers(): void {
     createSession(spec)
   })
 
-  ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) =>
-    loadSessionMessages(sessionId)
-  )
+  ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) => {
+    const messages = loadSessionMessages(sessionId)
+    return messages === null
+      ? null
+      : { messages, summaries: loadSessionSummaries(sessionId) }
+  })
 
   setOnSessionCreated((spec) => {
     for (const window of BrowserWindow.getAllWindows()) {

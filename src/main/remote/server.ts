@@ -19,6 +19,7 @@ import {
   getStatus,
   listSessionSummaries,
   loadSessionMessages,
+  loadSessionSummaries,
   selectProvider,
   sessionWorkspaceRoot
 } from '../runtime'
@@ -206,7 +207,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (req.method === 'GET' && sessionMatch !== null) {
       const messages = loadSessionMessages(sessionMatch[1] ?? '')
       if (messages === null) return json(res, 404, { error: 'Unknown session' })
-      return json(res, 200, { messages, runId: runForSession(sessionMatch[1] ?? '') })
+      return json(res, 200, {
+        messages,
+        summaries: loadSessionSummaries(sessionMatch[1] ?? ''),
+        runId: runForSession(sessionMatch[1] ?? '')
+      })
     }
 
     if (req.method === 'DELETE' && sessionMatch !== null) {

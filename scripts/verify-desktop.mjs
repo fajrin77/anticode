@@ -143,6 +143,18 @@ try {
   await window.evaluate((id)=>window.anticode.closeSession(id), doomed)
   assert.equal((await api('/api/approvals?sessionId='+doomed)).exists, false)
   log('a session deleted on the desktop stops reporting itself to the phone')
+
+  // What a run cost is recorded in the main process, so the desktop and the
+  // phone close a run with the same line — and so a reload keeps it.
+  const summarised = await api('/api/session/'+sessionId)
+  assert(Array.isArray(summarised.summaries) && summarised.summaries.length > 0)
+  const last = summarised.summaries.at(-1)
+  assert.equal(typeof last.model, 'string')
+  assert(last.durationMs >= 0)
+  assert(last.inputTokens + last.outputTokens > 0)
+  const turns = summarised.messages.filter(m=>m.role==='assistant').length
+  assert(summarised.summaries.length <= turns)
+  log('a finished run records what it cost, for both viewers')
   const before = await api('/api/session/'+sessionId)
   assert(before.messages.length>0)
   await window.reload()
@@ -163,8 +175,9 @@ try {
   const specs = await window.evaluate(()=>window.anticode.listSessions())
   const first = await window.evaluate(async (ids) => {
     for (const spec of ids) {
-      const messages = await window.anticode.getSessionSnapshot(spec.sessionId)
-      if (messages?.some(m=>m.blocks.some(b=>b.type==='text' && b.text==='desktop-first'))) return messages
+      const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
+      const messages = snapshot?.messages ?? []
+      if (messages.some(m=>m.blocks.some(b=>b.type==='text' && b.text==='desktop-first'))) return messages
     }
     return []
   }, specs)
@@ -179,6 +192,21 @@ try {
   await window.getByText('Fixture reply: desktop-first',{exact:true}).waitFor()
   await window.getByText('Fixture reply: after model switch',{exact:true}).waitFor()
   log('full app restart restores sessions and conversation history')
+  // The closing line used to vanish on reload, because only the renderer knew
+  // what a run had cost. It is written down now, so it comes back too.
+  const restored = await window.evaluate(async () => {
+    const specs = await window.anticode.listSessions()
+    for (const spec of specs) {
+      const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
+      if ((snapshot?.summaries ?? []).length > 0) return snapshot.summaries
+    }
+    return []
+  })
+  assert(restored.length > 0)
+  assert(restored.every(s=>typeof s.model==='string' && typeof s.durationMs==='number' && s.inputTokens+s.outputTokens>0))
+  const shown = await window.evaluate(()=>window.__store.getState().sessions.flatMap(s=>s.messages).filter(m=>m.summary!==undefined).length)
+  assert(shown > 0)
+  log('a restart brings the closing line back with the transcript')
   assert.deepEqual(errors,[])
   log('no renderer exceptions')
   console.log(JSON.stringify({directory,workspace,remoteUrl:`http://127.0.0.1:18680/?token=${remote.token}`,calls}))
