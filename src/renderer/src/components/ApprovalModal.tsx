@@ -41,7 +41,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
   return (
     <div className="shrink-0 px-10 pb-3">
-      <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
+      <div className="glass-surface mx-auto max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl">
         <header className="flex items-baseline gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">{request.toolName}</span>
           <span
@@ -98,7 +98,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           <button
             type="button"
             onClick={() => onDecide('approve')}
-            className="rounded-md bg-hover px-4 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand"
+            className="glass-control rounded-md border px-4 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand"
           >
             Approve
           </button>

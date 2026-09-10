@@ -418,7 +418,7 @@ try {
   check('settings: a switch that is on is lime', await trackOf(), LIME)
   await shot('18-lime-settings')
   await toggle.click(); await window.waitForTimeout(300)
-  check('settings: a switch that is off is grey', await trackOf(), 'rgb(46, 46, 46)')
+  check('settings: an off switch uses translucent neutral glass', await trackOf(), 'rgba(46, 46, 46, 0.48)')
 
   // Pausing and resuming are the app talking about itself: a grey line on the
   // left in the same voice a tool group uses — never a bubble on the right,

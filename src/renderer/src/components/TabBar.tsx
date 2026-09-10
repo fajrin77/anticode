@@ -38,8 +38,8 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
         type="button"
         onClick={() => setOpen((value) => !value)}
         title="Session usage"
-        className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-          open ? 'bg-raised text-brand' : 'text-dim hover:bg-raised hover:text-brand'
+        className={`glass-control flex h-7 w-7 items-center justify-center rounded-md border transition-colors hover:text-brand ${
+          open ? 'text-brand' : 'text-dim'
         }`}
       >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
@@ -50,7 +50,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 z-20 mt-1 w-96 rounded-xl border border-line bg-raised p-4 shadow-2xl">
+        <div className="glass-surface absolute top-full right-0 z-20 mt-1 w-96 rounded-xl border border-line p-4 shadow-2xl">
           <div className="mb-1 text-[13px] text-text">Session usage</div>
           <div className="mb-2 truncate text-[11.5px] text-faint">{session.title}</div>
           <div className="grid grid-cols-2 gap-x-6 border-t border-line-soft pt-2">
@@ -106,7 +106,7 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
       title={shown ? 'Hide browser' : 'Show browser'}
       aria-pressed={shown}
       data-browser-toggle
-      className={`region-no-drag flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand ${
+      className={`glass-control region-no-drag flex h-7 w-7 items-center justify-center rounded-md border transition-colors hover:text-brand ${
         shown ? 'text-brand' : 'text-dim'
       }`}
     >
@@ -176,13 +176,13 @@ export function TabBar({
   }
 
   return (
-    <header className="region-drag flex h-12 shrink-0 items-center gap-1.5 pr-3 pl-20">
+    <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-1.5 pr-3 pl-20">
       <button
         type="button"
         onClick={onDashboard}
         title="Dashboard"
         aria-pressed={dashboardActive}
-        className={`region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand ${
+        className={`glass-control region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors hover:text-brand ${
           dashboardActive ? 'text-brand' : 'text-faint'
         }`}
       >
@@ -198,8 +198,8 @@ export function TabBar({
           return (
             <div
               key={session.id}
-              className={`region-no-drag group flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3 transition-colors ${
-                isActive ? 'bg-hover' : 'hover:bg-raised'
+              className={`region-no-drag group glass-tab flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3 transition-colors ${
+                isActive ? 'glass-control' : 'hover:border-white/10 hover:text-brand'
               }`}
             >
               <Badge
@@ -233,7 +233,7 @@ export function TabBar({
           type="button"
           onClick={onNewTab}
           aria-label="New tab"
-          className="region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-brand"
+          className="glass-control region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-faint transition-colors hover:text-brand"
         >
           +
         </button>
@@ -249,7 +249,7 @@ export function TabBar({
           onClick={onOpenSettings}
           title="Settings"
           aria-pressed={settingsActive}
-          className={`region-no-drag flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand ${
+          className={`glass-control region-no-drag flex h-7 w-7 items-center justify-center rounded-md border transition-colors hover:text-brand ${
             settingsActive ? 'text-brand' : 'text-dim'
           }`}
         >

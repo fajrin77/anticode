@@ -29,7 +29,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (value: boolean) => v
       role="switch"
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-brand' : 'bg-hover'}`}
+      className={`h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-brand' : 'glass-control border'}`}
     >
       {/* On the lime track the knob goes dark: white on lime is all but
           invisible, and dark-on-lime is what every other lime control does. */}
@@ -81,7 +81,7 @@ function General({
     <>
       <h1 className="mb-6 text-[19px] text-text">General</h1>
 
-      <div className="mb-8 overflow-hidden rounded-xl border border-line">
+      <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
         <SettingRow
           title="Auto-accept permissions"
           hint="All tool calls run without asking — file edits, shell, everything"
@@ -146,7 +146,7 @@ function Providers({
   }
 
   const inputClass =
-    'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover'
+    'glass-field w-full rounded-lg border border-line px-3 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover'
 
   return (
     <>
@@ -157,13 +157,13 @@ function Providers({
         <button
           type="button"
           onClick={() => setAdding((value) => !value)}
-          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+          className="glass-control flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:text-brand"
         >
           + Add provider
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-line">
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
         {providers.map((provider) => {
           const active = provider.id === status?.provider
           const custom = provider.id.startsWith('custom:')
@@ -202,7 +202,7 @@ function Providers({
       </div>
 
       {adding && (
-        <div className="mt-4 rounded-xl border border-line p-4">
+        <div className="glass-surface mt-4 rounded-xl border border-line p-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="col-span-2">
               <span className="mb-1 block text-[12px] text-faint">Name</span>
@@ -227,7 +227,7 @@ function Providers({
                     type="button"
                     onClick={() => setKind(option.value)}
                     className={`flex-1 rounded-md px-2 py-1.5 text-[12.5px] transition-colors ${
-                      kind === option.value ? 'bg-hover text-text' : 'text-dim hover:text-brand'
+                      kind === option.value ? 'glass-control text-text' : 'text-dim hover:text-brand'
                     }`}
                   >
                     {option.label}
@@ -276,7 +276,7 @@ function Providers({
               type="button"
               onClick={add}
               disabled={!valid}
-              className="rounded-lg bg-hover px-4 py-2 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+              className="glass-control rounded-lg border px-4 py-2 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
             >
               Add provider
             </button>
@@ -321,10 +321,10 @@ function Models({
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search models"
-        className="mb-4 w-full rounded-lg border border-line bg-surface px-4 py-2.5 text-[13.5px] text-text outline-none placeholder:text-faint focus:border-hover"
+        className="glass-field mb-4 w-full rounded-lg border border-line px-4 py-2.5 text-[13.5px] text-text outline-none placeholder:text-faint focus:border-hover"
       />
 
-      <div className="overflow-hidden rounded-xl border border-line">
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
         {matches.map((id) => {
           const active = id === status?.model
           return (
@@ -333,7 +333,7 @@ function Models({
               type="button"
               onClick={() => onSelectProvider(provider, id)}
               className={`group flex w-full items-center gap-3 border-b border-line-soft px-5 py-3.5 text-left transition-colors last:border-b-0 ${
-                active ? 'bg-raised' : 'hover:bg-raised'
+                active ? 'glass-control' : 'hover:bg-raised'
               }`}
             >
               <span
@@ -387,7 +387,7 @@ function Remote(): JSX.Element {
       <h1 className="mb-6 text-[19px] text-text">Remote</h1>
       {remote?.error && <p role="alert" className="mb-4 text-del">{remote.error}</p>}
 
-      <div className="overflow-hidden rounded-xl border border-line">
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
         <SettingRow
           title="Remote access"
           hint="Control anticode from a phone browser on the same Wi-Fi"
@@ -399,7 +399,7 @@ function Remote(): JSX.Element {
       {remote?.enabled === true && remote.url !== null && (
         <>
           <h2 className="mb-3 mt-8 text-[14px] text-text">Pairing</h2>
-          <div className="rounded-xl border border-line p-4">
+          <div className="glass-surface rounded-xl border border-line p-4">
             <div className="flex items-start gap-4">
               {qr !== null && (
                 <img
@@ -415,7 +415,7 @@ function Remote(): JSX.Element {
                   Scan the QR code with the phone camera, or open this URL — then use “Add to
                   Home Screen” for an app-like icon:
                 </div>
-                <div className="mb-3 break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12px] text-text select-all">
+                <div className="glass-field mb-3 break-all rounded-lg border px-3 py-2 font-mono text-[12px] text-text select-all">
                   {remote.url}
                 </div>
                 <div className="flex gap-2">
@@ -427,7 +427,7 @@ function Remote(): JSX.Element {
                         window.setTimeout(() => setCopied(false), 1500)
                       })
                     }}
-                    className="rounded-lg bg-hover px-3 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand"
+                    className="glass-control rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand"
                   >
                     {copied ? 'Copied' : 'Copy URL'}
                   </button>
@@ -507,7 +507,7 @@ export function SettingsView({
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-line-soft px-3 pt-8 pb-6">
+      <aside className="glass-surface flex w-56 shrink-0 flex-col border-r border-line-soft px-3 pt-8 pb-6">
         <div className="mb-4 px-3 text-[12px] text-faint">Desktop</div>
         <nav className="flex flex-col gap-0.5">
           {items.map((item) => (
@@ -516,7 +516,7 @@ export function SettingsView({
               type="button"
               onClick={() => setSection(item.id)}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] transition-colors ${
-                section === item.id ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-brand'
+                section === item.id ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
               }`}
             >
               {item.icon}

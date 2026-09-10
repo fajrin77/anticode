@@ -71,7 +71,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-brand'
+        active ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
       }`}
     >
       {children}
@@ -398,7 +398,7 @@ export function Composer({
   return (
     <div
       ref={layerRef}
-      className={hero ? 'shrink-0 px-10' : 'absolute inset-x-0 bottom-0 z-20 px-10 pb-3'}
+      className={hero ? 'shrink-0 px-10' : 'absolute inset-x-0 bottom-0 z-20 px-10 pb-6'}
     >
       {viewing !== null && (
         <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />
@@ -427,7 +427,7 @@ export function Composer({
           )}
 
           {menu === 'mode' && (
-            <div className="absolute bottom-full left-3 mb-2 w-72 rounded-lg border border-line bg-raised p-1.5 shadow-2xl">
+            <div className="glass-surface absolute bottom-full left-3 mb-2 w-72 rounded-lg border border-line p-1.5 shadow-2xl">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
                 { value: true, name: 'Auto', hint: 'Run everything without asking' }
@@ -549,7 +549,7 @@ export function Composer({
               type="button"
               title="Attach files"
               onClick={() => void collect(window.anticode.chooseAttachments())}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-brand"
+              className="glass-control flex h-7 w-7 items-center justify-center rounded-md border text-dim transition-colors hover:text-brand"
             >
               +
             </button>
@@ -655,7 +655,7 @@ export function Composer({
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                 resuming
                   ? 'bg-brand text-bg hover:bg-brand-strong'
-                  : 'bg-hover text-text hover:bg-[#3a3a3a] hover:text-brand'
+                  : 'glass-control border text-text hover:text-brand'
               }`}
             >
               {resuming ? (

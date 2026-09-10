@@ -33,7 +33,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-brand'
+        active ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
       }`}
     >
       {children}
@@ -199,7 +199,7 @@ function DashboardComposer({
           )}
 
           {menu === 'mode' && (
-            <div className="absolute bottom-full left-3 mb-2 w-72 rounded-lg border border-line bg-raised p-1.5 shadow-2xl">
+            <div className="glass-surface absolute bottom-full left-3 mb-2 w-72 rounded-lg border border-line p-1.5 shadow-2xl">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
                 { value: true, name: 'Auto', hint: 'Skip prompts for medium risk' }
@@ -278,7 +278,7 @@ function DashboardComposer({
               type="button"
               title="Attach files"
               onClick={() => collect(window.anticode.chooseAttachments())}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-brand"
+              className="glass-control flex h-7 w-7 items-center justify-center rounded-md border text-dim transition-colors hover:text-brand"
             >
               +
             </button>
@@ -307,7 +307,7 @@ function DashboardComposer({
                 (!ready && !(status?.providerReady === true && mode === 'code' && folder === null))
               }
               aria-label={sending ? 'Sending' : 'Send'}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+              className="glass-control flex h-8 w-8 items-center justify-center rounded-lg border text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
             >
               {sending ? (
                 <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
@@ -391,7 +391,7 @@ function SessionColumn({
   return (
     <div className="min-w-0">
       <div className="mb-2 px-3 text-[12.5px] text-dim">{title}</div>
-      <div className="max-h-60 overflow-y-auto rounded-xl border border-line-soft">
+      <div className="glass-surface max-h-60 overflow-y-auto rounded-xl border border-line-soft">
         {visible.length === 0 ? (
           <p className="px-3 py-3 text-[12px] text-faint">No sessions yet</p>
         ) : (
@@ -461,7 +461,7 @@ export function NewSessionView({
         setQuery('')
       }}
       title="Search sessions"
-      className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
+      className={`glass-control flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
         searchOpen ? 'border-dim text-brand' : 'border-line text-dim hover:text-brand'
       }`}
     >
@@ -506,7 +506,7 @@ export function NewSessionView({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search sessions"
-            className="w-full rounded-lg border border-line bg-surface px-4 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover"
+            className="glass-field w-full rounded-lg border border-line px-4 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover"
           />
         </div>
       )}

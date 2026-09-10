@@ -43,7 +43,7 @@ export function ModelPicker({
   const typedIsNew = query.trim() !== '' && !matches.includes(query.trim())
 
   return (
-    <div className="absolute bottom-full left-3 z-20 mb-2 flex max-h-64 w-72 flex-col overflow-hidden rounded-lg border border-line bg-raised shadow-2xl">
+    <div className="glass-surface absolute bottom-full left-3 z-20 mb-2 flex max-h-64 w-72 flex-col overflow-hidden rounded-lg border border-line shadow-2xl">
       {providers.length > 1 && (
         <div className="flex flex-wrap gap-0.5 border-b border-line-soft p-1.5">
           {providers.map((entry) => (

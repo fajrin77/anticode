@@ -281,8 +281,8 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
           {entry.tabs.map((tab) => (
             <div
               key={tab.id}
-              className={`group flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-2 transition-colors ${
-                tab.id === activeId ? 'bg-hover' : 'hover:bg-raised'
+              className={`glass-tab group flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-2 transition-colors ${
+                tab.id === activeId ? 'glass-control' : 'hover:border-white/10'
               }`}
             >
               <button
@@ -309,7 +309,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
             type="button"
             onClick={() => void window.anticode.addWebTab(sessionId)}
             aria-label="New tab"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-brand"
+            className="glass-control flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-faint transition-colors hover:text-brand"
           >
             +
           </button>
@@ -360,7 +360,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
               }
             }}
             aria-label="Address"
-            className="min-w-0 flex-1 rounded-md bg-raised px-2.5 py-1 font-mono text-[12px] text-dim transition-colors outline-none placeholder:text-faint focus:text-text"
+            className="glass-field min-w-0 flex-1 rounded-md border px-2.5 py-1 font-mono text-[12px] text-dim transition-colors outline-none placeholder:text-faint focus:text-text"
           />
 
           <IconButton
