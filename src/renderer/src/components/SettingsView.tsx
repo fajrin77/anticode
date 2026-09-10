@@ -68,24 +68,11 @@ function Tag({ children }: { children: string }): JSX.Element {
 
 function General({
   status,
-  appInfo,
   onToggleAutoApprove
 }: {
   status: SessionStatus | null
-  appInfo: AppInfo | null
   onToggleAutoApprove: (enabled: boolean) => void
 }): JSX.Element {
-  /* rows below */
-  const rows: [string, string][] = appInfo
-    ? [
-        ['Version', appInfo.version],
-        ['Electron', appInfo.electron],
-        ['Node', appInfo.node],
-        ['Platform', appInfo.platform],
-        ['Workspace', status?.workspaceRoot ?? 'not selected']
-      ]
-    : [['Workspace', status?.workspaceRoot ?? 'not selected']]
-
   return (
     <>
       <h1 className="mb-6 text-[19px] text-text">General</h1>
@@ -103,19 +90,6 @@ function General({
         <SettingRow title="Model" hint="Model used for new turns in every session">
           <span className="font-mono text-[12.5px]">{status?.model || 'not set'}</span>
         </SettingRow>
-      </div>
-
-      <h2 className="mb-3 text-[15px] text-text">Runtime</h2>
-      <div className="overflow-hidden rounded-xl border border-line">
-        {rows.map(([label, value]) => (
-          <div
-            key={label}
-            className="flex items-baseline justify-between gap-6 border-b border-line-soft px-5 py-3 last:border-b-0"
-          >
-            <span className="text-[12.5px] text-faint">{label}</span>
-            <span className="min-w-0 truncate font-mono text-[12.5px] text-dim">{value}</span>
-          </div>
-        ))}
       </div>
     </>
   )
@@ -580,7 +554,7 @@ export function SettingsView({
       <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10">
         <div className="mx-auto max-w-2xl">
           {section === 'general' && (
-            <General status={status} appInfo={appInfo} onToggleAutoApprove={onToggleAutoApprove} />
+            <General status={status} onToggleAutoApprove={onToggleAutoApprove} />
           )}
           {section === 'providers' && (
             <Providers
