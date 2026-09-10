@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 
 /**
@@ -39,6 +40,60 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
 
   if (cursor < text.length) nodes.push(text.slice(cursor))
   return nodes
+}
+
+function CopyButton({ text, label }: { text: string; label: string }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      title={label}
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1500)
+        })
+      }}
+      className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11.5px] text-faint transition-colors hover:text-brand"
+    >
+      {copied ? (
+        'copied'
+      ) : (
+        <>
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+            <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" />
+            <path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v6a1.5 1.5 0 0 0 1.5 1.5h.5" />
+          </svg>
+          Copy
+        </>
+      )}
+    </button>
+  )
+}
+
+/**
+ * Text the model wrote to be used elsewhere — a prompt it drafted, a block of
+ * code — set apart from its own prose: the same mono face the model name wears
+ * in the composer, in a panel with a copy control at each end, so a long block
+ * can be copied without scrolling back to find the button.
+ */
+function PromptBlock({ text, label }: { text: string; label: string }): JSX.Element {
+  return (
+    <div className="my-3">
+      <div className="mb-1 flex items-center gap-2 px-1">
+        <span className="text-[11px] tracking-wide text-faint uppercase">{label}</span>
+        <div className="flex-1" />
+        <CopyButton text={text} label={`Copy this ${label.toLowerCase()}`} />
+      </div>
+      <pre className="overflow-x-auto rounded-lg border border-line bg-surface px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text">
+        {text}
+      </pre>
+      <div className="mt-1 flex px-1">
+        <div className="flex-1" />
+        <CopyButton text={text} label={`Copy this ${label.toLowerCase()}`} />
+      </div>
+    </div>
+  )
 }
 
 function cells(row: string): string[] {
@@ -102,15 +157,38 @@ export function RichText({ text }: { text: string }): JSX.Element {
         index += 1
       }
       index += 1
+      const language = line.trim().slice(3).trim()
       blocks.push(
-        <pre
+        <PromptBlock
           key={key}
-          className="my-2 overflow-x-auto rounded-lg border border-line bg-surface px-4 py-3 font-mono text-[12.5px] leading-relaxed text-dim"
-        >
-          {body.join('\n')}
-        </pre>
+          text={body.join('\n')}
+          label={language === '' ? 'Code' : language}
+        />
       )
       continue
+    }
+
+    // A prompt the model drafted for the user to take away: a whole paragraph
+    // wrapped in quotes, rather than a quoted phrase inside a sentence.
+    if (/^\s*["\u201c]/.test(line)) {
+      const paragraph: string[] = []
+      let scan = index
+      while (scan < lines.length && (lines[scan] ?? '').trim() !== '') {
+        paragraph.push(lines[scan] ?? '')
+        scan += 1
+      }
+      const joined = paragraph.join('\n').trim()
+      if (/["\u201d]$/.test(joined) && joined.length > 60) {
+        index = scan
+        blocks.push(
+          <PromptBlock
+            key={key}
+            text={joined.replace(/^["\u201c]/, '').replace(/["\u201d]$/, '').trim()}
+            label="Prompt"
+          />
+        )
+        continue
+      }
     }
 
     if (line.trimStart().startsWith('|') && isSeparator(lines[index + 1] ?? '')) {

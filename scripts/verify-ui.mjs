@@ -377,6 +377,38 @@ try {
   check('reverting removes the turn from the transcript', gone ? 'still there' : 'gone', 'gone')
   await shot('24-reverted')
 
+  // A prompt the model drafted reads as a panel in the mono face, with a copy
+  // control above and below it — not as another paragraph of prose.
+  // Into a real session view, so the transcript is on screen to render into.
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
+  await window.locator('header .group button').first().click(); await window.waitForTimeout(400)
+  await window.evaluate(() => {
+    const store = window.__store.getState()
+    store.addMessage({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'text', text:
+      'Berikut contoh prompt untuk membuat foto Gunung Everest 4K:\n\n' +
+      '"Ultra-realistic photograph of Mount Everest at 4K resolution, majestic snow-capped peak ' +
+      'touching a clear blue sky, golden hour sunlight hitting the summit, National Geographic style"\n\n' +
+      'Catatan: saya hanya mode tanya-jawab.' }], pending: false })
+  })
+  await window.waitForTimeout(400)
+  const panel = window.locator('pre').filter({ hasText: 'Ultra-realistic photograph' })
+  check('a drafted prompt gets its own panel', await panel.count(), 1)
+  const face = await panel.evaluate((el) => getComputedStyle(el).fontFamily)
+  const chipFace = await window.locator('span.font-mono').first().evaluate((el) => getComputedStyle(el).fontFamily)
+  check('the panel wears the model-name face', face === chipFace ? 'same' : `${face} vs ${chipFace}`, 'same')
+  check('the quotes are stripped from the panel',
+    (await panel.textContent()).trim().startsWith('Ultra-realistic') ? 'stripped' : 'kept', 'stripped')
+  const block = window.locator('div').filter({ has: panel }).last()
+  check('a copy control sits above and below the panel',
+    await block.getByRole('button',{name:/Copy/}).count(), 2)
+  check('the prose around it stays prose',
+    await window.getByText('Berikut contoh prompt untuk membuat foto Gunung Everest 4K:').count(), 1)
+  await block.getByRole('button',{name:/Copy/}).first().click(); await window.waitForTimeout(300)
+  const copiedPrompt = await window.evaluate(() => navigator.clipboard.readText())
+  check('copying yields the prompt without its quotes',
+    copiedPrompt.startsWith('Ultra-realistic') && copiedPrompt.endsWith('style') ? 'clean' : copiedPrompt.slice(0,30), 'clean')
+  await shot('25-prompt-panel')
+
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})

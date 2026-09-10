@@ -136,6 +136,27 @@
     color: #6d6d6d; padding: 2px 4px; font-size: 12.5px; line-height: 1;
   }
   .runsum .copy:active, .runsum:hover .copy:hover { color: #d1fa22; }
+  /* Text the model wrote to be used elsewhere — a drafted prompt, a block of
+     code — in the same mono face the model name wears, with a copy control at
+     each end so a long block needs no scrolling back. */
+  .promptblock { margin: 12px 0; }
+  .promptblock .pbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 4px; }
+  .promptblock .pbar.bottom { padding: 4px 2px 0; }
+  .promptblock .plabel {
+    flex: 1; min-width: 0; color: #6d6d6d; font-size: 11px;
+    letter-spacing: .06em; text-transform: uppercase;
+  }
+  .promptblock .pcopy {
+    flex: none; background: none; border: none; color: #6d6d6d; font-size: 12px;
+    padding: 2px 6px;
+  }
+  .promptblock .pcopy:active { color: #d1fa22; }
+  .promptblock pre {
+    margin: 0; overflow-x: auto; background: #202020; border: 1px solid #303030;
+    border-radius: 10px; padding: 10px 12px; color: #ededed;
+    font: 12.5px/1.6 ui-monospace, Menlo, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -708,8 +729,59 @@ function badgeFor(s) {
 
 /* Lightweight markdown so the phone reads like the desktop: **bold**, `code`
  * as plain mono (no purple chip), and # headings demoted to bold lines. */
+function copyBar(text, label, bottom) {
+  const bar = document.createElement('div');
+  bar.className = bottom ? 'pbar bottom' : 'pbar';
+  const name = document.createElement('span');
+  name.className = 'plabel';
+  name.textContent = bottom ? '' : label;
+  const button = document.createElement('button');
+  button.className = 'pcopy';
+  button.textContent = 'Copy';
+  button.onclick = () => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      button.textContent = 'copied';
+      setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+    }).catch(() => { button.textContent = 'Copy'; });
+  };
+  bar.append(name, button);
+  return bar;
+}
+
+function appendPromptBlock(parent, text, label) {
+  const box = document.createElement('div');
+  box.className = 'promptblock';
+  const body = document.createElement('pre');
+  body.textContent = text;
+  box.append(copyBar(text, label, false), body, copyBar(text, label, true));
+  parent.appendChild(box);
+}
+
 function appendRichText(parent, text) {
-  for (const line of text.split('\n')) {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // A fenced block, or a whole paragraph in quotes: a prompt the model wrote
+    // out to be taken away, not prose to read.
+    if (line.trimStart().startsWith('```')) {
+      const body = [];
+      const language = line.trim().slice(3).trim();
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith('```')) { body.push(lines[i]); i++; }
+      appendPromptBlock(parent, body.join('\n'), language === '' ? 'Code' : language);
+      continue;
+    }
+    if (/^\s*["\u201c]/.test(line)) {
+      const paragraph = [];
+      let scan = i;
+      while (scan < lines.length && lines[scan].trim() !== '') { paragraph.push(lines[scan]); scan++; }
+      const joined = paragraph.join('\n').trim();
+      if (/["\u201d]$/.test(joined) && joined.length > 60) {
+        i = scan - 1;
+        appendPromptBlock(parent, joined.replace(/^["\u201c]/, '').replace(/["\u201d]$/, '').trim(), 'Prompt');
+        continue;
+      }
+    }
     const row = document.createElement('div');
     const heading = line.match(/^#{1,6}\s+(.*)$/);
     const content = heading !== null ? heading[1] : line;
