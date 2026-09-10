@@ -12,6 +12,10 @@ export const IpcChannel = {
   SESSION_CLOSE: 'session:close',
   ATTACH_CHOOSE: 'attachment:choose',
   ATTACH_ADD: 'attachment:add',
+  ATTACH_OPEN: 'attachment:open',
+  ATTACH_DATA: 'attachment:data',
+  ARTIFACT_OPEN: 'artifact:open',
+  ARTIFACT_SAVE: 'artifact:save',
   RUN_LIST: 'agent:runs',
   AGENT_SEND: 'agent:send',
   AGENT_CANCEL: 'agent:cancel',
@@ -138,14 +142,24 @@ export interface SessionStatus {
  */
 export type AttachmentKind = 'image' | 'text' | 'excel' | 'docx' | 'pdf' | 'binary'
 
-export interface AttachmentInfo {
-  id: string
+/**
+ * What every viewer needs to draw an attachment: its name, its kind, and a
+ * small picture for images. Rides in the transcript so a reopened session
+ * still shows the files that were sent, not just their names.
+ */
+export interface AttachmentRef {
   name: string
   path: string
   /** Set when the file sits inside the workspace, so tools can reach it too. */
   workspacePath: string | null
   kind: AttachmentKind
   size: number
+  /** Small data: URL for images; null for every other kind. */
+  thumbnail: string | null
+}
+
+export interface AttachmentInfo extends AttachmentRef {
+  id: string
   preview: string
 }
 
@@ -161,7 +175,7 @@ export type AgentEndReason = 'complete' | 'cancelled' | 'max_tokens' | 'refusal'
 export type AgentEvent =
   /** Emitted by the routing layer before the run starts, so every viewer sees
    * the prompt the moment it is sent — never only after the turn ends. */
-  | { type: 'prompt'; runId: string; text: string }
+  | { type: 'prompt'; runId: string; text: string; attachments?: AttachmentRef[] }
   | { type: 'text_delta'; runId: string; text: string }
   | { type: 'tool_start'; runId: string; toolUseId: string; name: string; input: unknown }
   | {
@@ -199,6 +213,7 @@ export interface RemoteStatus {
 
 export type SnapshotBlock =
   | { type: 'text'; text: string }
+  | { type: 'attachment'; attachment: AttachmentRef }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }
 
@@ -234,6 +249,14 @@ export interface AnticodeApi {
   closeSession: (sessionId: string) => Promise<void>
   chooseAttachments: () => Promise<AttachmentInfo[]>
   addAttachments: (paths: string[]) => Promise<AttachmentInfo[]>
+  /** Attaches bytes that have no file of their own — a pasted screenshot. */
+  addAttachmentData: (name: string, base64: string) => Promise<AttachmentInfo[]>
+  /** Opens an attachment in whatever app the OS associates with it. */
+  openAttachment: (path: string) => Promise<string | null>
+  /** Opens a file the agent produced, resolved inside the session's folder. */
+  openArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
+  /** Save-a-copy dialog for a produced file; resolves to the chosen path. */
+  saveArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   pathForFile: (file: File) => string
   sendPrompt: (req: AgentRequest) => Promise<void>
   cancelRun: (runId: string) => Promise<void>

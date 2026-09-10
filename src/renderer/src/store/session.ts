@@ -1,12 +1,20 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AttachmentInfo, SessionMode, SessionSpec, SnapshotMessage } from '@shared/ipc'
+import type {
+  AttachmentInfo,
+  AttachmentRef,
+  SessionMode,
+  SessionSpec,
+  SnapshotMessage
+} from '@shared/ipc'
 
 export type Role = 'user' | 'assistant'
 export type ToolStatus = 'running' | 'ok' | 'error'
 
 export type MessagePart =
   | { kind: 'text'; text: string }
+  /** Files sent with a prompt, drawn as pictures and cards above its text. */
+  | { kind: 'attachments'; items: AttachmentRef[] }
   | {
       kind: 'tool'
       toolUseId: string
@@ -119,7 +127,7 @@ interface SessionState {
 
   addMessage: (message: Message) => void
   /** Adds a remotely-sent user prompt unless it is already the last one. */
-  addUserPrompt: (sessionId: string, text: string) => void
+  addUserPrompt: (sessionId: string, text: string, attachments?: AttachmentRef[]) => void
   appendText: (sessionId: string, messageId: string, text: string) => void
   startTool: (
     sessionId: string,
@@ -293,6 +301,11 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           for (const block of message.blocks) {
             if (block.type === 'text') {
               parts.push({ kind: 'text', text: block.text })
+            } else if (block.type === 'attachment') {
+              // Consecutive attachments belong to one send, so they share a strip.
+              const last = parts.at(-1)
+              if (last?.kind === 'attachments') last.items.push(block.attachment)
+              else parts.push({ kind: 'attachments', items: [block.attachment] })
             } else if (block.type === 'tool_use') {
               parts.push({
                 kind: 'tool',
@@ -305,6 +318,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             }
           }
           if (parts.length === 0) continue
+          // One run spans several provider messages, split by the tool-result
+          // messages between them. A live run is one message here, so a
+          // restored one has to fold the same way or it reads differently.
+          const previous = converted.at(-1)
+          if (message.role === 'assistant' && previous?.role === 'assistant') {
+            previous.parts.push(...parts)
+            continue
+          }
           converted.push({
             id: crypto.randomUUID(),
             role: message.role,
@@ -520,23 +541,22 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     return { activeRuns }
   }),
 
-  addUserPrompt: (sessionId, text) =>
+  addUserPrompt: (sessionId, text, attachments) =>
     set((state) => ({
       sessions: mapSession(state, sessionId, (session) => {
         const last = session.messages.at(-1)
         if (last?.role === 'user' && last.parts.some((part) => part.kind === 'text' && part.text === text)) {
           return session
         }
+        const parts: MessagePart[] =
+          attachments !== undefined && attachments.length > 0
+            ? [{ kind: 'attachments', items: attachments }, { kind: 'text', text }]
+            : [{ kind: 'text', text }]
         return {
           ...session,
           messages: [
             ...session.messages,
-            {
-              id: crypto.randomUUID(),
-              role: 'user' as const,
-              parts: [{ kind: 'text' as const, text }],
-              pending: false
-            }
+            { id: crypto.randomUUID(), role: 'user' as const, parts, pending: false }
           ]
         }
       })

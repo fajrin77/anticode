@@ -21,6 +21,14 @@ const RECENT_TOOL_TURNS = 3
 const STUB_CHARS = 300
 /** Stubbing only pays off once there is real bulk to remove. */
 const STUB_MIN_LENGTH = STUB_CHARS + 400
+/**
+ * Ceilings for a single run, not for a session: they stop a loop that never
+ * ends from burning the key, and resuming starts a fresh run on the same
+ * history. A long refactor honestly spends hundreds of turns, so the turn
+ * budget sits well above the point where real work stops and looping begins.
+ */
+const TURN_BUDGET = 500
+const TOKEN_BUDGET = 2_000_000
 
 interface RunParams {
   runId: string
@@ -134,8 +142,8 @@ export class AgentSession {
     let usedTokens = 0
     try {
       for (let step = 0; ; step++) {
-        if (usedTokens >= 2_000_000) throw new Error('Run paused after 2 million total tokens. Send a continuation to proceed.')
-        if (step >= 100) throw new Error('Run paused after 100 model turns. Send a continuation to proceed.')
+        if (usedTokens >= TOKEN_BUDGET) throw new Error(`Run paused: this run spent its ${TOKEN_BUDGET / 1_000_000} million token budget. Press resume to carry on from here.`)
+        if (step >= TURN_BUDGET) throw new Error(`Run paused: this run reached ${TURN_BUDGET} model turns, the guard against a loop that never ends. Press resume to carry on from here.`)
         if (signal.aborted) break
 
         this.condenseHistory()

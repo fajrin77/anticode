@@ -38,7 +38,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
         onClick={() => setOpen((value) => !value)}
         title="Session usage"
         className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-          open ? 'bg-raised text-text' : 'text-dim hover:bg-raised hover:text-text'
+          open ? 'bg-raised text-brand' : 'text-dim hover:bg-raised hover:text-brand'
         }`}
       >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
@@ -188,7 +188,7 @@ export function TabBar({
                 type="button"
                 onClick={() => close(session.id)}
                 aria-label="Close tab"
-                className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-text focus-visible:opacity-100"
+                className="shrink-0 text-faint opacity-0 transition-[opacity,color] group-hover:opacity-100 hover:text-brand focus-visible:opacity-100"
               >
                 ×
               </button>
@@ -200,7 +200,7 @@ export function TabBar({
           type="button"
           onClick={onNewTab}
           aria-label="New tab"
-          className="region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
+          className="region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-brand"
         >
           +
         </button>

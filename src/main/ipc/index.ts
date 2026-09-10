@@ -1,7 +1,7 @@
 import { beginRun, finishRun, cancelRun, runForSession, hasRuns, listActiveRuns } from '../runs'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
-import { stat } from 'node:fs/promises'
+import { copyFile, stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
@@ -36,16 +36,22 @@ import {
   setWorkspaceRoot
 } from '../runtime'
 import { listProviders } from '../providers'
+import { resolveInWorkspace } from '../tools/workspace'
 import { ApprovalCoordinator } from '../approval/coordinator'
-import { AttachmentError, prepareAttachment, toContentBlocks } from '../attachments'
+import {
+  attachmentsFor,
+  blocksOf,
+  refsOf,
+  registerAttachmentData,
+  registerAttachments,
+  releaseAttachments
+} from '../attachments/registry'
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
 import { forgetRun, forward, registerRun } from '../remote/bus'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
-
-const attachments = new Map<string, AttachmentInfo>()
 
 let lastSender: WebContents | null = null
 
@@ -59,6 +65,14 @@ export function focusApprovalTarget(sender: WebContents): void {
   lastSender = sender
 }
 
+/** Produced files are named relative to the session folder; resolving them
+ * here keeps the renderer from ever handling an absolute path of its own. */
+function artifactPath(sessionId: string, relativePath: string): string {
+  const root = sessionWorkspaceRoot(sessionId)
+  if (root === null) throw new Error('This session has no project folder')
+  return resolveInWorkspace(root, relativePath)
+}
+
 /** Every agent event routes through the bus, which reaches all windows and
  * SSE subscribers; no separate direct send, or windows would get duplicates. */
 function emit(event: AgentEvent, sessionId: string): void {
@@ -67,7 +81,7 @@ function emit(event: AgentEvent, sessionId: string): void {
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.RUN_LIST, () => listActiveRuns())
-  ipcMain.handle(IpcChannel.ATTACH_RELEASE, (_event, ids: string[]) => { for (const id of ids) attachments.delete(id) })
+  ipcMain.handle(IpcChannel.ATTACH_RELEASE, (_event, ids: string[]) => releaseAttachments(ids))
   ipcMain.handle(IpcChannel.APPROVAL_PENDING, () => approvals.listPending())
   ipcMain.handle(IpcChannel.SESSION_LIST, () => listSessionSpecs())
   ipcMain.handle(
@@ -152,23 +166,6 @@ export function registerIpcHandlers(): void {
     return getStatus()
   })
 
-  async function register(paths: string[]): Promise<AttachmentInfo[]> {
-    const root = getStatus().workspaceRoot
-    // Atomic: one unreadable file would otherwise register a half batch the
-    // user cannot see. Every failure is named so the bad file is findable.
-    const settled = await Promise.allSettled(paths.map((file) => prepareAttachment(file, root)))
-    const failures = settled
-      .filter((entry): entry is PromiseRejectedResult => entry.status === 'rejected')
-      .map((entry) => (entry.reason as Error).message)
-
-    const prepared = settled
-      .filter((entry): entry is PromiseFulfilledResult<AttachmentInfo> => entry.status === 'fulfilled')
-      .map((entry) => entry.value)
-    if (failures.length > 0) throw new AttachmentError(failures.join('\n'))
-    for (const item of prepared) attachments.set(item.id, item)
-    return prepared
-  }
-
   ipcMain.handle(IpcChannel.ATTACH_CHOOSE, async (event): Promise<AttachmentInfo[]> => {
     const window = BrowserWindow.fromWebContents(event.sender)
     const options = { properties: ['openFile', 'multiSelections'] as const }
@@ -176,12 +173,50 @@ export function registerIpcHandlers(): void {
       ? await dialog.showOpenDialog(window, { properties: [...options.properties] })
       : await dialog.showOpenDialog({ properties: [...options.properties] })
 
-    return result.canceled ? [] : register(result.filePaths)
+    return result.canceled ? [] : registerAttachments(result.filePaths)
   })
 
   ipcMain.handle(
     IpcChannel.ATTACH_ADD,
-    (_event, paths: string[]): Promise<AttachmentInfo[]> => register(paths)
+    (_event, paths: string[]): Promise<AttachmentInfo[]> => registerAttachments(paths)
+  )
+
+  ipcMain.handle(
+    IpcChannel.ATTACH_DATA,
+    (_event, name: string, base64: string): Promise<AttachmentInfo[]> =>
+      registerAttachmentData(name, Buffer.from(base64, 'base64'))
+  )
+
+  // Opening is by absolute path because an attachment may well sit outside any
+  // project folder — the picture the user dragged in from their desktop.
+  ipcMain.handle(IpcChannel.ATTACH_OPEN, async (_event, target: string): Promise<string | null> => {
+    const failure = await shell.openPath(target)
+    return failure === '' ? null : failure
+  })
+
+  ipcMain.handle(
+    IpcChannel.ARTIFACT_OPEN,
+    async (_event, sessionId: string, relativePath: string): Promise<string | null> => {
+      const failure = await shell.openPath(artifactPath(sessionId, relativePath))
+      return failure === '' ? null : failure
+    }
+  )
+
+  // Save-a-copy: the produced file already lives in the project folder, this
+  // just puts it somewhere the user actually keeps things.
+  ipcMain.handle(
+    IpcChannel.ARTIFACT_SAVE,
+    async (event, sessionId: string, relativePath: string): Promise<string | null> => {
+      const source = artifactPath(sessionId, relativePath)
+      const window = BrowserWindow.fromWebContents(event.sender)
+      const options = { defaultPath: path.basename(source) }
+      const result = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      if (result.canceled || result.filePath === undefined) return null
+      await copyFile(source, result.filePath)
+      return result.filePath
+    }
   )
 
   ipcMain.handle(IpcChannel.APPROVAL_RESPOND, (_event, response: ApprovalResponse): void => {
@@ -230,32 +265,30 @@ export function registerIpcHandlers(): void {
     const agent = getSession(req.sessionId, approvals)
     const controller = beginRun(req.runId, req.sessionId)
     registerRun(req.runId, req.sessionId)
-    emit({ type: 'prompt', runId: req.runId, text: req.prompt }, req.sessionId)
+
+    // Rebound to this session's folder up front, so the prompt event and the
+    // model blocks describe the same files.
+    const sent = attachmentsFor(req.sessionId, req.attachmentIds)
+    emit(
+      { type: 'prompt', runId: req.runId, text: req.prompt, attachments: refsOf(sent) },
+      req.sessionId
+    )
 
     void (async () => {
       try {
-        const blocks = await Promise.all(
-          req.attachmentIds
-            .map((id) => attachments.get(id))
-            .filter((item): item is AttachmentInfo => item !== undefined)
-            .map((item) => {
-              const root = sessionWorkspaceRoot(req.sessionId)
-              const relative = root === null ? null : path.relative(root, item.path)
-              return toContentBlocks({ ...item, workspacePath: relative !== null && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? relative : null })
-            })
-        )
+        const blocks = await blocksOf(sent)
 
         await agent.run({
           runId: req.runId,
           prompt: req.prompt,
           signal: controller.signal,
           emit: (agentEvent) => emit(agentEvent, req.sessionId),
-          attachments: blocks.flat()
+          attachments: blocks
         })
       } catch (error) {
         emit({ type: 'error', runId: req.runId, message: (error as Error).message }, req.sessionId)
       } finally {
-        for (const id of req.attachmentIds) attachments.delete(id)
+        releaseAttachments(req.attachmentIds)
         forgetRun(req.runId)
         finishRun(req.runId)
         persistSessions()

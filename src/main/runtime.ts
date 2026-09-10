@@ -269,7 +269,12 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
           block.type === 'text' || block.type === 'tool_use' || block.type === 'tool_result'
       )
       .map((block) => {
-        if (block.type === 'text') return { type: 'text' as const, text: block.text }
+        if (block.type === 'text') {
+          // An attachment header becomes a card rather than a line of prose.
+          return block.attachment !== undefined
+            ? { type: 'attachment' as const, attachment: block.attachment }
+            : { type: 'text' as const, text: block.text }
+        }
         if (block.type === 'tool_use') {
           return { type: 'tool_use' as const, id: block.id, name: block.name, input: block.input }
         }

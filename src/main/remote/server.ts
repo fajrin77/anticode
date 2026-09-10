@@ -3,7 +3,7 @@ import http from 'node:http'
 import os from 'node:os'
 import { randomUUID, createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, statSync } from 'node:fs'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { AgentEvent, RemoteStatus, RoutedAgentEvent, SessionMode } from '@shared/ipc'
@@ -23,10 +23,20 @@ import {
   sessionWorkspaceRoot
 } from '../runtime'
 import { approvals } from '../ipc'
+import {
+  attachmentsFor,
+  blocksOf,
+  refsOf,
+  registerAttachmentData,
+  releaseAttachments
+} from '../attachments/registry'
 import { forgetRun, forward, registerRun, subscribe } from './bus'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
 const PORT = Number(process.env['ANTICODE_REMOTE_PORT'] || 8680)
+const BODY_LIMIT = 2 * 1024 * 1024
+/** Room for a phone photo; the attachment handler enforces its own 20 MB cap. */
+const UPLOAD_LIMIT = 28 * 1024 * 1024
 
 let server: http.Server | null = null
 let lastError: string | null = null
@@ -165,7 +175,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return deny(res)
     }
 
-    const body = await readBody(req)
+    const body = await readBody(req, url.pathname === '/api/attachment' ? UPLOAD_LIMIT : BODY_LIMIT)
 
     if (req.method === 'GET' && url.pathname === '/api/ping') {
       return json(res, 200, { ok: true, status: getStatus() })
@@ -204,6 +214,28 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       cancelSessionRuns(id)
       deleteSession(id)
       return json(res, 200, { ok: true })
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/attachment') {
+      const name = typeof body.name === 'string' && body.name !== '' ? body.name : 'attachment'
+      if (typeof body.data !== 'string') throw new Error('Attachment data is missing')
+      const [prepared] = await registerAttachmentData(name, Buffer.from(body.data, 'base64'))
+      if (prepared === undefined) throw new Error('Attachment could not be read')
+      return json(res, 200, {
+        id: prepared.id,
+        name: prepared.name,
+        kind: prepared.kind,
+        size: prepared.size,
+        thumbnail: prepared.thumbnail
+      })
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/download') {
+      return sendDownload(
+        res,
+        url.searchParams.get('sessionId') ?? '',
+        url.searchParams.get('path') ?? ''
+      )
     }
 
     if (req.method === 'POST' && url.pathname === '/api/prompt') {
@@ -256,12 +288,15 @@ function deny(res: http.ServerResponse): void {
   res.end(JSON.stringify({ error: 'Unauthorised — open the pairing URL' }))
 }
 
-async function readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(
+  req: http.IncomingMessage,
+  limit = BODY_LIMIT
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   let bytes = 0
   for await (const chunk of req) {
     bytes += Buffer.byteLength(chunk)
-    if (bytes > 2 * 1024 * 1024) throw new Error('Request too large (limit 2 MB)')
+    if (bytes > limit) throw new Error(`Request too large (limit ${Math.round(limit / 1024 / 1024)} MB)`)
     chunks.push(Buffer.from(chunk))
   }
   const raw = Buffer.concat(chunks).toString('utf8')
@@ -315,13 +350,21 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   const runId = randomUUID()
   const controller = beginRun(runId, sessionId)
   registerRun(runId, sessionId)
-  forward({ type: 'prompt', runId, text: prompt, sessionId } as RoutedAgentEvent)
-  void agent.run({
+  const ids = Array.isArray(body.attachmentIds)
+    ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
+    : []
+  const sent = attachmentsFor(sessionId, ids)
+  forward({
+    type: 'prompt', runId, text: prompt, sessionId, attachments: refsOf(sent)
+  } as RoutedAgentEvent)
+  void blocksOf(sent).then((attachments) => agent.run({
     runId, prompt, signal: controller.signal,
-    emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent)
-  }).catch((error: Error) => {
+    emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent),
+    attachments
+  })).catch((error: Error) => {
     forward({ type: 'error', runId, message: error.message, sessionId } as RoutedAgentEvent)
   }).finally(() => {
+    releaseAttachments(ids)
     forgetRun(runId)
     finishRun(runId)
     persistSessions()
@@ -350,6 +393,39 @@ function openEventStream(url: URL, res: http.ServerResponse): void {
     clearInterval(heartbeat)
     unsubscribe()
   })
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.csv': 'text/csv',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.zip': 'application/zip'
+}
+
+/**
+ * Hands a produced file to the phone as a download. The path is resolved
+ * inside the session's folder, so nothing outside it can be fetched.
+ */
+function sendDownload(res: http.ServerResponse, sessionId: string, relativePath: string): void {
+  const root = sessionWorkspaceRoot(sessionId)
+  if (root === null) throw new Error('This session has no project folder')
+  const target = resolveInWorkspace(root, relativePath)
+  const info = statSync(target)
+  if (!info.isFile()) throw new Error('Not a file')
+
+  const name = path.basename(target)
+  res.writeHead(200, {
+    'content-type': MIME_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': info.size,
+    // The quoted name is ASCII-folded; filename* carries the real one.
+    'content-disposition': `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`
+  })
+  createReadStream(target).pipe(res)
 }
 
 async function readWorkspaceFile(sessionId: string, relativePath: string): Promise<unknown> {

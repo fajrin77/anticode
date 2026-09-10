@@ -69,6 +69,14 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ATTACH_CHOOSE) as Promise<AttachmentInfo[]>,
   addAttachments: (paths: string[]) =>
     ipcRenderer.invoke(IpcChannel.ATTACH_ADD, paths) as Promise<AttachmentInfo[]>,
+  addAttachmentData: (name: string, base64: string) =>
+    ipcRenderer.invoke(IpcChannel.ATTACH_DATA, name, base64) as Promise<AttachmentInfo[]>,
+  openAttachment: (target: string) =>
+    ipcRenderer.invoke(IpcChannel.ATTACH_OPEN, target) as Promise<string | null>,
+  openArtifact: (sessionId: string, relativePath: string) =>
+    ipcRenderer.invoke(IpcChannel.ARTIFACT_OPEN, sessionId, relativePath) as Promise<string | null>,
+  saveArtifact: (sessionId: string, relativePath: string) =>
+    ipcRenderer.invoke(IpcChannel.ARTIFACT_SAVE, sessionId, relativePath) as Promise<string | null>,
   // Electron removed File.path; a dropped file's location comes from here.
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   sendPrompt: (req: AgentRequest) =>

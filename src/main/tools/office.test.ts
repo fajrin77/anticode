@@ -6,9 +6,9 @@ import { Document, Packer, Paragraph } from 'docx'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import sharp from 'sharp'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addExcelFormulaTool, readExcelTool, writeExcelCellTool } from './excel'
+import { addExcelFormulaTool, createExcelTool, readExcelTool, writeExcelCellTool } from './excel'
 import { readDocxTool, writeDocxTool } from './docx'
-import { fillPdfFormTool, readPdfTool } from './pdf'
+import { createPdfTool, fillPdfFormTool, readPdfTool } from './pdf'
 import { prepareAttachment, toContentBlocks } from '../attachments'
 import type { ToolContext } from './types'
 
@@ -117,6 +117,28 @@ describe('excel tools', () => {
     expect(value.formula).toBe('SUM(B2:B3)')
   })
 
+  it('creates a workbook with a bold header and typed cells', async () => {
+    const output = (await createExcelTool
+      .prepare({
+        path: 'baru.xlsx',
+        sheet: 'Rekap',
+        rows: [
+          ['produk', 'jumlah'],
+          ['pena', '10'],
+          ['total', '=SUM(B2:B2)']
+        ]
+      })
+      .execute(context)).text
+    expect(output).toContain('Saved: baru.xlsx')
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.readFile(path.join(root, 'baru.xlsx'))
+    const sheet = workbook.getWorksheet('Rekap')
+    expect(sheet?.getRow(1).font?.bold).toBe(true)
+    expect(sheet?.getCell('B2').value).toBe(10)
+    expect((sheet?.getCell('B3').value as { formula: string }).formula).toBe('SUM(B2:B2)')
+  })
+
   it('rejects a malformed cell address', () => {
     expect(() => writeExcelCellTool.prepare({ path: 'a.xlsx', cell: '4B', value: 'x' })).toThrow(
       /Invalid input/
@@ -168,6 +190,30 @@ describe('pdf tools', () => {
     expect(document.getForm().getTextField('nama').getText()).toBe('Asani')
   })
 
+  it('creates a pdf whose text reads back', async () => {
+    const output = (await createPdfTool
+      .prepare({
+        path: 'laporan.pdf',
+        title: 'Laporan',
+        content: '# Judul\n\nSatu paragraf yang cukup panjang.\n- butir pertama'
+      })
+      .execute(context)).text
+    expect(output).toContain('Saved: laporan.pdf')
+
+    const read = (await readPdfTool.prepare({ path: 'laporan.pdf' }).execute(context)).text
+    expect(read).toContain('Judul')
+    expect(read).toContain('butir pertama')
+  })
+
+  it('folds characters the standard fonts cannot encode', async () => {
+    await createPdfTool
+      .prepare({ path: 'unicode.pdf', content: 'Ringkasan — "kutipan" dan 日本語' })
+      .execute(context)
+
+    const read = (await readPdfTool.prepare({ path: 'unicode.pdf' }).execute(context)).text
+    expect(read).toContain('Ringkasan - "kutipan"')
+  })
+
   it('names the real fields when the requested one is absent', async () => {
     await makePdf(true)
     await expect(
@@ -207,6 +253,26 @@ describe('attachment handler', () => {
     const blocks = await toContentBlocks(await prepareAttachment(file, root))
     const image = blocks.find((block) => block.type === 'image')
     expect(image?.type === 'image' && image.mediaType).toBe('image/png')
+  })
+
+  it('carries a thumbnail and a reference the chat can draw', async () => {
+    const file = path.join(root, 'kecil.png')
+    await sharp({ create: { width: 800, height: 600, channels: 3, background: '#d1fa22' } })
+      .png()
+      .toFile(file)
+
+    const attachment = await prepareAttachment(file, root)
+    expect(attachment.thumbnail).toMatch(/^data:image\/jpeg;base64,/)
+
+    const blocks = await toContentBlocks(attachment)
+    const header = blocks[0]
+    expect(header?.type === 'text' && header.attachment?.name).toBe('kecil.png')
+    expect(header?.type === 'text' && header.attachment?.thumbnail).toBe(attachment.thumbnail)
+  })
+
+  it('leaves non-images without a thumbnail', async () => {
+    const file = await makeWorkbook()
+    expect((await prepareAttachment(file, root)).thumbnail).toBeNull()
   })
 
   it('summarises a workbook without a tool call', async () => {

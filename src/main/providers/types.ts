@@ -1,3 +1,5 @@
+import type { AttachmentRef } from '@shared/ipc'
+
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
 
 /**
@@ -6,7 +8,13 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
  * Blocks from a different provider are dropped rather than translated.
  */
 export type ContentBlock =
-  | { type: 'text'; text: string }
+  /**
+   * `attachment` is carried for the UI only — providers read `text` and ignore
+   * the rest. It rides on the header block of a user attachment so a reopened
+   * transcript can redraw the file card, even after the image itself was
+   * elided from the replayed history.
+   */
+  | { type: 'text'; text: string; attachment?: AttachmentRef }
   | { type: 'image'; mediaType: string; data: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }

@@ -120,11 +120,13 @@ percakapan yang sudah selesai. Adapter menerjemahkan blok pesan sesuai format pr
 | `run_command` | Jalankan perintah shell | sedang, naik ke tinggi bila destruktif |
 | `delete_file` | Hapus berkas atau folder | tinggi — selalu ditanya |
 | `read_excel` | Baca sheet .xlsx sebagai tabel | rendah |
+| `create_excel` | Bikin .xlsx baru dari tabel baris | sedang — preview 10 baris pertama |
 | `write_excel_cell` | Ubah satu cell | sedang — preview sebelum/sesudah |
 | `add_excel_formula` | Pasang formula di satu cell | sedang |
 | `read_docx` | Baca .docx sebagai markdown | rendah |
 | `write_docx` | Tulis .docx dari markdown sederhana | sedang |
 | `read_pdf` | Ekstrak teks dan jumlah halaman | rendah |
+| `create_pdf` | Bikin PDF baru dari markdown sederhana | sedang — preview isi |
 | `fill_pdf_form` | Isi field form PDF | sedang — daftar field bila kosong |
 | `fetch_url` | Ambil isi URL lewat HTTP biasa | rendah |
 | `browser_navigate` | Buka halaman di Chromium headless | rendah |
@@ -157,14 +159,30 @@ banjir derau. Folder ambigu seperti `build` dan `out` sengaja tidak diabaikan.
 
 ## Lampiran
 
-Klik **+** atau seret berkas ke kolom input. Berkas dirutekan berdasarkan ekstensi: gambar
-di-resize ke sisi terpanjang 1568 px lalu dikirim sebagai blok gambar; xlsx, docx, dan pdf diringkas
-jadi teks; berkas teks dan kode dibaca apa adanya. Batasnya 20 MB per berkas dan pratinjau dipotong
-di 2000 karakter agar tidak menghabiskan konteks.
+Klik **+**, seret berkas ke kolom input, atau tempel tangkapan layar langsung dari clipboard. Di HP,
+tombol **+** di composer membuka pemilih berkas dan mengunggahnya ke Mac. Berkas dirutekan
+berdasarkan ekstensi: gambar di-resize ke sisi terpanjang 1568 px lalu dikirim sebagai blok gambar;
+xlsx, docx, dan pdf diringkas jadi teks; berkas teks dan kode dibaca apa adanya. Batasnya 20 MB per
+berkas dan pratinjau dipotong di 2000 karakter agar tidak menghabiskan konteks.
 
-Berkas asli tidak disalin ke mana-mana. Bila kebetulan berada di dalam workspace, path relatifnya
-ikut diberitahukan ke model supaya tool bisa membukanya penuh; bila di luar, model diberi tahu bahwa
-tool tidak bisa menjangkaunya. Ini menjaga sandbox workspace tetap satu-satunya pintu akses berkas.
+Di transkrip, lampiran tampil sebagaimana dikirim: gambar sebagai gambar (thumbnail 320 px yang ikut
+tersimpan di riwayat sesi, jadi masih terlihat setelah app dibuka ulang), berkas lain sebagai kartu
+bernama dan berukuran. Klik untuk membukanya di aplikasi bawaan sistem. Thumbnail-lah satu-satunya
+salinan; berkas aslinya tidak dipindahkan ke mana-mana.
+
+Bila berkas kebetulan berada di dalam workspace, path relatifnya ikut diberitahukan ke model supaya
+tool bisa membukanya penuh; bila di luar, model diberi tahu bahwa tool tidak bisa menjangkaunya. Ini
+menjaga sandbox workspace tetap satu-satunya pintu akses berkas.
+
+## Berkas hasil
+
+Dokumen yang dibuat agent — pdf, xlsx, docx, csv, pptx, zip — muncul sebagai kartu di bawah jawaban,
+dengan **Open** (buka di aplikasi sistem) dan **Download** (simpan salinan lewat dialog Save). Kartu
+itu dibaca ulang dari tool call yang berhasil, jadi tetap ada setelah sesi dibuka lagi. Berkas kode
+biasa sengaja tidak ikut — tempatnya di diff, bukan di daftar unduhan.
+
+Dari HP, kartu yang sama menyediakan tautan unduh, dan setiap berkas di tab **Files** punya tombol
+`↓`. Unduhan diresolusi di dalam folder sesi, jadi path di luar folder ditolak.
 
 ## Approval
 

@@ -6,11 +6,17 @@ import { createServer } from 'node:http'
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import sharp from 'sharp'
 
 const directory = await mkdtemp(path.join(tmpdir(), 'anticode-ui-'))
 const profile = path.join(directory, 'profile'); await mkdir(profile)
 const workspace = path.join(directory, 'workspace'); await mkdir(workspace)
 await writeFile(path.join(workspace, 'hello.txt'), 'original')
+// A real image, for the attachment rendering check further down.
+const picture = path.join(workspace, 'tangkapan.png')
+await sharp({ create: { width: 320, height: 200, channels: 3, background: '#d1fa22' } })
+  .png()
+  .toFile(picture)
 const shots = path.join(directory, 'shots'); await mkdir(shots)
 
 const stub = createServer(async (req, res) => {
@@ -111,6 +117,55 @@ try {
   check('Choose folder glows after a blocked send', glowing ? 'glowing' : 'inert', 'glowing')
   const kept = await composer().inputValue()
   check('the blocked draft is kept, not swallowed', kept, 'cek folder')
+
+  // Attached files must read as files — a picture for an image, a card for the
+  // rest — not as a bracketed list of names in the prompt text.
+  await window.getByRole('button',{name:'New tab',exact:true}).click()
+  await window.waitForTimeout(400)
+  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await window.waitForTimeout(200)
+  const staged = await window.evaluate(async (file) => {
+    const [info] = await window.anticode.addAttachments([file])
+    const store = window.__store.getState()
+    store.updateDraft(store.activeSessionId, { attachments: [info] })
+    return { name: info.name, thumbnail: (info.thumbnail ?? '').slice(0, 23) }
+  }, picture)
+  check('an attached image carries a thumbnail', staged.thumbnail, 'data:image/jpeg;base64,')
+  await window.waitForTimeout(300)
+  await shot('13-composer-with-attachment')
+  await composer().fill('lihat gambar ini')
+  await composer().press('Enter')
+  await window.getByText(/Fixture reply/).last().waitFor()
+  const drawn = await window.locator('img[alt="tangkapan.png"]').count()
+  check('the sent image is drawn in the transcript', drawn > 0 ? 'drawn' : 'text only', 'drawn')
+  const bracketed = await window.getByText('[tangkapan.png]').count()
+  check('no bracketed filename is left in the prompt', bracketed === 0 ? 'clean' : 'bracketed', 'clean')
+  await shot('14-attachment-in-transcript')
+
+  // A produced document is offered back, not just mentioned in a tool output.
+  await window.evaluate(() => {
+    const store = window.__store.getState()
+    store.addMessage({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      parts: [
+        { kind: 'text', text: 'Laporannya sudah dibuat.' },
+        {
+          kind: 'tool',
+          toolUseId: 'fixture-pdf',
+          name: 'create_pdf',
+          input: { path: 'laporan.pdf' },
+          status: 'ok',
+          output: 'Saved: laporan.pdf (1 pages)'
+        }
+      ],
+      pending: false
+    })
+  })
+  await window.waitForTimeout(300)
+  const offered = await window.getByRole('button',{name:'Download',exact:true}).count()
+  check('a produced document is offered for download', offered > 0 ? 'offered' : 'missing', 'offered')
+  await shot('15-produced-document')
 
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }

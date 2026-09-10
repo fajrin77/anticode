@@ -1,0 +1,85 @@
+import type { JSX } from 'react'
+import type { AttachmentKind, AttachmentRef } from '@shared/ipc'
+
+/** Short tag drawn on a file card, so the kind reads at a glance. */
+const KIND_TAG: Record<AttachmentKind, string> = {
+  image: 'IMG',
+  text: 'TXT',
+  excel: 'XLS',
+  docx: 'DOC',
+  pdf: 'PDF',
+  binary: 'BIN'
+}
+
+export function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function FileGlyph({ kind }: { kind: AttachmentKind }): JSX.Element {
+  return (
+    <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
+      <svg width="26" height="30" viewBox="0 0 26 30" fill="none" stroke="currentColor" strokeWidth="1.4" className="text-faint">
+        <path d="M4 1.5h11L22 8v20.5H4z" />
+        <path d="M15 1.5V8h7" />
+      </svg>
+      <span className="absolute bottom-1 text-[7px] leading-none font-semibold tracking-wider text-dim">
+        {KIND_TAG[kind]}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * The files that rode along with a prompt. Images show as pictures because
+ * that is what the user actually sent; everything else gets a card naming the
+ * file. Clicking either opens it in the app the OS keeps for that kind.
+ */
+export function Attachments({
+  items,
+  align = 'end'
+}: {
+  items: AttachmentRef[]
+  align?: 'start' | 'end'
+}): JSX.Element {
+  const open = (item: AttachmentRef): void => {
+    void window.anticode.openAttachment(item.path)
+  }
+
+  return (
+    <div className={`flex flex-wrap gap-2 ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
+      {items.map((item, index) =>
+        item.thumbnail !== null ? (
+          <button
+            key={`${item.name}-${index}`}
+            type="button"
+            onClick={() => open(item)}
+            title={`${item.name} · ${formatBytes(item.size)}`}
+            className="overflow-hidden rounded-xl border border-line transition-colors hover:border-dim"
+          >
+            <img
+              src={item.thumbnail}
+              alt={item.name}
+              className="max-h-52 max-w-64 object-cover"
+            />
+          </button>
+        ) : (
+          <button
+            key={`${item.name}-${index}`}
+            type="button"
+            onClick={() => open(item)}
+            title={item.path}
+            className="flex max-w-72 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-colors hover:border-dim"
+          >
+            <FileGlyph kind={item.kind} />
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] text-text">{item.name}</span>
+              <span className="block text-[11.5px] text-faint">{formatBytes(item.size)}</span>
+            </span>
+          </button>
+        )
+      )}
+    </div>
+  )
+}

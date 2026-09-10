@@ -32,7 +32,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-text'
+        active ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-brand'
       }`}
     >
       {children}
@@ -250,7 +250,7 @@ function DashboardComposer({
               type="button"
               title="Attach files"
               onClick={() => collect(window.anticode.chooseAttachments())}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-text"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-brand"
             >
               +
             </button>
@@ -296,7 +296,7 @@ function DashboardComposer({
                 className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
                   mode === value
                     ? 'bg-brand font-medium text-bg'
-                    : 'text-dim hover:text-text'
+                    : 'text-dim hover:text-brand'
                 }`}
               >
                 {value === 'chat' ? 'antichat' : 'anticode'}
@@ -315,8 +315,8 @@ function DashboardComposer({
               }}
               className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] transition-colors ${
                 glow && folder === null
-                  ? 'animate-glow text-dim hover:text-text'
-                  : 'border-line text-dim hover:text-text'
+                  ? 'animate-glow text-dim hover:text-brand'
+                  : 'border-line text-dim hover:text-brand'
               }`}
             >
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -427,7 +427,7 @@ export function NewSessionView({
       }}
       title="Search sessions"
       className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
-        searchOpen ? 'border-dim text-text' : 'border-line text-dim hover:text-text'
+        searchOpen ? 'border-dim text-brand' : 'border-line text-dim hover:text-brand'
       }`}
     >
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

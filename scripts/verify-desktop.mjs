@@ -6,6 +6,7 @@ import { mkdtemp, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
+import sharp from 'sharp'
 const directory = await mkdtemp(path.join(tmpdir(), 'anticode-verification-'))
 const profile = path.join(directory, 'profile')
 const { mkdir } = await import('node:fs/promises')
@@ -99,8 +100,25 @@ try {
   await window.evaluate(({sessionId,attachmentId})=>window.anticode.sendPrompt({sessionId,runId:crypto.randomUUID(),prompt:'attachment test',attachmentIds:[attachmentId]}), {sessionId,attachmentId:attached[0].id})
   for (let i=0;i<50;i++) { if (!(await api('/api/session/'+sessionId)).runId) break; await new Promise(r=>setTimeout(r,20)) }
   const attachmentHistory = (await api('/api/session/'+sessionId)).messages
-  assert(attachmentHistory.some(m=>m.blocks.some(b=>b.type==='text' && b.text.includes('inside the workspace at `hello.txt`'))))
+  assert(attachmentHistory.some(m=>m.blocks.some(b=>b.type==='attachment' && b.attachment.workspacePath==='hello.txt' && b.attachment.kind==='text')))
   log('attachments resolve relative to the receiving session workspace')
+  const picture = await sharp({create:{width:200,height:120,channels:3,background:'#d1fa22'}}).png().toBuffer()
+  const uploaded = await api('/api/attachment',{name:'layar.png',data:picture.toString('base64')})
+  assert.match(uploaded.thumbnail,/^data:image\/jpeg;base64,/)
+  await api('/api/prompt',{sessionId,prompt:'lihat lampiran',attachmentIds:[uploaded.id]})
+  for (let i=0;i<100;i++) { if (!(await api('/api/session/'+sessionId)).runId) break; await new Promise(r=>setTimeout(r,20)) }
+  const uploadHistory = (await api('/api/session/'+sessionId)).messages
+  assert(uploadHistory.some(m=>m.blocks.some(b=>b.type==='attachment' && b.attachment.name==='layar.png' && b.attachment.thumbnail?.startsWith('data:image/jpeg;base64,'))))
+  log('a file uploaded from the phone reaches the transcript as a drawable attachment')
+  await writeFile(path.join(workspace,'laporan.pdf'),'fixture pdf')
+  const download = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=laporan.pdf&token=${remote.token}`)
+  assert.equal(download.status,200)
+  assert.equal(download.headers.get('content-type'),'application/pdf')
+  assert.match(download.headers.get('content-disposition'),/laporan\.pdf/)
+  assert.equal(await download.text(),'fixture pdf')
+  const escape = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=${encodeURIComponent('../secret.txt')}&token=${remote.token}`)
+  assert.equal(escape.status,400)
+  log('produced files download from the phone, and only from inside the folder')
   const before = await api('/api/session/'+sessionId)
   assert(before.messages.length>0)
   await window.reload()

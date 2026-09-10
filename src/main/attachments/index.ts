@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
-import type { AttachmentInfo } from '@shared/ipc'
+import type { AttachmentInfo, AttachmentRef } from '@shared/ipc'
 import type { ContentBlock } from '../providers/types'
 import { summariseExcel } from '../tools/excel'
 import { docxToMarkdown } from '../tools/docx'
@@ -12,6 +13,8 @@ const MAX_BYTES = 20 * 1024 * 1024
 const MAX_PREVIEW_CHARS = 2000
 /** Anthropic's recommended long edge; larger images cost tokens without helping. */
 const MAX_IMAGE_EDGE = 1568
+/** Long edge of the picture the chat draws; small enough to live in the transcript. */
+const THUMBNAIL_EDGE = 320
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff'])
 const TEXT_EXTENSIONS = new Set([
@@ -37,6 +40,24 @@ function classify(extension: string): AttachmentInfo['kind'] {
   return 'binary'
 }
 
+/**
+ * A small picture the UI can draw inline. Kept as a data URL so it survives
+ * into the persisted transcript without a second file to look after.
+ */
+async function buildThumbnail(filePath: string): Promise<string | null> {
+  try {
+    const data = await sharp(filePath)
+      .rotate()
+      .resize({ width: THUMBNAIL_EDGE, height: THUMBNAIL_EDGE, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 70 })
+      .toBuffer()
+    return `data:image/jpeg;base64,${data.toString('base64')}`
+  } catch {
+    // An unreadable image still attaches; it just shows as a file card.
+    return null
+  }
+}
+
 async function buildPreview(kind: AttachmentInfo['kind'], filePath: string): Promise<string> {
   switch (kind) {
     case 'text':
@@ -52,6 +73,25 @@ async function buildPreview(kind: AttachmentInfo['kind'], filePath: string): Pro
     case 'binary':
       return '(binary file — contents not read)'
   }
+}
+
+/**
+ * Pasted bytes have no file of their own, so one is made for them. It lives in
+ * the OS temp folder: the transcript keeps the picture, not this copy.
+ */
+export async function stageAttachmentData(name: string, data: Buffer): Promise<string> {
+  if (data.byteLength > MAX_BYTES) {
+    throw new AttachmentError(
+      `File too large (${Math.round(data.byteLength / 1024 / 1024)} MB, limit 20 MB)`
+    )
+  }
+  const directory = path.join(tmpdir(), 'anticode-attachments', randomUUID())
+  await mkdir(directory, { recursive: true })
+  // Only the basename, and never a dotfile: the name comes from a phone upload.
+  const safe = path.basename(name).replace(/^\.+/, '') || 'attachment'
+  const target = path.join(directory, safe)
+  await writeFile(target, data)
+  return target
 }
 
 /**
@@ -83,7 +123,20 @@ export async function prepareAttachment(
     workspacePath: relative,
     kind,
     size: info.size,
+    thumbnail: kind === 'image' ? await buildThumbnail(filePath) : null,
     preview: await buildPreview(kind, filePath)
+  }
+}
+
+/** The subset every viewer needs to draw the file; drops the model preview. */
+export function toRef(attachment: AttachmentInfo): AttachmentRef {
+  return {
+    name: attachment.name,
+    path: attachment.path,
+    workspacePath: attachment.workspacePath,
+    kind: attachment.kind,
+    size: attachment.size,
+    thumbnail: attachment.thumbnail
   }
 }
 
@@ -112,9 +165,12 @@ export async function toContentBlocks(attachment: AttachmentInfo): Promise<Conte
       : 'outside the workspace, so tools cannot open it; copy it into the project folder if it needs editing'
 
   const header = `Attachment: ${attachment.name} (${attachment.kind}, ${attachment.size} bytes), ${location}.`
+  // The reference travels with the header block, which no history-condensing
+  // pass ever drops — so the chat can still draw the card turns later.
+  const ref = toRef(attachment)
 
   if (attachment.kind === 'image') {
-    return [{ type: 'text', text: header }, await toImageBlock(attachment.path)]
+    return [{ type: 'text', text: header, attachment: ref }, await toImageBlock(attachment.path)]
   }
-  return [{ type: 'text', text: `${header}\n\n${attachment.preview}` }]
+  return [{ type: 'text', text: `${header}\n\n${attachment.preview}`, attachment: ref }]
 }

@@ -161,3 +161,62 @@ export const addExcelFormulaTool = defineTool({
     return `${sheet.name}!${input.cell} = ${formula} (the result is computed when the file opens in Excel)`
   }
 })
+
+export const createExcelTool = defineTool({
+  name: 'create_excel',
+  description:
+    'Create a new Excel (.xlsx) file from a table of rows. The first row is treated as the ' +
+    'header. Values that look like numbers are stored as numbers, and cells starting with ' +
+    '"=" are stored as formulas.',
+  readOnly: false,
+  risk: 'medium',
+  schema: z.object({
+    path: z.string().describe('Destination .xlsx path, relative to the workspace root'),
+    sheet: z.string().default('Sheet1').describe('Name of the sheet to create'),
+    rows: z
+      .array(z.array(z.string()))
+      .min(1)
+      .describe('Rows of cell values; the first row is the header')
+  }),
+  preview: async (input) => ({
+    kind: 'text',
+    subject: input.path,
+    detail: input.rows
+      .slice(0, 10)
+      .map((row) => row.join('\t'))
+      .join('\n')
+  }),
+  execute: async (input, context) => {
+    const target = resolveInWorkspace(context.workspaceRoot, input.path)
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet(input.sheet)
+
+    for (const row of input.rows) {
+      sheet.addRow(
+        row.map((value) => {
+          if (value.startsWith('=')) return { formula: value.slice(1), date1904: false }
+          const numeric = Number(value)
+          return value.trim() !== '' && !Number.isNaN(numeric) ? numeric : value
+        })
+      )
+    }
+
+    // A header nobody can read is a table nobody can use: bold it and widen
+    // every column to its longest value.
+    sheet.getRow(1).font = { bold: true }
+    const widths = input.rows.reduce<number[]>((longest, row) => {
+      row.forEach((value, index) => {
+        longest[index] = Math.max(longest[index] ?? 10, Math.min(60, value.length + 2))
+      })
+      return longest
+    }, [])
+    widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width })
+
+    try {
+      await workbook.xlsx.writeFile(target)
+    } catch (error) {
+      throw new ToolError(`Failed to write workbook: ${(error as Error).message}`)
+    }
+    return `Saved: ${input.path} (${input.rows.length} rows × ${widths.length} columns)`
+  }
+})

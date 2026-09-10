@@ -4,6 +4,8 @@ import { useActiveSession } from '../store/session'
 import type { Message, MessagePart } from '../store/session'
 import { ToolBlock } from './ToolBlock'
 import { RichText } from './RichText'
+import { Attachments } from './Attachments'
+import { Artifacts, documentsProduced } from './Artifacts'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -13,6 +15,7 @@ type Block = { kind: 'text'; text: string } | { kind: 'tools'; parts: ToolPart[]
 function groupBlocks(parts: MessagePart[]): Block[] {
   const blocks: Block[] = []
   for (const part of parts) {
+    if (part.kind === 'attachments') continue
     if (part.kind !== 'tool') {
       blocks.push({ kind: 'text', text: part.text })
       continue
@@ -88,17 +91,23 @@ function breakdownOf(parts: MessagePart[]): string {
   return bits.length > 0 ? ` · ${bits.join(' · ')}` : ''
 }
 
-function MessageView({ message }: { message: Message }): JSX.Element {
+function MessageView({ message, sessionId }: { message: Message; sessionId: string }): JSX.Element {
   const [stepsOpen, setStepsOpen] = useState(false)
 
   if (message.role === 'user') {
+    const files = message.parts.flatMap((part) => (part.kind === 'attachments' ? part.items : []))
+    const text = message.parts
+      .map((part) => (part.kind === 'text' ? part.text : ''))
+      .join('')
+
     return (
-      <div className="flex justify-end py-4">
-        <div className="max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
-          {message.parts.map((part, index) =>
-            part.kind === 'text' ? <span key={index}>{part.text}</span> : null
-          )}
-        </div>
+      <div className="flex flex-col items-end gap-2 py-4">
+        {files.length > 0 && <Attachments items={files} />}
+        {text.trim() !== '' && (
+          <div className="max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
+            {text}
+          </div>
+        )}
       </div>
     )
   }
@@ -108,6 +117,7 @@ function MessageView({ message }: { message: Message }): JSX.Element {
   const tailRunning =
     tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
   const done = message.summary !== undefined
+  const documents = documentsProduced(message.parts)
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">
@@ -128,6 +138,7 @@ function MessageView({ message }: { message: Message }): JSX.Element {
           />
         )
       })}
+      {documents.length > 0 && <Artifacts sessionId={sessionId} paths={documents} />}
       {message.pending && !tailRunning && (
         <div className="mt-2 flex items-center gap-2.5 text-[14px] text-dim">
           <span className="h-2.5 w-2.5 animate-breathe rounded-full bg-dim" />
@@ -272,7 +283,7 @@ export function SessionView(): JSX.Element {
       <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-4">
         <div className="mx-auto max-w-3xl pb-6">
           {messages.map((message) => (
-            <MessageView key={message.id} message={message} />
+            <MessageView key={message.id} message={message} sessionId={session?.id ?? ''} />
           ))}
           <div ref={bottomRef} />
         </div>

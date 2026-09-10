@@ -30,18 +30,17 @@
   header .menubtn span.title {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  #menuDrop {
-    position: fixed; top: 52px; left: 16px; right: 16px; z-index: 30;
-    background: #202020; border: 1px solid #303030; border-radius: 12px;
-    overflow: hidden; box-shadow: 0 12px 32px rgba(0,0,0,.5);
-  }
+  /* Plain white words under the title — no card, no rules, no chrome. The
+     column is centred on the screen and its labels read flush left. */
+  /* No card around the words: the page behind them simply steps back. The
+     column sits in the middle of the screen and its labels read flush left. */
+  #menuDrop { position: fixed; inset: 0; z-index: 30; background: rgba(26,26,26,.9); }
+  #menuDrop .mcol { width: fit-content; margin: 56px auto 0; }
   #menuDrop .mrow {
-    display: flex; align-items: center; gap: 10px; padding: 13px 16px;
-    border-bottom: 1px solid #262626; cursor: pointer; font-weight: 500;
+    display: block; width: 100%; background: none; border: none; padding: 10px 0;
+    cursor: pointer; color: #ededed; font-size: 17px; text-align: left;
   }
-  #menuDrop .mrow:last-child { border-bottom: none; }
-  #menuDrop .mrow:active { background: #2a2a2a; }
-  #menuDrop .mrow .ico { color: #9a9a9a; width: 20px; text-align: center; }
+  #menuDrop .mrow:active { color: #d1fa22; }
   main { padding: 12px 16px 120px; }
   .card {
     background: #202020; border: 1px solid #303030; border-radius: 12px;
@@ -85,26 +84,38 @@
     padding: 8px 12px; max-width: 85%;
   }
   .msg .tool { color: #9a9a9a; font-size: 13.5px; font-family: ui-monospace, Menlo, monospace; }
-  .tgroup { margin: 4px 0; }
-  .tgroup summary {
-    list-style: none; display: flex; align-items: baseline; gap: 8px;
-    padding: 6px 0; cursor: pointer; color: #ededed; font-weight: 600;
+  /* A run of tool calls collapses to one line — "ran 5 steps" — exactly as on
+     the desktop; the individual steps live behind the disclosure. */
+  .tgroup { margin: 12px 0; }
+  .tgroup > summary {
+    list-style: none; display: flex; align-items: center; gap: 10px;
+    padding: 2px 0; cursor: pointer; color: #9a9a9a; font-size: 14px;
   }
   .tgroup summary::-webkit-details-marker { display: none; }
-  .tgroup .tlabel { flex: none; }
-  .tgroup .tsubject {
-    flex: 1; min-width: 0; color: #9a9a9a; font-weight: 400; font-size: 14px;
+  .tgroup .tdot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #6d6d6d; }
+  .tgroup .tdot.live { background: #9a9a9a; animation: breathe 1.6s ease-in-out infinite; }
+  .tgroup .tdot.bad { background: #e06c6c; }
+  .tgroup .tlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tchev { flex: none; font-size: 11px; color: #6d6d6d; }
+  .tgroup .tbody { border-left: 1px solid #303030; margin: 4px 0 4px 3px; padding-left: 16px; }
+  .trow { padding: 8px 0; }
+  .trow > summary {
+    list-style: none; display: flex; align-items: baseline; gap: 10px;
+    padding: 2px 0; cursor: pointer; color: #ededed; font-size: 15px;
+  }
+  .trow summary::-webkit-details-marker { display: none; }
+  .trow .tname { flex: none; }
+  .trow .tname.bad { color: #e06c6c; }
+  .trow .tsubject {
+    flex: 1; min-width: 0; color: #9a9a9a; font-size: 13px;
     font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .tgroup .tstat { flex: none; font-size: 13px; }
-  .tgroup .tbody { border-left: 1px solid #303030; margin: 2px 0 2px 4px; padding-left: 10px; }
-  .tgroup .trow {
-    display: flex; align-items: baseline; gap: 8px; padding: 4px 0; font-size: 13.5px;
-    color: #9a9a9a; font-family: ui-monospace, Menlo, monospace;
+  .trow .tout {
+    margin: 8px 0 0; max-height: 320px; overflow: auto; background: #202020;
+    border: 1px solid #303030; border-radius: 10px; padding: 10px 12px;
+    font: 12.5px/1.6 ui-monospace, Menlo, monospace; color: #9a9a9a;
+    white-space: pre-wrap; word-break: break-word;
   }
-  .tgroup .trow .tsubject { flex: 1; }
-  .tgroup .ok { color: #5ac37f; }
-  .tgroup .bad { color: #e06c6c; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -114,13 +125,51 @@
     0%, 100% { background: #9a9a9a; }
     50% { background: #d1fa22; }
   }
-  .add { color: #5ac37f; }
-  .del { color: #e06c6c; }
   .composer {
-    position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px;
+    position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #1a1a1a;
     border-top: 1px solid #303030;
   }
+  /* Staged files sit on their own row above the text box. */
+  #stagedRow { flex: 0 0 100%; display: flex; gap: 8px; overflow-x: auto; }
+  #stagedRow .chip {
+    position: relative; display: flex; align-items: center; gap: 8px; flex: none;
+    background: #202020; border: 1px solid #303030; border-radius: 10px; padding: 6px 26px 6px 6px;
+  }
+  #stagedRow .chip img, .att img { display: block; border-radius: 6px; object-fit: cover; }
+  #stagedRow .chip img { width: 34px; height: 34px; }
+  #stagedRow .chip .nm { display: block; font-size: 12.5px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #stagedRow .chip .sz { display: block; font-size: 11px; color: #6d6d6d; }
+  #stagedRow .chip .x {
+    position: absolute; top: 2px; right: 6px; background: none; border: none; color: #6d6d6d;
+    font-size: 15px; line-height: 1; padding: 0;
+  }
+  .tag {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 6px; background: #272727;
+    font-size: 9px; font-weight: 600; letter-spacing: .5px; color: #9a9a9a;
+  }
+  .composer .attach {
+    flex: none; background: #2e2e2e; color: #ededed; border: none; border-radius: 10px;
+    padding: 0 14px; font-size: 20px; line-height: 1;
+  }
+  /* Attachments inside the transcript: pictures as pictures, the rest as cards. */
+  .atts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin: 6px 0; }
+  .att { flex: none; border: 1px solid #303030; border-radius: 12px; overflow: hidden; background: #202020; }
+  .att img { max-width: 58vw; max-height: 240px; }
+  .att.file { display: flex; align-items: center; gap: 10px; padding: 8px 10px; max-width: 70vw; text-align: left; }
+  .att .nm { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att .sz { display: block; font-size: 11px; color: #6d6d6d; }
+  .artifact {
+    display: flex; align-items: center; gap: 10px; margin: 6px 0; padding: 8px 10px;
+    background: #202020; border: 1px solid #303030; border-radius: 10px;
+  }
+  .artifact .nm {
+    flex: 1; min-width: 0; font: 12.5px ui-monospace, Menlo, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .artifact a, .dirrow .dl { color: #d1fa22; text-decoration: none; font-size: 13.5px; flex: none; }
+  .dirrow .dl { padding: 0 6px; }
   .composer textarea {
     flex: 1; background: #202020; border: 1px solid #303030; border-radius: 10px;
     color: #ededed; padding: 10px 12px; resize: none; min-height: 44px;
@@ -173,10 +222,12 @@
     <span class="chev">▾</span>
   </button>
 </header>
-<div id="menuDrop" class="hidden">
-  <button class="mrow" onclick="gotoNew()">New session</button>
-  <button class="mrow" onclick="gotoSessions()">Sessions</button>
-  <button class="mrow" onclick="gotoFiles()">Files</button>
+<div id="menuDrop" class="hidden" onclick="if (event.target === this) closeMenu()">
+  <div class="mcol">
+    <button class="mrow" onclick="gotoNew()">New session</button>
+    <button class="mrow" onclick="gotoSessions()">Sessions</button>
+    <button class="mrow" onclick="gotoFiles()">Files</button>
+  </div>
 </div>
 <div id="errorBanner" role="alert" class="hidden" style="margin:12px 16px;padding:12px;border:1px solid #945050;border-radius:8px;color:#f3aaaa;overflow-wrap:anywhere"><span id="errorMessage"></span><button style="margin-left:10px" onclick="document.getElementById('errorBanner').classList.add('hidden')">Dismiss</button></div>
 <main>
@@ -223,6 +274,9 @@
 </main>
 <div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:90px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
 <div class="composer hidden" id="inputRow">
+  <div id="stagedRow" class="hidden"></div>
+  <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
+  <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
   <button id="sendBtn" onclick="onSendBtn()">↑</button>
 </div>
@@ -347,6 +401,8 @@ function startOverviewPolling() {
 
 function gotoNew() {
   if (!canLeaveEditor()) return;
+  staged = [];
+  renderStaged();
   document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
@@ -366,6 +422,8 @@ function gotoNew() {
 
 function gotoSessions() {
   if (!canLeaveEditor()) return;
+  staged = [];
+  renderStaged();
   document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
@@ -524,8 +582,14 @@ async function syncSession(id) {
   currentRunId = runId;
   hideWorking();
   liveEl = null;
+  liveGroup = null;
   renderTranscript(messages);
-  if (runId) showWorking(null);
+  // The pause marker is ours, not the transcript's, so a re-sync has to put it
+  // back; it disappears on its own once the session is resumed.
+  if (pausedSessions.has(id)) appendUserBubble(PAUSE_LABEL);
+  // A group still holding an unfinished step already reads as working; a
+  // second dot below it would double up on the desktop's single indicator.
+  if (runId && !tailRunning) showWorking();
   updateSendBtn();
 }
 
@@ -544,13 +608,6 @@ function toolSubject(item) {
   return item.name;
 }
 
-function diffStatOf(item) {
-  const match = /\((\+\d+)(?:\s*-\s*(\d+))?\)/.exec(item.result?.content || '');
-  if (match === null) return null;
-  return { added: parseInt(match[1].slice(1), 10), removed: match[2] !== undefined ? parseInt(match[2].slice(1), 10) : 0 };
-}
-
-function pluralize(count, noun) { return count + ' ' + noun + (count === 1 ? '' : 's'); }
 
 /* The same glass gradients the desktop badges use; a session always gets the
  * same colour by hashing its id. */
@@ -601,91 +658,123 @@ function appendRichText(parent, text) {
   }
 }
 
-function toolGroupEl(group) {
-  const count = group.items.length;
+/** Which of the three work types a tool belongs to, as a display label. */
+function toolLabel(name) {
+  return { code: 'Code', edit: 'Edit', explore: 'Explore' }[toolCategory(name)];
+}
+
+/** One step inside an open group: its name, subject, and output on tap. */
+function toolRowEl(item) {
+  const row = document.createElement('details');
+  row.className = 'trow';
+  const head = document.createElement('summary');
+  const name = document.createElement('span');
+  name.className = 'tname' + (item.result?.isError === true ? ' bad' : '');
+  name.textContent = toolLabel(item.name);
+  const subject = document.createElement('span');
+  subject.className = 'tsubject';
+  subject.textContent = toolSubject(item);
+  const chev = document.createElement('span');
+  chev.className = 'tchev';
+  chev.textContent = item.result === undefined ? '\u00b7\u00b7\u00b7' : '\u2304';
+  head.append(name, subject, chev);
+  const out = document.createElement('pre');
+  out.className = 'tout';
+  const shell = item.name === 'run_command' ? '$ ' + toolSubject(item) + '\n\n' : '';
+  out.textContent = shell + (item.result?.content || '(no output yet)');
+  row.append(head, out);
+  row.addEventListener('toggle', () => {
+    if (item.result !== undefined) chev.textContent = row.open ? '\u2303' : '\u2304';
+  });
+  return row;
+}
+
+/* A run of tool calls folds into one line — the desktop's ToolGroup, verbatim:
+ * "ran 5 steps" while it is history, "working · 5 steps" while it runs. */
+function toolGroupEl(items) {
   const details = document.createElement('details');
   details.className = 'tgroup';
   const summary = document.createElement('summary');
+  const running = items.some((item) => item.result === undefined);
+  const failed = items.filter((item) => item.result?.isError === true).length;
+  const dot = document.createElement('span');
+  dot.className = 'tdot' + (running ? ' live' : failed > 0 ? ' bad' : '');
   const label = document.createElement('span');
   label.className = 'tlabel';
-  const subject = document.createElement('span');
-  subject.className = 'tsubject';
-  let totalAdded = 0;
-  let totalRemoved = 0;
-  for (const item of group.items) {
-    const stat = diffStatOf(item);
-    if (stat !== null) { totalAdded += stat.added; totalRemoved += stat.removed; }
-  }
-  const statSpan = document.createElement('span');
-  statSpan.className = 'tstat';
-  if (group.cat === 'edit') {
-    label.textContent = 'Edit';
-    subject.textContent = count === 1 ? toolSubject(group.items[0]) : pluralize(count, 'file');
-    statSpan.className = 'tstat add';
-    statSpan.textContent = (totalAdded > 0 ? '+' + totalAdded : '') + (totalRemoved > 0 ? ' −' + totalRemoved : '');
-  } else if (group.cat === 'code') {
-    label.textContent = 'Code';
-    subject.textContent = count === 1 ? toolSubject(group.items[0]) : pluralize(count, 'command');
-  } else {
-    label.textContent = 'Explored';
-    subject.textContent = pluralize(count, 'read');
-  }
-  summary.appendChild(label);
-  summary.appendChild(subject);
-  if (totalAdded > 0 || totalRemoved > 0) summary.appendChild(statSpan);
+  label.textContent = running
+    ? 'working \u00b7 ' + items.length + ' steps'
+    : failed > 0
+      ? 'ran ' + items.length + ' steps \u00b7 ' + failed + ' failed'
+      : 'ran ' + items.length + ' steps';
+  const chev = document.createElement('span');
+  chev.className = 'tchev';
+  chev.textContent = '\u2304';
+  summary.append(dot, label, chev);
   details.appendChild(summary);
+  details.addEventListener('toggle', () => { chev.textContent = details.open ? '\u2303' : '\u2304'; });
 
   const body = document.createElement('div');
   body.className = 'tbody';
-  for (const item of group.items) {
-    const row = document.createElement('div');
-    row.className = 'trow';
-    const rowSubject = document.createElement('span');
-    rowSubject.className = 'tsubject';
-    rowSubject.textContent = toolSubject(item);
-    row.appendChild(rowSubject);
-    const stat = diffStatOf(item);
-    if (stat !== null) {
-      const statRow = document.createElement('span');
-      statRow.className = 'tstat add';
-      statRow.textContent = (stat.added > 0 ? '+' + stat.added : '') + (stat.removed > 0 ? ' −' + stat.removed : '');
-      row.appendChild(statRow);
-    } else if (item.result !== undefined) {
-      const mark = document.createElement('span');
-      mark.className = item.result.isError ? 'bad' : 'ok';
-      mark.textContent = item.result.isError ? '✗' : '✓';
-      row.appendChild(mark);
-    }
-    body.appendChild(row);
-  }
+  for (const item of items) body.appendChild(toolRowEl(item));
   details.appendChild(body);
   return details;
 }
 
+/**
+ * The provider transcript splits one run across many assistant messages, with
+ * a tool-result message wedged between each pair. The desktop draws that run
+ * as a single message, so the same folding happens here before rendering.
+ */
+function foldTurns(messages) {
+  const turns = [];
+  for (const m of messages) {
+    const blocks = m.blocks.filter((b) => b.type !== 'tool_result');
+    if (blocks.length === 0) continue;
+    const last = turns.at(-1);
+    if (m.role === 'assistant' && last !== undefined && last.role === 'assistant') {
+      last.blocks.push(...blocks);
+    } else {
+      turns.push({ role: m.role, blocks });
+    }
+  }
+  return turns;
+}
+
+/** True when the transcript ends on a tool group whose last step is still running. */
+let tailRunning = false;
+
 function renderTranscript(messages) {
   const el = document.getElementById('transcript');
   el.innerHTML = '';
+  tailRunning = false;
   const results = new Map();
   for (const m of messages) {
     for (const b of m.blocks) {
       if (b.type === 'tool_result') results.set(b.toolUseId, b);
     }
   }
-  for (const m of messages) {
+  for (const m of foldTurns(messages)) {
+    tailRunning = false;
     if (m.role === 'user') {
-      if (!m.blocks.some((block) => block.type === 'text' && block.text.trim())) continue;
+      const files = m.blocks.filter((block) => block.type === 'attachment').map((block) => block.attachment);
+      const text = m.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
+      if (text === '' && files.length === 0) continue;
       const div = document.createElement('div');
       div.className = 'msg user';
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = m.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('').trim() || '…';
-      div.appendChild(bubble);
+      if (files.length > 0) div.appendChild(attachmentsEl(files));
+      if (text !== '') {
+        const bubble = document.createElement('span');
+        bubble.className = 'bubble';
+        bubble.textContent = promptLabel(text);
+        div.appendChild(bubble);
+      }
       el.appendChild(div);
       continue;
     }
     const div = document.createElement('div');
     div.className = 'msg assistant';
     const textBuf = [];
+    const produced = [];
     let group = null;
     const flushText = () => {
       const text = textBuf.join('').trim();
@@ -694,21 +783,29 @@ function renderTranscript(messages) {
         p.style.whiteSpace = 'pre-wrap';
         appendRichText(p, text);
         div.appendChild(p);
+        tailRunning = false;
       }
       textBuf.length = 0;
     };
     const flushGroup = () => {
-      if (group !== null) { div.appendChild(toolGroupEl(group)); group = null; }
+      if (group === null) return;
+      div.appendChild(toolGroupEl(group));
+      tailRunning = group.some((item) => item.result === undefined);
+      group = null;
     };
     for (const b of m.blocks) {
       if (b.type === 'text') { flushGroup(); textBuf.push(b.text); continue; }
       if (b.type !== 'tool_use') continue;
-      const cat = toolCategory(b.name);
-      if (group === null || group.cat !== cat) { flushText(); flushGroup(); group = { cat, items: [] }; }
-      group.items.push({ name: b.name, input: b.input, result: results.get(b.id) });
+      if (group === null) { flushText(); group = []; }
+      const item = { name: b.name, input: b.input, result: results.get(b.id) };
+      group.push(item);
+      produced.push(item);
     }
     flushGroup();
     flushText();
+    for (const target of documentsProduced(produced)) {
+      div.appendChild(artifactEl(currentSession, target));
+    }
     el.appendChild(div);
   }
 }
@@ -728,11 +825,13 @@ function listen(id) {
     if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
     if (event.type !== 'usage') sessionEventVersion++;
-    if (event.type === 'prompt') { currentRunId = event.runId; liveEl = null; hideWorking(); appendUserBubble(event.text); showWorking(null); }
-    else if (event.type === 'text_delta') { currentRunId = event.runId; hideWorking(); appendLive(event.text); }
-    else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; showWorking(event.name); }
+    if (event.type === 'prompt') { currentRunId = event.runId; liveEl = null; liveGroup = null; hideWorking(); appendUserBubble(event.text, event.attachments); showWorking(); }
+    else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
+    else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
+    else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output); }
     else if (event.type === 'end' || event.type === 'error') {
       hideWorking();
+      liveGroup = null;
       currentRunId = null;
       if (event.reason === 'cancelled') pausedSessions.add(id);
       updateSendBtn();
@@ -745,7 +844,7 @@ function listen(id) {
 }
 
 let workingEl = null;
-function showWorking(toolName) {
+function showWorking() {
   if (workingEl === null) {
     workingEl = document.createElement('div');
     workingEl.className = 'working';
@@ -756,12 +855,44 @@ function showWorking(toolName) {
     workingEl.appendChild(label);
     document.getElementById('transcript').appendChild(workingEl);
   }
-  workingEl.lastChild.textContent = toolName === null ? 'working' : 'working · ' + toolCategory(toolName);
+  workingEl.lastChild.textContent = 'working';
   window.scrollTo(0, document.body.scrollHeight);
 }
 function hideWorking() {
   workingEl?.remove();
   workingEl = null;
+}
+
+/* The run of tool calls currently streaming. It is one element, rebuilt as
+ * steps arrive, so the phone reads "working · 5 steps" mid-run and settles to
+ * "ran 5 steps" — the same live group the desktop draws. */
+let liveGroup = null;
+
+function liveToolStart(toolUseId, name, input) {
+  const el = document.getElementById('transcript');
+  if (liveGroup === null || !el.contains(liveGroup.el)) liveGroup = { el: null, items: [] };
+  liveGroup.items.push({ id: toolUseId, name, input, result: undefined });
+  redrawLiveGroup();
+}
+
+function liveToolEnd(toolUseId, ok, output) {
+  const item = liveGroup?.items.find((entry) => entry.id === toolUseId);
+  if (item === undefined) return;
+  item.result = { content: output, isError: !ok };
+  redrawLiveGroup();
+}
+
+/* While a step is in flight the group says so itself; once they have all
+ * landed the model is thinking again, which is what the working dot means. */
+function redrawLiveGroup() {
+  const el = document.getElementById('transcript');
+  const next = toolGroupEl(liveGroup.items);
+  if (liveGroup.el !== null && el.contains(liveGroup.el)) el.replaceChild(next, liveGroup.el);
+  else el.appendChild(next);
+  liveGroup.el = next;
+  if (liveGroup.items.some((item) => item.result === undefined)) hideWorking();
+  else showWorking();
+  window.scrollTo(0, document.body.scrollHeight);
 }
 
 let liveEl = null;
@@ -774,6 +905,153 @@ function appendLive(text) {
   }
   liveEl.textContent += text;
   window.scrollTo(0, document.body.scrollHeight);
+}
+
+/* ---------- Attachments ---------- */
+
+let staged = [];
+
+function formatBytes(size) {
+  if (size < 1024) return size + ' B';
+  if (size < 1024 * 1024) return Math.round(size / 1024) + ' KB';
+  return (size / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function tagFor(kind) {
+  return { image: 'IMG', text: 'TXT', excel: 'XLS', docx: 'DOC', pdf: 'PDF', binary: 'BIN' }[kind] || 'BIN';
+}
+
+function renderStaged() {
+  const row = document.getElementById('stagedRow');
+  row.replaceChildren();
+  row.classList.toggle('hidden', staged.length === 0);
+  for (const item of staged) {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    if (item.thumbnail) {
+      const img = document.createElement('img');
+      img.src = item.thumbnail;
+      img.alt = item.name;
+      chip.appendChild(img);
+    } else {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = tagFor(item.kind);
+      chip.appendChild(tag);
+    }
+    const label = document.createElement('span');
+    const name = document.createElement('span');
+    name.className = 'nm';
+    name.textContent = item.name;
+    const size = document.createElement('span');
+    size.className = 'sz';
+    size.textContent = formatBytes(item.size);
+    label.append(name, size);
+    chip.appendChild(label);
+    const remove = document.createElement('button');
+    remove.className = 'x';
+    remove.textContent = '×';
+    remove.title = 'Remove';
+    remove.onclick = () => { staged = staged.filter((entry) => entry.id !== item.id); renderStaged(); };
+    chip.appendChild(remove);
+    row.appendChild(chip);
+  }
+}
+
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Could not read ' + file.name));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onFilesPicked(files) {
+  const picked = Array.from(files || []);
+  document.getElementById('fileInput').value = '';
+  for (const file of picked) {
+    try {
+      const data = await readAsBase64(file);
+      const info = await jfetch('/api/attachment', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: file.name, data })
+      });
+      staged.push(info);
+      renderStaged();
+    } catch (error) { showError(error); }
+  }
+}
+
+/* The files that rode with a prompt, drawn the way they were sent. */
+function attachmentsEl(items) {
+  const wrap = document.createElement('div');
+  wrap.className = 'atts';
+  for (const item of items) {
+    if (item.thumbnail) {
+      const box = document.createElement('div');
+      box.className = 'att';
+      const img = document.createElement('img');
+      img.src = item.thumbnail;
+      img.alt = item.name;
+      box.appendChild(img);
+      wrap.appendChild(box);
+      continue;
+    }
+    const card = document.createElement('div');
+    card.className = 'att file';
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = tagFor(item.kind);
+    const label = document.createElement('span');
+    const name = document.createElement('span');
+    name.className = 'nm';
+    name.textContent = item.name;
+    const size = document.createElement('span');
+    size.className = 'sz';
+    size.textContent = formatBytes(item.size);
+    label.append(name, size);
+    card.append(tag, label);
+    wrap.appendChild(card);
+  }
+  return wrap;
+}
+
+/* Documents a run produced, offered as downloads — the same rule the desktop
+ * uses: a successful write of something a person opens rather than reads. */
+const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip'];
+
+function documentsProduced(items) {
+  const paths = [];
+  for (const item of items) {
+    if (!/^(write|create|fill|add)_/.test(item.name)) continue;
+    if (item.result === undefined || item.result.isError) continue;
+    const input = item.input || {};
+    const target = typeof input.output_path === 'string' ? input.output_path : input.path;
+    if (typeof target !== 'string') continue;
+    const dot = target.lastIndexOf('.');
+    if (dot === -1 || !DOCUMENT_EXTENSIONS.includes(target.slice(dot).toLowerCase())) continue;
+    if (!paths.includes(target)) paths.push(target);
+  }
+  return paths;
+}
+
+function artifactEl(sessionId, target) {
+  const row = document.createElement('div');
+  row.className = 'artifact';
+  const tag = document.createElement('span');
+  tag.className = 'tag';
+  tag.textContent = target.slice(target.lastIndexOf('.') + 1, target.lastIndexOf('.') + 4).toUpperCase();
+  const name = document.createElement('span');
+  name.className = 'nm';
+  name.textContent = target;
+  const link = document.createElement('a');
+  link.href = '/api/download?sessionId=' + encodeURIComponent(sessionId) +
+    '&path=' + encodeURIComponent(target) + '&token=' + encodeURIComponent(token);
+  link.textContent = 'Download';
+  link.setAttribute('download', target.split('/').pop());
+  row.append(tag, name, link);
+  return row;
 }
 
 function sendBtnState() {
@@ -807,19 +1085,26 @@ async function pauseSession() {
   try {
     await jfetch('/api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId: currentRunId }) });
     pausedSessions.add(currentSession);
+    appendUserBubble(PAUSE_LABEL);
     updateSendBtn();
   } catch (error) { showError(error); }
 }
+/* The words the pause button leaves in the transcript, matching the desktop. */
+const PAUSE_LABEL = 'Okay, taking a break mate!';
+const RESUME_LABEL = 'ah sh**, here we go again';
+/* What a resume actually asks for; the transcript shows RESUME_LABEL instead. */
 const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
+function promptLabel(text) { return text === CONTINUE_PROMPT ? RESUME_LABEL : text; }
 async function resumeSession() { await submitPrompt(CONTINUE_PROMPT); }
 
-function appendUserBubble(text) {
+function appendUserBubble(text, files) {
   const el = document.getElementById('transcript');
   const div = document.createElement('div');
   div.className = 'msg user';
+  if (files !== undefined && files.length > 0) div.appendChild(attachmentsEl(files));
   const bubble = document.createElement('span');
   bubble.className = 'bubble';
-  bubble.textContent = text;
+  bubble.textContent = promptLabel(text);
   div.appendChild(bubble);
   el.appendChild(div);
   window.scrollTo(0, document.body.scrollHeight);
@@ -833,14 +1118,17 @@ async function sendPrompt() {
 async function submitPrompt(prompt) {
   if (!prompt || !currentSession || currentRunId || submitting) return false;
   const id = currentSession;
+  const attachmentIds = staged.map((item) => item.id);
   submitting = true;
   updateSendBtn();
   try {
     await listen(id);
     await jfetch('/api/prompt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: id, prompt })
+      body: JSON.stringify({ sessionId: id, prompt, attachmentIds })
     });
+    staged = [];
+    renderStaged();
     pausedSessions.delete(id);
     // The stream is already subscribed, including for immediately completed runs.
 
@@ -952,6 +1240,19 @@ async function renderListing() {
       currentPath = joinPath(currentPath, entry);
       void renderListing().catch(showError);
     };
+    // Anything the agent produced — a PDF, a workbook — leaves the Mac here.
+    if (!isFolder) {
+      const link = document.createElement('a');
+      link.className = 'dl';
+      link.textContent = '↓';
+      link.title = 'Download';
+      link.href = '/api/download?sessionId=' + encodeURIComponent(sessionId) +
+        '&path=' + encodeURIComponent(joinPath(currentPath, entry)) +
+        '&token=' + encodeURIComponent(token);
+      link.setAttribute('download', entry);
+      link.onclick = (event) => event.stopPropagation();
+      row.appendChild(link);
+    }
     dir.appendChild(row);
   }
 }

@@ -5,6 +5,7 @@ import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
 import { Composer } from './components/Composer'
 import { SettingsView } from './components/SettingsView'
+import { CONTINUE_PROMPT, RESUME_LABEL } from './components/Composer'
 import { ApprovalModal } from './components/ApprovalModal'
 import { useSessionStore } from './store/session'
 import type {
@@ -219,7 +220,13 @@ export function App(): JSX.Element {
       // then pull the finished transcript so nothing is lost in translation.
       switch (event.type) {
         case 'prompt':
-          store.addUserPrompt(event.sessionId, event.text)
+          // A resume from the phone carries the continuation paragraph; the
+          // transcript shows the short marker instead, as a local resume does.
+          store.addUserPrompt(
+            event.sessionId,
+            event.text === CONTINUE_PROMPT ? RESUME_LABEL : event.text,
+            event.attachments
+          )
           store.mirrorStart(event.runId, event.sessionId)
           break
         case 'text_delta':

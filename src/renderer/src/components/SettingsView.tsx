@@ -279,13 +279,6 @@ function Providers({
           </div>
         </div>
       )}
-
-      <p className="mt-3 text-[12px] leading-relaxed text-faint">
-        Custom providers speak the OpenAI-compatible <span className="font-mono">/v1</span> format.
-        Keys are stored locally in the app data directory and never sent anywhere except the
-        endpoint you configure. The built-in Clinepass key still comes from{' '}
-        <span className="font-mono">.env</span>.
-      </p>
     </>
   )
 }
@@ -444,21 +437,6 @@ function Remote(): JSX.Element {
           </div>
         </>
       )}
-
-      <div className="mt-8 rounded-xl border border-line-soft p-4 text-[12px] leading-relaxed text-faint">
-        <p className="mb-2">Requirements and limits:</p>
-        <ul className="list-disc space-y-1 pl-4">
-          <li>The Mac must stay awake — closing the lid sleeps the app (System Settings → Battery → Power Adapter → prevent automatic sleeping, or run <span className="font-mono">caffeinate -s</span>).</li>
-          <li>The phone and the Mac share the Wi-Fi. For access away from home, put both on Tailscale.</li>
-          <li>
-            Moved to another Wi-Fi? The pairing URL always follows the Mac's current address —
-            reopen this page, then scan or copy the fresh link for the phone. “New pairing link”
-            also revokes every old link.
-          </li>
-          <li>Remote prompts follow the desktop approval mode. Enable Auto in General for fully unattended runs.</li>
-          <li>Sessions created on the phone appear here immediately, and their progress streams live on both sides.</li>
-        </ul>
-      </div>
     </>
   )
 }

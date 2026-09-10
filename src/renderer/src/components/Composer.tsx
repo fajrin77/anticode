@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DragEvent, JSX } from 'react'
+import type { ClipboardEvent, DragEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { ModelPicker } from './ModelPicker'
-import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
+import { formatBytes } from './Attachments'
+import type {
+  AttachmentInfo,
+  ProviderId,
+  ProviderInfo,
+  SessionStatus
+} from '@shared/ipc'
+import type { MessagePart } from '../store/session'
 
 interface ComposerProps {
   status: SessionStatus | null
@@ -13,6 +20,25 @@ interface ComposerProps {
   hero?: boolean
   /** Appended to the right end of the hero picker row (e.g. a search button). */
   heroExtra?: JSX.Element
+}
+
+/** What the pause button writes into the transcript on either side of a break. */
+export const PAUSE_LABEL = 'Okay, taking a break mate!'
+export const RESUME_LABEL = 'ah sh**, here we go again'
+
+/** The instruction a resume actually sends; the phone sends the same words.
+ * Both sides show RESUME_LABEL in its place, never this paragraph. */
+export const CONTINUE_PROMPT =
+  'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.'
+
+/** Spread-based encoding blows the call stack on megabyte images. */
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
+  }
+  return btoa(binary)
 }
 
 function Chip({
@@ -29,7 +55,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-text'
+        active ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-brand'
       }`}
     >
       {children}
@@ -120,6 +146,25 @@ export function Composer({
     }
   }
 
+  /** A screenshot on the clipboard has no file on disk, so its bytes travel. */
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>): void {
+    const files = Array.from(event.clipboardData.files)
+    if (files.length === 0) return
+    event.preventDefault()
+    for (const file of files) {
+      void collect(
+        file
+          .arrayBuffer()
+          .then((buffer) =>
+            window.anticode.addAttachmentData(
+              file.name === '' ? `pasted-${Date.now()}.png` : file.name,
+              toBase64(buffer)
+            )
+          )
+      )
+    }
+  }
+
   function onDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault()
     setDragging(false)
@@ -151,7 +196,7 @@ export function Composer({
     addMessage({
       id: crypto.randomUUID(),
       role: 'user',
-      parts: [{ kind: 'text', text: '▶ lanjutkan' }],
+      parts: [{ kind: 'text', text: RESUME_LABEL }],
       pending: false
     })
     addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
@@ -160,8 +205,7 @@ export function Composer({
       await window.anticode.sendPrompt({
         sessionId: session.id,
         runId,
-        prompt:
-          'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.',
+        prompt: CONTINUE_PROMPT,
         attachmentIds: []
       })
     } catch (failure) {
@@ -187,17 +231,18 @@ export function Composer({
     }
 
     const attachmentIds = attached.map((item) => item.id)
-    const label =
-      attached.length > 0 ? `${prompt}\n\n[${attached.map((a) => a.name).join(', ')}]` : prompt
+    // The files are drawn as pictures and cards; only the typed prompt is text.
+    const parts: MessagePart[] =
+      attached.length > 0
+        ? [
+            { kind: 'attachments', items: attached.map(({ id: _id, preview: _preview, ...ref }) => ref) },
+            { kind: 'text', text: prompt }
+          ]
+        : [{ kind: 'text', text: prompt }]
 
     setDraft('')
     setAttached([])
-    addMessage({
-      id: crypto.randomUUID(),
-      role: 'user',
-      parts: [{ kind: 'text', text: label }],
-      pending: false
-    })
+    addMessage({ id: crypto.randomUUID(), role: 'user', parts, pending: false })
 
     const messageId = crypto.randomUUID()
     const runId = crypto.randomUUID()
@@ -249,17 +294,32 @@ export function Composer({
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
 
         {attached.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
+          <div className="mb-2 flex flex-wrap gap-2">
             {attached.map((item) => (
               <span
                 key={item.id}
-                className="flex items-center gap-1.5 rounded-md bg-raised px-2 py-1 text-[12px] text-dim"
+                className="group/chip relative flex items-center gap-2 rounded-lg border border-line bg-surface p-1.5 pr-7 text-[12px] text-dim"
               >
-                <span className="max-w-48 truncate font-mono">{item.name}</span>
+                {item.thumbnail !== null ? (
+                  <img
+                    src={item.thumbnail}
+                    alt={item.name}
+                    className="h-9 w-9 rounded-md object-cover"
+                  />
+                ) : (
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-faint">
+                    {item.kind === 'binary' ? 'BIN' : item.kind.slice(0, 3).toUpperCase()}
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <span className="block max-w-44 truncate text-text">{item.name}</span>
+                  <span className="block text-[11px] text-faint">{formatBytes(item.size)}</span>
+                </span>
                 <button
                   type="button"
+                  title="Remove"
                   onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                  className="text-faint hover:text-text"
+                  className="absolute top-1 right-1.5 text-faint hover:text-text"
                 >
                   ×
                 </button>
@@ -323,6 +383,7 @@ export function Composer({
                   : 'Describe the task…'
             }
             onChange={(event) => setDraft(event.target.value)}
+            onPaste={onPaste}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
@@ -337,7 +398,7 @@ export function Composer({
               type="button"
               title="Attach files"
               onClick={() => void collect(window.anticode.chooseAttachments())}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-text"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-raised hover:text-brand"
             >
               +
             </button>
@@ -372,7 +433,7 @@ export function Composer({
                   })
                 }}
                 className={`flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-[12.5px] transition-colors ${
-                  glow ? 'animate-glow text-dim hover:text-text' : 'text-dim hover:text-text'
+                  glow ? 'animate-glow text-dim hover:text-brand' : 'text-dim hover:text-brand'
                 }`}
               >
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -398,6 +459,12 @@ export function Composer({
                 if (isStreaming && !isPaused) {
                   pauseSession(session?.id ?? '')
                   void window.anticode.cancelRun(activeRun?.runId ?? mirrorRunId ?? '')
+                  addMessage({
+                    id: crypto.randomUUID(),
+                    role: 'user',
+                    parts: [{ kind: 'text', text: PAUSE_LABEL }],
+                    pending: false
+                  })
                   return
                 }
                 if (isPaused) {
@@ -445,7 +512,7 @@ export function Composer({
                   className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
                     session.mode === mode
                       ? 'bg-brand font-medium text-bg'
-                      : 'text-dim hover:text-text'
+                      : 'text-dim hover:text-brand'
                   }`}
                 >
                   {mode === 'chat' ? 'antichat' : 'anticode'}
@@ -469,8 +536,8 @@ export function Composer({
                 }}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] transition-colors ${
                   glow && session.projectRoot === null
-                    ? 'animate-glow text-dim hover:text-text'
-                    : 'border-line text-dim hover:text-text'
+                    ? 'animate-glow text-dim hover:text-brand'
+                    : 'border-line text-dim hover:text-brand'
                 }`}
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
