@@ -90,6 +90,12 @@ try {
   await composer().fill('halo dunia'); await composer().press('Enter')
   await window.getByText(/Fixture reply: halo dunia/).waitFor()
   await window.mouse.move(640, 400); await window.waitForTimeout(200)
+  const composerLayer = await window.locator('.composer-glass').last().evaluate((el) => {
+    const layer = getComputedStyle(el.parentElement.parentElement)
+    return { position: layer.position, background: layer.backgroundColor }
+  })
+  check('session composer floats without an opaque footer',
+    `${composerLayer.position} ${composerLayer.background}`, 'absolute rgba(0, 0, 0, 0)')
   check('grid icon is faint inside a session, unhovered', await colourOf(grid), 'rgb(109, 109, 109)')
   await shot('03-in-session')
   check('grid icon turns lime on hover inside a session', await colourOnHover(grid, LIME), LIME)

@@ -684,9 +684,40 @@ try {
       assert.ok(layout.composer.width > 0 && layout.composer.right <= viewport.width + 1)
     }
     await screen.setViewportSize({ width: 390, height: 844 })
-    const glassHeader = await screen.$eval('header', (el) => getComputedStyle(el).backdropFilter)
-    assert.notEqual(glassHeader, 'none', 'the phone header lost its glass blur')
+    const glass = await screen.evaluate(() => {
+      const header = getComputedStyle(document.querySelector('header'))
+      const composer = document.getElementById('inputRow')
+      const box = composer.getBoundingClientRect()
+      const shell = getComputedStyle(composer)
+      const model = document.getElementById('modelChip')
+      return {
+        headerBlur: header.backdropFilter,
+        headerBackground: header.backgroundImage,
+        composerBlur: shell.backdropFilter,
+        composerBackground: shell.backgroundColor,
+        bottomGap: innerHeight - box.bottom,
+        modelMask: getComputedStyle(model.querySelector('.modelText')).maskImage,
+        modelOverlay: getComputedStyle(model, '::after').content
+      }
+    })
+    assert.notEqual(glass.headerBlur, 'none', 'the phone header lost its glass blur')
+    assert.notEqual(glass.composerBlur, 'none', 'the phone composer lost its glass blur')
+    assert.match(glass.headerBackground, /0\.5/)
+    assert.match(glass.composerBackground, /rgba\(.+, 0\.58\)/)
+    assert.ok(glass.bottomGap <= 5, `the phone composer sits ${glass.bottomGap}px above the bottom`)
+    assert.notEqual(glass.modelMask, 'none', 'the clipped model text has no fade mask')
+    assert.equal(glass.modelOverlay, 'none', 'a blur layer still sits over the model text')
     await screen.screenshot({ path: path.join(directory, 'phone-chat-verified.png') })
+    await screen.click('#menuBtn')
+    const menuGlass = await screen.$eval('#menuDrop .mcol', (el) => {
+      const style = getComputedStyle(el)
+      return { width: el.getBoundingClientRect().width, font: getComputedStyle(el.querySelector('.mrow')).fontSize, blur: style.backdropFilter }
+    })
+    assert.ok(menuGlass.width <= 220, `the phone menu is too wide: ${menuGlass.width}px`)
+    assert.equal(menuGlass.font, '16px')
+    assert.notEqual(menuGlass.blur, 'none', 'the phone menu lost its glass blur')
+    await screen.screenshot({ path: path.join(directory, 'phone-menu-glass.png') })
+    await screen.evaluate(() => closeMenu())
     log('phone chat fits narrow, wide, and landscape viewports')
 
     // Everything the desktop can do from its composer and Settings, the phone

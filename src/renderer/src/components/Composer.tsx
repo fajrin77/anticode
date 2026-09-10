@@ -108,6 +108,7 @@ export function Composer({
   const [shake, setShake] = useState(false)
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
 
   const activeRun = useSessionStore((state) => Object.values(state.activeRuns).find((run) => run.sessionId === session?.id) ?? null)
@@ -158,6 +159,26 @@ export function Composer({
     field.style.height = `${Math.min(field.scrollHeight, 192)}px`
     field.style.overflowY = field.scrollHeight > 192 ? 'auto' : 'hidden'
   }, [draft])
+
+  // The established-session composer floats over the scrolling transcript.
+  // Its live height becomes bottom padding on that transcript, so attachments
+  // may grow without hiding the final reply and no opaque footer is needed.
+  useLayoutEffect(() => {
+    if (hero) return
+    const layer = layerRef.current
+    const zone = layer?.closest<HTMLElement>('[data-drop-zone]')
+    if (layer === null || zone === null || zone === undefined) return
+    const sync = (): void => {
+      zone.style.setProperty('--desktop-composer-height', `${layer.getBoundingClientRect().height}px`)
+    }
+    const observer = new ResizeObserver(sync)
+    observer.observe(layer)
+    sync()
+    return () => {
+      observer.disconnect()
+      zone.style.removeProperty('--desktop-composer-height')
+    }
+  }, [hero])
 
 
   useEffect(() => {
@@ -375,7 +396,10 @@ export function Composer({
       : null
 
   return (
-    <div className={hero ? 'shrink-0 px-10' : 'shrink-0 px-10 pb-6'}>
+    <div
+      ref={layerRef}
+      className={hero ? 'shrink-0 px-10' : 'absolute inset-x-0 bottom-0 z-20 px-10 pb-3'}
+    >
       {viewing !== null && (
         <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />
       )}
