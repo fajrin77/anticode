@@ -6,7 +6,13 @@ import { listDirectoryTool } from './listDirectory'
 import { runCommandTool } from './runCommand'
 import { deleteFileTool } from './deleteFile'
 import { searchFilesTool } from './searchFiles'
-import { addExcelFormulaTool, createExcelTool, readExcelTool, writeExcelCellTool } from './excel'
+import {
+  addExcelFormulaTool,
+  createExcelTool,
+  formatExcelCellsTool,
+  readExcelTool,
+  writeExcelCellTool
+} from './excel'
 import { readDocxTool, writeDocxTool } from './docx'
 import { createPdfTool, fillPdfFormTool, readPdfTool } from './pdf'
 import {
@@ -32,6 +38,7 @@ export const tools: Tool[] = [
   createExcelTool,
   writeExcelCellTool,
   addExcelFormulaTool,
+  formatExcelCellsTool,
   readDocxTool,
   writeDocxTool,
   readPdfTool,

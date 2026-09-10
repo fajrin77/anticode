@@ -1,10 +1,17 @@
+import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import ExcelJS from 'exceljs'
+import * as XLSX from 'xlsx'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 
 const MAX_ROWS = 200
 const MAX_COLUMNS = 40
+/** Formatting lines shown per sheet; past this the summary is noise. */
+const MAX_STYLE_LINES = 40
+/** One call may restyle a whole table, not a whole million-row sheet. */
+const MAX_FORMAT_CELLS = 100_000
 
 function cellText(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return ''
@@ -22,8 +29,29 @@ function cellText(value: ExcelJS.CellValue): string {
   return String(value)
 }
 
+/**
+ * Legacy 97-2003 workbooks are converted in memory so merely attaching or
+ * reading one never writes beside the user's original. SheetJS only bridges
+ * the old bytes; exceljs keeps owning edits and explicit .xlsx output.
+ */
+async function convertLegacy(filePath: string): Promise<Buffer> {
+  // The ESM build of SheetJS does not bind Node's filesystem helpers, so its
+  // readFile/writeFile shortcuts fail inside Electron. Bytes keep this path
+  // identical in tests and the packaged app.
+  const book = XLSX.read(await readFile(filePath), { type: 'buffer' })
+  return XLSX.write(book, { bookType: 'xlsx', type: 'buffer' }) as Buffer
+}
+
 async function open(filePath: string): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook()
+  if (path.extname(filePath).toLowerCase() === '.xls') {
+    try {
+      await workbook.xlsx.load(await convertLegacy(filePath))
+      return workbook
+    } catch (error) {
+      throw new ToolError(`Failed to read legacy .xls file: ${(error as Error).message}`)
+    }
+  }
   try {
     await workbook.xlsx.readFile(filePath)
   } catch (error) {
@@ -39,6 +67,78 @@ function pickSheet(workbook: ExcelJS.Workbook, name?: string): ExcelJS.Worksheet
     throw new ToolError(`Sheet ${name ?? '(first)'} does not exist. Available: ${available}`)
   }
   return sheet
+}
+
+function columnName(index: number): string {
+  let name = ''
+  for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) {
+    name = String.fromCharCode(65 + ((n - 1) % 26)) + name
+  }
+  return name
+}
+
+function colourOf(colour: Partial<ExcelJS.Color> | undefined): string | null {
+  if (colour === undefined) return null
+  if (typeof colour.argb === 'string') return `#${colour.argb.slice(-6).toUpperCase()}`
+  if (typeof colour.theme === 'number') return `theme ${colour.theme}`
+  return null
+}
+
+/**
+ * The formatting a person would notice: background, text colour, weight.
+ * Black text — as argb or as the default theme text colour — is left out, or
+ * every cell of every sheet would carry it.
+ */
+function styleOf(cell: ExcelJS.Cell): string {
+  const parts: string[] = []
+  const fill = cell.fill
+  if (fill?.type === 'pattern' && fill.pattern !== 'none') {
+    const colour = colourOf(fill.fgColor)
+    if (colour !== null) parts.push(`fill ${colour}`)
+  }
+  const font = cell.font as Partial<ExcelJS.Font> | undefined
+  const text = colourOf(font?.color)
+  if (text !== null && text !== '#000000' && text !== 'theme 1') parts.push(`font ${text}`)
+  if (font?.bold === true) parts.push('bold')
+  if (font?.italic === true) parts.push('italic')
+  return parts.join(', ')
+}
+
+/**
+ * Formatting as ranges rather than cells: runs of alike cells within a row,
+ * then identical rows folded together — so a blue header reads as one line,
+ * which is what a request like "make the blue header red" needs to see.
+ */
+function describeStyles(sheet: ExcelJS.Worksheet, rowCount: number, columnCount: number): string[] {
+  interface Run { from: number; to: number; style: string }
+  const blocks: { first: number; last: number; key: string; runs: Run[] }[] = []
+  for (let r = 1; r <= rowCount; r++) {
+    const row = sheet.getRow(r)
+    const runs: Run[] = []
+    for (let c = 1; c <= columnCount; c++) {
+      const style = styleOf(row.getCell(c))
+      if (style === '') continue
+      const previous = runs.at(-1)
+      if (previous !== undefined && previous.to === c - 1 && previous.style === style) previous.to = c
+      else runs.push({ from: c, to: c, style })
+    }
+    if (runs.length === 0) continue
+    const key = JSON.stringify(runs)
+    const block = blocks.at(-1)
+    if (block !== undefined && block.last === r - 1 && block.key === key) block.last = r
+    else blocks.push({ first: r, last: r, key, runs })
+  }
+
+  const lines = blocks.flatMap((block) =>
+    block.runs.map((run) => {
+      const start = `${columnName(run.from)}${block.first}`
+      const end = `${columnName(run.to)}${block.last}`
+      return `- ${start === end ? start : `${start}:${end}`} ${run.style}`
+    })
+  )
+  return lines.length > MAX_STYLE_LINES
+    ? [...lines.slice(0, MAX_STYLE_LINES), `… ${lines.length - MAX_STYLE_LINES} more formatted ranges`]
+    : lines
 }
 
 function renderSheet(sheet: ExcelJS.Worksheet): string {
@@ -60,7 +160,10 @@ function renderSheet(sheet: ExcelJS.Worksheet): string {
   }
 
   const body = lines.length > 0 ? lines.join('\n') : '(empty sheet)'
-  return notes.length > 0 ? `${body}\n… ${notes.join('; ')}` : body
+  const table = notes.length > 0 ? `${body}\n… ${notes.join('; ')}` : body
+  // Ahead of the rows, so a clipped attachment preview still carries it.
+  const styles = describeStyles(sheet, rowCount, columnCount)
+  return styles.length > 0 ? `Formatting (fill is the background colour):\n${styles.join('\n')}\n\n${table}` : table
 }
 
 /** Used by the attachment handler to preview a workbook without a tool call. */
@@ -78,8 +181,9 @@ export async function summariseExcel(filePath: string): Promise<string> {
 export const readExcelTool = defineTool({
   name: 'read_excel',
   description:
-    'Read an Excel (.xlsx) file as a table with numbered rows. Without a sheet, the first ' +
-    'one is read. Formulas are shown as-is with a leading "=".',
+    'Read an Excel (.xlsx or legacy .xls) file as a table with numbered rows. Without a sheet, the first ' +
+    'one is read. Formulas are shown as-is with a leading "=". Fill colours, text colours, ' +
+    'and bold are listed per range above the rows.',
   readOnly: true,
   risk: 'low',
   schema: z.object({
@@ -218,5 +322,150 @@ export const createExcelTool = defineTool({
       throw new ToolError(`Failed to write workbook: ${(error as Error).message}`)
     }
     return `Saved: ${input.path} (${input.rows.length} rows × ${widths.length} columns)`
+  }
+})
+
+const CELL = /^([A-Za-z]+)(\d+)$/
+const RANGE_LIST = /^\s*[A-Za-z]+\d+(:[A-Za-z]+\d+)?(\s*,\s*[A-Za-z]+\d+(:[A-Za-z]+\d+)?)*\s*$/
+const HEX_COLOUR = /^#?[0-9A-Fa-f]{6}$/
+
+interface Area { top: number; left: number; bottom: number; right: number; label: string }
+
+function decodeCell(address: string): { row: number; column: number } {
+  const match = CELL.exec(address.trim())
+  if (match === null) throw new ToolError(`Not a cell address: ${address}`)
+  const column = [...(match[1] ?? '').toUpperCase()].reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0)
+  return { row: Number(match[2]), column }
+}
+
+function decodeRanges(list: string): Area[] {
+  return list.split(',').map((part) => {
+    const [first = '', second = first] = part.trim().split(':')
+    const a = decodeCell(first)
+    const b = decodeCell(second)
+    return {
+      top: Math.min(a.row, b.row),
+      bottom: Math.max(a.row, b.row),
+      left: Math.min(a.column, b.column),
+      right: Math.max(a.column, b.column),
+      label: part.trim().toUpperCase()
+    }
+  })
+}
+
+function* cellsOf(sheet: ExcelJS.Worksheet, areas: Area[]): Generator<ExcelJS.Cell> {
+  for (const area of areas) {
+    for (let r = area.top; r <= area.bottom; r++) {
+      for (let c = area.left; c <= area.right; c++) yield sheet.getCell(r, c)
+    }
+  }
+}
+
+function argbOf(hex: string): string {
+  return `FF${hex.replace(/^#/, '').toUpperCase()}`
+}
+
+const formatSchema = z
+  .object({
+    path: z.string().describe('Xlsx file path relative to the workspace root'),
+    sheet: z.string().optional().describe('Sheet name; defaults to the first one'),
+    range: z
+      .string()
+      .regex(RANGE_LIST)
+      .describe('One or more ranges separated by commas, e.g. "A1:G1,I1:K1" or "B4"'),
+    fill: z
+      .string()
+      .regex(/^(#?[0-9A-Fa-f]{6}|none)$/)
+      .optional()
+      .describe('Background colour as hex, e.g. "#FF0000"; "none" removes the background'),
+    font_color: z.string().regex(HEX_COLOUR).optional().describe('Text colour as hex, e.g. "#FFFFFF"'),
+    bold: z.boolean().optional().describe('Make the text bold (true) or regular (false)'),
+    output_path: z
+      .string()
+      .optional()
+      .describe('Save the result to this .xlsx path instead of overwriting the original')
+  })
+  .refine((input) => input.fill !== undefined || input.font_color !== undefined || input.bold !== undefined, {
+    message: 'Give at least one of fill, font_color, or bold'
+  })
+
+type FormatInput = z.output<typeof formatSchema>
+
+function describeChange(input: FormatInput): string {
+  const parts: string[] = []
+  if (input.fill !== undefined) parts.push(input.fill === 'none' ? 'no fill' : `fill #${input.fill.replace(/^#/, '').toUpperCase()}`)
+  if (input.font_color !== undefined) parts.push(`font #${input.font_color.replace(/^#/, '').toUpperCase()}`)
+  if (input.bold !== undefined) parts.push(input.bold ? 'bold' : 'not bold')
+  return parts.join(', ')
+}
+
+function formatTarget(input: FormatInput): string {
+  const destination = input.output_path ?? input.path
+  if (!/\.xlsx$/i.test(destination)) {
+    throw new ToolError(`Formatted workbooks are saved as .xlsx; ${destination} is not one`)
+  }
+  return destination
+}
+
+export const formatExcelCellsTool = defineTool({
+  name: 'format_excel_cells',
+  description:
+    'Change how cells look in an Excel (.xlsx) file: background fill colour, text colour, ' +
+    'and bold. Values, other formatting, and the rest of the workbook are kept. read_excel ' +
+    'lists the current fills per range, so "make the blue header red" means reading first, ' +
+    'then formatting exactly the ranges that are blue.',
+  readOnly: false,
+  risk: 'medium',
+  schema: formatSchema,
+  preview: async (input, context) => {
+    const sheet = pickSheet(await open(resolveInWorkspace(context.workspaceRoot, input.path)), input.sheet)
+    const before = new Set<string>()
+    for (const cell of cellsOf(sheet, decodeRanges(input.range))) {
+      before.add(styleOf(cell) || '(no formatting)')
+      if (before.size > 5) break
+    }
+    const destination = formatTarget(input)
+    return {
+      kind: 'text',
+      subject: `${destination} · ${sheet.name}!${input.range.replace(/\s+/g, '')}`,
+      detail: `before: ${[...before].join(' | ')}\nafter: ${describeChange(input)}`
+    }
+  },
+  execute: async (input, context) => {
+    const destination = formatTarget(input)
+    const target = resolveInWorkspace(context.workspaceRoot, destination)
+    const workbook = await open(resolveInWorkspace(context.workspaceRoot, input.path))
+    const sheet = pickSheet(workbook, input.sheet)
+    const areas = decodeRanges(input.range)
+    const count = areas.reduce((sum, area) => sum + (area.bottom - area.top + 1) * (area.right - area.left + 1), 0)
+    if (count > MAX_FORMAT_CELLS) {
+      throw new ToolError(`${count} cells is more than one call may format (${MAX_FORMAT_CELLS})`)
+    }
+
+    for (const cell of cellsOf(sheet, areas)) {
+      // A whole new style object per cell. exceljs hands cells that were
+      // loaded alike one shared style, and `cell.fill = …` writes into it —
+      // which would repaint every other cell that happened to look the same.
+      const style: Partial<ExcelJS.Style> = { ...cell.style }
+      if (input.fill === 'none') style.fill = { type: 'pattern', pattern: 'none' }
+      else if (input.fill !== undefined) {
+        style.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argbOf(input.fill) } }
+      }
+      if (input.font_color !== undefined || input.bold !== undefined) {
+        style.font = {
+          ...cell.font,
+          ...(input.font_color !== undefined ? { color: { argb: argbOf(input.font_color) } } : {}),
+          ...(input.bold !== undefined ? { bold: input.bold } : {})
+        }
+      }
+      cell.style = style
+    }
+
+    try {
+      await workbook.xlsx.writeFile(target)
+    } catch (error) {
+      throw new ToolError(`Failed to write workbook: ${(error as Error).message}`)
+    }
+    return `${sheet.name}!${areas.map((area) => area.label).join(',')}: ${count} cells → ${describeChange(input)}. Saved: ${destination}`
   }
 })

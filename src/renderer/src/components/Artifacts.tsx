@@ -19,7 +19,7 @@ export function documentsProduced(parts: MessagePart[]): string[] {
   const paths: string[] = []
   for (const part of parts) {
     if (part.kind !== 'tool' || part.status !== 'ok') continue
-    if (!/^(write|create|fill|add)_/.test(part.name)) continue
+    if (!/^(write|create|fill|add|format)_/.test(part.name)) continue
     if (part.input === null || typeof part.input !== 'object') continue
     const input = part.input as Record<string, unknown>
     const target = typeof input.output_path === 'string' ? input.output_path : input.path
@@ -46,8 +46,8 @@ export function Artifacts({
           key={target}
           className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2"
         >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-dim">
-            {extensionOf(target).slice(1, 4).toUpperCase()}
+          <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-dim">
+            {extensionOf(target).slice(1, 5).toUpperCase()}
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-mono text-[12.5px] text-text">{target}</span>

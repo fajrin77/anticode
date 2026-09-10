@@ -15,7 +15,7 @@ import type {
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
-import { AgentSession } from './agent/loop'
+import { AgentSession, titleOf } from './agent/loop'
 import { clearWeb, restoreWeb, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
 import { fetchModels } from './providers/models'
@@ -298,7 +298,7 @@ export function setRunningProbe(probe: (sessionId: string) => boolean): void {
 export function listSessionSummaries(): SessionSummary[] {
   return [...sessions.values()].map((live) => ({
     id: live.spec.sessionId,
-    title: live.spec.mode === 'code' && live.spec.workspaceRoot ? path.basename(live.spec.workspaceRoot) : live.agent?.title ?? live.messages.find((message) => message.role === 'user')?.content.find((block) => block.type === 'text')?.text.slice(0, 60) ?? 'New session',
+    title: live.spec.mode === 'code' && live.spec.workspaceRoot ? path.basename(live.spec.workspaceRoot) : live.agent?.title ?? titleOf(live.messages),
     mode: live.spec.mode,
     workspaceRoot: live.spec.workspaceRoot,
     messageCount: live.agent?.messageCount ?? live.messages.length,
@@ -397,6 +397,10 @@ export function loadSessionSummaries(sessionId: string): RunSummary[] {
 
 export function sessionWorkspaceRoot(sessionId: string): string | null {
   return sessions.get(sessionId)?.spec.workspaceRoot ?? null
+}
+
+export function sessionMode(sessionId: string): SessionMode | null {
+  return sessions.get(sessionId)?.spec.mode ?? null
 }
 
 /** Direct session creation for remote clients (no renderer round-trip). */

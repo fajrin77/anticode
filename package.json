@@ -1,6 +1,6 @@
 {
   "name": "anticode",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Provider-agnostic AI coding agent desktop app",
   "main": "./out/main/index.js",
   "author": "asani",
@@ -35,6 +35,7 @@
     "playwright": "^1.63.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.35.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.5.4"
   },
   "devDependencies": {

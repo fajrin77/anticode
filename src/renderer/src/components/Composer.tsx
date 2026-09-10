@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { ModelPicker } from './ModelPicker'
-import { formatBytes, ImageViewer, openAttachment } from './Attachments'
+import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import type {
   AttachmentInfo,
   ProviderId,
@@ -108,6 +108,7 @@ export function Composer({
   const [shake, setShake] = useState(false)
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
 
   const activeRun = useSessionStore((state) => Object.values(state.activeRuns).find((run) => run.sessionId === session?.id) ?? null)
   const mirrorRunId = useSessionStore((state) => Object.entries(state.mirrorRuns).find(([, run]) => run.sessionId === session?.id)?.[0] ?? null)
@@ -147,6 +148,16 @@ export function Composer({
    * Paused with something typed, it sends that instead.
    */
   const resuming = isPaused && !isStreaming && draft.trim() === ''
+
+  // A one-line prompt stays compact; wrapped lines grow the same glass card
+  // up to a useful ceiling, after which the field scrolls internally.
+  useLayoutEffect(() => {
+    const field = promptRef.current
+    if (field === null) return
+    field.style.height = '0px'
+    field.style.height = `${Math.min(field.scrollHeight, 192)}px`
+    field.style.overflowY = field.scrollHeight > 192 ? 'auto' : 'hidden'
+  }, [draft])
 
 
   useEffect(() => {
@@ -374,74 +385,8 @@ export function Composer({
         )}
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
 
-        {quote !== '' && (
-          <div className="mb-2 flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2">
-            <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
-            <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
-              <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
-              <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
-            </span>
-            <button
-              type="button"
-              onClick={clearQuote}
-              aria-label="Remove quote"
-              className="shrink-0 text-faint transition-colors hover:text-brand"
-            >
-              ×
-            </button>
-          </div>
-        )}
-
-        {attached.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {attached.map((item) => (
-              <span
-                key={item.id}
-                className="group/chip relative flex items-center gap-2 rounded-lg border border-line bg-surface p-1.5 pr-7 text-[12px] text-dim"
-              >
-                {item.thumbnail !== null ? (
-                  // Staged is not sent: a screenshot is checked here, at full
-                  // size, the same way it can be once it is in the transcript.
-                  <button
-                    type="button"
-                    title={`View ${item.name}`}
-                    onClick={() => openAttachment(item, setViewing)}
-                    className="shrink-0 overflow-hidden rounded-md ring-brand transition-shadow hover:ring-1"
-                  >
-                    <img
-                      src={item.thumbnail}
-                      alt={item.name}
-                      className="h-9 w-9 object-cover"
-                    />
-                  </button>
-                ) : (
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-faint">
-                    {item.kind === 'binary' ? 'BIN' : item.kind.slice(0, 3).toUpperCase()}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => openAttachment(item, setViewing)}
-                  className="group/name min-w-0 text-left"
-                >
-                  <span className="block max-w-44 truncate text-text transition-colors group-hover/name:text-brand">{item.name}</span>
-                  <span className="block text-[11px] text-faint">{formatBytes(item.size)}</span>
-                </button>
-                <button
-                  type="button"
-                  title="Remove"
-                  onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                  className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
         <div
-          className={`relative rounded-xl border border-line bg-surface transition-colors ${
+          className={`composer-glass relative overflow-visible rounded-[22px] border border-line transition-colors ${
             shake ? 'animate-shake' : ''
           }`}
         >
@@ -486,7 +431,74 @@ export function Composer({
             </div>
           )}
 
+          {quote !== '' && (
+            <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-line bg-bg/35 px-3 py-2">
+              <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
+              <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
+                <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
+                <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
+              </span>
+              <button
+                type="button"
+                onClick={clearQuote}
+                aria-label="Remove quote"
+                className="shrink-0 text-faint transition-colors hover:text-brand"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {attached.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {attached.map((item) => (
+                <span
+                  key={item.id}
+                  className="group/chip relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
+                >
+                  {item.thumbnail !== null ? (
+                    // Staged is not sent: a screenshot is checked here, at full
+                    // size, the same way it can be once it is in the transcript.
+                    <button
+                      type="button"
+                      title={`View ${item.name}`}
+                      onClick={() => openAttachment(item, setViewing)}
+                      className="shrink-0 overflow-hidden rounded-lg ring-brand transition-shadow hover:ring-1"
+                    >
+                      <img
+                        src={item.thumbnail}
+                        alt={item.name}
+                        className="h-12 w-12 object-cover"
+                      />
+                    </button>
+                  ) : (
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
+                      {fileTag(item)}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openAttachment(item, setViewing)}
+                    className="group/name min-w-0 text-left"
+                  >
+                    <span className="block truncate text-text transition-colors group-hover/name:text-brand">{item.name}</span>
+                    <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Remove"
+                    onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
+                    className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <textarea
+            ref={promptRef}
             rows={1}
             value={draft}
             placeholder={
@@ -505,7 +517,7 @@ export function Composer({
               }
             }}
             data-composer
-            className="max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] text-text outline-none placeholder:text-faint"
+            className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
           />
 
           <div className="flex items-center gap-1 px-2.5 pb-2.5">

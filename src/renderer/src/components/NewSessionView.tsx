@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 import { useSessionStore } from '../store/session'
-import type { Session } from '../store/session'
+import type { MessagePart, Session } from '../store/session'
 import { Composer } from './Composer'
+import { fileTag, formatBytes } from './Attachments'
 import { ModelPicker } from './ModelPicker'
 import { SessionRow } from './SessionRow'
 import chatLogo from '../assets/open-chat-logo.svg'
@@ -67,6 +68,7 @@ function DashboardComposer({
   const [shake, setShake] = useState(false)
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
 
   const openSession = useSessionStore((state) => state.openSession)
   const addMessage = useSessionStore((state) => state.addMessage)
@@ -78,6 +80,14 @@ function DashboardComposer({
   const ready =
     status?.providerReady === true && (mode === 'chat' || folder !== null)
   const canSend = draft.trim() !== '' && !sending && ready
+
+  useLayoutEffect(() => {
+    const field = promptRef.current
+    if (field === null) return
+    field.style.height = '0px'
+    field.style.height = `${Math.min(field.scrollHeight, 192)}px`
+    field.style.overflowY = field.scrollHeight > 192 ? 'auto' : 'hidden'
+  }, [draft])
 
   // Blocked send with anticode and no folder: shake the composer and glow the
   // Choose folder button until a folder is picked.
@@ -127,8 +137,12 @@ function DashboardComposer({
     setSending(true)
 
     const attachmentIds = attached.map((item) => item.id)
-    const label =
-      attached.length > 0 ? `${prompt}\n\n[${attached.map((a) => a.name).join(', ')}]` : prompt
+    const parts: MessagePart[] = attached.length > 0
+      ? [
+          { kind: 'attachments', items: attached.map(({ id: _id, preview: _preview, ...ref }) => ref) },
+          { kind: 'text', text: prompt }
+        ]
+      : [{ kind: 'text', text: prompt }]
 
     // This is the moment the session comes into existence — bound straight to
     // the mode and folder chosen here.
@@ -140,7 +154,7 @@ function DashboardComposer({
     addMessage({
       id: crypto.randomUUID(),
       role: 'user',
-      parts: [{ kind: 'text', text: label }],
+      parts,
       pending: false
     })
     const messageId = crypto.randomUUID()
@@ -167,28 +181,8 @@ function DashboardComposer({
       <div className="mx-auto max-w-3xl" ref={boxRef}>
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
 
-        {attached.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {attached.map((item) => (
-              <span
-                key={item.id}
-                className="flex items-center gap-1.5 rounded-md bg-raised px-2 py-1 text-[12px] text-dim"
-              >
-                <span className="max-w-48 truncate font-mono">{item.name}</span>
-                <button
-                  type="button"
-                  onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                  className="text-faint transition-colors hover:text-brand"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
         <div
-          className={`relative rounded-xl border bg-surface transition-colors ${
+          className={`composer-glass relative rounded-[22px] border transition-colors ${
             menu !== 'none' ? 'border-dim' : 'border-line'
           } ${shake ? 'animate-shake' : ''}`}
         >
@@ -233,7 +227,39 @@ function DashboardComposer({
             </div>
           )}
 
+          {attached.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {attached.map((item) => (
+                <span
+                  key={item.id}
+                  className="relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
+                >
+                  {item.thumbnail !== null ? (
+                    <img src={item.thumbnail} alt={item.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                  ) : (
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
+                      {fileTag(item)}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate text-text">{item.name}</span>
+                    <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    title="Remove"
+                    onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
+                    className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <textarea
+            ref={promptRef}
             rows={1}
             value={draft}
             placeholder="Describe the task…"
@@ -244,7 +270,7 @@ function DashboardComposer({
                 void send()
               }
             }}
-            className="max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] text-text outline-none placeholder:text-faint"
+            className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
           />
 
           <div className="flex items-center gap-1 px-2.5 pb-2.5">

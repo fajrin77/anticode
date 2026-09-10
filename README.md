@@ -1,10 +1,10 @@
 # anticode
 
-Versi **0.0.9** membawa semua fungsi desktop ke HP: Revert, chip model dan Default/Auto di bawah kolom input, menu Settings (mode approval, model, pemakaian token sesi, tambah/hapus provider), cari sesi, saran folder, dan Back/Forward di layar Web. Versi **0.0.8** menyatukan pause di desktop dan HP lewat main process — di-pause di satu layar bisa di-resume di layar lain, dan pause setelah run selesai tidak meninggalkan tombol resume — serta membuat revert, tutup tab, dan ganti model langsung terlihat di kedua layar. Prompt dari desktop dan HP kini masuk lewat satu pintu di main process, jadi yang dikirim bersamaan bergabung ke satu run; me-refresh HP atau desktop di tengah streaming memulihkan teksnya tepat sekali; dan editor HP menolak menyimpan saat agent sedang bekerja di folder yang sama. Versi **0.0.7** menambah tab dan mode full size pada browser, layar Web HP yang dirender selebar HP, instruksi susulan yang bergabung ke run yang sedang berjalan, drop berkas di seluruh area sesi, warna sesi yang sama di HP dan desktop, serta tombol kirim yang tidak pernah bisa mengirim kolom kosong. Versi **0.0.6** memberi anticode browsernya sendiri: sebuah halaman yang terbuka menggeser transkrip ke kiri dan tampil di panel kanan, dengan ikon yang menyembunyikannya untuk seterusnya di sesi itu, dan layar Web di HP. Versi **0.0.3** memperbaiki sejumlah detail UI/UX (hover ikon dashboard, navigasi keluar dari Settings, Escape pada popover, focus ring). Versi **0.0.2** memperbaiki kontrol run desktop/HP, approval, konteks, browser per sesi, persistence, dan editor remote. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
+Versi **0.0.10** menyatukan composer desktop dan HP dalam kotak glass yang tumbuh bersama teks, kutipan, gambar, dan berkas terlampir. Header HP kini blur/glass, nama model panjang memudar sebelum memakai lebih dari setengah lebar composer, dan ruang Revert tetap tersedia. Alur Excel juga lengkap: upload desktop/HP masuk ke workspace sesi, `.xlsx`, `.xlsm`, dan `.xls` bisa dibaca, format warna/bold dapat diubah per range, lalu workbook hasil muncul sebagai unduhan. Versi **0.0.9** membawa semua fungsi desktop ke HP: Revert, chip model dan Default/Auto di bawah kolom input, menu Settings (mode approval, model, pemakaian token sesi, tambah/hapus provider), cari sesi, saran folder, dan Back/Forward di layar Web. Versi **0.0.8** menyatukan pause di desktop dan HP lewat main process — di-pause di satu layar bisa di-resume di layar lain, dan pause setelah run selesai tidak meninggalkan tombol resume — serta membuat revert, tutup tab, dan ganti model langsung terlihat di kedua layar. Prompt dari desktop dan HP kini masuk lewat satu pintu di main process, jadi yang dikirim bersamaan bergabung ke satu run; me-refresh HP atau desktop di tengah streaming memulihkan teksnya tepat sekali; dan editor HP menolak menyimpan saat agent sedang bekerja di folder yang sama. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
 
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
-Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh satu tool termasuk Excel,
+Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh empat tool termasuk Excel,
 Word, PDF, dan browser Playwright, sistem approval berbasis risk tier, serta attachment handler
 dengan input gambar.
 
@@ -48,7 +48,7 @@ dengan segmen terpisah untuk token masuk dan keluar.
 | | antichat | anticode |
 |---|---|---|
 | Folder project | tidak perlu | wajib |
-| Tool | tidak ada sama sekali | kedua puluh satu tool |
+| Tool | tidak ada sama sekali | kedua puluh empat tool |
 | Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
 
 antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider
@@ -119,10 +119,11 @@ percakapan yang sudah selesai. Adapter menerjemahkan blok pesan sesuai format pr
 | `edit_file` | Ganti potongan teks unik | sedang — preview diff |
 | `run_command` | Jalankan perintah shell | sedang, naik ke tinggi bila destruktif |
 | `delete_file` | Hapus berkas atau folder | tinggi — selalu ditanya |
-| `read_excel` | Baca sheet .xlsx sebagai tabel | rendah |
+| `read_excel` | Baca sheet .xlsx sebagai tabel, dengan warna fill/font dan bold per range | rendah |
 | `create_excel` | Bikin .xlsx baru dari tabel baris | sedang — preview 10 baris pertama |
 | `write_excel_cell` | Ubah satu cell | sedang — preview sebelum/sesudah |
 | `add_excel_formula` | Pasang formula di satu cell | sedang |
+| `format_excel_cells` | Ubah warna latar, warna teks, dan bold pada satu atau beberapa range | sedang — preview sebelum/sesudah |
 | `read_docx` | Baca .docx sebagai markdown | rendah |
 | `write_docx` | Tulis .docx dari markdown sederhana | sedang |
 | `read_pdf` | Ekstrak teks dan jumlah halaman | rendah |
@@ -201,12 +202,29 @@ bernama dan berukuran. Klik untuk membukanya di aplikasi bawaan sistem. Thumbnai
 salinan; berkas aslinya tidak dipindahkan ke mana-mana.
 
 Bila berkas kebetulan berada di dalam workspace, path relatifnya ikut diberitahukan ke model supaya
-tool bisa membukanya penuh; bila di luar, model diberi tahu bahwa tool tidak bisa menjangkaunya. Ini
-menjaga sandbox workspace tetap satu-satunya pintu akses berkas.
+tool bisa membukanya penuh. Berkas dari luar folder — unggahan HP, tangkapan layar yang ditempel, atau
+berkas yang diseret dari Downloads — disalin dulu ke `.anticode/uploads/` di folder sesi anticode
+itu, lalu model diberi path salinannya. Penyalinan terjadi di main process, di pintu prompt yang sama
+untuk desktop dan HP, jadi keduanya mendapat salinan yang sama. Folder itu berisi `.gitignore`
+bertanda `*`, sehingga tidak muncul di `git status` project dan aturan git project tidak disentuh.
+Berkas yang sama dikirim dua kali memakai salinan pertama; berkas dengan nama sama tetapi isi berbeda
+diberi nomor (`Template-2.xlsx`), jadi salinan yang sudah diedit agent tidak pernah tertimpa.
+Sandbox workspace tetap satu-satunya pintu akses berkas: `.anticode` yang ternyata symlink ke luar
+folder ditolak, dan prompt tetap terkirim dengan berkas yang ditandai di luar jangkauan.
+
+Di antichat tidak ada yang disalin. Model diberi tahu bahwa pratinjau adalah satu-satunya yang ia
+lihat dan bahwa ia tidak bisa mengembalikan berkas hasil; bila diminta mengubah berkas, ia mengarahkan
+pengguna ke sesi anticode, bukan menawarkan skrip.
+
+Pratinjau workbook memuat ringkasan format per range (fill, warna teks, bold) di atas barisnya, supaya
+permintaan seperti "ubah header biru jadi merah" bisa dijawab tanpa menebak sel mana yang biru. Berkas
+Excel 97-2003 (`.xls`) dikonversi di memori saat dibaca sehingga file asli tidak disentuh; hasil edit
+baru ditulis sebagai `.xlsx`. Judul sesi antichat diambil dari prompt yang diketik, bukan dari header
+lampiran yang dikirim di depannya.
 
 ## Berkas hasil
 
-Dokumen yang dibuat agent — pdf, xlsx, docx, csv, pptx, zip — muncul sebagai kartu di bawah jawaban,
+Dokumen yang dibuat atau diformat agent — pdf, xlsx, docx, csv, pptx, zip — muncul sebagai kartu di bawah jawaban,
 dengan **Open** (buka di aplikasi sistem) dan **Download** (simpan salinan lewat dialog Save). Kartu
 itu dibaca ulang dari tool call yang berhasil, jadi tetap ada setelah sesi dibuka lagi. Berkas kode
 biasa sengaja tidak ikut — tempatnya di diff, bukan di daftar unduhan.
@@ -389,7 +407,7 @@ yang jauh lebih kecil.
 
 ## Yang sudah dan belum diuji
 
-Sudah, otomatis: 122 test mencakup kedua puluh tool, penjagaan batas workspace termasuk lolos-symlink,
+Sudah, otomatis: 185 test mencakup kedua puluh empat tool, penjagaan batas workspace termasuk lolos-symlink,
 pembuatan skema, deteksi perintah destruktif, aturan tier risiko, attachment handler (kompresi
 gambar, transparansi, batas ukuran, berkas di luar workspace), tool browser terhadap server HTTP
 lokal (navigasi, ekstraksi teks, klik, isi form, catatan network, screenshot), serta agent loop lewat provider

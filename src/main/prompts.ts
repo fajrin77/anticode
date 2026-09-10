@@ -26,8 +26,8 @@ async function admit(req: AgentRequest, gate: ApprovalGate): Promise<{ runId: st
   if (!Array.isArray(req.attachmentIds) || req.attachmentIds.some((id) => typeof id !== 'string')) {
     throw new Error('Invalid attachment IDs')
   }
-  const sent = attachmentsFor(req.sessionId, req.attachmentIds)
-  const blocks = await blocksOf(sent)
+  const sent = await attachmentsFor(req.sessionId, req.attachmentIds)
+  const blocks = await blocksOf(req.sessionId, sent)
   // Preparation can outlive a deletion, model change, or a finishing run.
   // Recheck the current main-process state after that asynchronous work.
   const status = getStatus()

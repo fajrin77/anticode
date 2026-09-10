@@ -1,8 +1,15 @@
 import path from 'node:path'
 import type { AttachmentInfo, AttachmentRef } from '@shared/ipc'
 import type { ContentBlock } from '../providers/types'
-import { getStatus, sessionWorkspaceRoot } from '../runtime'
-import { AttachmentError, prepareAttachment, stageAttachmentData, toContentBlocks, toRef } from './index'
+import { getStatus, sessionMode, sessionWorkspaceRoot } from '../runtime'
+import {
+  AttachmentError,
+  placeInWorkspace,
+  prepareAttachment,
+  stageAttachmentData,
+  toContentBlocks,
+  toRef
+} from './index'
 
 /**
  * Files staged for a prompt that has not been sent yet, from the desktop or
@@ -46,12 +53,15 @@ export function releaseAttachments(ids: string[]): void {
 
 /**
  * Resolves staged ids against the folder this session is bound to, so the
- * model is told the truth about which files its tools can reach.
+ * model is told the truth about which files its tools can reach. In an
+ * anticode session a file from outside the folder is copied into it first —
+ * here, in the main process, so the desktop and the phone get the same copy.
  */
-export function attachmentsFor(sessionId: string, ids: string[]): AttachmentInfo[] {
+export async function attachmentsFor(sessionId: string, ids: string[]): Promise<AttachmentInfo[]> {
   const root = sessionWorkspaceRoot(sessionId)
+  const reachable = sessionMode(sessionId) === 'code' ? root : null
   if (ids.some((id) => !staged.has(id))) throw new AttachmentError('An attachment is no longer available. Attach it again before sending.')
-  return ids
+  const items = ids
     .map((id) => staged.get(id))
     .filter((item): item is AttachmentInfo => item !== undefined)
     .map((item) => {
@@ -67,12 +77,27 @@ export function attachmentsFor(sessionId: string, ids: string[]): AttachmentInfo
             : null
       }
     })
+  if (reachable === null) return items
+  // Sequential, so two files with one name are numbered rather than racing.
+  const placed: AttachmentInfo[] = []
+  for (const item of items) {
+    try {
+      placed.push(await placeInWorkspace(item, reachable))
+    } catch (error) {
+      // A read-only or odd folder still sends the prompt; the model is told
+      // the file sits outside, which is then the truth.
+      console.error(`Could not copy ${item.name} into the project:`, (error as Error).message)
+      placed.push(item)
+    }
+  }
+  return placed
 }
 
 export function refsOf(items: AttachmentInfo[]): AttachmentRef[] {
   return items.map(toRef)
 }
 
-export async function blocksOf(items: AttachmentInfo[]): Promise<ContentBlock[]> {
-  return (await Promise.all(items.map((item) => toContentBlocks(item)))).flat()
+export async function blocksOf(sessionId: string, items: AttachmentInfo[]): Promise<ContentBlock[]> {
+  const mode = sessionMode(sessionId) ?? 'code'
+  return (await Promise.all(items.map((item) => toContentBlocks(item, mode)))).flat()
 }

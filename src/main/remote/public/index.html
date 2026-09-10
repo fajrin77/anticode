@@ -17,19 +17,30 @@
   /* 16px+ on every control keeps Safari from zooming on focus. */
   input, textarea, select, button { font-size: 16px; }
   header {
-    position: sticky; top: 0; display: flex; justify-content: center;
-    padding: 12px 16px; background: #202020; border-bottom: 1px solid #303030;
-    font-weight: 600; z-index: 5;
+    position: sticky; top: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px;
+    align-items: center; gap: 10px;
+    padding: calc(9px + env(safe-area-inset-top)) 14px 9px;
+    background: linear-gradient(to bottom, rgba(22,22,22,.84), rgba(26,26,26,.62));
+    border-bottom: 1px solid rgba(255,255,255,.09); font-weight: 600; z-index: 5;
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    backdrop-filter: blur(22px) saturate(120%);
+    box-shadow: 0 10px 30px rgba(0,0,0,.16);
   }
-  header .menubtn {
-    display: flex; align-items: center; gap: 6px; background: none; border: none;
-    color: #ededed; font-weight: 600; font-size: 17px; padding: 4px 10px; border-radius: 8px;
-    max-width: 78vw;
+  header .roundbtn {
+    display: flex; width: 48px; height: 48px; align-items: center; justify-content: center;
+    border: 1px solid rgba(255,255,255,.14); border-radius: 50%;
+    background: linear-gradient(145deg, rgba(255,255,255,.08), rgba(36,36,36,.56));
+    color: #ededed; padding: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.22);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   }
-  header .menubtn .chev { color: #9a9a9a; font-size: 13px; }
-  header .menubtn span.title {
+  header .roundbtn:active { color: #d1fa22; border-color: rgba(209,250,34,.45); }
+  header .roundbtn.placeholder { visibility: hidden; }
+  header .headcopy { min-width: 0; text-align: center; line-height: 1.25; }
+  header .title {
+    display: block; font-size: 17px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  header .subtitle { display: block; min-height: 16px; margin-top: 2px; color: #9a9a9a; font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Plain white words under the title — no card, no rules, no chrome. The
      column is centred on the screen and its labels read flush left. */
   /* The menu stands on its own surface so it does not look like loose words
@@ -37,16 +48,17 @@
      sits in the middle of the screen and its labels read flush left. */
   #menuDrop { position: fixed; inset: 0; z-index: 30; background: rgba(26,26,26,.75); }
   #menuDrop .mcol {
-    width: fit-content; min-width: 200px; margin: 56px auto 0;
-    background: #202020; border: 1px solid #303030; border-radius: 14px;
+    width: fit-content; min-width: 200px; margin: calc(78px + env(safe-area-inset-top)) auto 0;
+    background: rgba(32,32,32,.78); border: 1px solid rgba(255,255,255,.12); border-radius: 18px;
     padding: 6px 24px; box-shadow: 0 14px 36px rgba(0,0,0,.5);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
   }
   #menuDrop .mrow {
     display: block; width: 100%; background: none; border: none; padding: 13px 0;
     cursor: pointer; color: #ededed; font-size: 19px; text-align: left;
   }
   #menuDrop .mrow:active { color: #d1fa22; }
-  main { padding: 12px 16px 160px; }
+  main { padding: 12px 16px calc(var(--composer-height, 160px) + 18px); }
   .card {
     background: #202020; border: 1px solid #303030; border-radius: 12px;
     padding: 10px 14px; margin-bottom: 8px;
@@ -207,18 +219,27 @@
     50% { background: #d1fa22; }
   }
   .composer {
-    position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #1a1a1a;
-    border-top: 1px solid #303030;
+    position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px;
+    padding: 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 24px;
+    background: linear-gradient(145deg, rgba(255,255,255,.045), transparent 38%), rgba(31,31,31,.82);
+    box-shadow: 0 18px 42px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.06);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    backdrop-filter: blur(22px) saturate(120%);
+    z-index: 20;
+  }
+  .composer:focus-within {
+    border-color: #d1fa22;
+    box-shadow: 0 18px 42px rgba(0,0,0,.38), 0 0 0 .5px #d1fa22, inset 0 1px 0 rgba(255,255,255,.06);
   }
   /* Staged files sit on their own row above the text box. */
   #stagedRow { flex: 0 0 100%; display: flex; gap: 8px; overflow-x: auto; }
   #stagedRow .chip {
     position: relative; display: flex; align-items: center; gap: 8px; flex: none;
-    background: #202020; border: 1px solid #303030; border-radius: 10px; padding: 6px 26px 6px 6px;
+    background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 14px; padding: 7px 28px 7px 7px;
   }
   #stagedRow .chip img, .att img { display: block; border-radius: 6px; object-fit: cover; }
-  #stagedRow .chip img { width: 34px; height: 34px; }
+  #stagedRow .chip img { width: 48px; height: 48px; border-radius: 10px; }
   /* A staged picture opens full size before it is sent, as it does after. */
   #stagedRow .chip.pic { cursor: pointer; }
   #stagedRow .chip.pic:active { border-color: #d1fa22; }
@@ -231,19 +252,25 @@
   }
   .tag {
     flex: none; display: inline-flex; align-items: center; justify-content: center;
-    width: 34px; height: 34px; border-radius: 6px; background: #272727;
+    width: 48px; height: 48px; border-radius: 10px; background: rgba(48,48,48,.82);
     font-size: 9px; font-weight: 600; letter-spacing: .5px; color: #9a9a9a;
   }
   .composer .attach {
-    flex: none; background: #2e2e2e; color: #ededed; border: none; border-radius: 10px;
-    padding: 0 14px; font-size: 20px; line-height: 1;
+    flex: none; width: 48px; height: 48px; background: rgba(46,46,46,.86); color: #ededed;
+    border: 1px solid rgba(255,255,255,.08); border-radius: 16px;
+    padding: 0; font-size: 25px; font-weight: 300; line-height: 1;
   }
   /* Attachments inside the transcript: pictures as pictures, the rest as cards. */
   .atts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin: 6px 0; }
   .att { flex: none; border: 1px solid #303030; border-radius: 12px; overflow: hidden; background: #202020; }
   .att img { max-width: 58vw; max-height: 240px; }
   .att.file { display: flex; align-items: center; gap: 10px; padding: 8px 10px; max-width: 70vw; text-align: left; }
-  .att .nm { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att.file .lbl { min-width: 0; }
+  /* A long name gives up its middle, never its extension: the end of the name
+   * is what says which file it is. */
+  .att .nm { display: flex; font-size: 13px; white-space: nowrap; }
+  .att .nm .stem { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .att .nm .ext { flex: none; }
   .att .sz { display: block; font-size: 11px; color: #6d6d6d; }
   .artifact {
     display: flex; align-items: center; gap: 10px; margin: 6px 0; padding: 8px 10px;
@@ -256,20 +283,22 @@
   .artifact a, .dirrow .dl { color: #d1fa22; text-decoration: none; font-size: 13.5px; flex: none; }
   .dirrow .dl { padding: 0 6px; }
   .composer textarea {
-    flex: 1; background: #202020; border: 1px solid #303030; border-radius: 10px;
-    color: #ededed; padding: 10px 12px; resize: none; min-height: 44px;
+    flex: 1; min-width: 0; background: transparent; border: none;
+    color: #ededed; padding: 12px 8px 9px; resize: none; min-height: 48px; max-height: 140px;
+    line-height: 1.45; overflow-y: hidden;
   }
   /* The browser's own focus ring is a thick blue halo that belongs to no one's
      palette. A field being typed in wears one hairline of lime instead. */
-  .composer textarea:focus, input.path:focus, select.wide:focus, textarea.editor:focus {
+  input.path:focus, select.wide:focus, textarea.editor:focus {
     outline: none; border-color: #d1fa22; box-shadow: 0 0 0 0.5px #d1fa22;
   }
+  .composer textarea:focus { outline: none; }
   /* The send and pause glyphs are the desktop's own, drawn, not typed. */
-  #sendBtn { display: flex; align-items: center; justify-content: center; min-width: 52px; }
+  #sendBtn { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; min-width: 48px; border-radius: 16px; }
   #sendBtn .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
   .composer button {
     background: #2e2e2e; color: #ededed; border: none; border-radius: 10px;
-    padding: 0 18px;
+    padding: 0 14px;
   }
   .composer button:disabled { color: #6d6d6d; }
 
@@ -339,14 +368,27 @@
   }
   /* The desktop composer's chip row, under the box: the model, Default or
      Auto, and Revert while paused. Plain words that turn lime under a finger. */
-  #chipRow { flex: 0 0 100%; display: flex; align-items: center; gap: 2px; min-width: 0; }
+  #chipRow { flex: 0 0 100%; display: flex; align-items: center; gap: 2px; min-width: 0; padding: 0 2px 1px; }
   #chipRow .grow { flex: 1; }
   .composer #chipRow button {
     background: none; color: #9a9a9a; padding: 4px 8px; border-radius: 8px; font-size: 13px;
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .composer #chipRow button:active { color: #d1fa22; background: #262626; }
-  .composer #chipRow #modelChip { font-family: ui-monospace, Menlo, monospace; max-width: 52vw; }
+  .composer #chipRow #modelChip {
+    position: relative; flex: 0 1 44vw; max-width: 44vw; text-align: left;
+    font-family: ui-monospace, Menlo, monospace; text-overflow: clip;
+  }
+  #modelChip .modelText { display: block; overflow: hidden; white-space: nowrap; }
+  #modelChip.clipped .modelText {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+  }
+  #modelChip.clipped::after {
+    content: ''; pointer-events: none; position: absolute; top: 2px; right: 3px; bottom: 2px; width: 24px;
+    background: linear-gradient(to right, transparent, rgba(31,31,31,.42));
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
   .composer #chipRow #revertBtn { flex: none; color: #ededed; }
   /* Settings rise from the bottom over whatever is open, so a chat is still
      there, where it was, once they close. */
@@ -385,9 +427,15 @@
 </head>
 <body>
 <header>
-  <button class="menubtn" id="menuBtn" onclick="toggleMenu(event)">
+  <button class="roundbtn placeholder" id="headerBack" onclick="gotoSessions()" aria-label="Back">
+    <svg width="21" height="21" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10.5 2.5 5 8l5.5 5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <div class="headcopy">
     <span class="title" id="menuTitle">anticode</span>
-    <span class="chev">▾</span>
+    <span class="subtitle" id="menuSubtitle"></span>
+  </div>
+  <button class="roundbtn" id="menuBtn" onclick="toggleMenu(event)" aria-label="Menu">
+    <svg width="23" height="7" viewBox="0 0 23 7" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="3.5" r="2"/><circle cx="11.5" cy="3.5" r="2"/><circle cx="19.5" cy="3.5" r="2"/></svg>
   </button>
 </header>
 <div id="menuDrop" class="hidden" onclick="if (event.target === this) closeMenu()">
@@ -466,7 +514,7 @@
     </div>
   </section>
 </main>
-<div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:130px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
+<div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:calc(var(--composer-height, 130px) + 22px);max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
 <div id="imgViewer" class="hidden">
   <div class="vhead">
     <span class="vname" id="imgName"></span>
@@ -488,10 +536,9 @@
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
   <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
-  <!-- The model and Default/Auto live in Settings; the chat keeps only Revert. -->
-  <div id="chipRow" class="hidden">
-    <button id="modelChip" class="hidden" onclick="openSettings('model')" title="Model">…</button>
-    <button id="modeChip" class="hidden" onclick="openSettings('mode')" title="Approval mode">Default</button>
+  <div id="chipRow">
+    <button id="modelChip" onclick="openSettings('model')" title="Model"><span class="modelText">…</span></button>
+    <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
     <span class="grow"></span>
     <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
   </div>
@@ -640,8 +687,10 @@ setInterval(() => { void pollApprovals(); }, 1000);
 
 /* ---------- Navigation: one dropdown behind the session title ---------- */
 
-function setMenuTitle(text) {
+function setMenuTitle(text, subtitle = '', canGoBack = false) {
   document.getElementById('menuTitle').textContent = text;
+  document.getElementById('menuSubtitle').textContent = subtitle;
+  document.getElementById('headerBack').classList.toggle('placeholder', !canGoBack);
 }
 
 function titleFor(id) {
@@ -962,7 +1011,11 @@ async function openSession(id) {
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
-  setMenuTitle(titleFor(id));
+  const spec = lastSessions.find((entry) => entry.id === id);
+  const subtitle = spec?.mode === 'code'
+    ? (spec.workspaceRoot?.split(/[\\/]/).filter(Boolean).pop() || 'anticode')
+    : 'antichat';
+  setMenuTitle(titleFor(id), subtitle, true);
   await listen(id);
   await syncSession(id);
 }
@@ -1511,8 +1564,13 @@ function formatBytes(size) {
   return (size / 1024 / 1024).toFixed(1) + ' MB';
 }
 
-function tagFor(kind) {
-  return { image: 'IMG', text: 'TXT', excel: 'XLS', docx: 'DOC', pdf: 'PDF', binary: 'BIN' }[kind] || 'BIN';
+/* The file's own extension where it has a short one, so .xlsx never reads as
+ * .xls; the kind only when the name does not say. */
+function tagFor(item) {
+  const dot = item.name.lastIndexOf('.');
+  const ext = dot > 0 ? item.name.slice(dot + 1) : '';
+  if (/^[a-z0-9]{1,4}$/i.test(ext)) return ext.toUpperCase();
+  return { image: 'IMG', text: 'TXT', excel: 'XLSX', docx: 'DOCX', pdf: 'PDF', binary: 'BIN' }[item.kind] || 'BIN';
 }
 
 function renderStaged() {
@@ -1534,7 +1592,7 @@ function renderStaged() {
     } else {
       const tag = document.createElement('span');
       tag.className = 'tag';
-      tag.textContent = tagFor(item.kind);
+      tag.textContent = tagFor(item);
       chip.appendChild(tag);
     }
     const label = document.createElement('span');
@@ -1641,11 +1699,22 @@ function attachmentsEl(items) {
     card.className = 'att file';
     const tag = document.createElement('span');
     tag.className = 'tag';
-    tag.textContent = tagFor(item.kind);
+    tag.textContent = tagFor(item);
     const label = document.createElement('span');
+    label.className = 'lbl';
     const name = document.createElement('span');
     name.className = 'nm';
-    name.textContent = item.name;
+    const dot = item.name.lastIndexOf('.');
+    const stem = document.createElement('span');
+    stem.className = 'stem';
+    stem.textContent = dot > 0 ? item.name.slice(0, dot) : item.name;
+    name.appendChild(stem);
+    if (dot > 0) {
+      const ext = document.createElement('span');
+      ext.className = 'ext';
+      ext.textContent = item.name.slice(dot);
+      name.appendChild(ext);
+    }
     const size = document.createElement('span');
     size.className = 'sz';
     size.textContent = formatBytes(item.size);
@@ -1663,7 +1732,7 @@ const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx',
 function documentsProduced(items) {
   const paths = [];
   for (const item of items) {
-    if (!/^(write|create|fill|add)_/.test(item.name)) continue;
+    if (!/^(write|create|fill|add|format)_/.test(item.name)) continue;
     if (item.result === undefined || item.result.isError) continue;
     const input = item.input || {};
     const target = typeof input.output_path === 'string' ? input.output_path : input.path;
@@ -1680,7 +1749,7 @@ function artifactEl(sessionId, target) {
   row.className = 'artifact';
   const tag = document.createElement('span');
   tag.className = 'tag';
-  tag.textContent = target.slice(target.lastIndexOf('.') + 1, target.lastIndexOf('.') + 4).toUpperCase();
+  tag.textContent = target.slice(target.lastIndexOf('.') + 1, target.lastIndexOf('.') + 5).toUpperCase();
   const name = document.createElement('span');
   name.className = 'nm';
   name.textContent = target;
@@ -1728,8 +1797,7 @@ function updateSendBtn() {
   // Revert sits beside Resume, as on the desktop: paused, and nothing running.
   const reverting = currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null;
   document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
-  // With the chips in Settings, the row holds Revert alone; empty, it takes no room.
-  document.getElementById('chipRow').classList.toggle('hidden', !reverting);
+  requestAnimationFrame(updateModelFade);
 }
 
 function onSendBtn() {
@@ -2279,8 +2347,28 @@ async function gitAction(action) {
 document.getElementById('prompt').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendPrompt(); }
 });
-// Typing while the session works turns the pause button into a send button.
-document.getElementById('prompt').addEventListener('input', () => updateSendBtn());
+function autoSizePrompt() {
+  const field = document.getElementById('prompt');
+  field.style.height = '0px';
+  const height = Math.max(48, Math.min(field.scrollHeight, 140));
+  field.style.height = height + 'px';
+  field.style.overflowY = field.scrollHeight > 140 ? 'auto' : 'hidden';
+}
+// Typing while the session works turns the pause button into a send button,
+// and wrapped text grows the same glass shell instead of scrolling at line two.
+document.getElementById('prompt').addEventListener('input', () => {
+  autoSizePrompt();
+  updateSendBtn();
+});
+const composerObserver = new ResizeObserver(([entry]) => {
+  const hidden = entry.target.classList.contains('hidden');
+  document.documentElement.style.setProperty('--composer-height', hidden ? '0px' : entry.contentRect.height + 'px');
+  updateModelFade();
+});
+composerObserver.observe(document.getElementById('inputRow'));
+window.addEventListener('resize', () => { autoSizePrompt(); updateModelFade(); });
+window.visualViewport?.addEventListener('resize', () => { autoSizePrompt(); updateModelFade(); });
+autoSizePrompt();
 document.addEventListener('click', (e) => {
   const drop = document.getElementById('menuDrop');
   if (!drop.classList.contains('hidden') && !drop.contains(e.target) && e.target.closest('#menuBtn') === null) {
@@ -2318,9 +2406,19 @@ function noteStatus(status) {
 /** The model and Default/Auto under the box, as the desktop composer shows them. */
 function updateChips() {
   const model = modelInfo?.model || lastStatus?.model || '';
-  document.getElementById('modelChip').textContent = model === '' ? 'pick a model' : model;
+  const chip = document.getElementById('modelChip');
+  const label = chip.querySelector('.modelText');
+  label.textContent = model === '' ? 'pick a model' : model;
+  chip.title = model === '' ? 'Pick a model' : model;
   document.getElementById('modeChip').textContent = lastStatus?.autoApprove === true ? 'Auto' : 'Default';
+  requestAnimationFrame(updateModelFade);
   if (!document.getElementById('settingsSheet').classList.contains('hidden')) renderSettings();
+}
+
+function updateModelFade() {
+  const chip = document.getElementById('modelChip');
+  const label = chip.querySelector('.modelText');
+  chip.classList.toggle('clipped', label.scrollWidth > label.clientWidth + 1);
 }
 
 function openSettings(section) {

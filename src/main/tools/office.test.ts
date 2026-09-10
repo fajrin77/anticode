@@ -1,15 +1,22 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
+import * as XLSX from 'xlsx'
 import { Document, Packer, Paragraph } from 'docx'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import sharp from 'sharp'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addExcelFormulaTool, createExcelTool, readExcelTool, writeExcelCellTool } from './excel'
+import {
+  addExcelFormulaTool,
+  createExcelTool,
+  formatExcelCellsTool,
+  readExcelTool,
+  writeExcelCellTool
+} from './excel'
 import { readDocxTool, writeDocxTool } from './docx'
 import { createPdfTool, fillPdfFormTool, readPdfTool } from './pdf'
-import { prepareAttachment, toContentBlocks } from '../attachments'
+import { placeInWorkspace, prepareAttachment, toContentBlocks } from '../attachments'
 import type { ToolContext } from './types'
 
 let root: string
@@ -144,7 +151,108 @@ describe('excel tools', () => {
       /Invalid input/
     )
   })
+
+  it('lists fills per range so a blue header reads as one line', async () => {
+    await makeTemplate()
+    const output = (await readExcelTool.prepare({ path: 'template.xlsx' }).execute(context)).text
+    expect(output).toContain('- A1:B1 fill #1F4E78, font #FFFFFF, bold')
+    expect(output).toContain('- C1 fill #808080, font #FFFFFF, bold')
+    // Formatting comes ahead of the rows, so a clipped preview keeps it.
+    expect(output.indexOf('Formatting')).toBeLessThan(output.indexOf('NO. PART'))
+  })
+
+  it('recolours exactly the given ranges and keeps everything else', async () => {
+    await makeTemplate()
+    const call = formatExcelCellsTool.prepare({ path: 'template.xlsx', range: 'A1:B1', fill: '#FF0000' })
+    const preview = await call.preview(context)
+    expect(preview.kind === 'text' && preview.detail).toBe(
+      'before: fill #1F4E78, font #FFFFFF, bold\nafter: fill #FF0000'
+    )
+    expect((await call.execute(context)).text).toContain('2 cells → fill #FF0000')
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.readFile(path.join(root, 'template.xlsx'))
+    const sheet = workbook.getWorksheet('Import Data')
+    const fillOf = (address: string): unknown =>
+      (sheet?.getCell(address).fill as ExcelJS.FillPattern).fgColor?.argb
+    expect(fillOf('A1')).toBe('FFFF0000')
+    expect(fillOf('B1')).toBe('FFFF0000')
+    // D1 started with the very same style as A1:B1; it must not follow along.
+    expect(fillOf('D1')).toBe('FF1F4E78')
+    expect(fillOf('C1')).toBe('FF808080')
+    expect(sheet?.getCell('A1').font?.bold).toBe(true)
+    expect(sheet?.getCell('A1').value).toBe('NO. PART')
+    expect(sheet?.getCell('A2').value).toBe('PRT-00123')
+    expect(workbook.getWorksheet('Keterangan')?.getCell('A1').value).toBe('Panduan')
+  })
+
+  it('saves to output_path and leaves the original alone', async () => {
+    await makeTemplate()
+    await formatExcelCellsTool
+      .prepare({ path: 'template.xlsx', range: 'A1,D1', font_color: '000000', bold: false, output_path: 'merah.xlsx' })
+      .execute(context)
+    const original = new ExcelJS.Workbook()
+    await original.xlsx.readFile(path.join(root, 'template.xlsx'))
+    expect(original.worksheets[0]?.getCell('A1').font?.bold).toBe(true)
+    const copy = new ExcelJS.Workbook()
+    await copy.xlsx.readFile(path.join(root, 'merah.xlsx'))
+    expect(copy.worksheets[0]?.getCell('D1').font?.bold).toBeFalsy()
+    expect(copy.worksheets[0]?.getCell('B1').font?.bold).toBe(true)
+    expect(copy.worksheets[0]?.getCell('D1').font?.color?.argb).toBe('FF000000')
+  })
+
+  it('refuses a format call with nothing to change or an .xls destination', async () => {
+    expect(() => formatExcelCellsTool.prepare({ path: 'a.xlsx', range: 'A1' })).toThrow(/at least one/)
+    expect(() => formatExcelCellsTool.prepare({ path: 'a.xlsx', range: 'A1;B2', bold: true })).toThrow(/Invalid input/)
+    await makeTemplate()
+    await expect(
+      formatExcelCellsTool.prepare({ path: 'template.xlsx', range: 'A1', bold: true, output_path: 'lama.xls' }).execute(context)
+    ).rejects.toThrow(/saved as \.xlsx/)
+  })
+
+  it('reads and edits legacy .xls without writing beside the original', async () => {
+    const legacy = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(legacy, XLSX.utils.aoa_to_sheet([['Kode', 'Jumlah'], ['ABC-1', 7]]), 'Data Lama')
+    await writeFile(
+      path.join(root, 'lama.xls'),
+      XLSX.write(legacy, { type: 'buffer', bookType: 'biff8' }) as Buffer
+    )
+
+    const read = await readExcelTool.prepare({ path: 'lama.xls' }).execute(context)
+    expect(read.text).toContain('Active sheet: Data Lama')
+    expect(read.text).toContain('ABC-1\t7')
+    await expect(readFile(path.join(root, 'lama.xlsx'))).rejects.toThrow()
+    const attachment = await prepareAttachment(path.join(root, 'lama.xls'), root)
+    expect(attachment.kind).toBe('excel')
+    expect(attachment.preview).toContain('ABC-1\t7')
+
+    await formatExcelCellsTool.prepare({
+      path: 'lama.xls',
+      range: 'A1:B1',
+      bold: true,
+      output_path: 'lama-diformat.xlsx'
+    }).execute(context)
+    const result = new ExcelJS.Workbook()
+    await result.xlsx.readFile(path.join(root, 'lama-diformat.xlsx'))
+    expect(result.getWorksheet('Data Lama')?.getCell('A1').font?.bold).toBe(true)
+  })
 })
+
+/** Shaped like the import template that came in from the phone. */
+async function makeTemplate(): Promise<void> {
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('Import Data')
+  sheet.addRow(['NO. PART', 'NAMA', 'RSV', 'MIN'])
+  sheet.addRow(['PRT-00123', 'Filter Oli Mesin', 0, 10])
+  const header = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial' }
+  for (const [address, argb] of [['A1', 'FF1F4E78'], ['B1', 'FF1F4E78'], ['C1', 'FF808080'], ['D1', 'FF1F4E78']] as const) {
+    sheet.getCell(address).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
+    sheet.getCell(address).font = header
+  }
+  workbook.addWorksheet('Keterangan').addRow(['Panduan'])
+  // Written and read back, so alike cells share one style the way a real file does.
+  await workbook.xlsx.writeFile(path.join(root, 'template.xlsx'))
+}
 
 describe('docx tools', () => {
   it('reads a document as markdown', async () => {
@@ -294,6 +402,55 @@ describe('attachment handler', () => {
     const blocks = await toContentBlocks(attachment)
     expect(blocks[0]?.type === 'text' && blocks[0].text).toContain('outside the workspace')
     await rm(outside, { recursive: true, force: true })
+  })
+
+  it('copies an outside file into .anticode/uploads where tools can reach it', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'anticode-outside-'))
+    const file = path.join(outside, 'Template.csv')
+    await writeFile(file, 'isi pertama')
+
+    const placed = await placeInWorkspace(await prepareAttachment(file, root), root)
+    expect(placed.workspacePath).toBe(path.join('.anticode', 'uploads', 'Template.csv'))
+    expect(placed.path).toBe(path.join(root, '.anticode', 'uploads', 'Template.csv'))
+    expect(await readFile(placed.path, 'utf8')).toBe('isi pertama')
+    // The folder keeps itself out of git without touching the project's rules.
+    expect(await readFile(path.join(root, '.anticode', '.gitignore'), 'utf8')).toBe('*\n')
+    const blocks = await toContentBlocks(placed)
+    expect(blocks[0]?.type === 'text' && blocks[0].text).toContain('`.anticode/uploads/Template.csv`')
+
+    // Sent again unchanged: the same copy. Changed: a second, numbered one.
+    const again = await placeInWorkspace(await prepareAttachment(file, root), root)
+    expect(again.path).toBe(placed.path)
+    await writeFile(file, 'isi kedua')
+    const changed = await placeInWorkspace(await prepareAttachment(file, root), root)
+    expect(changed.workspacePath).toBe(path.join('.anticode', 'uploads', 'Template-2.csv'))
+    expect(await readFile(placed.path, 'utf8')).toBe('isi pertama')
+    await rm(outside, { recursive: true, force: true })
+  })
+
+  it('leaves a file already in the workspace where it is', async () => {
+    const file = await makeWorkbook()
+    const attachment = await prepareAttachment(file, root)
+    expect(await placeInWorkspace(attachment, root)).toBe(attachment)
+  })
+
+  it('never follows a .anticode link out of the project', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'anticode-outside-'))
+    await symlink(outside, path.join(root, '.anticode'))
+    const file = path.join(outside, 'catatan.txt')
+    await writeFile(file, 'halo')
+    await expect(placeInWorkspace(await prepareAttachment(file, root), root)).rejects.toThrow(
+      /outside the workspace/
+    )
+    await rm(outside, { recursive: true, force: true })
+  })
+
+  it('tells antichat it only has the preview and cannot hand back a file', async () => {
+    const file = await makeWorkbook()
+    const blocks = await toContentBlocks(await prepareAttachment(file, root), 'chat')
+    const header = blocks[0]?.type === 'text' ? blocks[0].text : ''
+    expect(header).toContain('antichat, which has no tools')
+    expect(header).toContain('buku')
   })
 
   it('refuses a file over the size limit', async () => {

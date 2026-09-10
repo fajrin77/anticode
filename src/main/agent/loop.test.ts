@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '@shared/ipc'
-import { AgentSession } from './loop'
+import { AgentSession, titleOf } from './loop'
 import { allowAll } from '../approval/types'
 import { editFileTool } from '../tools/editFile'
 import type {
@@ -521,5 +521,19 @@ describe('follow-ups sent while a run is working', () => {
     expect(followUpsIn(last?.content ?? [])).toEqual([{ text: 'jangan lupa tes', during: false }])
     // Stopping refuses anything more.
     expect(agent.steer('lagi')).toBe(false)
+  })
+})
+
+describe('titleOf', () => {
+  it('names a session after the typed prompt, not the file sent with it', () => {
+    const attachment = { name: 'Receipt-2844-21.pdf', path: '/tmp/r.pdf', workspacePath: null, kind: 'pdf' as const, size: 1, thumbnail: null }
+    expect(titleOf([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Attachment: Receipt-2844-21.pdf (pdf, 1 bytes)', attachment },
+        { type: 'text', text: 'Ringkas struk ini' }
+      ]
+    }])).toBe('Ringkas struk ini')
+    expect(titleOf([])).toBe('New session')
   })
 })

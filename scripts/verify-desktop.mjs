@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import sharp from 'sharp'
+import ExcelJS from 'exceljs'
 const directory = await mkdtemp(path.join(tmpdir(), 'anticode-verification-'))
 const profile = path.join(directory, 'profile')
 const { mkdir } = await import('node:fs/promises')
@@ -15,6 +16,8 @@ const workspace = path.join(directory, 'workspace'); await mkdir(workspace)
 await writeFile(path.join(workspace, 'hello.txt'), 'original')
 await writeFile(path.join(workspace, '<b>literal.txt'), 'literal filename')
 let calls = 0
+/** What the stub was last sent, so a test can read the framing the model saw. */
+let lastSent = ''
 /** A page for the browser pane to point at, standing in for a dev server. */
 async function createStaticPage() {
   const server = createServer((_req, res) => {
@@ -31,10 +34,15 @@ const stub = createServer(async (req, res) => {
   const body = JSON.parse(raw); calls++
   const prompt = body.messages.filter(m=>m.role==='user').at(-1)?.content
   const text = typeof prompt === 'string' ? prompt : prompt?.filter(p=>p.type==='text').map(p=>p.text).join(' ') ?? ''
+  lastSent = JSON.stringify(body.messages)
   if (text.includes('provider-error')) { res.writeHead(400, {'content-type':'application/json'}); res.end(JSON.stringify({error:{message:'Fixture provider rejected the request'}})); return }
   res.writeHead(200, {'content-type':'text/event-stream'})
   const chunk = (delta, finish_reason=null) => res.write(`data: ${JSON.stringify({id:'test',choices:[{index:0,delta,finish_reason}]})}\n\n`)
-  if (text.includes('write-fixture') && !body.messages.some(m=>m.role==='tool')) {
+  // Only the turn that opens the run: once the tool has answered, reply in words.
+  if (text.includes('format-fixture') && body.messages.at(-1)?.role !== 'tool') {
+    chunk({tool_calls:[{index:0,id:'format-test',type:'function',function:{name:'format_excel_cells',arguments:JSON.stringify({path:'.anticode/uploads/Template_Import_Data_Barang.xlsx',range:'A1:B1',fill:'#C00000',output_path:'.anticode/uploads/Template_Import_Data_Barang-merah.xlsx'})}}]})
+    chunk({}, 'tool_calls')
+  } else if (text.includes('write-fixture') && !body.messages.some(m=>m.role==='tool')) {
     chunk({tool_calls:[{index:0,id:'write-test',type:'function',function:{name:'write_file',arguments:JSON.stringify({path:'hello.txt',content:'written by approved tool'})}}]})
     chunk({}, 'tool_calls')
   } else {
@@ -128,6 +136,40 @@ try {
   const uploadHistory = (await api('/api/session/'+sessionId)).messages
   assert(uploadHistory.some(m=>m.blocks.some(b=>b.type==='attachment' && b.attachment.name==='layar.png' && b.attachment.thumbnail?.startsWith('data:image/jpeg;base64,'))))
   log('a file uploaded from the phone reaches the transcript as a drawable attachment')
+  // In a code session the upload is copied into the project, where tools reach it.
+  assert(uploadHistory.some(m=>m.blocks.some(b=>b.type==='attachment' && b.attachment.name==='layar.png' &&
+    b.attachment.workspacePath===path.join('.anticode','uploads','layar.png'))))
+  assert.equal(await readFile(path.join(workspace,'.anticode','.gitignore'),'utf8'),'*\n')
+
+  // The whole request from the phone: a blue-headed template goes up, the
+  // agent recolours it, and the result comes back down as a download.
+  const template = new ExcelJS.Workbook()
+  const importSheet = template.addWorksheet('Import Data')
+  importSheet.addRow(['NO. PART','NAMA','RSV'])
+  for (const address of ['A1','B1','C1']) importSheet.getCell(address).fill = {type:'pattern',pattern:'solid',fgColor:{argb: address==='C1' ? 'FF808080' : 'FF1F4E78'}}
+  const templateUpload = await api('/api/attachment',{name:'Template_Import_Data_Barang.xlsx',data:Buffer.from(await template.xlsx.writeBuffer()).toString('base64')})
+  await api('/api/prompt',{sessionId,prompt:'format-fixture: ubah header biru jadi merah',attachmentIds:[templateUpload.id]})
+  await window.getByRole('button',{name:'Approve',exact:true}).waitFor()
+  // The model saw which cells are blue before it was asked to change them.
+  assert.match(lastSent, /Formatting \(fill is the background colour\):\\n- A1:B1 fill #1F4E78/)
+  await window.getByRole('button',{name:'Approve',exact:true}).click()
+  for (let i=0;i<100;i++) { if (!(await api('/api/session/'+sessionId)).runId) break; await new Promise(r=>setTimeout(r,20)) }
+  const recoloured = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=${encodeURIComponent('.anticode/uploads/Template_Import_Data_Barang-merah.xlsx')}&token=${remote.token}`)
+  assert.equal(recoloured.status,200)
+  const result = new ExcelJS.Workbook(); await result.xlsx.load(Buffer.from(await recoloured.arrayBuffer()))
+  assert.deepEqual(['A1','B1','C1'].map(a=>result.worksheets[0].getCell(a).fill.fgColor.argb), ['FFC00000','FFC00000','FF808080'])
+  log('a phone upload lands in .anticode/uploads, is recoloured by format_excel_cells, and downloads back')
+
+  // antichat: told it has only the preview, and the session is named after
+  // the words typed, not after the file that rode ahead of them.
+  const chatSession = (await api('/api/session',{mode:'chat'})).sessionId
+  const receipt = await api('/api/attachment',{name:'Receipt-2844-21.txt',data:Buffer.from('Total 125000').toString('base64')})
+  await api('/api/prompt',{sessionId:chatSession,prompt:'Ringkas struk ini',attachmentIds:[receipt.id]})
+  for (let i=0;i<100;i++) { if (!(await api('/api/session/'+chatSession)).runId) break; await new Promise(r=>setTimeout(r,20)) }
+  assert.match(lastSent, /antichat, which has no tools/)
+  assert.equal((await api('/api/overview')).sessions.find(s=>s.id===chatSession).title, 'Ringkas struk ini')
+  await fetch(`http://127.0.0.1:18680/api/session/${chatSession}?token=${remote.token}`,{method:'DELETE'})
+  log('antichat is told what an attachment is to it, and names the session after the prompt')
   await writeFile(path.join(workspace,'laporan.pdf'),'fixture pdf')
   const download = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=laporan.pdf&token=${remote.token}`)
   assert.equal(download.status,200)
@@ -440,15 +482,24 @@ try {
     } finally {
       await new Promise((resolve) => page.server.close(resolve))
     }
-    // Typing on the phone: the box wears a hairline of lime, not the blue ring.
+    // Typing on the phone: the glass shell wears a hairline of lime, not the
+    // browser's blue ring around the text field.
     await screen.evaluate((id) => openSession(id), sessionId)
     await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
 
     // A picture staged above the box opens full size before it is sent, from
     // the phone's own copy — the same viewer a sent one opens in.
+    const compactComposerHeight = await screen.$eval('#inputRow', (el) => el.getBoundingClientRect().height)
     const stagedPicture = await sharp({create:{width:300,height:200,channels:3,background:'#3f7fc2'}}).png().toBuffer()
     await screen.setInputFiles('#fileInput', { name: 'staged.png', mimeType: 'image/png', buffer: stagedPicture })
     await screen.waitForSelector('#stagedRow .chip.pic', { timeout: 10000 })
+    const attachedComposer = await screen.evaluate(() => ({
+      height: document.getElementById('inputRow').getBoundingClientRect().height,
+      inside: document.getElementById('inputRow').contains(document.querySelector('#stagedRow .chip'))
+    }))
+    assert.equal(attachedComposer.inside, true)
+    assert.ok(attachedComposer.height > compactComposerHeight, 'an attachment did not grow the glass composer')
+    await screen.screenshot({ path: path.join(directory, 'phone-composer-attachment.png') })
     await screen.click('#stagedRow .chip.pic')
     const stagedView = await screen.evaluate(() => ({
       open: !document.getElementById('imgViewer').classList.contains('hidden'),
@@ -460,12 +511,16 @@ try {
     assert.equal(await screen.$$eval('#stagedRow .chip', (els) => els.length), 0)
     log('a staged picture opens full size on the phone before it is sent')
     await screen.focus('#prompt')
-    const ring = await screen.$eval('#prompt', (el) => {
-      const style = getComputedStyle(el)
-      return { border: style.borderTopColor, outline: style.outlineStyle }
+    const ring = await screen.evaluate(() => {
+      const field = getComputedStyle(document.getElementById('prompt'))
+      const shell = getComputedStyle(document.getElementById('inputRow'))
+      return { border: shell.borderTopColor, outline: field.outlineStyle }
     })
     assert.equal(ring.border, 'rgb(209, 250, 34)')
     assert.equal(ring.outline, 'none')
+    await screen.fill('#prompt', 'baris satu\nbaris dua\nbaris tiga')
+    assert.ok(await screen.$eval('#prompt', (el) => el.getBoundingClientRect().height) > 48)
+    await screen.fill('#prompt', '')
     log('the phone prompt wears lime while typed in')
 
     // A prompt sent while the session works joins that run. The box empties
@@ -603,8 +658,12 @@ try {
     // Model selection follows the main process while the chat remains open.
     await window.evaluate(() => window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model' }))
     await screen.waitForFunction(() => modelInfo?.model === 'test-model')
-    await window.evaluate(() => window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model-2' }))
-    await screen.waitForFunction(() => modelInfo?.model === 'test-model-2')
+    const longModel = 'claude-opus-thinking-with-a-very-long-context-name'
+    await window.evaluate((model) => window.anticode.selectProvider({ provider: 'clinepass', model }), longModel)
+    await screen.waitForFunction((model) => modelInfo?.model === model, longModel)
+    await screen.waitForFunction(() => document.getElementById('modelChip').classList.contains('clipped'))
+    const modelWidth = await screen.$eval('#modelChip', (el) => el.getBoundingClientRect().width)
+    assert.ok(modelWidth <= 390 * .45, 'the long model steals more than half the phone composer')
     log('desktop model changes reach the open phone chat')
 
     await screen.evaluate(() => gotoFiles())
@@ -625,6 +684,8 @@ try {
       assert.ok(layout.composer.width > 0 && layout.composer.right <= viewport.width + 1)
     }
     await screen.setViewportSize({ width: 390, height: 844 })
+    const glassHeader = await screen.$eval('header', (el) => getComputedStyle(el).backdropFilter)
+    assert.notEqual(glassHeader, 'none', 'the phone header lost its glass blur')
     await screen.screenshot({ path: path.join(directory, 'phone-chat-verified.png') })
     log('phone chat fits narrow, wide, and landscape viewports')
 
@@ -648,9 +709,10 @@ try {
     await screen.fill('#prompt', '')
     log('the phone reverts a paused turn, on both screens')
 
-    // The chat keeps only Revert under the box; model and Default/Auto are in Settings.
-    assert.deepEqual(await screen.evaluate(() => ['modelChip', 'modeChip', 'chipRow'].map((id) =>
-      getComputedStyle(document.getElementById(id)).display)), ['none', 'none', 'none'])
+    // Model and approval mode stay in the composer; the long model fades out
+    // early enough that a paused session still has room for Revert.
+    assert.ok((await screen.evaluate(() => ['modelChip', 'modeChip', 'chipRow'].map((id) =>
+      getComputedStyle(document.getElementById(id)).display))).every((display) => display !== 'none'))
     // Default or Auto, from the phone's Settings; the desktop chip follows.
     await screen.click('#menuBtn')
     await screen.click('#menuDrop .mrow:text-is("Settings")')

@@ -509,7 +509,7 @@ export class AgentSession {
   }
 
   get title(): string {
-    return this.transcript.find((message) => message.role === 'user')?.content.find((block) => block.type === 'text')?.text.slice(0, 60) ?? 'New session'
+    return titleOf(this.transcript)
   }
 
   get messageCount(): number { return this.transcript.length }
@@ -555,8 +555,14 @@ export class AgentSession {
       return [
         'You are antichat, the ask-and-answer mode of anticode.',
         'You have no access to files, terminals, or the network.',
-        'If the user asks for something that needs reading or changing files, say that it ' +
-          'requires an anticode session connected to a project folder.',
+        'Attached files reach you only as a text preview; you can answer questions about ' +
+          'what the preview shows.',
+        'If the user asks you to change a file or to produce one (an edited spreadsheet, a ' +
+          'document, a converted file), say that antichat cannot create files, then tell them ' +
+          'how to get it done: open an anticode session on a project folder and attach the file ' +
+          'there. anticode copies attachments into .anticode/uploads/ in that folder, edits them ' +
+          'with its tools, and offers the result as a download on the desktop and the phone.',
+        'Do not offer scripts for the user to run as a substitute unless they ask for one.',
         'Reply in the language the user writes in; be concise and to the point.',
         'Do not use emojis or decorative symbols in your replies.'
       ].join('\n')
@@ -577,6 +583,8 @@ export class AgentSession {
       '- Check that a tool or dependency already exists before installing or re-running it.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
+      '- Files the user attaches from outside the project are copied into .anticode/uploads/. ' +
+        'To change one, work on that copy; the files you write are offered to the user as downloads.',
       '- Reply in the language the user writes in; be concise and to the point.',
       '- Do not use emojis or decorative symbols in your replies.'
     ]
@@ -587,6 +595,17 @@ export class AgentSession {
     }
     return lines.join('\n')
   }
+}
+
+/**
+ * What the user typed first. Attachment headers ride ahead of the prompt in
+ * the same turn, so the first text block is not enough — it would name the
+ * session after a file.
+ */
+export function titleOf(messages: Message[]): string {
+  const first = messages.find((message) => message.role === 'user')
+  const typed = first?.content.find((block) => block.type === 'text' && block.attachment === undefined)
+  return typed?.type === 'text' ? typed.text.slice(0, 60) : 'New session'
 }
 
 function messageCost(message: Message): number {

@@ -3,11 +3,17 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
-import type { AttachmentInfo, AttachmentRef } from '@shared/ipc'
+import type { AttachmentInfo, AttachmentRef, SessionMode } from '@shared/ipc'
 import type { ContentBlock } from '../providers/types'
 import { summariseExcel } from '../tools/excel'
 import { docxToMarkdown } from '../tools/docx'
 import { summarisePdf } from '../tools/pdf'
+import { resolveInWorkspace } from '../tools/workspace'
+
+/** Where an anticode session keeps the files it was sent, relative to its root. */
+export const UPLOADS_DIR = path.join('.anticode', 'uploads')
+/** Enough for any sane pile of same-named files; a bound, not a feature. */
+const MAX_NAME_ATTEMPTS = 1000
 
 const MAX_BYTES = 20 * 1024 * 1024
 const MAX_PREVIEW_CHARS = 2000
@@ -33,7 +39,7 @@ function clip(text: string): string {
 
 function classify(extension: string): AttachmentInfo['kind'] {
   if (IMAGE_EXTENSIONS.has(extension)) return 'image'
-  if (extension === '.xlsx' || extension === '.xlsm') return 'excel'
+  if (extension === '.xlsx' || extension === '.xlsm' || extension === '.xls') return 'excel'
   if (extension === '.docx') return 'docx'
   if (extension === '.pdf') return 'pdf'
   if (TEXT_EXTENSIONS.has(extension)) return 'text'
@@ -73,6 +79,48 @@ async function buildPreview(kind: AttachmentInfo['kind'], filePath: string): Pro
     case 'binary':
       return '(binary file — contents not read)'
   }
+}
+
+/**
+ * Gives the agent a copy it can reach. A phone upload, a pasted screenshot, or
+ * a file dropped from outside the project otherwise lives where no tool may
+ * go. The copy lands in `.anticode/uploads/`, which ignores itself in git, so
+ * the project's own status stays clean.
+ */
+export async function placeInWorkspace(
+  attachment: AttachmentInfo,
+  root: string
+): Promise<AttachmentInfo> {
+  if (attachment.workspacePath !== null) return attachment
+  // Checked before and after creation: an existing `.anticode` that links out
+  // of the project must not become a way to write outside it.
+  resolveInWorkspace(root, UPLOADS_DIR)
+  await mkdir(path.join(root, UPLOADS_DIR), { recursive: true })
+  const directory = resolveInWorkspace(root, UPLOADS_DIR)
+  await writeFile(path.join(root, '.anticode', '.gitignore'), '*\n', { flag: 'wx' }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error
+    }
+  )
+
+  const source = await readFile(attachment.path)
+  const safe = path.basename(attachment.name).replace(/^\.+/, '') || 'attachment'
+  const { name, ext } = path.parse(safe)
+  for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
+    const target = path.join(directory, attempt === 1 ? safe : `${name}-${attempt}${ext}`)
+    try {
+      await writeFile(target, source, { flag: 'wx' })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      // The same file sent twice is one file: reuse the first copy rather
+      // than numbering duplicates. A copy the agent has since edited differs,
+      // so it is never overwritten.
+      const existing = await readFile(target).catch(() => null)
+      if (existing === null || !existing.equals(source)) continue
+    }
+    return { ...attachment, path: target, workspacePath: path.relative(root, target) }
+  }
+  throw new AttachmentError(`Too many uploads named ${safe}`)
 }
 
 /**
@@ -158,11 +206,17 @@ async function toImageBlock(filePath: string): Promise<ContentBlock> {
   return { type: 'image', mediaType: encoded.mediaType, data: encoded.data.toString('base64') }
 }
 
-export async function toContentBlocks(attachment: AttachmentInfo): Promise<ContentBlock[]> {
+export async function toContentBlocks(
+  attachment: AttachmentInfo,
+  mode: SessionMode = 'code'
+): Promise<ContentBlock[]> {
   const location =
-    attachment.workspacePath !== null
-      ? `inside the workspace at \`${attachment.workspacePath}\` — tools can read it directly`
-      : 'outside the workspace, so tools cannot open it; copy it into the project folder if it needs editing'
+    mode === 'chat'
+      ? 'sent to antichat, which has no tools: the preview below is all you can see of it, ' +
+        'and you cannot produce an edited copy'
+      : attachment.workspacePath !== null
+        ? `inside the workspace at \`${attachment.workspacePath}\` — tools can read it directly`
+        : 'outside the workspace, so tools cannot open it; copy it into the project folder if it needs editing'
 
   const header = `Attachment: ${attachment.name} (${attachment.kind}, ${attachment.size} bytes), ${location}.`
   // The reference travels with the header block, which no history-condensing

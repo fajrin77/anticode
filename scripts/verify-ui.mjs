@@ -149,6 +149,7 @@ try {
   await window.waitForTimeout(400)
   await window.getByRole('button',{name:'antichat',exact:true}).click()
   await window.waitForTimeout(200)
+  const compactComposerHeight = await window.locator('.composer-glass').last().evaluate((el) => el.getBoundingClientRect().height)
   const staged = await window.evaluate(async (file) => {
     const [info] = await window.anticode.addAttachments([file])
     const store = window.__store.getState()
@@ -157,6 +158,10 @@ try {
   }, picture)
   check('an attached image carries a thumbnail', staged.thumbnail, 'data:image/jpeg;base64,')
   await window.waitForTimeout(300)
+  check('the attachment lives inside the glass composer',
+    await window.locator('.composer-glass img[alt="tangkapan.png"]').count() > 0 ? 'inside' : 'outside', 'inside')
+  check('an attachment grows the glass composer',
+    await window.locator('.composer-glass').last().evaluate((el) => el.getBoundingClientRect().height) > compactComposerHeight ? 'grown' : 'flat', 'grown')
   await shot('13-composer-with-attachment')
   // Staged is not sent: the picture can be checked at full size first.
   await window.getByTitle('View tangkapan.png').click(); await window.waitForTimeout(400)

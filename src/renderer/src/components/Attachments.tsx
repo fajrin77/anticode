@@ -2,14 +2,24 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { AttachmentKind, AttachmentRef } from '@shared/ipc'
 
-/** Short tag drawn on a file card, so the kind reads at a glance. */
+/** Fallback tag for a name with no short extension of its own. */
 const KIND_TAG: Record<AttachmentKind, string> = {
   image: 'IMG',
   text: 'TXT',
-  excel: 'XLS',
-  docx: 'DOC',
+  excel: 'XLSX',
+  docx: 'DOCX',
   pdf: 'PDF',
   binary: 'BIN'
+}
+
+/**
+ * Short tag drawn on a file card. The file's own extension where it has one,
+ * so an .xlsx never reads as .xls; the kind only when the name does not say.
+ */
+export function fileTag(item: { name: string; kind: AttachmentKind }): string {
+  const dot = item.name.lastIndexOf('.')
+  const extension = dot > 0 ? item.name.slice(dot + 1) : ''
+  return /^[a-z0-9]{1,4}$/i.test(extension) ? extension.toUpperCase() : KIND_TAG[item.kind]
 }
 
 export function formatBytes(size: number): string {
@@ -18,7 +28,7 @@ export function formatBytes(size: number): string {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
-function FileGlyph({ kind }: { kind: AttachmentKind }): JSX.Element {
+function FileGlyph({ tag }: { tag: string }): JSX.Element {
   return (
     <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
       <svg width="26" height="30" viewBox="0 0 26 30" fill="none" stroke="currentColor" strokeWidth="1.4" className="text-faint transition-colors group-hover:text-brand">
@@ -26,7 +36,7 @@ function FileGlyph({ kind }: { kind: AttachmentKind }): JSX.Element {
         <path d="M15 1.5V8h7" />
       </svg>
       <span className="absolute bottom-1 text-[7px] leading-none font-semibold tracking-wider text-dim transition-colors group-hover:text-brand">
-        {KIND_TAG[kind]}
+        {tag}
       </span>
     </span>
   )
@@ -81,7 +91,7 @@ export function Attachments({
             title={item.path}
             className="group flex max-w-72 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-colors hover:border-dim"
           >
-            <FileGlyph kind={item.kind} />
+            <FileGlyph tag={fileTag(item)} />
             <span className="min-w-0">
               <span className="block truncate text-[13px] text-text transition-colors group-hover:text-brand">
                 {item.name}
