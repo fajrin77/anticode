@@ -220,10 +220,25 @@ export function RichText({ text }: { text: string }): JSX.Element {
 
     const bullet = /^\s*[-*]\s+(.*)$/.exec(line)
     if (bullet) {
+      // A checklist reads as one: a ticked item takes the green mark in place
+      // of the bare glyph, whether the model wrote it as a trailing check or
+      // as a markdown task box.
+      const item = bullet[1] ?? ''
+      const ticked = /^\[[xX]\]\s*/.exec(item)
+      const trailing = /\s*[\u2713\u2714]\s*$/.exec(item)
+      const body = ticked !== null ? item.slice(ticked[0].length) : item
+      const text = trailing !== null ? body.slice(0, trailing.index) : body
       blocks.push(
         <div key={key} className="flex gap-2.5 py-0.5 pl-1">
-          <span className="mt-[0.6em] h-1 w-1 shrink-0 rounded-full bg-faint" />
-          <span className="min-w-0">{inline(bullet[1] ?? '', key)}</span>
+          {ticked !== null ? (
+            <span className="shrink-0">✅</span>
+          ) : (
+            <span className="mt-[0.6em] h-1 w-1 shrink-0 rounded-full bg-faint" />
+          )}
+          <span className="min-w-0">
+            {inline(text, key)}
+            {trailing !== null && <span className="ml-1.5">✅</span>}
+          </span>
         </div>
       )
       continue

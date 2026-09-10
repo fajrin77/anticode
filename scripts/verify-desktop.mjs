@@ -1,6 +1,6 @@
 // Run after npm run build. Uses a temporary profile, fixture workspace and local
 // OpenAI-compatible stub; never reads account credentials or calls paid APIs.
-import { _electron as electron } from 'playwright'
+import { _electron as electron, chromium } from 'playwright'
 import { createServer } from 'node:http'
 import { mkdtemp, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -217,6 +217,87 @@ try {
   const shown = await window.evaluate(()=>window.__store.getState().sessions.flatMap(s=>s.messages).filter(m=>m.summary!==undefined).length)
   assert(shown > 0)
   log('a restart brings the closing line back with the transcript')
+
+  // The phone UI, driven for real against the running server rather than a
+  // stub. It had no coverage at all until a card that could not be dismissed
+  // turned out to be a CSS specificity bug: an id rule setting `display`
+  // outranks `.hidden`, pinning the element on screen forever.
+  const phone = await chromium.launch()
+  try {
+    const screen = await phone.newPage({ viewport: { width: 390, height: 844 } })
+    const phoneErrors = []
+    screen.on('pageerror', (error) => phoneErrors.push(error.message))
+    await screen.goto(`http://127.0.0.1:18680/?token=${remote.token}`)
+    await screen.waitForTimeout(600)
+
+    const stuck = await screen.evaluate(() => {
+      const ids = ['menuDrop','errorBanner','chatView','viewFiles','inputRow','stagedRow','quoteRow',
+                   'fileInput','editor','gitOut','approvalPanel','replyBtn','useModelBtn',
+                   'dashboard','sessionList','newSessionCard']
+      return ids.filter((id) => {
+        const el = document.getElementById(id)
+        if (el === null) return false
+        el.classList.add('hidden')
+        return getComputedStyle(el).display !== 'none'
+      })
+    })
+    assert.deepEqual(stuck, [], `these refuse to hide: ${stuck.join(', ')}`)
+    log('every element the phone hides actually hides')
+
+    await screen.reload()
+    await screen.waitForTimeout(600)
+    await screen.evaluate((id) => openSession(id), sessionId)
+    await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
+    const quoted = await screen.evaluate(() => {
+      const node = [...document.querySelectorAll('#transcript .msg')].find((el) => el.textContent.trim() !== '')
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      return node.textContent.trim().slice(0, 20)
+    })
+    await screen.waitForTimeout(300)
+    assert.equal(await screen.$eval('#replyBtn', (el) => getComputedStyle(el).display !== 'none'), true)
+    await screen.click('#replyBtn')
+    await screen.waitForTimeout(300)
+    assert.equal(await screen.$eval('#quoteRow', (el) => getComputedStyle(el).display !== 'none'), true)
+    assert.match(await screen.$eval('#quoteText', (el) => el.textContent), new RegExp(quoted.slice(0, 8).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    await screen.click('#quoteRow .qx')
+    await screen.waitForTimeout(300)
+    assert.equal(await screen.$eval('#quoteRow', (el) => getComputedStyle(el).display === 'none'), true)
+    assert.deepEqual(phoneErrors, [])
+    log('the phone quotes a selected passage, and the card can be dismissed')
+
+    // An attached picture opens in the phone too, at full size — the thumbnail
+    // is unreadable for the screenshots people actually send.
+    const shot = await screen.evaluate(() => {
+      const image = document.querySelector('#transcript .att img')
+      if (image === null) return null
+      image.click()
+      const viewer = document.getElementById('imgViewer')
+      return { open: !viewer.classList.contains('hidden'), name: document.getElementById('imgName').textContent }
+    })
+    assert.notEqual(shot, null, 'no attached picture in the phone transcript')
+    assert.equal(shot.open, true)
+    assert.equal(shot.name, 'layar.png')
+    const picturePath = (await api('/api/session/'+sessionId)).messages
+      .flatMap(m=>m.blocks)
+      .find(b=>b.type==='attachment' && b.attachment.name==='layar.png').attachment.path
+    const served = await fetch(`http://127.0.0.1:18680/api/attachment?sessionId=${sessionId}` +
+      `&path=${encodeURIComponent(picturePath)}&token=${remote.token}`)
+    assert.equal(served.status, 200)
+    assert.equal(served.headers.get('content-type'), 'image/png')
+    const outside = await fetch(`http://127.0.0.1:18680/api/attachment?sessionId=${sessionId}` +
+      `&path=${encodeURIComponent('/etc/hosts')}&token=${remote.token}`)
+    assert.equal(outside.status, 400)
+    await screen.evaluate(() => closeImage())
+    assert.equal(await screen.$eval('#imgViewer', (el) => getComputedStyle(el).display === 'none'), true)
+    log('an attached picture opens on the phone, and only its own files are served')
+  } finally {
+    await phone.close()
+  }
   assert.deepEqual(errors,[])
   log('no renderer exceptions')
   console.log(JSON.stringify({directory,workspace,remoteUrl:`http://127.0.0.1:18680/?token=${remote.token}`,calls}))

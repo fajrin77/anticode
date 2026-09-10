@@ -236,6 +236,23 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       })
     }
 
+    // The picture itself, so the phone can open an attachment rather than
+    // squint at its thumbnail. Only paths the session's own history names are
+    // served — the allowlist is the transcript, not the filesystem.
+    if (req.method === 'GET' && url.pathname === '/api/attachment') {
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      const target = url.searchParams.get('path') ?? ''
+      const messages = loadSessionMessages(sessionId)
+      if (messages === null) return json(res, 404, { error: 'Unknown session' })
+      const known = messages.some((message) =>
+        message.blocks.some(
+          (block) => block.type === 'attachment' && block.attachment.path === target
+        )
+      )
+      if (!known) return json(res, 400, { error: 'Not an attachment of this session' })
+      return sendFile(res, target)
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/download') {
       return sendDownload(
         res,
@@ -429,6 +446,18 @@ const MIME_TYPES: Record<string, string> = {
  * Hands a produced file to the phone as a download. The path is resolved
  * inside the session's folder, so nothing outside it can be fetched.
  */
+/** Streams a file inline — for looking at, not for saving. */
+function sendFile(res: http.ServerResponse, target: string): void {
+  const info = statSync(target)
+  if (!info.isFile()) throw new Error('Not a file')
+  res.writeHead(200, {
+    'content-type': MIME_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': info.size,
+    'cache-control': 'private, max-age=300'
+  })
+  createReadStream(target).pipe(res)
+}
+
 function sendDownload(res: http.ServerResponse, sessionId: string, relativePath: string): void {
   const root = sessionWorkspaceRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')

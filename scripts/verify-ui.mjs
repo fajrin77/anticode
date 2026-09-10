@@ -445,6 +445,30 @@ try {
     copiedPrompt.startsWith('Ultra-realistic') && copiedPrompt.endsWith('style') ? 'clean' : copiedPrompt.slice(0,30), 'clean')
   await shot('25-prompt-panel')
 
+  // A ticked checklist item wears the green mark; an unticked bullet keeps its
+  // plain dot, so the tick still means something.
+  await window.evaluate(() => {
+    const store = window.__store.getState()
+    store.addMessage({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'text', text:
+      '- HANDLE PINTU ATAS LH = 5 \u2713\n- BLOWER AC = 6 \u2713\n- [x] SPION KOTAK RH = 13\n- belum dicek' }],
+      pending: false })
+  })
+  await window.waitForTimeout(400)
+  const ticked = await window.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-transcript] div')]
+      .filter((el) => /HANDLE PINTU ATAS LH|SPION KOTAK RH|belum dicek/.test(el.textContent) && el.querySelector('div') === null)
+    return rows.map((el) => ({ text: el.textContent, green: el.textContent.includes('\u2705') }))
+  })
+  check('a trailing check becomes the green mark',
+    ticked.find((r) => r.text.includes('HANDLE PINTU'))?.green === true ? 'green' : 'plain', 'green')
+  check('the bare glyph is gone',
+    ticked.some((r) => r.text.includes('\u2713')) ? 'still there' : 'replaced', 'replaced')
+  check('a markdown task box becomes the green mark',
+    ticked.find((r) => r.text.includes('SPION KOTAK RH'))?.green === true ? 'green' : 'plain', 'green')
+  check('an unticked bullet stays plain',
+    ticked.find((r) => r.text.includes('belum dicek'))?.green === false ? 'plain' : 'green', 'plain')
+  await shot('26-checklist')
+
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})

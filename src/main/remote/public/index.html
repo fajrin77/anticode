@@ -180,6 +180,21 @@
     overflow: hidden; white-space: pre-wrap; word-break: break-word;
   }
   #quoteRow .qx { flex: none; background: none; border: none; color: #6d6d6d; font-size: 16px; line-height: 1; padding: 0 2px; }
+  /* A picture opens over the conversation. The page itself cannot zoom (the
+     viewport is pinned so controls do not jump), so the viewer carries its own
+     fit / actual-size toggle — a dense screenshot has to be readable. */
+  #imgViewer { position: fixed; inset: 0; z-index: 60; background: rgba(26,26,26,.97); display: flex; flex-direction: column; }
+  #imgViewer .vhead {
+    flex: none; display: flex; align-items: center; gap: 10px;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px; color: #9a9a9a; font-size: 13px;
+  }
+  #imgViewer .vname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #imgViewer .vbtn { flex: none; background: none; border: none; color: #ededed; font-size: 14px; padding: 6px 10px; }
+  #imgViewer .vbtn:active { color: #d1fa22; }
+  #imgViewer .vbody { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
+  #imgViewer .vbody img { display: block; margin: auto; max-width: 100%; }
+  #imgViewer.zoomed .vbody img { max-width: none; width: 200%; margin: 0; }
+  .att img { cursor: zoom-in; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -273,7 +288,7 @@
      press next — same box as Start, its own colour. */
   .actions button.alt { background: #d1fa22; color: #1a1a1a; border-color: #d1fa22; }
   .actions button:disabled { color: #6d6d6d; border-color: #262626; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
   .crumb { font: 14px ui-monospace, Menlo, monospace; color: #9a9a9a; margin-bottom: 8px; word-break: break-all; }
   .dirrow { display: flex; align-items: baseline; gap: 8px; padding: 9px 2px; border-bottom: 1px solid #262626; cursor: pointer; }
   .dirrow:last-child { border-bottom: none; }
@@ -340,6 +355,14 @@
   </section>
 </main>
 <div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:90px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
+<div id="imgViewer" class="hidden">
+  <div class="vhead">
+    <span class="vname" id="imgName"></span>
+    <button class="vbtn" id="imgZoom" onclick="toggleImageZoom()">Perbesar</button>
+    <button class="vbtn" onclick="closeImage()">Tutup</button>
+  </div>
+  <div class="vbody" id="imgBody"><img id="imgFull" alt="" /></div>
+</div>
 <button id="replyBtn" class="hidden" onclick="quoteSelection()">Balas</button>
 <div class="composer hidden" id="inputRow">
   <div id="quoteRow" class="hidden">
@@ -815,7 +838,10 @@ function appendRichText(parent, text) {
     }
     const row = document.createElement('div');
     const heading = line.match(/^#{1,6}\s+(.*)$/);
-    const content = heading !== null ? heading[1] : line;
+    // A ticked checklist item takes the green mark, as on the desktop.
+    const content = (heading !== null ? heading[1] : line)
+      .replace(/^(\s*[-*]\s+)\[[xX]\]\s*/, '$1\u2705 ')
+      .replace(/\s*[\u2713\u2714](\s*)$/, ' \u2705$1');
     const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
     let last = 0;
     let match;
@@ -1218,6 +1244,39 @@ async function onFilesPicked(files) {
 }
 
 /* The files that rode with a prompt, drawn the way they were sent. */
+/* ---------- Looking at an attached picture ---------- */
+
+function openImage(item) {
+  const viewer = document.getElementById('imgViewer');
+  const full = document.getElementById('imgFull');
+  document.getElementById('imgName').textContent = item.name;
+  viewer.classList.remove('zoomed');
+  document.getElementById('imgZoom').textContent = 'Perbesar';
+  // The original if the session still knows it, the thumbnail if not.
+  full.src = item.thumbnail ?? '';
+  full.alt = item.name;
+  if (currentSession !== null && item.path) {
+    const url = '/api/attachment?sessionId=' + encodeURIComponent(currentSession) +
+      '&path=' + encodeURIComponent(item.path) + '&token=' + encodeURIComponent(token);
+    const probe = new Image();
+    probe.onload = () => { full.src = url; };
+    probe.src = url;
+  }
+  viewer.classList.remove('hidden');
+}
+
+function closeImage() {
+  document.getElementById('imgViewer').classList.add('hidden');
+  document.getElementById('imgFull').src = '';
+}
+
+function toggleImageZoom() {
+  const viewer = document.getElementById('imgViewer');
+  const zoomed = viewer.classList.toggle('zoomed');
+  document.getElementById('imgZoom').textContent = zoomed ? 'Perkecil' : 'Perbesar';
+  document.getElementById('imgBody').scrollTop = 0;
+}
+
 function attachmentsEl(items) {
   const wrap = document.createElement('div');
   wrap.className = 'atts';
@@ -1228,6 +1287,7 @@ function attachmentsEl(items) {
       const img = document.createElement('img');
       img.src = item.thumbnail;
       img.alt = item.name;
+      img.onclick = () => openImage(item);
       box.appendChild(img);
       wrap.appendChild(box);
       continue;
@@ -1374,10 +1434,8 @@ function hideReplyBtn() {
 function quoteSelection() {
   const selection = window.getSelection();
   const text = selection?.toString().trim() ?? '';
-  if (text !== '') {
-    quoted = text;
-    renderQuote();
-  }
+  if (text !== '') quoted = text;
+  renderQuote();
   selection?.removeAllRanges();
   hideReplyBtn();
   document.getElementById('prompt').focus();
