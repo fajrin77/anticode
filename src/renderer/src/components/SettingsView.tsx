@@ -29,10 +29,14 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (value: boolean) => v
       role="switch"
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-add' : 'bg-hover'}`}
+      className={`h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-brand' : 'bg-hover'}`}
     >
+      {/* On the lime track the knob goes dark: white on lime is all but
+          invisible, and dark-on-lime is what every other lime control does. */}
       <span
-        className={`block h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : 'translate-x-0'}`}
+        className={`block h-4 w-4 rounded-full shadow transition-transform ${
+          on ? 'translate-x-4 bg-bg' : 'translate-x-0 bg-white'
+        }`}
       />
     </button>
   )

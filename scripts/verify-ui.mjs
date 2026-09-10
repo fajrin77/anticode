@@ -173,15 +173,18 @@ try {
   // Chromium recomputes :hover from the real cursor whenever the app
   // re-renders (the status poll does, every 5s) and the colour transition
   // takes 150ms, so each control is re-hovered until its colour settles.
-  const limeOnHover = async (name, locator) => {
+  const colourOnHover = async (locator, want) => {
     const target = locator.first()
     let colour = ''
-    for (let attempt = 0; attempt < 8 && colour !== LIME; attempt++) {
+    for (let attempt = 0; attempt < 8 && colour !== want; attempt++) {
       await target.hover()
       await window.waitForTimeout(200)
       colour = await colourOf(target)
     }
-    check(name + ' turns lime on hover', colour, LIME)
+    return colour
+  }
+  const limeOnHover = async (name, locator) => {
+    check(name + ' turns lime on hover', await colourOnHover(locator, LIME), LIME)
   }
 
   await window.getByTitle('Dashboard').click(); await window.waitForTimeout(400)
@@ -197,9 +200,9 @@ try {
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
 
   // Deleting a session is destructive; red is a warning lime would erase.
-  const destructive = window.getByRole('button',{name:'Delete session'}).first()
-  await destructive.hover(); await window.waitForTimeout(250)
-  check('dashboard: delete stays red', await colourOf(destructive), 'rgb(224, 108, 108)')
+  const DEL = 'rgb(224, 108, 108)'
+  const destructive = window.getByRole('button',{name:'Delete session'})
+  check('dashboard: delete stays red', await colourOnHover(destructive, DEL), DEL)
   await shot('16-lime-dashboard')
 
   await window.getByRole('button',{name:/Fixture reply|halo dunia/}).first().click().catch(() => {})
@@ -224,7 +227,16 @@ try {
   await window.getByRole('button',{name:/Providers/}).click(); await window.waitForTimeout(300)
   await limeOnHover('settings: add provider', window.getByRole('button',{name:'+ Add provider'}))
   await limeOnHover('settings: version line', window.locator('button.mt-auto'))
+
+  // A switch that is on carries the accent on its track, not a stray green.
+  await window.getByRole('button',{name:/General/}).click(); await window.waitForTimeout(300)
+  const toggle = window.getByRole('switch').first()
+  const trackOf = () => toggle.evaluate((el) => getComputedStyle(el).backgroundColor)
+  await toggle.click(); await window.waitForTimeout(300)
+  check('settings: a switch that is on is lime', await trackOf(), LIME)
   await shot('18-lime-settings')
+  await toggle.click(); await window.waitForTimeout(300)
+  check('settings: a switch that is off is grey', await trackOf(), 'rgb(46, 46, 46)')
 
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }

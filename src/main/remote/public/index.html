@@ -32,13 +32,18 @@
   }
   /* Plain white words under the title — no card, no rules, no chrome. The
      column is centred on the screen and its labels read flush left. */
-  /* No card around the words: the page behind them simply steps back. The
-     column sits in the middle of the screen and its labels read flush left. */
-  #menuDrop { position: fixed; inset: 0; z-index: 30; background: rgba(26,26,26,.9); }
-  #menuDrop .mcol { width: fit-content; margin: 56px auto 0; }
+  /* The menu stands on its own surface so it does not look like loose words
+     floating over the page; the page behind it steps back as well. The column
+     sits in the middle of the screen and its labels read flush left. */
+  #menuDrop { position: fixed; inset: 0; z-index: 30; background: rgba(26,26,26,.75); }
+  #menuDrop .mcol {
+    width: fit-content; min-width: 200px; margin: 56px auto 0;
+    background: #202020; border: 1px solid #303030; border-radius: 14px;
+    padding: 6px 24px; box-shadow: 0 14px 36px rgba(0,0,0,.5);
+  }
   #menuDrop .mrow {
-    display: block; width: 100%; background: none; border: none; padding: 10px 0;
-    cursor: pointer; color: #ededed; font-size: 17px; text-align: left;
+    display: block; width: 100%; background: none; border: none; padding: 13px 0;
+    cursor: pointer; color: #ededed; font-size: 19px; text-align: left;
   }
   #menuDrop .mrow:active { color: #d1fa22; }
   main { padding: 12px 16px 120px; }

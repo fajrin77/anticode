@@ -6,7 +6,10 @@ memuat aturan yang harus diikuti setiap kali menambah atau mengubah kode.
 ## Aturan hover: lime adalah satu-satunya aksen
 
 anticode punya satu warna aksen, `--color-brand` (`#d1fa22`, kelas `text-brand`).
-Warna itu dipakai untuk menandai **apa yang bisa disentuh kursor**. Aturannya dua
+Warna itu dipakai untuk menandai **apa yang bisa disentuh kursor**, dan juga
+**apa yang sedang menyala** — switch yang aktif memakai `bg-brand`, bukan hijau.
+Tidak ada warna aksen kedua: `bg-add`/`text-add` (hijau) hanya untuk statistik
+diff dan penanda berhasil, tidak pernah untuk keadaan sebuah kontrol. Aturannya dua
 kalimat, dan berlaku untuk setiap kontrol baru tanpa kecuali:
 
 1. **Jika kursor mendekati ikon, ikon berubah jadi lime.**
@@ -43,6 +46,8 @@ Selalu periksa apakah anak elemennya mewarnai dirinya sendiri.
 - **Kontrol yang sudah berlatar lime tetap gelap.** Tombol kirim saat sesi
   di-pause berlatar `bg-brand` dengan teks `text-bg`; lime di atas lime tidak
   terbaca. Yang berubah saat hover cukup latarnya (`hover:bg-brand-strong`).
+  Aturan yang sama berlaku untuk isi kontrol, bukan cuma teks: knob switch yang
+  menyala memakai `bg-bg`, karena putih di atas lime nyaris tak terlihat.
 - **Keadaan aktif memakai warna penuh, bukan hover.** Ikon dashboard dan setting
   yang sedang terbuka sudah `text-brand` permanen; hover tidak menambah apa-apa.
 
