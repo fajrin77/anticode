@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import path from 'node:path'
-import { cancelSessionRuns, runForSession, hasRuns } from './runs'
+import { cancelSessionRuns, clearPause, runForSession, hasRuns } from './runs'
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
@@ -215,6 +215,7 @@ export function closeSession(sessionId: string): void {
 /** A hard delete (phone-initiated): the session is gone everywhere. */
 export function deleteSession(sessionId: string): void {
   cancelSessionRuns(sessionId)
+  clearPause(sessionId)
   sessions.get(sessionId)?.agent?.dispose()
   sessions.delete(sessionId)
   clearWeb(sessionId)
@@ -361,6 +362,8 @@ export function revertLastTurn(sessionId: string): string | null {
   if (runForSession(sessionId) !== null) {
     throw new Error('Pause this session before reverting its last turn')
   }
+  // The turn the pause interrupted is gone, and with it anything to resume.
+  clearPause(sessionId)
   const reverted = live.agent?.revertLastTurn() ?? null
   if (reverted === null) {
     // No agent yet: the session is still just its stored messages.

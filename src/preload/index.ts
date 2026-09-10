@@ -17,6 +17,7 @@ import type {
   ProviderId,
   ProviderInfo,
   ProviderSelection,
+  SessionPause,
   SessionSpec,
   SessionStatus,
   WebSession
@@ -56,6 +57,7 @@ const api: AnticodeApi = {
   listRuns: () => ipcRenderer.invoke(IpcChannel.RUN_LIST) as ReturnType<AnticodeApi['listRuns']>,
   getAppInfo: () => ipcRenderer.invoke(IpcChannel.APP_INFO) as Promise<AppInfo>,
   getStatus: () => ipcRenderer.invoke(IpcChannel.STATUS) as Promise<SessionStatus>,
+  onStatus: (listener) => subscribe<SessionStatus>(IpcChannel.STATUS_UPDATED, listener),
   chooseWorkspace: () => ipcRenderer.invoke(IpcChannel.WORKSPACE_CHOOSE) as Promise<SessionStatus>,
   setWorkspace: (root: string) =>
     ipcRenderer.invoke(IpcChannel.WORKSPACE_SET, root) as Promise<SessionStatus>,
@@ -111,6 +113,11 @@ const api: AnticodeApi = {
   sendPrompt: (req: AgentRequest) =>
     ipcRenderer.invoke(IpcChannel.AGENT_SEND, req) as Promise<{ runId: string; steered: boolean }>,
   cancelRun: (runId: string) => ipcRenderer.invoke(IpcChannel.AGENT_CANCEL, runId) as Promise<void>,
+  pauseSession: (sessionId: string) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_PAUSE, sessionId) as Promise<boolean>,
+  listPausedSessions: () => ipcRenderer.invoke(IpcChannel.SESSION_PAUSED_LIST) as Promise<string[]>,
+  onSessionPaused: (listener) => subscribe<SessionPause>(IpcChannel.SESSION_PAUSED, listener),
+  onSessionHistory: (listener) => subscribe<string>(IpcChannel.SESSION_HISTORY, listener),
   respondToApproval: (response: ApprovalResponse) =>
     ipcRenderer.invoke(IpcChannel.APPROVAL_RESPOND, response) as Promise<void>,
   onAgentEvent: (listener) => subscribe<RoutedAgentEvent>(IpcChannel.AGENT_EVENT, listener),

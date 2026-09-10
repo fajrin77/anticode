@@ -5,7 +5,7 @@ import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
 import { Composer } from './components/Composer'
 import { SettingsView } from './components/SettingsView'
-import { CONTINUE_PROMPT, RESUME_LABEL } from './components/Composer'
+import { CONTINUE_PROMPT, PAUSE_LABEL, RESUME_LABEL } from './components/Composer'
 import { ApprovalModal } from './components/ApprovalModal'
 import { useSessionStore } from './store/session'
 import { useWebSession, useWebStore } from './store/web'
@@ -130,7 +130,9 @@ export function App(): JSX.Element {
     }).catch((error: Error) => setAppError(error.message))
     const refresh = () => { void window.anticode.getStatus().then(setStatus).catch((error: Error) => setAppError(error.message)) }
     const timer = window.setInterval(refresh, 5000)
-    return () => { active = false; window.clearInterval(timer) }
+    // A model picked on the phone shows here the moment it is picked.
+    const unsubscribe = window.anticode.onStatus(setStatus)
+    return () => { active = false; window.clearInterval(timer); unsubscribe() }
   }, [])
 
   useEffect(() => {
@@ -145,6 +147,41 @@ export function App(): JSX.Element {
     const setSessions = useWebStore.getState().setSessions
     void window.anticode.listWebSessions().then(setSessions)
     return window.anticode.onWebSessions(setSessions)
+  }, [])
+
+  // A pause is the main process's too: pressed here or on the phone, every
+  // viewer shows it, and every viewer can resume it.
+  useEffect(() => {
+    const unsubscribe = window.anticode.onSessionPaused(({ sessionId, paused }) => {
+      const store = useSessionStore.getState()
+      if (paused) {
+        store.pauseSession(sessionId)
+        store.addNotice(sessionId, PAUSE_LABEL)
+      } else {
+        store.resumeSession(sessionId)
+      }
+    })
+    void window.anticode.listPausedSessions().then((ids) => {
+      const store = useSessionStore.getState()
+      for (const id of Object.keys(store.pausedSessions)) {
+        if (!ids.includes(id)) store.resumeSession(id)
+      }
+      for (const id of ids) store.pauseSession(id)
+    })
+    return unsubscribe
+  }, [])
+
+  // A turn reverted from the phone is gone from the real history; the
+  // transcript here is redrawn from it rather than keep showing the exchange.
+  useEffect(() => {
+    return window.anticode.onSessionHistory((sessionId) => {
+      if (sessionBusy(sessionId)) return
+      void window.anticode.getSessionSnapshot(sessionId).then((snapshot) => {
+        if (snapshot !== null && !sessionBusy(sessionId)) {
+          useSessionStore.getState().importSnapshot(sessionId, snapshot.messages, snapshot.summaries)
+        }
+      })
+    })
   }, [])
 
   useEffect(() => {

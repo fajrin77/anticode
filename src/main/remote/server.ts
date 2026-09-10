@@ -1,4 +1,12 @@
-import { beginRun, finishRun, cancelRun, cancelSessionRuns, runForSession } from '../runs'
+import {
+  beginRun,
+  finishRun,
+  cancelRun,
+  cancelSessionRuns,
+  isPaused,
+  pauseSession,
+  runForSession
+} from '../runs'
 import http from 'node:http'
 import os from 'node:os'
 import { randomUUID, createHash } from 'node:crypto'
@@ -32,7 +40,8 @@ import {
   registerAttachmentData,
   releaseAttachments
 } from '../attachments/registry'
-import { forgetRun, forward, registerRun, subscribe } from './bus'
+import { announceHistory, announceStatus, forgetRun, forward, registerRun, subscribe } from './bus'
+import type { StreamEvent } from './bus'
 import {
   activeWebUrl,
   addWebTab,
@@ -240,6 +249,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       if (provider === '') return json(res, 400, { error: 'provider is required' })
       if (model === '') await listModels(provider)
       selectProvider({ provider, model })
+      announceStatus()
       return json(res, 200, { ok: true, status: getStatus() })
     }
 
@@ -254,7 +264,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, {
         messages,
         summaries: loadSessionSummaries(sessionMatch[1] ?? ''),
-        runId: runForSession(sessionMatch[1] ?? '')
+        runId: runForSession(sessionMatch[1] ?? ''),
+        paused: isPaused(sessionMatch[1] ?? '')
       })
     }
 
@@ -311,7 +322,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (req.method === 'POST' && url.pathname === '/api/revert') {
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
       if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
-      return json(res, 200, { prompt: revertLastTurn(sessionId) })
+      const prompt = revertLastTurn(sessionId)
+      announceHistory(sessionId, 'phone')
+      return json(res, 200, { prompt })
     }
 
     if (req.method === 'GET' && url.pathname === '/api/approvals') {
@@ -331,6 +344,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       if (!pending) throw new Error('This approval is no longer pending')
       approvals.resolve(body.requestId, body.decision as 'approve' | 'reject' | 'always')
       return json(res, 200, { ok: true })
+    }
+
+    // The same pause the desktop presses; every viewer hears of it, and either
+    // one can resume it.
+    if (req.method === 'POST' && url.pathname === '/api/pause') {
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      return json(res, 200, { paused: pauseSession(sessionId) })
     }
 
     if (req.method === 'POST' && url.pathname === '/api/cancel') {
@@ -503,7 +524,7 @@ function openEventStream(url: URL, res: http.ServerResponse): void {
     connection: 'keep-alive'
   })
   res.write(': connected\n\n')
-  const send = (event: AgentEvent): void => {
+  const send = (event: StreamEvent): void => {
     res.write(`data: ${JSON.stringify(event)}\n\n`)
   }
   const unsubscribe = subscribe(sessionId, send)

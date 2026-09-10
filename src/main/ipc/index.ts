@@ -1,4 +1,14 @@
-import { beginRun, finishRun, cancelRun, runForSession, hasRuns, listActiveRuns } from '../runs'
+import {
+  beginRun,
+  finishRun,
+  cancelRun,
+  runForSession,
+  hasRuns,
+  listActiveRuns,
+  listPausedSessions,
+  pauseSession,
+  setPauseSink
+} from '../runs'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import { copyFile, readFile, stat } from 'node:fs/promises'
@@ -51,7 +61,7 @@ import {
 } from '../attachments/registry'
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
-import { forgetRun, forward, registerRun } from '../remote/bus'
+import { announceHistory, announcePause, forgetRun, forward, registerRun } from '../remote/bus'
 import {
   addWebTab,
   clearWeb,
@@ -156,6 +166,11 @@ export function registerIpcHandlers(): void {
     clearWeb(sessionId)
     return listWeb()
   })
+
+  // Paused on one screen, resumable from the other: the pause lives here.
+  setPauseSink(announcePause)
+  ipcMain.handle(IpcChannel.SESSION_PAUSE, (_event, sessionId: string) => pauseSession(sessionId))
+  ipcMain.handle(IpcChannel.SESSION_PAUSED_LIST, () => listPausedSessions())
 
   ipcMain.handle(IpcChannel.RUN_LIST, () => listActiveRuns())
   ipcMain.handle(IpcChannel.ATTACH_RELEASE, (_event, ids: string[]) => releaseAttachments(ids))
@@ -334,9 +349,11 @@ export function registerIpcHandlers(): void {
     adoptSessionColour(sessionId, colour)
   })
 
-  ipcMain.handle(IpcChannel.SESSION_REVERT, (_event, sessionId: string) =>
-    revertLastTurn(sessionId)
-  )
+  ipcMain.handle(IpcChannel.SESSION_REVERT, (_event, sessionId: string) => {
+    const prompt = revertLastTurn(sessionId)
+    announceHistory(sessionId, 'desktop')
+    return prompt
+  })
 
   ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) => {
     const messages = loadSessionMessages(sessionId)

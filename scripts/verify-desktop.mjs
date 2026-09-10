@@ -491,6 +491,57 @@ try {
     assert.equal(followUp?.followUp, 'during', 'the run did not take the phone follow-up in')
     log('a phone prompt sent mid-run joins the run, on both screens')
 
+    // One pause, owned by the main process: pressed on either screen, both
+    // show Resume, and either one can press it. Each used to keep its own, so
+    // a pause from the phone could not be resumed on the desktop.
+    const desktopPaused = () => window.evaluate((id) => window.__store.getState().pausedSessions[id] === true, sessionId)
+    const phonePaused = () => screen.evaluate((id) => pausedSessions.has(id), sessionId)
+    const phoneButton = () => screen.$eval('#sendBtn', (el) => el.getAttribute('aria-label'))
+    const until = async (check, what) => {
+      for (let i = 0; i < 150; i++) { if (await check()) return; await new Promise((r) => setTimeout(r, 50)) }
+      throw new Error(`timed out waiting for ${what}`)
+    }
+    await window.evaluate((id) => window.__store.getState().selectSession(id), sessionId)
+    await window.evaluate((id) => window.anticode.sendPrompt({ sessionId: id, runId: crypto.randomUUID(), prompt: 'slow desktop work', attachmentIds: [] }), sessionId)
+    await screen.waitForFunction(() => currentRunId !== null, null, { timeout: 5000 })
+    await screen.click('#sendBtn')
+    await until(desktopPaused, 'the desktop to hear of the phone pause')
+    await until(async () => (await phoneButton()) === 'Resume', 'the phone Resume button')
+    await window.getByRole('button', { name: 'Resume', exact: true }).waitFor()
+    await window.getByRole('button', { name: 'Resume', exact: true }).click()
+    await until(async () => !(await phonePaused()), 'the phone to hear of the desktop resume')
+    await until(async () => !(await desktopPaused()), 'the desktop resume to end the pause')
+    await screen.waitForFunction(() => currentRunId === null, null, { timeout: 15000 })
+    assert.notEqual(await phoneButton(), 'Resume')
+    log('paused on the phone, resumed on the desktop')
+
+    await api('/api/prompt', { sessionId, prompt: 'slow phone run' })
+    await window.getByRole('button', { name: 'Pause', exact: true }).waitFor()
+    await window.getByRole('button', { name: 'Pause', exact: true }).click()
+    await until(phonePaused, 'the phone to hear of the desktop pause')
+    await until(async () => (await phoneButton()) === 'Resume', 'the phone Resume button after a desktop pause')
+    await screen.click('#sendBtn')
+    await until(async () => !(await desktopPaused()), 'the desktop to hear of the phone resume')
+    await screen.waitForFunction(() => currentRunId === null && !pausedSessions.has(currentSession), null, { timeout: 15000 })
+    await window.getByRole('button', { name: 'Resume', exact: true }).waitFor({ state: 'detached' })
+    log('paused on the desktop, resumed on the phone')
+
+    // A run that already finished has nothing to pause: pressing a stale Pause
+    // must not leave a Resume button on either screen.
+    assert.deepEqual(await api('/api/pause', { sessionId }), { paused: false })
+    assert.equal(await window.evaluate((id) => window.anticode.pauseSession(id), sessionId), false)
+    assert.equal((await api('/api/session/' + sessionId)).paused, false)
+    assert.equal(await desktopPaused(), false)
+    log('pausing a finished run leaves nothing to resume')
+
+    // A turn reverted on the desktop is gone from the phone's screen too.
+    await api('/api/prompt', { sessionId, prompt: 'to be reverted' })
+    await screen.waitForFunction(() => document.getElementById('transcript').textContent.includes('Fixture reply: to be reverted'), null, { timeout: 10000 })
+    await screen.waitForFunction(() => currentRunId === null, null, { timeout: 10000 })
+    assert.equal(await window.evaluate((id) => window.anticode.revertLastTurn(id), sessionId), 'to be reverted')
+    await screen.waitForFunction(() => !document.getElementById('transcript').textContent.includes('to be reverted'), null, { timeout: 5000 })
+    log('a turn reverted on the desktop disappears from the phone')
+
     assert.deepEqual(phoneErrors, [])
   } finally {
     await phone.close()

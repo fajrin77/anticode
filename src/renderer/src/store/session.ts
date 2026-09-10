@@ -114,7 +114,10 @@ interface SessionState {
       outputTokens?: number
     }
   >
-  /** Sessions the user paused; their runs were stopped, resume re-prompts. */
+  /**
+   * Sessions paused on either screen; their runs were stopped, resume
+   * re-prompts. A mirror of the main process, which owns the pause.
+   */
   pausedSessions: Record<string, true>
   /** Next badge-colour index; advances on every session creation. */
   nextColour: number
@@ -150,9 +153,9 @@ interface SessionState {
   mirrorStart: (runId: string, sessionId: string) => string
   /** Closes a mirror placeholder once the mirrored run settles. */
   mirrorSettle: (runId: string, summary?: RunSummary) => void
-  /** Marks a session paused (its run was stopped mid-task). */
+  /** Mirrors a pause the main process announced (its run was stopped mid-task). */
   pauseSession: (sessionId: string) => void
-  /** Clears the paused mark; the agent continues from its history. */
+  /** Mirrors a pause ending; the agent continues from its history. */
   resumeSession: (sessionId: string) => void
   /** Sets mode and project folder on a fresh session before its first prompt. */
   updateSessionConfig: (

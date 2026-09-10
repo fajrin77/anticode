@@ -22,9 +22,30 @@ interface ComposerProps {
   heroExtra?: JSX.Element
 }
 
-import { CONTINUE_PROMPT, PAUSE_LABEL, RESUME_LABEL } from '../labels'
+import { CONTINUE_PROMPT, RESUME_LABEL } from '../labels'
 
 export { CONTINUE_PROMPT, FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../labels'
+
+/**
+ * Pause found nothing running: the run ended without this window hearing of
+ * it. Keeping it would leave a pause button that stops nothing, so it goes,
+ * and the transcript is taken from the main process, which saw the whole run.
+ */
+async function letGoOfFinishedRun(sessionId: string): Promise<void> {
+  const store = useSessionStore.getState()
+  for (const [runId, run] of Object.entries(store.activeRuns)) {
+    if (run.sessionId !== sessionId) continue
+    store.settleMessage(run.messageId)
+    store.setActiveRun(null, runId)
+  }
+  for (const [runId, run] of Object.entries(store.mirrorRuns)) {
+    if (run.sessionId === sessionId) store.mirrorSettle(runId)
+  }
+  const snapshot = await window.anticode.getSessionSnapshot(sessionId)
+  if (snapshot !== null) {
+    useSessionStore.getState().importSnapshot(sessionId, snapshot.messages, snapshot.summaries)
+  }
+}
 
 /** Spread-based encoding blows the call stack on megabyte images. */
 function toBase64(buffer: ArrayBuffer): string {
@@ -97,8 +118,6 @@ export function Composer({
   const isPaused = useSessionStore(
     (state) => session !== undefined && state.pausedSessions[session.id] === true
   )
-  const pauseSession = useSessionStore((state) => state.pauseSession)
-  const resumeSession = useSessionStore((state) => state.resumeSession)
   const dropLastTurn = useSessionStore((state) => state.dropLastTurn)
 
   // Streaming is judged per session: a run elsewhere must never block this
@@ -210,10 +229,11 @@ export function Composer({
   }, [quote, session?.id])
 
   // Pause stops the run mid-task; resume sends a continuation instruction so
-  // the agent picks up exactly where its history left off.
+  // the agent picks up exactly where its history left off. The pause itself
+  // is the main process's: the run starting there is what ends it, for this
+  // window and the phone alike, and a refused resume leaves it standing.
   async function resume(): Promise<void> {
     if (session === undefined || isStreaming) return
-    resumeSession(session.id)
     const runId = crypto.randomUUID()
     const messageId = crypto.randomUUID()
     addNotice(session.id, RESUME_LABEL)
@@ -241,7 +261,6 @@ export function Composer({
     try {
       const prompt = await window.anticode.revertLastTurn(session.id)
       dropLastTurn(session.id)
-      resumeSession(session.id)
       if (prompt !== null) setDraft(prompt)
     } catch (failure) {
       setError((failure as Error).message)
@@ -300,9 +319,8 @@ export function Composer({
     setDraft('')
     setAttached([])
     clearQuote()
-    // A new prompt ends a pause as surely as Resume does; left set, the pause
-    // button stayed dead for the whole of the run this starts.
-    if (isPaused) resumeSession(session.id)
+    // A new prompt ends a pause as surely as Resume does; the main process
+    // clears it when the run begins, and tells every viewer.
     const userMessageId = crypto.randomUUID()
     addMessage({ id: userMessageId, role: 'user', parts, pending: false })
 
@@ -573,9 +591,13 @@ export function Composer({
                   return
                 }
                 if (isStreaming && !isPaused) {
-                  pauseSession(session?.id ?? '')
-                  void window.anticode.cancelRun(activeRun?.runId ?? mirrorRunId ?? '')
-                  addNotice(session?.id ?? '', PAUSE_LABEL)
+                  // The main process pauses whichever run is working in this
+                  // session — started here or on the phone — and tells every
+                  // viewer, this one included, which draws the marker.
+                  const id = session?.id ?? ''
+                  void window.anticode.pauseSession(id).then((paused) => {
+                    if (!paused) void letGoOfFinishedRun(id)
+                  })
                   return
                 }
                 if (resuming) {

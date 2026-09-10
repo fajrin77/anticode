@@ -1,9 +1,18 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { AgentEvent } from '@shared/ipc'
-import { recordRunSummary } from '../runtime'
+import type { AgentEvent, SessionPause } from '@shared/ipc'
+import { getStatus, recordRunSummary } from '../runtime'
+import { clearPause } from '../runs'
 
-type Listener = (event: AgentEvent) => void
+/**
+ * What a session's phone stream carries: its runs, whether it is paused, and
+ * word that its history changed underneath (a turn was reverted).
+ */
+export type StreamEvent =
+  | AgentEvent
+  | { type: 'pause'; paused: boolean }
+  | { type: 'history' }
+type Listener = (event: StreamEvent) => void
 
 /** runId → sessionId, so forwarded events land on the right stream. */
 const runSessions = new Map<string, string>()
@@ -78,14 +87,46 @@ export function forward(event: AgentEvent): void {
   if (event.type === 'end' || event.type === 'error') {
     runSessions.delete(event.runId)
     closeTally(event.runId, sessionId)
+    // Paused just as the run was finishing on its own: it finished, so there
+    // is nothing left to resume on either screen.
+    if (event.type === 'error' || event.reason !== 'cancelled') clearPause(sessionId)
   }
 
+  toWindows(IpcChannel.AGENT_EVENT, { ...event, sessionId })
+  toStreams(sessionId, event)
+}
+
+/** A pause starting or ending, wherever it was pressed, reaches every viewer. */
+export function announcePause(sessionId: string, paused: boolean): void {
+  toWindows(IpcChannel.SESSION_PAUSED, { sessionId, paused } satisfies SessionPause)
+  toStreams(sessionId, { type: 'pause', paused })
+}
+
+/**
+ * A turn was taken back out of the session's history; whoever did not do it
+ * redraws from the main process, or it keeps showing the exchange that is
+ * gone. The screen that reverted has already redrawn itself, and a second
+ * redraw there would only lose its pause and resume markers.
+ */
+export function announceHistory(sessionId: string, from: 'desktop' | 'phone'): void {
+  if (from === 'phone') toWindows(IpcChannel.SESSION_HISTORY, sessionId)
+  toStreams(sessionId, { type: 'history' })
+}
+
+/** The model was switched from the phone; the desktop chip follows at once, not on its next poll. */
+export function announceStatus(): void {
+  toWindows(IpcChannel.STATUS_UPDATED, getStatus())
+}
+
+function toWindows(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     try {
-      if (!window.isDestroyed()) window.webContents.send(IpcChannel.AGENT_EVENT, { ...event, sessionId })
+      if (!window.isDestroyed()) window.webContents.send(channel, payload)
     } catch { /* A closing window must not interrupt other viewers. */ }
   }
+}
 
+function toStreams(sessionId: string, event: StreamEvent): void {
   const set = listeners.get(sessionId)
   if (set === undefined) return
   for (const listener of set) {

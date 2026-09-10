@@ -151,11 +151,12 @@ export function TabBar({
   // Closing a tab archives the session (still editable from the dashboard)
   // and stops its run — otherwise the agent keeps burning tokens with no way
   // to stop it. The main-process session stays alive so history survives.
+  // The stop is a pause, the same one the pause button makes: the work it
+  // cut short can be resumed from the reopened tab or from the phone.
   // A draft that was never prompted cannot be reopened from the dashboard, so
   // closing its tab deletes it outright — everywhere, including the phone.
   function close(sessionId: string): void {
-    for (const run of Object.values(activeRuns)) if (run.sessionId === sessionId) void window.anticode.cancelRun(run.runId)
-    for (const [runId, run] of Object.entries(mirrorRuns)) if (run.sessionId === sessionId) void window.anticode.cancelRun(runId)
+    void window.anticode.pauseSession(sessionId)
     const session = sessions.find((entry) => entry.id === sessionId)
     if (session !== undefined && session.messages.length === 0) {
       void window.anticode.closeSession(sessionId)

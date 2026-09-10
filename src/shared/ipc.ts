@@ -20,6 +20,11 @@ export const IpcChannel = {
   RUN_LIST: 'agent:runs',
   AGENT_SEND: 'agent:send',
   AGENT_CANCEL: 'agent:cancel',
+  SESSION_PAUSE: 'session:pause',
+  SESSION_PAUSED: 'session:paused',
+  SESSION_PAUSED_LIST: 'session:pausedList',
+  SESSION_HISTORY: 'session:history',
+  STATUS_UPDATED: 'session:statusUpdated',
   SESSION_REVERT: 'session:revert',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
@@ -206,6 +211,12 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** A session's pause starting or ending, told to every viewer by the main process. */
+export interface SessionPause {
+  sessionId: string
+  paused: boolean
+}
+
 export type AgentEndReason = 'complete' | 'cancelled' | 'max_tokens' | 'refusal'
 
 export type AgentEvent =
@@ -360,6 +371,8 @@ export interface AnticodeApi {
   listRuns: () => Promise<{ runId: string; sessionId: string; startedAt: number }[]>
   getAppInfo: () => Promise<AppInfo>
   getStatus: () => Promise<SessionStatus>
+  /** Fires when the provider or model is changed from the phone. */
+  onStatus: (listener: (status: SessionStatus) => void) => () => void
   chooseWorkspace: () => Promise<SessionStatus>
   setWorkspace: (root: string) => Promise<SessionStatus>
   listProviders: () => Promise<ProviderInfo[]>
@@ -391,6 +404,16 @@ export interface AnticodeApi {
   /** Records the colour a desktop has been showing, for a session that has none. */
   setSessionColour: (sessionId: string, colour: number) => Promise<void>
   cancelRun: (runId: string) => Promise<void>
+  /**
+   * Pauses the session's run for every viewer. False when nothing was running
+   * — the run had already finished, so there is nothing to resume.
+   */
+  pauseSession: (sessionId: string) => Promise<boolean>
+  /** Sessions paused right now, from whichever screen. */
+  listPausedSessions: () => Promise<string[]>
+  onSessionPaused: (listener: (state: SessionPause) => void) => () => void
+  /** Fires when a session's history changed on the phone (a turn was reverted). */
+  onSessionHistory: (listener: (sessionId: string) => void) => () => void
   respondToApproval: (response: ApprovalResponse) => Promise<void>
   addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>
   removeProvider: (id: ProviderId) => Promise<ProviderInfo[]>

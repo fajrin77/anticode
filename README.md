@@ -1,6 +1,6 @@
 # anticode
 
-Versi **0.0.7** menambah tab dan mode full size pada browser, layar Web HP yang dirender selebar HP, instruksi susulan yang bergabung ke run yang sedang berjalan, drop berkas di seluruh area sesi, warna sesi yang sama di HP dan desktop, serta tombol kirim yang tidak pernah bisa mengirim kolom kosong. Versi **0.0.6** memberi anticode browsernya sendiri: sebuah halaman yang terbuka menggeser transkrip ke kiri dan tampil di panel kanan, dengan ikon yang menyembunyikannya untuk seterusnya di sesi itu, dan layar Web di HP. Versi **0.0.3** memperbaiki sejumlah detail UI/UX (hover ikon dashboard, navigasi keluar dari Settings, Escape pada popover, focus ring). Versi **0.0.2** memperbaiki kontrol run desktop/HP, approval, konteks, browser per sesi, persistence, dan editor remote. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
+Versi **0.0.8** menyatukan pause di desktop dan HP lewat main process — di-pause di satu layar bisa di-resume di layar lain, dan pause setelah run selesai tidak meninggalkan tombol resume — serta membuat revert, tutup tab, dan ganti model langsung terlihat di kedua layar. Versi **0.0.7** menambah tab dan mode full size pada browser, layar Web HP yang dirender selebar HP, instruksi susulan yang bergabung ke run yang sedang berjalan, drop berkas di seluruh area sesi, warna sesi yang sama di HP dan desktop, serta tombol kirim yang tidak pernah bisa mengirim kolom kosong. Versi **0.0.6** memberi anticode browsernya sendiri: sebuah halaman yang terbuka menggeser transkrip ke kiri dan tampil di panel kanan, dengan ikon yang menyembunyikannya untuk seterusnya di sesi itu, dan layar Web di HP. Versi **0.0.3** memperbaiki sejumlah detail UI/UX (hover ikon dashboard, navigasi keluar dari Settings, Escape pada popover, focus ring). Versi **0.0.2** memperbaiki kontrol run desktop/HP, approval, konteks, browser per sesi, persistence, dan editor remote. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
 
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
@@ -178,6 +178,12 @@ Tombolnya mengikuti isi kolom: kosong saat bekerja berarti **pause** (kotak), ad
 **kirim** (panah), dan saat jeda dengan kolom kosong berarti **resume** (segitiga play, lime). Kolom
 kosong tidak pernah bisa mengirim. Desktop dan HP memakai ikon dan kata-kata yang sama, dan warna
 badge sesi dipegang main process supaya kedua layar melukis sesi dengan warna yang sama.
+
+Pause juga dipegang main process, bukan oleh masing-masing layar: di-pause di HP bisa di-resume di
+desktop dan sebaliknya, dan keduanya menampilkan tombol resume yang sama. Pause hanya berlaku bila
+run memang masih berjalan — menekannya setelah run selesai tidak meninggalkan tombol resume di mana
+pun. Menutup tab desktop juga menghentikan run lewat pause yang sama. Revert di desktop ikut
+menghapus giliran itu dari layar HP.
 
 ## Lampiran
 

@@ -466,6 +466,8 @@ function showError(error) {
   document.getElementById('errorBanner').classList.remove('hidden');
 }
 let eventSource = null;
+/* A mirror of the Mac's pauses: pressed here or on the desktop, the main
+ * process owns them and tells both screens, so either can resume. */
 const pausedSessions = new Set();
 let currentPath = '.';
 let openedFile = null;
@@ -822,9 +824,10 @@ async function syncSession(id) {
   } finally {
     if (seq === syncSeq) syncing = false;
   }
-  const { messages, summaries, runId } = payload;
+  const { messages, summaries, runId, paused } = payload;
   if (currentSession !== id || seq !== syncSeq) return;
   currentRunId = runId;
+  if (paused) pausedSessions.add(id); else pausedSessions.delete(id);
   hideWorking();
   liveEl = null;
   liveGroup = null;
@@ -1187,7 +1190,21 @@ function listen(id) {
   source.onmessage = async (e) => {
     if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
-    if (event.type === 'prompt') {
+    if (event.type === 'history') {
+      // A turn was reverted on the desktop: what is drawn here no longer exists.
+      try { await syncSession(id); } catch (error) { showError(error); }
+    }
+    else if (event.type === 'pause') {
+      // Pressed on either screen; the marker is drawn by whoever hears it.
+      if (event.paused) {
+        pausedSessions.add(id);
+        const last = document.getElementById('transcript').lastElementChild;
+        if (!(last?.classList.contains('notice') && last.textContent === PAUSE_LABEL)) appendNotice(PAUSE_LABEL);
+      } else {
+        pausedSessions.delete(id);
+      }
+    }
+    else if (event.type === 'prompt') {
       currentRunId = event.runId; liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
       else appendUserBubble(event.text, event.attachments);
@@ -1217,7 +1234,6 @@ function listen(id) {
       hideWorking();
       liveGroup = null;
       currentRunId = null;
-      if (event.reason === 'cancelled') pausedSessions.add(id);
       updateSendBtn();
       try { await syncSession(id); } catch (error) { showError(error); }
       if (event.type === 'error' && currentSession === id) appendLive('Error: ' + event.message);
@@ -1549,12 +1565,18 @@ function onSendBtn() {
   else void sendPrompt();
 }
 
+/* The Mac pauses whichever run is working in the session — started here or on
+ * the desktop — and tells both screens; the marker arrives on the stream. When
+ * nothing was running, the run had already finished without this screen
+ * hearing of it: there is nothing to resume, so it catches up instead of
+ * offering a Resume that would start the work over. */
 async function pauseSession() {
   if (currentRunId === null || currentSession === null) return;
+  const id = currentSession;
   try {
-    await jfetch('/api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId: currentRunId }) });
-    pausedSessions.add(currentSession);
-    appendNotice(PAUSE_LABEL);
+    const { paused } = await jfetch('/api/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: id }) });
+    if (paused) pausedSessions.add(id);
+    else if (currentSession === id) await syncSession(id);
     updateSendBtn();
   } catch (error) { showError(error); }
 }
@@ -2097,6 +2119,13 @@ async function restoreLastSession() {
 }
 
 void restoreLastSession();
+
+/* The model may have been switched on the desktop while the phone was away;
+ * the new-session card is where the phone shows it, so it asks again. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!document.getElementById('newSessionCard').classList.contains('hidden')) void loadModels();
+});
 </script>
 </body>
 </html>
