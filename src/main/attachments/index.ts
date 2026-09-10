@@ -84,24 +84,29 @@ async function buildPreview(kind: AttachmentInfo['kind'], filePath: string): Pro
 /**
  * Gives the agent a copy it can reach. A phone upload, a pasted screenshot, or
  * a file dropped from outside the project otherwise lives where no tool may
- * go. The copy lands in `.anticode/uploads/`, which ignores itself in git, so
- * the project's own status stays clean.
+ * go. In a project the copy lands in `.anticode/uploads/`, which ignores
+ * itself in git, so the project's own status stays clean. antichat's folder
+ * is private already, so there the copy sits at its top level (`into = ''`)
+ * and a download carries the file's own name.
  */
 export async function placeInWorkspace(
   attachment: AttachmentInfo,
-  root: string
+  root: string,
+  into: string = UPLOADS_DIR
 ): Promise<AttachmentInfo> {
   if (attachment.workspacePath !== null) return attachment
   // Checked before and after creation: an existing `.anticode` that links out
   // of the project must not become a way to write outside it.
-  resolveInWorkspace(root, UPLOADS_DIR)
-  await mkdir(path.join(root, UPLOADS_DIR), { recursive: true })
-  const directory = resolveInWorkspace(root, UPLOADS_DIR)
-  await writeFile(path.join(root, '.anticode', '.gitignore'), '*\n', { flag: 'wx' }).catch(
-    (error: NodeJS.ErrnoException) => {
-      if (error.code !== 'EEXIST') throw error
-    }
-  )
+  resolveInWorkspace(root, into)
+  await mkdir(path.join(root, into), { recursive: true })
+  const directory = resolveInWorkspace(root, into)
+  if (into === UPLOADS_DIR) {
+    await writeFile(path.join(root, '.anticode', '.gitignore'), '*\n', { flag: 'wx' }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error
+      }
+    )
+  }
 
   const source = await readFile(attachment.path)
   const safe = path.basename(attachment.name).replace(/^\.+/, '') || 'attachment'
@@ -212,8 +217,10 @@ export async function toContentBlocks(
 ): Promise<ContentBlock[]> {
   const location =
     mode === 'chat'
-      ? 'sent to antichat, which has no tools: the preview below is all you can see of it, ' +
-        'and you cannot produce an edited copy'
+      ? attachment.workspacePath !== null
+        ? `copied into this conversation's own folder at \`${attachment.workspacePath}\` — ` +
+          'your document tools can read and edit it there, and what you write is offered as a download'
+        : 'sent to antichat, but no copy could be made: the preview below is all you can see of it'
       : attachment.workspacePath !== null
         ? `inside the workspace at \`${attachment.workspacePath}\` — tools can read it directly`
         : 'outside the workspace, so tools cannot open it; copy it into the project folder if it needs editing'

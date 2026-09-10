@@ -30,7 +30,7 @@ import {
   getStatus,
   listModels,
   listSessionSpecs,
-  sessionWorkspaceRoot,
+  sessionFileRoot,
   revertLastTurn,
   policy,
   resetProviderSelection,
@@ -85,7 +85,7 @@ export function focusApprovalTarget(sender: WebContents): void {
 /** Produced files are named relative to the session folder; resolving them
  * here keeps the renderer from ever handling an absolute path of its own. */
 function artifactPath(sessionId: string, relativePath: string): string {
-  const root = sessionWorkspaceRoot(sessionId)
+  const root = sessionFileRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   return resolveInWorkspace(root, relativePath)
 }

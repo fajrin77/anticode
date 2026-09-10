@@ -39,7 +39,11 @@ const stub = createServer(async (req, res) => {
   res.writeHead(200, {'content-type':'text/event-stream'})
   const chunk = (delta, finish_reason=null) => res.write(`data: ${JSON.stringify({id:'test',choices:[{index:0,delta,finish_reason}]})}\n\n`)
   // Only the turn that opens the run: once the tool has answered, reply in words.
-  if (text.includes('format-fixture') && body.messages.at(-1)?.role !== 'tool') {
+  // antichat's copy sits at the top of its own folder, not in .anticode/uploads.
+  if (text.includes('chat-format-fixture') && body.messages.at(-1)?.role !== 'tool') {
+    chunk({tool_calls:[{index:0,id:'chat-format-test',type:'function',function:{name:'format_excel_cells',arguments:JSON.stringify({path:'Template_Import_Data_Barang.xlsx',range:'A1:B1',fill:'#C00000',output_path:'Template_Import_Data_Barang-merah.xlsx'})}}]})
+    chunk({}, 'tool_calls')
+  } else if (text.includes('format-fixture') && body.messages.at(-1)?.role !== 'tool') {
     chunk({tool_calls:[{index:0,id:'format-test',type:'function',function:{name:'format_excel_cells',arguments:JSON.stringify({path:'.anticode/uploads/Template_Import_Data_Barang.xlsx',range:'A1:B1',fill:'#C00000',output_path:'.anticode/uploads/Template_Import_Data_Barang-merah.xlsx'})}}]})
     chunk({}, 'tool_calls')
   } else if (text.includes('write-fixture') && !body.messages.some(m=>m.role==='tool')) {
@@ -160,16 +164,29 @@ try {
   assert.deepEqual(['A1','B1','C1'].map(a=>result.worksheets[0].getCell(a).fill.fgColor.argb), ['FFC00000','FFC00000','FF808080'])
   log('a phone upload lands in .anticode/uploads, is recoloured by format_excel_cells, and downloads back')
 
-  // antichat: told it has only the preview, and the session is named after
-  // the words typed, not after the file that rode ahead of them.
+  // antichat: no folder to choose. The same workbook, attached to a chat, is
+  // copied into the conversation's own folder, recoloured there, and comes
+  // back down as a download. The session is named after the words typed, not
+  // after the file that rode ahead of them, and deleting it takes the folder.
   const chatSession = (await api('/api/session',{mode:'chat'})).sessionId
-  const receipt = await api('/api/attachment',{name:'Receipt-2844-21.txt',data:Buffer.from('Total 125000').toString('base64')})
-  await api('/api/prompt',{sessionId:chatSession,prompt:'Ringkas struk ini',attachmentIds:[receipt.id]})
-  for (let i=0;i<100;i++) { if (!(await api('/api/session/'+chatSession)).runId) break; await new Promise(r=>setTimeout(r,20)) }
-  assert.match(lastSent, /antichat, which has no tools/)
-  assert.equal((await api('/api/overview')).sessions.find(s=>s.id===chatSession).title, 'Ringkas struk ini')
+  const chatUpload = await api('/api/attachment',{name:'Template_Import_Data_Barang.xlsx',data:Buffer.from(await template.xlsx.writeBuffer()).toString('base64')})
+  // In Default mode too, antichat edits without an approval: it only touches its copies.
+  await api('/api/prompt',{sessionId:chatSession,prompt:'chat-format-fixture: ubah header biru jadi merah',attachmentIds:[chatUpload.id]})
+  for (let i=0;i<250;i++) { if (!(await api('/api/session/'+chatSession)).runId) break; await new Promise(r=>setTimeout(r,20)) }
+  assert.match(lastSent, /own folder at `Template_Import_Data_Barang\.xlsx`/)
+  assert.equal(await window.getByRole('button',{name:'Approve',exact:true}).count(), 0, 'antichat asked for approval')
+  const chatFolder = path.join(profile,'antichat',chatSession)
+  const chatRecoloured = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${chatSession}&path=${encodeURIComponent('Template_Import_Data_Barang-merah.xlsx')}&token=${remote.token}`)
+  assert.equal(chatRecoloured.status,200)
+  const chatResult = new ExcelJS.Workbook(); await chatResult.xlsx.load(Buffer.from(await chatRecoloured.arrayBuffer()))
+  assert.deepEqual(['A1','B1','C1'].map(a=>chatResult.worksheets[0].getCell(a).fill.fgColor.argb), ['FFC00000','FFC00000','FF808080'])
+  assert.equal((await readFile(path.join(chatFolder,'Template_Import_Data_Barang.xlsx'))).length > 0, true)
+  assert.equal((await api('/api/overview')).sessions.find(s=>s.id===chatSession).title, 'chat-format-fixture: ubah header biru jadi merah')
   await fetch(`http://127.0.0.1:18680/api/session/${chatSession}?token=${remote.token}`,{method:'DELETE'})
-  log('antichat is told what an attachment is to it, and names the session after the prompt')
+  let chatFolderGone = false
+  for (let i=0;i<50 && !chatFolderGone;i++) { chatFolderGone = await readFile(path.join(chatFolder,'Template_Import_Data_Barang.xlsx')).then(()=>false,()=>true); if (!chatFolderGone) await new Promise(r=>setTimeout(r,20)) }
+  assert.equal(chatFolderGone, true, 'deleting an antichat session left its folder behind')
+  log('antichat edits an attached workbook with no folder chosen or approval asked, and it downloads back')
   await writeFile(path.join(workspace,'laporan.pdf'),'fixture pdf')
   const download = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=laporan.pdf&token=${remote.token}`)
   assert.equal(download.status,200)
@@ -684,6 +701,9 @@ try {
       assert.ok(layout.composer.width > 0 && layout.composer.right <= viewport.width + 1)
     }
     await screen.setViewportSize({ width: 390, height: 844 })
+    // Back at phone width, the long model name is re-measured on the next
+    // resize callback; reading before then races it.
+    await screen.waitForFunction(() => document.getElementById('modelChip').classList.contains('clipped'))
     const glass = await screen.evaluate(() => {
       const header = getComputedStyle(document.querySelector('header'))
       const fade = document.querySelectorAll('header .hfade i')
@@ -701,6 +721,18 @@ try {
         fadeReach: document.querySelector('header .hfade').getBoundingClientRect().bottom - document.querySelector('header').getBoundingClientRect().bottom,
         menuButton: glyph(document.getElementById('menuBtn')),
         attachButton: glyph(document.getElementById('attachBtn')),
+        hint: (() => {
+          const hint = document.getElementById('promptHint')
+          return { shown: getComputedStyle(hint).display, wrap: getComputedStyle(hint).whiteSpace, lines: Math.round(hint.getBoundingClientRect().height / parseFloat(getComputedStyle(hint).lineHeight)) }
+        })(),
+        subtitle: (() => {
+          const title = document.getElementById('menuTitle').textContent
+          const sub = document.getElementById('menuSubtitle').textContent
+          setMenuTitle('gbb-erp-main', 'gbb-erp-main', true)
+          const shown = getComputedStyle(document.getElementById('menuSubtitle')).display
+          setMenuTitle(title, sub, true)
+          return shown
+        })(),
         composerBlur: shell.backdropFilter,
         composerBackground: shell.backgroundColor,
         bottomGap: innerHeight - box.bottom,
@@ -719,6 +751,10 @@ try {
     // Header and composer buttons are bare glyphs until pressed.
     assert.equal(glass.menuButton, 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)', 'the menu button shows its box at rest')
     assert.equal(glass.attachButton, 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)', 'the attach button shows its box at rest')
+    // The empty box's hint stays on one line; a narrow phone fades its end.
+    assert.deepEqual(glass.hint, { shown: 'block', wrap: 'nowrap', lines: 1 })
+    // A session named after its folder shows its name once, in white.
+    assert.equal(glass.subtitle, 'none', 'the header repeats the session name as its subtitle')
     assert.notEqual(glass.composerBlur, 'none', 'the phone composer lost its glass blur')
     assert.match(glass.composerBackground, /rgba\(.+, 0\.58\)/)
     assert.ok(glass.bottomGap <= 5, `the phone composer sits ${glass.bottomGap}px above the bottom`)

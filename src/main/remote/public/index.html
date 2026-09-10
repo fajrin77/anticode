@@ -77,6 +77,7 @@
     display: block; font-size: 17px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  header .subtitle:empty { display: none; }
   header .subtitle { display: block; min-height: 16px; margin-top: 2px; color: #9a9a9a; font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* The three-dot menu is anchored to its trigger like a real popover. Both
      the scrim and the panel transmit the page, at different blur depths. */
@@ -320,10 +321,25 @@
   }
   .artifact a, .dirrow .dl { color: #d1fa22; text-decoration: none; font-size: 13.5px; flex: none; }
   .dirrow .dl { padding: 0 6px; }
+  .composer .promptbox { position: relative; flex: 1; min-width: 0; }
   .composer textarea {
-    flex: 1; min-width: 0; background: transparent; border: none;
+    display: block; width: 100%; background: transparent; border: none;
     color: #ededed; padding: 12px 8px 9px; resize: none; min-height: 48px; max-height: 140px;
-    line-height: 1.45; overflow-y: hidden;
+    font-family: inherit; line-height: 1.45; overflow-y: hidden;
+  }
+  /* The hint is drawn over the empty box rather than as the field's own
+     placeholder, which wraps onto a second line the 48px box then cuts in
+     half. It stays on one line, and when the phone is too narrow for it the
+     end fades out the way a long model name does. */
+  .composer .prompthint {
+    display: none; position: absolute; left: 8px; right: 8px; top: 12px;
+    color: #8a8a8a; line-height: 1.45; white-space: nowrap; overflow: hidden;
+    pointer-events: none;
+  }
+  .composer textarea:placeholder-shown + .prompthint { display: block; }
+  .composer .prompthint.clipped {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 68%, rgba(0,0,0,.72) 80%, transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 68%, rgba(0,0,0,.72) 80%, transparent 100%);
   }
   /* The browser's own focus ring is a thick blue halo that belongs to no one's
      palette. A field being typed in wears one hairline of lime instead. */
@@ -593,7 +609,10 @@
   <div id="stagedRow" class="hidden"></div>
   <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
-  <textarea id="prompt" placeholder="Don't work today, just vibes." rows="1"></textarea>
+  <div class="promptbox">
+    <textarea id="prompt" placeholder=" " aria-placeholder="Don't work today, just vibes." rows="1"></textarea>
+    <span class="prompthint" id="promptHint" aria-hidden="true">Don't work today, just vibes.</span>
+  </div>
   <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
   <div id="chipRow">
     <button id="modelChip" onclick="openSettings('model')" title="Model"><span class="modelText">…</span></button>
@@ -748,7 +767,10 @@ setInterval(() => { void pollApprovals(); }, 1000);
 
 function setMenuTitle(text, subtitle = '', canGoBack = false) {
   document.getElementById('menuTitle').textContent = text;
-  document.getElementById('menuSubtitle').textContent = subtitle;
+  // A session named after its folder would say the same thing twice; the
+  // white title alone is enough then.
+  const same = subtitle.trim().toLowerCase() === String(text).trim().toLowerCase();
+  document.getElementById('menuSubtitle').textContent = same ? '' : subtitle;
   document.getElementById('headerBack').classList.toggle('placeholder', !canGoBack);
 }
 
@@ -1436,7 +1458,8 @@ function renderTranscript(messages, summaries) {
     }
     flushGroup();
     flushText();
-    for (const target of documentsProduced(produced)) {
+    const chat = lastSessions.find((entry) => entry.id === currentSession)?.mode === 'chat';
+    for (const target of documentsProduced(produced, chat)) {
       div.appendChild(artifactEl(currentSession, target));
     }
     // A turn the run carried on from takes no closing line or place in the list.
@@ -1785,10 +1808,11 @@ function attachmentsEl(items) {
 }
 
 /* Documents a run produced, offered as downloads — the same rule the desktop
- * uses: a successful write of something a person opens rather than reads. */
+ * uses: a successful write of something a person opens rather than reads. In
+ * antichat every file it writes counts; it has no project to leave them in. */
 const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip'];
 
-function documentsProduced(items) {
+function documentsProduced(items, everyFile = false) {
   const paths = [];
   for (const item of items) {
     if (!/^(write|create|fill|add|format)_/.test(item.name)) continue;
@@ -1797,7 +1821,7 @@ function documentsProduced(items) {
     const target = typeof input.output_path === 'string' ? input.output_path : input.path;
     if (typeof target !== 'string') continue;
     const dot = target.lastIndexOf('.');
-    if (dot === -1 || !DOCUMENT_EXTENSIONS.includes(target.slice(dot).toLowerCase())) continue;
+    if (!everyFile && (dot === -1 || !DOCUMENT_EXTENSIONS.includes(target.slice(dot).toLowerCase()))) continue;
     if (!paths.includes(target)) paths.push(target);
   }
   return paths;
@@ -1808,7 +1832,8 @@ function artifactEl(sessionId, target) {
   row.className = 'artifact';
   const tag = document.createElement('span');
   tag.className = 'tag';
-  tag.textContent = target.slice(target.lastIndexOf('.') + 1, target.lastIndexOf('.') + 5).toUpperCase();
+  const dot = target.lastIndexOf('.');
+  tag.textContent = dot === -1 ? 'FILE' : target.slice(dot + 1, dot + 5).toUpperCase();
   const name = document.createElement('span');
   name.className = 'nm';
   name.textContent = target;
@@ -2418,6 +2443,7 @@ function autoSizePrompt() {
 document.getElementById('prompt').addEventListener('input', () => {
   autoSizePrompt();
   updateSendBtn();
+  updatePromptHintFade();
 });
 const composerObserver = new ResizeObserver(([entry]) => {
   const hidden = entry.target.classList.contains('hidden');
@@ -2478,6 +2504,15 @@ function updateModelFade() {
   const chip = document.getElementById('modelChip');
   const label = chip.querySelector('.modelText');
   chip.classList.toggle('clipped', label.scrollWidth > label.clientWidth + 1);
+  updatePromptHintFade();
+}
+
+/** The empty box's hint fades its end only when the phone is too narrow for it. */
+function updatePromptHintFade() {
+  const hint = document.getElementById('promptHint');
+  // Hidden while something is typed; it keeps the last answer until it shows.
+  if (hint.clientWidth === 0) return;
+  hint.classList.toggle('clipped', hint.scrollWidth > hint.clientWidth + 1);
 }
 
 function openSettings(section) {

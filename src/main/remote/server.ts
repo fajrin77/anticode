@@ -25,6 +25,7 @@ import {
   loadSessionMessages,
   revertLastTurn,
   selectProvider,
+  sessionFileRoot,
   sessionWorkspaceRoot
 } from '../runtime'
 import { addProvider, approvals, removeProvider, setApprovalMode } from '../ipc'
@@ -565,7 +566,8 @@ function sendFile(res: http.ServerResponse, target: string): void {
 }
 
 function sendDownload(res: http.ServerResponse, sessionId: string, relativePath: string): void {
-  const root = sessionWorkspaceRoot(sessionId)
+  // antichat's documents live in its own folder, not a project's.
+  const root = sessionFileRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   const target = resolveInWorkspace(root, relativePath)
   const info = statSync(target)

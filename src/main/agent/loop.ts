@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
 import type { ContentBlock, LLMProvider, LLMResponse, Message } from '../providers/types'
-import { toolDefinitions, tools } from '../tools'
+import { toolDefinitions, toolsFor } from '../tools'
 import type { Tool } from '../tools'
 import type { ApprovalGate } from '../approval/types'
 
@@ -121,7 +121,8 @@ export class AgentSession {
   private readonly history: Message[] = []
   private readonly transcript: Message[] = []
   private running = false
-  private readonly byName = new Map<string, Tool>(tools.map((tool) => [tool.name, tool]))
+  /** Only the tools this mode offers: a name the model invents runs nothing. */
+  private readonly byName: Map<string, Tool>
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   private projectInstructions: string | null | undefined
@@ -137,6 +138,7 @@ export class AgentSession {
     initialHistory: Message[] = [],
     private readonly scope: string = randomUUID()
   ) {
+    this.byName = new Map(toolsFor(mode).map((tool) => [tool.name, tool]))
     this.history.push(...structuredClone(initialHistory))
     this.transcript.push(...this.history)
     this.sealPendingToolUses()
@@ -288,7 +290,7 @@ export class AgentSession {
 
     const iterator = this.provider.chat({
       system: this.systemPrompt(), messages: this.history,
-      tools: this.mode === 'code' ? toolDefinitions() : [],
+      tools: toolDefinitions(this.mode),
       maxTokens: MAX_TOKENS, signal: params.signal
     })[Symbol.asyncIterator]()
     let rejectAbort: (reason: unknown) => void = () => {}
@@ -418,14 +420,18 @@ export class AgentSession {
     try {
       const prepared = tool.prepare(call.input)
 
-      const approved = await this.gate.authorize({
-        runId,
-        sessionId: this.scope,
-        toolName: tool.name,
-        risk: prepared.risk,
-        preview: () => prepared.preview(context),
-        signal: params.signal
-      })
+      // antichat asks nothing: its tools only reach copies in its own private
+      // folder, with no terminal, deleting, or network to be careful about.
+      const approved =
+        this.mode === 'chat' ||
+        (await this.gate.authorize({
+          runId,
+          sessionId: this.scope,
+          toolName: tool.name,
+          risk: prepared.risk,
+          preview: () => prepared.preview(context),
+          signal: params.signal
+        }))
       if (!approved) {
         return this.finishCall(params, call.id, 'Rejected by the user.', true, true)
       }
@@ -554,14 +560,16 @@ export class AgentSession {
     if (this.mode === 'chat') {
       return [
         'You are antichat, the ask-and-answer mode of anticode.',
-        'You have no access to files, terminals, or the network.',
-        'Attached files reach you only as a text preview; you can answer questions about ' +
-          'what the preview shows.',
-        'If the user asks you to change a file or to produce one (an edited spreadsheet, a ' +
-          'document, a converted file), say that antichat cannot create files, then tell them ' +
-          'how to get it done: open an anticode session on a project folder and attach the file ' +
-          'there. anticode copies attachments into .anticode/uploads/ in that folder, edits them ' +
-          'with its tools, and offers the result as a download on the desktop and the phone.',
+        'You have no terminal, no network, and no project folder.',
+        'Files the user attaches are copied into a private folder that belongs to this ' +
+          'conversation; each attachment header names its path there. Your document tools ' +
+          '(read and write files, Excel, Word, PDF) take paths relative to that folder, and ' +
+          'nothing outside it is reachable.',
+        'To change an attached file, read it first, then edit that copy in place — or write a ' +
+          'new file next to it when the user wants a separate one. You can also create new ' +
+          'documents there. Every document you write is offered to the user as a download on ' +
+          'the desktop and the phone, so say what you changed instead of pasting the file back.',
+        'Without an attachment there is nothing to edit: ask the user to attach the file.',
         'Do not offer scripts for the user to run as a substitute unless they ask for one.',
         'Reply in the language the user writes in; be concise and to the point.',
         'Do not use emojis or decorative symbols in your replies.'

@@ -15,7 +15,8 @@ vi.mock('../runtime', () => ({
   getStatus: () => ({ provider: 'test', model: 'test', providerReady: true, workspaceRoot: mocks.root }),
   loadSessionMessages: (id: string) => id === 'test-session' ? [] : null,
   listSessionSummaries: () => [], listModels: async () => ({ models: [] }),
-  sessionWorkspaceRoot: () => mocks.root
+  sessionWorkspaceRoot: () => mocks.root,
+  sessionFileRoot: () => mocks.root
 }))
 vi.mock('../providers', () => ({ listProviders: () => [] }))
 vi.mock('./bus', () => ({ subscribe: () => () => {}, registerRun: () => {}, forward: () => {}, forgetRun: () => {} }))

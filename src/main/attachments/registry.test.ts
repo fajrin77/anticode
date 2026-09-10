@@ -9,21 +9,25 @@ vi.mock('../runtime', () => ({
   // The desktop's active folder, which a phone upload must not depend on.
   getStatus: () => ({ workspaceRoot: null }),
   sessionMode: (id: string) => sessions.get(id)?.mode ?? null,
-  sessionWorkspaceRoot: (id: string) => sessions.get(id)?.root ?? null
+  sessionFileRoot: (id: string) => sessions.get(id)?.root ?? null
 }))
 import { attachmentsFor, blocksOf, registerAttachmentData } from './registry'
 
 let root: string
+/** antichat's private folder, which the app keeps in its own data. */
+let chatRoot: string
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'anticode-registry-'))
+  chatRoot = await mkdtemp(path.join(tmpdir(), 'anticode-antichat-'))
   sessions.set('code', { mode: 'code', root })
-  sessions.set('chat', { mode: 'chat', root: null })
+  sessions.set('chat', { mode: 'chat', root: chatRoot })
 })
 
 afterEach(async () => {
   sessions.clear()
   await rm(root, { recursive: true, force: true })
+  await rm(chatRoot, { recursive: true, force: true })
 })
 
 it('lands a phone upload inside the code session it was sent to', async () => {
@@ -42,13 +46,18 @@ it('lands a phone upload inside the code session it was sent to', async () => {
   expect(header?.type === 'text' && header.attachment?.path).toBe(sent?.path)
 })
 
-it('keeps a chat upload out of every folder and says why', async () => {
+it('lands a chat upload in antichat\'s own folder, ready to edit without choosing one', async () => {
   const [staged] = await registerAttachmentData('catatan.txt', Buffer.from('halo'))
   const [sent] = await attachmentsFor('chat', [staged?.id ?? ''])
-  expect(sent?.workspacePath).toBeNull()
+  // Top level, no .anticode/uploads: the download carries the file's own name.
+  expect(sent?.workspacePath).toBe('catatan.txt')
+  expect(sent?.path).toBe(path.join(chatRoot, 'catatan.txt'))
   expect(sent?.path.startsWith(root)).toBe(false)
+  expect(await readFile(sent?.path ?? '', 'utf8')).toBe('halo')
   const blocks = await blocksOf('chat', sent === undefined ? [] : [sent])
-  expect(blocks[0]?.type === 'text' && blocks[0].text).toContain('antichat, which has no tools')
+  const header = blocks[0]?.type === 'text' ? blocks[0].text : ''
+  expect(header).toContain("this conversation's own folder at `catatan.txt`")
+  expect(header).toContain('can read and edit it')
 })
 
 it('refuses an id that was already used or dropped', async () => {

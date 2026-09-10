@@ -100,6 +100,9 @@ function breakdownOf(parts: MessagePart[]): string {
 
 function MessageView({ message, sessionId }: { message: Message; sessionId: string }): JSX.Element {
   const [stepsOpen, setStepsOpen] = useState(false)
+  const chat = useSessionStore(
+    (state) => state.sessions.find((session) => session.id === sessionId)?.mode === 'chat'
+  )
 
   if (message.role === 'user') {
     const files = message.parts.flatMap((part) => (part.kind === 'attachments' ? part.items : []))
@@ -124,7 +127,7 @@ function MessageView({ message, sessionId }: { message: Message; sessionId: stri
   const tailRunning =
     tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
   const done = message.summary !== undefined
-  const documents = documentsProduced(message.parts)
+  const documents = documentsProduced(message.parts, chat)
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">

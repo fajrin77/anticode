@@ -1,10 +1,11 @@
 import path from 'node:path'
 import type { AttachmentInfo, AttachmentRef } from '@shared/ipc'
 import type { ContentBlock } from '../providers/types'
-import { getStatus, sessionMode, sessionWorkspaceRoot } from '../runtime'
+import { getStatus, sessionFileRoot, sessionMode } from '../runtime'
 import {
   AttachmentError,
   placeInWorkspace,
+  UPLOADS_DIR,
   prepareAttachment,
   stageAttachmentData,
   toContentBlocks,
@@ -52,14 +53,15 @@ export function releaseAttachments(ids: string[]): void {
 }
 
 /**
- * Resolves staged ids against the folder this session is bound to, so the
- * model is told the truth about which files its tools can reach. In an
- * anticode session a file from outside the folder is copied into it first —
- * here, in the main process, so the desktop and the phone get the same copy.
+ * Resolves staged ids against the folder this session works in, so the model
+ * is told the truth about which files its tools can reach. A file from outside
+ * that folder is copied into it first — here, in the main process, so the
+ * desktop and the phone get the same copy. For antichat the folder is its own
+ * private one, so attaching a file is all it takes to have it edited.
  */
 export async function attachmentsFor(sessionId: string, ids: string[]): Promise<AttachmentInfo[]> {
-  const root = sessionWorkspaceRoot(sessionId)
-  const reachable = sessionMode(sessionId) === 'code' ? root : null
+  const root = sessionFileRoot(sessionId)
+  const into = sessionMode(sessionId) === 'chat' ? '' : UPLOADS_DIR
   if (ids.some((id) => !staged.has(id))) throw new AttachmentError('An attachment is no longer available. Attach it again before sending.')
   const items = ids
     .map((id) => staged.get(id))
@@ -77,12 +79,12 @@ export async function attachmentsFor(sessionId: string, ids: string[]): Promise<
             : null
       }
     })
-  if (reachable === null) return items
+  if (root === null) return items
   // Sequential, so two files with one name are numbered rather than racing.
   const placed: AttachmentInfo[] = []
   for (const item of items) {
     try {
-      placed.push(await placeInWorkspace(item, reachable))
+      placed.push(await placeInWorkspace(item, root, into))
     } catch (error) {
       // A read-only or odd folder still sends the prompt; the model is told
       // the file sits outside, which is then the truth.

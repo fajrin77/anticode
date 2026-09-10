@@ -445,11 +445,20 @@ describe('attachment handler', () => {
     await rm(outside, { recursive: true, force: true })
   })
 
-  it('tells antichat it only has the preview and cannot hand back a file', async () => {
+  it('tells antichat where its copy is and that it may edit it', async () => {
     const file = await makeWorkbook()
     const blocks = await toContentBlocks(await prepareAttachment(file, root), 'chat')
     const header = blocks[0]?.type === 'text' ? blocks[0].text : ''
-    expect(header).toContain('antichat, which has no tools')
+    expect(header).toContain("this conversation's own folder")
+    expect(header).toContain('can read and edit it')
+    expect(header).toContain('buku')
+  })
+
+  it('tells antichat when no copy could be made, so it answers from the preview', async () => {
+    const file = await makeWorkbook()
+    const blocks = await toContentBlocks(await prepareAttachment(file, null), 'chat')
+    const header = blocks[0]?.type === 'text' ? blocks[0].text : ''
+    expect(header).toContain('no copy could be made')
     expect(header).toContain('buku')
   })
 

@@ -13,9 +13,10 @@ function extensionOf(target: string): string {
 /**
  * The documents a run produced, read back from its own tool calls. Only
  * successful writes count, and only of the kinds someone would want to keep —
- * source files stay where they belong, in the diff.
+ * source files stay where they belong, in the diff. antichat has no project
+ * to keep them in, so there every file it writes is one to hand back.
  */
-export function documentsProduced(parts: MessagePart[]): string[] {
+export function documentsProduced(parts: MessagePart[], everyFile = false): string[] {
   const paths: string[] = []
   for (const part of parts) {
     if (part.kind !== 'tool' || part.status !== 'ok') continue
@@ -23,7 +24,8 @@ export function documentsProduced(parts: MessagePart[]): string[] {
     if (part.input === null || typeof part.input !== 'object') continue
     const input = part.input as Record<string, unknown>
     const target = typeof input.output_path === 'string' ? input.output_path : input.path
-    if (typeof target !== 'string' || !DOCUMENT_EXTENSIONS.includes(extensionOf(target))) continue
+    if (typeof target !== 'string') continue
+    if (!everyFile && !DOCUMENT_EXTENSIONS.includes(extensionOf(target))) continue
     if (!paths.includes(target)) paths.push(target)
   }
   return paths
@@ -47,7 +49,7 @@ export function Artifacts({
           className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2"
         >
           <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-raised text-[9px] font-semibold tracking-wide text-dim">
-            {extensionOf(target).slice(1, 5).toUpperCase()}
+            {extensionOf(target).slice(1, 5).toUpperCase() || 'FILE'}
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-mono text-[12.5px] text-text">{target}</span>

@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { cancelSessionRuns, clearPause, runForSession, hasRuns } from './runs'
 import { app } from 'electron'
@@ -216,7 +217,12 @@ export function closeSession(sessionId: string): void {
 export function deleteSession(sessionId: string): void {
   cancelSessionRuns(sessionId)
   clearPause(sessionId)
-  sessions.get(sessionId)?.agent?.dispose()
+  const live = sessions.get(sessionId)
+  live?.agent?.dispose()
+  // antichat's folder holds only copies it was sent and files it made for
+  // this conversation; they go with it. A project folder is never touched.
+  const own = live?.spec.mode === 'chat' ? chatFilesRoot(sessionId) : null
+  if (own !== null) void rm(own, { recursive: true, force: true }).catch(() => undefined)
   sessions.delete(sessionId)
   clearWeb(sessionId)
   persistSessions()
@@ -263,7 +269,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       createProvider(active.provider, active.model),
       gate,
       live.spec.mode,
-      live.spec.workspaceRoot,
+      sessionFileRoot(sessionId),
       history,
       live.spec.sessionId
     )
@@ -397,6 +403,28 @@ export function loadSessionSummaries(sessionId: string): RunSummary[] {
 
 export function sessionWorkspaceRoot(sessionId: string): string | null {
   return sessions.get(sessionId)?.spec.workspaceRoot ?? null
+}
+
+/**
+ * antichat has no project folder, but it still edits the files it is sent.
+ * Each conversation gets a private folder in the app's own data for that:
+ * attachments are copied in, the tools work there, and what they write is
+ * downloaded from there. The id becomes a path segment, so it must be plain.
+ */
+function chatFilesRoot(sessionId: string): string | null {
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(sessionId)) return null
+  return path.join(app.getPath('userData'), 'antichat', sessionId)
+}
+
+/** Where a session's files live: its project folder, or antichat's own. */
+export function sessionFileRoot(sessionId: string): string | null {
+  const live = sessions.get(sessionId)
+  if (live === undefined) return null
+  if (live.spec.mode === 'code') return live.spec.workspaceRoot
+  const root = chatFilesRoot(sessionId)
+  // Made on demand: path checks resolve the real path, so it must exist.
+  if (root !== null) mkdirSync(root, { recursive: true })
+  return root
 }
 
 export function sessionMode(sessionId: string): SessionMode | null {

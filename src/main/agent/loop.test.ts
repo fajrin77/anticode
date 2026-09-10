@@ -537,3 +537,43 @@ describe('titleOf', () => {
     expect(titleOf([])).toBe('New session')
   })
 })
+
+describe('antichat', () => {
+  it('offers document tools only, with no terminal, deleting, or network', async () => {
+    let offered: string[] = []
+    const provider: LLMProvider = { name: 'spy', model: 'spy', async *chat(params) {
+      offered = params.tools.map((tool) => tool.name)
+      yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
+    } }
+    await new AgentSession(provider, allowAll, 'chat', root).run({ runId: 'tools', prompt: 'hai', signal: new AbortController().signal, emit: () => {} })
+    expect(offered).toEqual(expect.arrayContaining(['read_excel', 'format_excel_cells', 'write_docx', 'edit_file']))
+    for (const name of ['run_command', 'delete_file', 'fetch_url', 'browser_navigate']) expect(offered).not.toContain(name)
+  })
+
+  it('writes without asking, since it only ever touches its own copies', async () => {
+    let asked = 0
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'w', name: 'write_file', input: { path: 'hasil.txt', content: 'jadi' } }], 'tool_use'),
+      turn([{ type: 'text', text: 'selesai' }], 'end_turn')
+    ])
+    const gate = { authorize: async () => { asked += 1; return false } }
+    await new AgentSession(provider, gate, 'chat', root).run({ runId: 'ask', prompt: 'tulis', signal: new AbortController().signal, emit: () => {} })
+    expect(asked).toBe(0)
+    expect(await readFile(path.join(root, 'hasil.txt'), 'utf8')).toBe('jadi')
+  })
+
+  it('edits a file in its own folder, and runs nothing it was not offered', async () => {
+    await writeFile(path.join(root, 'catatan.txt'), 'halo dunia')
+    const provider = new FakeProvider([
+      turn([
+        { type: 'tool_use', id: 'edit', name: 'edit_file', input: { path: 'catatan.txt', old_string: 'dunia', new_string: 'semua' } },
+        { type: 'tool_use', id: 'shell', name: 'run_command', input: { command: 'touch pwned' } }
+      ], 'tool_use'),
+      turn([{ type: 'text', text: 'selesai' }], 'end_turn')
+    ])
+    await new AgentSession(provider, allowAll, 'chat', root).run({ runId: 'edit', prompt: 'ganti', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(await readFile(path.join(root, 'catatan.txt'), 'utf8')).toBe('halo semua')
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool_end', toolUseId: 'shell', ok: false, output: 'Unknown tool: run_command' }))
+    await expect(readFile(path.join(root, 'pwned'))).rejects.toThrow()
+  })
+})
