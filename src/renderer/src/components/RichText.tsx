@@ -20,7 +20,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
       nodes.push(
         <code
           key={`${keyPrefix}-${index}`}
-          className="rounded bg-raised px-1.5 py-0.5 font-mono text-[0.86em] text-code"
+          className="rounded bg-raised px-1.5 py-0.5 font-mono text-[0.86em] text-text"
         >
           {token.slice(1, -1)}
         </code>

@@ -228,6 +228,27 @@ try {
   await limeOnHover('settings: add provider', window.getByRole('button',{name:'+ Add provider'}))
   await limeOnHover('settings: version line', window.locator('button.mt-auto'))
 
+  // Inline code reads as plain white text in a box; the old purple was the
+  // last colour in the app that meant nothing in particular.
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
+  await window.locator('header .group button').first().click(); await window.waitForTimeout(300)
+  await window.evaluate(() => {
+    const store = window.__store.getState()
+    store.addMessage({ id: crypto.randomUUID(), role: 'assistant',
+      parts: [{ kind: 'text', text: 'Cek `ErrorComponent` di sana.' }], pending: false })
+  })
+  await window.waitForTimeout(300)
+  const chip = window.locator('code').first()
+  const chipStyle = await chip.evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { colour: s.color, background: s.backgroundColor, padding: s.paddingLeft, radius: s.borderRadius }
+  })
+  check('transcript: inline code is white', chipStyle.colour, 'rgb(237, 237, 237)')
+  check('transcript: inline code keeps its box', chipStyle.background, 'rgb(39, 39, 39)')
+  check('transcript: inline code keeps its padding', chipStyle.padding, '6px')
+  await shot('19-inline-code')
+  await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
+
   // A switch that is on carries the accent on its track, not a stray green.
   await window.getByRole('button',{name:/General/}).click(); await window.waitForTimeout(300)
   const toggle = window.getByRole('switch').first()

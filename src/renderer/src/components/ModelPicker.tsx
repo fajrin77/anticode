@@ -111,7 +111,7 @@ export function ModelPicker({
             type="button"
             onClick={() => onSelect(provider, id)}
             className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover hover:text-brand ${
-              id === status?.model ? 'text-code' : 'text-dim'
+              id === status?.model ? 'text-text' : 'text-dim'
             }`}
           >
             <span className="min-w-0 flex-1 truncate">{id}</span>

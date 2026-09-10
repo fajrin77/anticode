@@ -415,7 +415,7 @@ function Remote(): JSX.Element {
                   Scan the QR code with the phone camera, or open this URL — then use “Add to
                   Home Screen” for an app-like icon:
                 </div>
-                <div className="mb-3 break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12px] text-code select-all">
+                <div className="mb-3 break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12px] text-text select-all">
                   {remote.url}
                 </div>
                 <div className="flex gap-2">
