@@ -345,7 +345,43 @@ try {
   await balas.click(); await window.waitForTimeout(300)
   check('the quote lands above the composer',
     await window.getByText('Membalas').count() > 0 ? 'shown' : 'missing', 'shown')
+  // A long passage must not swallow the composer, and the card dismisses like
+  // the popup it looks like — clicking away, or Escape.
+  const card = window.locator('div').filter({ hasText: /^Membalas/ }).last()
+  check('the quoted passage is clamped', await card.locator('span.line-clamp-3').evaluate(
+    (el) => getComputedStyle(el).webkitLineClamp), '3')
   await shot('23-reply-to-selection')
+  await window.mouse.click(640, 200); await window.waitForTimeout(300)
+  check('clicking away drops the quote',
+    await window.getByText('Membalas').count() === 0 ? 'dropped' : 'stuck', 'dropped')
+  await window.evaluate(() => {
+    const node = [...document.querySelectorAll('[data-transcript] div')].find(
+      (el) => el.textContent.trim() === 'Fixture reply: kutip aku' && el.children.length === 0)
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'Balas',exact:true}).click(); await window.waitForTimeout(300)
+  await window.keyboard.press('Escape'); await window.waitForTimeout(300)
+  check('Escape drops the quote',
+    await window.getByText('Membalas').count() === 0 ? 'dropped' : 'stuck', 'dropped')
+  // Put it back for the send check below.
+  await window.evaluate(() => {
+    const node = [...document.querySelectorAll('[data-transcript] div')].find(
+      (el) => el.textContent.trim() === 'Fixture reply: kutip aku' && el.children.length === 0)
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'Balas',exact:true}).click(); await window.waitForTimeout(300)
   await composer().fill('jelaskan ini')
   await composer().press('Enter')
   await window.waitForTimeout(900)

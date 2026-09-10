@@ -157,6 +157,29 @@
     font: 12.5px/1.6 ui-monospace, Menlo, monospace;
     white-space: pre-wrap; word-break: break-word;
   }
+  /* Selecting part of a reply offers to answer that passage. The button rides
+     above the selection; the quote it makes sits over the composer, like a
+     staged file, and clears on a tap outside. */
+  #replyBtn {
+    position: fixed; z-index: 40; transform: translate(-50%, -100%);
+    background: #272727; border: 1px solid #303030; border-radius: 10px;
+    color: #ededed; font-size: 14px; padding: 8px 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  #replyBtn:active { color: #d1fa22; }
+  #quoteRow {
+    flex: 0 0 100%; display: flex; align-items: flex-start; gap: 8px;
+    background: #202020; border: 1px solid #303030; border-radius: 10px;
+    padding: 8px 10px;
+  }
+  #quoteRow .qbar { flex: none; align-self: stretch; width: 2px; border-radius: 2px; background: #d1fa22; }
+  #quoteRow .qtext { flex: 1; min-width: 0; font-size: 12.5px; color: #9a9a9a; }
+  #quoteRow .qlabel { display: block; font-size: 11px; color: #6d6d6d; margin-bottom: 2px; }
+  #quoteRow .qbody {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    overflow: hidden; white-space: pre-wrap; word-break: break-word;
+  }
+  #quoteRow .qx { flex: none; background: none; border: none; color: #6d6d6d; font-size: 16px; line-height: 1; padding: 0 2px; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -317,7 +340,13 @@
   </section>
 </main>
 <div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:90px;max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
+<button id="replyBtn" class="hidden" onclick="quoteSelection()">Balas</button>
 <div class="composer hidden" id="inputRow">
+  <div id="quoteRow" class="hidden">
+    <span class="qbar"></span>
+    <span class="qtext"><span class="qlabel">Membalas</span><span class="qbody" id="quoteText"></span></span>
+    <button class="qx" onclick="clearQuote()" aria-label="Remove quote">&times;</button>
+  </div>
   <div id="stagedRow" class="hidden"></div>
   <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
@@ -454,6 +483,7 @@ function gotoNew() {
   if (!canLeaveEditor()) return;
   staged = [];
   renderStaged();
+  clearQuote();
   document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
@@ -475,6 +505,7 @@ function gotoSessions() {
   if (!canLeaveEditor()) return;
   staged = [];
   renderStaged();
+  clearQuote();
   document.getElementById('approvalPanel').classList.add('hidden');
   closeMenu();
   currentSession = null;
@@ -1321,6 +1352,64 @@ function appendUserBubble(text, files) {
   window.scrollTo(0, document.body.scrollHeight);
 }
 
+/* ---------- Replying to a selected passage ---------- */
+
+let quoted = '';
+
+function renderQuote() {
+  document.getElementById('quoteRow').classList.toggle('hidden', quoted === '');
+  document.getElementById('quoteText').textContent = quoted;
+}
+
+function clearQuote() {
+  quoted = '';
+  renderQuote();
+}
+
+function hideReplyBtn() {
+  document.getElementById('replyBtn').classList.add('hidden');
+}
+
+/** Takes what is selected in the transcript up to the composer. */
+function quoteSelection() {
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() ?? '';
+  if (text !== '') {
+    quoted = text;
+    renderQuote();
+  }
+  selection?.removeAllRanges();
+  hideReplyBtn();
+  document.getElementById('prompt').focus();
+}
+
+document.addEventListener('selectionchange', () => {
+  const button = document.getElementById('replyBtn');
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() ?? '';
+  if (selection === null || selection.rangeCount === 0 || text === '' || currentSession === null) {
+    hideReplyBtn();
+    return;
+  }
+  const anchor = selection.anchorNode;
+  const host = anchor instanceof Element ? anchor : anchor?.parentElement;
+  if (host === null || host === undefined || host.closest('#transcript') === null) {
+    hideReplyBtn();
+    return;
+  }
+  const box = selection.getRangeAt(0).getBoundingClientRect();
+  button.style.left = (box.left + box.width / 2) + 'px';
+  button.style.top = Math.max(44, box.top - 8) + 'px';
+  button.classList.remove('hidden');
+});
+
+/* A tap outside the composer drops the quote, the way a popup closes. */
+document.addEventListener('pointerdown', (event) => {
+  if (quoted === '') return;
+  if (event.target.closest('#inputRow') !== null || event.target.closest('#replyBtn') !== null) return;
+  clearQuote();
+});
+
 async function sendPrompt() {
   const input = document.getElementById('prompt');
   const prompt = input.value.trim();
@@ -1329,6 +1418,9 @@ async function sendPrompt() {
 async function submitPrompt(prompt) {
   if (!prompt || !currentSession || currentRunId || submitting) return false;
   const id = currentSession;
+  if (quoted !== '' && prompt !== CONTINUE_PROMPT) {
+    prompt = quoted.replace(/^/gm, '> ') + '\n\n' + prompt;
+  }
   const attachmentIds = staged.map((item) => item.id);
   submitting = true;
   updateSendBtn();
@@ -1340,6 +1432,7 @@ async function submitPrompt(prompt) {
     });
     staged = [];
     renderStaged();
+    clearQuote();
     pausedSessions.delete(id);
     // The stream is already subscribed, including for immediately completed runs.
 

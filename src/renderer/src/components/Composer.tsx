@@ -192,6 +192,26 @@ export function Composer({
     if (session?.projectRoot !== null && session?.projectRoot !== undefined) setGlow(false)
   }, [session?.projectRoot])
 
+  useEffect(() => {
+    if (quote === '' || session === undefined) return
+    function onOutside(event: MouseEvent): void {
+      const target = event.target as HTMLElement | null
+      // The Balas button lives outside the composer, and its own mousedown is
+      // what created this quote — it must not also dismiss it.
+      if (target?.closest('[data-reply-button]') != null) return
+      if (!boxRef.current?.contains(target)) clearQuote()
+    }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') clearQuote()
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [quote, session?.id])
+
   // Pause stops the run mid-task; resume sends a continuation instruction so
   // the agent picks up exactly where its history left off.
   async function resume(): Promise<void> {
@@ -317,7 +337,7 @@ export function Composer({
             <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
             <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
               <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
-              <span className="line-clamp-3 block whitespace-pre-wrap">{quote}</span>
+              <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
             </span>
             <button
               type="button"

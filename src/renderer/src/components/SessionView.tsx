@@ -392,6 +392,7 @@ function ReplyToSelection({ sessionId }: { sessionId: string }): JSX.Element {
         setAt(null)
         document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
       }}
+      data-reply-button
       style={{ left: at.x, top: at.y - 10 }}
       className="fixed z-40 -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-raised px-3 py-1.5 text-[12.5px] text-text shadow-2xl transition-colors hover:text-brand"
     >
