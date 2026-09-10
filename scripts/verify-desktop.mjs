@@ -648,16 +648,20 @@ try {
     await screen.fill('#prompt', '')
     log('the phone reverts a paused turn, on both screens')
 
-    // Default or Auto, from the phone's composer chip; the desktop chip follows.
-    assert.equal(await screen.$eval('#modeChip', (el) => el.textContent), 'Default')
-    await screen.click('#modeChip')
+    // The chat keeps only Revert under the box; model and Default/Auto are in Settings.
+    assert.deepEqual(await screen.evaluate(() => ['modelChip', 'modeChip', 'chipRow'].map((id) =>
+      getComputedStyle(document.getElementById(id)).display)), ['none', 'none', 'none'])
+    // Default or Auto, from the phone's Settings; the desktop chip follows.
+    await screen.click('#menuBtn')
+    await screen.click('#menuDrop .mrow:text-is("Settings")')
     await screen.waitForSelector('#settingsSheet:not(.hidden)')
+    assert.equal(await screen.$eval('#policyDefault', (el) => el.classList.contains('on')), true)
     await screen.click('#policyAuto')
-    await screen.waitForFunction(() => document.getElementById('modeChip').textContent === 'Auto', null, { timeout: 5000 })
+    await screen.waitForFunction(() => document.getElementById('policyAuto').classList.contains('on'), null, { timeout: 5000 })
     assert.equal((await window.evaluate(() => window.anticode.getStatus())).autoApprove, true)
     await window.getByRole('button', { name: 'Auto', exact: true }).waitFor()
     await screen.click('#policyDefault')
-    await screen.waitForFunction(() => document.getElementById('modeChip').textContent === 'Default', null, { timeout: 5000 })
+    await screen.waitForFunction(() => document.getElementById('policyDefault').classList.contains('on'), null, { timeout: 5000 })
     assert.equal((await window.evaluate(() => window.anticode.getStatus())).autoApprove, false)
     log('the phone switches Default and Auto, and the desktop follows')
 

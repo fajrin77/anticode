@@ -488,9 +488,10 @@
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
   <textarea id="prompt" placeholder="Message…" rows="1"></textarea>
   <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
-  <div id="chipRow">
-    <button id="modelChip" onclick="openSettings('model')" title="Model">…</button>
-    <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
+  <!-- The model and Default/Auto live in Settings; the chat keeps only Revert. -->
+  <div id="chipRow" class="hidden">
+    <button id="modelChip" class="hidden" onclick="openSettings('model')" title="Model">…</button>
+    <button id="modeChip" class="hidden" onclick="openSettings('mode')" title="Approval mode">Default</button>
     <span class="grow"></span>
     <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
   </div>
@@ -1725,8 +1726,10 @@ function updateSendBtn() {
   btn.title = label;
   btn.setAttribute('aria-label', label);
   // Revert sits beside Resume, as on the desktop: paused, and nothing running.
-  document.getElementById('revertBtn').classList.toggle('hidden',
-    !(currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null));
+  const reverting = currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null;
+  document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
+  // With the chips in Settings, the row holds Revert alone; empty, it takes no room.
+  document.getElementById('chipRow').classList.toggle('hidden', !reverting);
 }
 
 function onSendBtn() {
