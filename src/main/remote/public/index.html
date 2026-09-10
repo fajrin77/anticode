@@ -334,8 +334,15 @@ async function pollApprovals() {
   if (!currentSession) { panel.classList.add('hidden'); approvalRequestId = null; return; }
   const id = currentSession;
   try {
-    const { requests } = await jfetch('/api/approvals?sessionId=' + encodeURIComponent(id));
+    const { requests, exists } = await jfetch('/api/approvals?sessionId=' + encodeURIComponent(id));
     if (currentSession !== id) return;
+    // Deleted from the desktop while it was open here: leave rather than sit
+    // on a session that no longer exists.
+    if (exists === false) {
+      showError('Sesi ini sudah dihapus dari desktop.');
+      gotoSessions();
+      return;
+    }
     const request = requests[0];
     if (!request) { panel.classList.add('hidden'); approvalRequestId = null; return; }
     if (request.requestId === approvalRequestId) return;

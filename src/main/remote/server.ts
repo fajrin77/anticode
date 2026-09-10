@@ -245,7 +245,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (req.method === 'GET' && url.pathname === '/api/approvals') {
       const sessionId = url.searchParams.get('sessionId') ?? ''
       const runId = runForSession(sessionId)
-      return json(res, 200, { requests: approvals.listPending().filter((request) => request.runId === runId) })
+      // The phone polls this every second while a session is open, so it also
+      // serves as the heartbeat telling it the session is still there — a
+      // delete on the desktop would otherwise leave it on a dead screen.
+      return json(res, 200, {
+        exists: sessionId === '' || loadSessionMessages(sessionId) !== null,
+        requests: approvals.listPending().filter((request) => request.runId === runId)
+      })
     }
     if (req.method === 'POST' && url.pathname === '/api/approval') {
       if (typeof body.requestId !== 'string' || !['approve', 'reject', 'always'].includes(String(body.decision))) throw new Error('Invalid approval response')

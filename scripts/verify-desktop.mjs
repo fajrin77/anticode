@@ -119,6 +119,30 @@ try {
   const escape = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=${encodeURIComponent('../secret.txt')}&token=${remote.token}`)
   assert.equal(escape.status,400)
   log('produced files download from the phone, and only from inside the folder')
+
+  // Closing a tab only archives the session. Work arriving from the phone has
+  // to bring that tab back, or the session reads as deleted on the desktop
+  // while it is plainly alive on the phone.
+  await window.evaluate((id)=>window.__store.getState().closeSession(id), sessionId)
+  assert.equal(await window.evaluate((id)=>window.__store.getState().sessions.find(s=>s.id===id).closed, sessionId), true)
+  await api('/api/prompt',{sessionId,prompt:'from the phone'})
+  for (let i=0;i<100;i++) {
+    if (await window.evaluate((id)=>window.__store.getState().sessions.find(s=>s.id===id).closed===false, sessionId)) break
+    await new Promise(r=>setTimeout(r,20))
+  }
+  assert.equal(await window.evaluate((id)=>window.__store.getState().sessions.find(s=>s.id===id).closed, sessionId), false)
+  // Coming back must not yank the user out of whatever tab they are in.
+  assert.notEqual(await window.evaluate(()=>window.__store.getState().activeSessionId), sessionId)
+  for (let i=0;i<200;i++) { if (!(await api('/api/session/'+sessionId)).runId) break; await new Promise(r=>setTimeout(r,20)) }
+  log('a phone prompt brings an archived desktop tab back, without stealing focus')
+
+  // The same disagreement in the other direction: a session deleted on the
+  // desktop must stop looking alive to a phone sitting inside it.
+  const doomed = (await api('/api/session',{mode:'chat'})).sessionId
+  assert.equal((await api('/api/approvals?sessionId='+doomed)).exists, true)
+  await window.evaluate((id)=>window.anticode.closeSession(id), doomed)
+  assert.equal((await api('/api/approvals?sessionId='+doomed)).exists, false)
+  log('a session deleted on the desktop stops reporting itself to the phone')
   const before = await api('/api/session/'+sessionId)
   assert(before.messages.length>0)
   await window.reload()

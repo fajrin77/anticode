@@ -172,6 +172,10 @@ export function App(): JSX.Element {
         setApprovals((queue) => queue.filter((request) => request.runId !== event.runId))
       }
       const store = useSessionStore.getState()
+      // A session that is only archived, not deleted, has to come back the
+      // moment it moves — otherwise work started on the phone lands in a tab
+      // nobody can see, and the session reads as gone.
+      store.surfaceSession(event.sessionId)
       const run = store.activeRuns[event.runId]
       /** Model label for the closing summary card. */
       const modelOf = (sessionId: string): string =>

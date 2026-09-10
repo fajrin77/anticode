@@ -108,6 +108,12 @@ interface SessionState {
   selectSession: (id: string) => void
   /** Reopens a closed session's tab and makes it active. */
   reopenSession: (id: string) => void
+  /**
+   * Brings an archived session's tab back because something happened in it —
+   * a run from the phone, or from another window. The active tab is left
+   * alone on purpose: a background session must not steal the view.
+   */
+  surfaceSession: (id: string) => void
   /** Removes a session everywhere: tab, dashboard, and history. */
   deleteSession: (id: string) => void
   /** Registers a session created elsewhere (the remote phone app). */
@@ -253,6 +259,17 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       ),
       activeSessionId: id
     })),
+
+  surfaceSession: (id) =>
+    set((state) =>
+      state.sessions.some((session) => session.id === id && session.closed)
+        ? {
+            sessions: state.sessions.map((session) =>
+              session.id === id ? { ...session, closed: false } : session
+            )
+          }
+        : state
+    ),
 
   // A fresh session starts as an unnamed chat; picking anticode binds the
   // folder and renames the tab to it, chat renames from the first prompt.
