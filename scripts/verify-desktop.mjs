@@ -491,6 +491,46 @@ try {
     assert.equal(followUp?.followUp, 'during', 'the run did not take the phone follow-up in')
     log('a phone prompt sent mid-run joins the run, on both screens')
 
+    // A live snapshot must retain deltas emitted before the request. Previously
+    // a refresh replaced them with the agent's unfinished persisted transcript.
+    await api('/api/prompt', { sessionId, prompt: 'slow snapshot recovery' })
+    await screen.waitForFunction(() => currentRunId !== null)
+    // The transcript already holds earlier "Fixture reply:" turns, so waiting
+    // on the screen text passed before this run had streamed anything. The
+    // stub holds the run open for two seconds after its first words; the main
+    // process must be holding those words for a snapshot well within that.
+    let snapshotBefore
+    for (let i = 0; i < 30; i++) {
+      snapshotBefore = await api('/api/session/' + sessionId)
+      if (snapshotBefore.events.some((event) => event.type === 'text_delta')) break
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    assert.ok(snapshotBefore.runId !== null, 'the run finished before its live text could be checked')
+    assert.ok(snapshotBefore.events.some((event) => event.type === 'text_delta'), 'main process lost live text')
+    await screen.evaluate((id) => syncSession(id), sessionId)
+    assert.match(await screen.locator('#transcript').innerText(), /Fixture reply:/)
+    // Reopening the desktop during that same run must replay the same prefix.
+    await window.reload()
+    await window.waitForFunction((id) => {
+      const state = window.__store?.getState()
+      return state?.sessions.find((session) => session.id === id)?.messages.some((message) =>
+        message.pending && message.parts.some((part) => part.kind === 'text' && part.text.includes('Fixture reply:')))
+    }, sessionId)
+    await screen.waitForFunction(() => currentRunId === null, null, { timeout: 15000 })
+    const recovered = await screen.locator('#transcript').innerText()
+    assert.equal((recovered.match(/Fixture reply: slow snapshot recovery/g) ?? []).length, 1)
+    log('live phone sync and desktop reload recover streaming text exactly once')
+
+    // Simultaneous admissions use one main-process owner, regardless of transport.
+    const simultaneous = await Promise.all([
+      window.evaluate((id) => window.anticode.sendPrompt({ sessionId: id, runId: crypto.randomUUID(), prompt: 'slow simultaneous desktop', attachmentIds: [] }), sessionId),
+      api('/api/prompt', { sessionId, prompt: 'slow simultaneous phone' })
+    ])
+    assert.equal(simultaneous[0].runId, simultaneous[1].runId)
+    assert.equal(simultaneous.filter((result) => result.steered).length, 1)
+    await screen.waitForFunction(() => currentRunId === null, null, { timeout: 15000 })
+    log('simultaneous desktop and phone prompts share one run')
+
     // One pause, owned by the main process: pressed on either screen, both
     // show Resume, and either one can press it. Each used to keep its own, so
     // a pause from the phone could not be resumed on the desktop.
@@ -541,6 +581,34 @@ try {
     assert.equal(await window.evaluate((id) => window.anticode.revertLastTurn(id), sessionId), 'to be reverted')
     await screen.waitForFunction(() => !document.getElementById('transcript').textContent.includes('to be reverted'), null, { timeout: 5000 })
     log('a turn reverted on the desktop disappears from the phone')
+
+    // Model selection follows the main process while the chat remains open.
+    await window.evaluate(() => window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model' }))
+    await screen.waitForFunction(() => modelInfo?.model === 'test-model')
+    await window.evaluate(() => window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model-2' }))
+    await screen.waitForFunction(() => modelInfo?.model === 'test-model-2')
+    log('desktop model changes reach the open phone chat')
+
+    await screen.evaluate(() => gotoFiles())
+    await screen.waitForFunction((id) => document.getElementById('folderSession').value === id, sessionId)
+    const openedFile = await api('/api/files?sessionId=' + sessionId + '&path=hello.txt')
+    const savedFile = await api('/api/files', { sessionId, path: 'hello.txt', version: openedFile.version, content: 'edited from phone' })
+    assert.notEqual(savedFile.version, openedFile.version)
+    assert.equal(await readFile(path.join(workspace, 'hello.txt'), 'utf8'), 'edited from phone')
+    await assert.rejects(api('/api/files', { sessionId, path: 'hello.txt', version: openedFile.version, content: 'stale overwrite' }), /File changed/)
+    log('phone editor selects the current project, saves, and refuses stale writes')
+    await screen.evaluate((id) => openSession(id), sessionId)
+    await screen.waitForSelector('#transcript .msg')
+    for (const viewport of [{ width: 360, height: 800 }, { width: 430, height: 932 }, { width: 844, height: 390 }]) {
+      await screen.setViewportSize(viewport)
+      const layout = await screen.evaluate(() => ({ width: innerWidth, content: document.documentElement.scrollWidth,
+        composer: document.getElementById('inputRow').getBoundingClientRect().toJSON() }))
+      assert.ok(layout.content <= layout.width + 1, 'phone content overflows at ' + viewport.width)
+      assert.ok(layout.composer.width > 0 && layout.composer.right <= viewport.width + 1)
+    }
+    await screen.setViewportSize({ width: 390, height: 844 })
+    await screen.screenshot({ path: path.join(directory, 'phone-chat-verified.png') })
+    log('phone chat fits narrow, wide, and landscape viewports')
 
     assert.deepEqual(phoneErrors, [])
   } finally {

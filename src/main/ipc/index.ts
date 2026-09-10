@@ -1,6 +1,4 @@
 import {
-  beginRun,
-  finishRun,
   cancelRun,
   runForSession,
   hasRuns,
@@ -15,7 +13,6 @@ import { copyFile, readFile, stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
-  AgentEvent,
   AgentRequest,
   AppInfo,
   ApprovalResponse,
@@ -23,7 +20,6 @@ import type {
   ProviderId,
   ProviderInfo,
   ProviderSelection,
-  RoutedAgentEvent,
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
@@ -31,14 +27,10 @@ import {
   deleteSession,
   createSession,
   adoptSessionColour,
-  getSession,
-  persistSessions,
   getStatus,
   listModels,
   listSessionSpecs,
   sessionWorkspaceRoot,
-  loadSessionMessages,
-  loadSessionSummaries,
   revertLastTurn,
   policy,
   resetProviderSelection,
@@ -52,16 +44,13 @@ import { listProviders } from '../providers'
 import { resolveInWorkspace } from '../tools/workspace'
 import { ApprovalCoordinator } from '../approval/coordinator'
 import {
-  attachmentsFor,
-  blocksOf,
-  refsOf,
   registerAttachmentData,
   registerAttachments,
   releaseAttachments
 } from '../attachments/registry'
 import { addCustomProvider, removeCustomProvider } from '../providers/custom'
 import { savePersistedSettings } from '../settings'
-import { announceHistory, announcePause, forgetRun, forward, registerRun } from '../remote/bus'
+import { announceHistory, announcePause, announceStatus, sessionSnapshot } from '../remote/bus'
 import {
   addWebTab,
   clearWeb,
@@ -76,7 +65,7 @@ import {
   setWebVisible
 } from '../web'
 import { closePhonePage } from '../browser'
-import { steerRunning } from '../steer'
+import { submitPrompt } from '../prompts'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
@@ -99,12 +88,6 @@ function artifactPath(sessionId: string, relativePath: string): string {
   const root = sessionWorkspaceRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   return resolveInWorkspace(root, relativePath)
-}
-
-/** Every agent event routes through the bus, which reaches all windows and
- * SSE subscribers; no separate direct send, or windows would get duplicates. */
-function emit(event: AgentEvent, sessionId: string): void {
-  forward({ ...event, sessionId } as RoutedAgentEvent)
 }
 
 export function registerIpcHandlers(): void {
@@ -197,6 +180,7 @@ export function registerIpcHandlers(): void {
     IpcChannel.PROVIDER_SELECT,
     (_event, selection: ProviderSelection): SessionStatus => {
       selectProvider(selection)
+      announceStatus()
       return getStatus()
     }
   )
@@ -210,6 +194,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.POLICY_SET, (_event, enabled: boolean): SessionStatus => {
     policy.setAutoApprove(enabled)
     savePersistedSettings({ autoApprove: enabled })
+    announceStatus()
     return getStatus()
   })
 
@@ -356,10 +341,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) => {
-    const messages = loadSessionMessages(sessionId)
-    return messages === null
-      ? null
-      : { messages, summaries: loadSessionSummaries(sessionId) }
+    return sessionSnapshot(sessionId)
   })
 
   setOnSessionCreated((spec) => {
@@ -389,45 +371,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.AGENT_SEND, async (event, req: AgentRequest): Promise<{ runId: string; steered: boolean }> => {
     lastSender = event.sender
-    if (typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > 200_000 || !Array.isArray(req.attachmentIds)) throw new Error('Enter a prompt of at most 200,000 characters')
-
-    const status = getStatus()
-    if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
-    const steered = await steerRunning(req.sessionId, req.prompt, req.attachmentIds, approvals)
-    if (steered !== null) return { runId: steered, steered: true }
-    const agent = getSession(req.sessionId, approvals)
-    const controller = beginRun(req.runId, req.sessionId)
-    registerRun(req.runId, req.sessionId)
-
-    // Rebound to this session's folder up front, so the prompt event and the
-    // model blocks describe the same files.
-    const sent = attachmentsFor(req.sessionId, req.attachmentIds)
-    emit(
-      { type: 'prompt', runId: req.runId, text: req.prompt, attachments: refsOf(sent) },
-      req.sessionId
-    )
-
-    void (async () => {
-      try {
-        const blocks = await blocksOf(sent)
-
-        await agent.run({
-          runId: req.runId,
-          prompt: req.prompt,
-          signal: controller.signal,
-          emit: (agentEvent) => emit(agentEvent, req.sessionId),
-          attachments: blocks
-        })
-      } catch (error) {
-        emit({ type: 'error', runId: req.runId, message: (error as Error).message }, req.sessionId)
-      } finally {
-        releaseAttachments(req.attachmentIds)
-        forgetRun(req.runId)
-        finishRun(req.runId)
-        persistSessions()
-      }
-    })()
-    return { runId: req.runId, steered: false }
+    return submitPrompt(req, approvals)
   })
 
   ipcMain.handle(IpcChannel.AGENT_CANCEL, (_event, runId: string): void => {

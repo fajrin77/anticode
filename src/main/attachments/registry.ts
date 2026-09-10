@@ -50,6 +50,7 @@ export function releaseAttachments(ids: string[]): void {
  */
 export function attachmentsFor(sessionId: string, ids: string[]): AttachmentInfo[] {
   const root = sessionWorkspaceRoot(sessionId)
+  if (ids.some((id) => !staged.has(id))) throw new AttachmentError('An attachment is no longer available. Attach it again before sending.')
   return ids
     .map((id) => staged.get(id))
     .filter((item): item is AttachmentInfo => item !== undefined)

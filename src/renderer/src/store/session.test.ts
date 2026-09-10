@@ -100,3 +100,13 @@ it('takes the colour the main process settled on for a session it already knows'
   store.addExternalSession({ sessionId: id, mode: 'code', workspaceRoot: '/tmp/proyek', colour: 7 })
   expect(useSessionStore.getState().sessions[0]!.colour).toBe(7)
 })
+
+it('does not count token usage twice when a live snapshot replays the same event', () => {
+  useSessionStore.setState({ usage: [], seenUsageEvents: [] })
+  const store = useSessionStore.getState()
+  const id = store.openSession('chat', null)
+  store.addUsage(id, 'test', 'model', 20, 10, 'run:12')
+  store.addUsage(id, 'test', 'model', 20, 10, 'run:12')
+  expect(useSessionStore.getState().usage).toEqual([{ provider: 'test', model: 'model', inputTokens: 20, outputTokens: 10 }])
+  expect(useSessionStore.getState().sessions[0]?.inputTokens).toBe(20)
+})

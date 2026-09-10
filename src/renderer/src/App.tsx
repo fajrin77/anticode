@@ -17,13 +17,16 @@ import type {
   ApprovalRequest,
   ProviderId,
   ProviderInfo,
+  RoutedAgentEvent,
   SessionStatus
 } from '@shared/ipc'
 
 type View = 'dashboard' | 'session' | 'settings'
 
 export function App(): JSX.Element {
-  const finishedRuns = useRef(new Set<string>())
+  const hydrating = useRef(true)
+  const bufferedEvents = useRef<RoutedAgentEvent[]>([])
+  const receiveEvent = useRef<(event: RoutedAgentEvent) => void>(() => undefined)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [status, setStatus] = useState<SessionStatus | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -110,6 +113,7 @@ export function App(): JSX.Element {
     void window.anticode.listSessions().then(async (specs) => {
       if (!active) return
       const store = useSessionStore.getState()
+      const revisions = new Map<string, number>()
       for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
       for (const spec of specs) {
         store.addExternalSession(spec)
@@ -120,14 +124,25 @@ export function App(): JSX.Element {
           if (shown !== undefined) void window.anticode.setSessionColour(spec.sessionId, shown)
         }
         const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
-        if (active && snapshot !== null && !sessionBusy(spec.sessionId)) {
+        if (active && snapshot !== null) {
           store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
+          revisions.set(spec.sessionId, snapshot.revision)
+          for (const event of snapshot.events) receiveEvent.current(event)
+          if (snapshot.paused) store.pauseSession(spec.sessionId)
+          else store.resumeSession(spec.sessionId)
         }
       }
-      for (const run of await window.anticode.listRuns()) {
-        if (active && !finishedRuns.current.has(run.runId) && !useSessionStore.getState().activeRuns[run.runId]) store.mirrorStart(run.runId, run.sessionId)
+      if (!active) return
+      hydrating.current = false
+      const pending = bufferedEvents.current.splice(0)
+      for (const event of pending) {
+        if ((event.revision ?? Infinity) > (revisions.get(event.sessionId) ?? 0)) receiveEvent.current(event)
       }
-    }).catch((error: Error) => setAppError(error.message))
+    }).catch((error: Error) => {
+      hydrating.current = false
+      for (const event of bufferedEvents.current.splice(0)) receiveEvent.current(event)
+      setAppError(error.message)
+    })
     const refresh = () => { void window.anticode.getStatus().then(setStatus).catch((error: Error) => setAppError(error.message)) }
     const timer = window.setInterval(refresh, 5000)
     // A model picked on the phone shows here the moment it is picked.
@@ -231,9 +246,8 @@ export function App(): JSX.Element {
   }
 
   useEffect(() => {
-    return window.anticode.onAgentEvent((event) => {
+    receiveEvent.current = (event) => {
       if (event.type === 'end' || event.type === 'error') {
-        finishedRuns.current.add(event.runId)
         setApprovals((queue) => queue.filter((request) => request.runId !== event.runId))
       }
       const store = useSessionStore.getState()
@@ -276,12 +290,12 @@ export function App(): JSX.Element {
             store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output)
             break
           case 'usage':
-            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
+            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`)
             store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
             break
           case 'error':
             store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
-            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
+            store.settleMessage(run.messageId, event.summary ?? summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
             store.setActiveRun(null, event.runId)
             break
           case 'end': {
@@ -290,7 +304,7 @@ export function App(): JSX.Element {
             if (event.reason !== 'complete' && !(event.reason === 'cancelled' && pausedNow)) {
               store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
             }
-            store.settleMessage(run.messageId, summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
+            store.settleMessage(run.messageId, event.summary ?? summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
             store.setActiveRun(null, event.runId)
             break
           }
@@ -335,13 +349,13 @@ export function App(): JSX.Element {
           break
         }
         case 'usage':
-          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens)
+          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`)
           store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
           break
         case 'error': {
           const entry = useSessionStore.getState().mirrorRuns[event.runId]
           const summary =
-            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined
+            event.summary ?? (entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined)
           store.appendText(
             event.sessionId,
             store.mirrorStart(event.runId, event.sessionId),
@@ -354,12 +368,16 @@ export function App(): JSX.Element {
         case 'end': {
           const entry = useSessionStore.getState().mirrorRuns[event.runId]
           const summary =
-            entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined
+            event.summary ?? (entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined)
           store.mirrorSettle(event.runId, summary)
 
           break
         }
       }
+    }
+    return window.anticode.onAgentEvent((event) => {
+      if (hydrating.current) bufferedEvents.current.push(event)
+      else receiveEvent.current(event)
     })
   }, [])
 

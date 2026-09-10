@@ -487,7 +487,7 @@ async function pollApprovals() {
   if (!currentSession) { panel.classList.add('hidden'); approvalRequestId = null; return; }
   const id = currentSession;
   try {
-    const { requests, exists } = await jfetch('/api/approvals?sessionId=' + encodeURIComponent(id));
+    const { requests, exists, status } = await jfetch('/api/approvals?sessionId=' + encodeURIComponent(id));
     if (currentSession !== id) return;
     // Deleted from the desktop while it was open here: leave rather than sit
     // on a session that no longer exists.
@@ -497,6 +497,7 @@ async function pollApprovals() {
       gotoSessions();
       return;
     }
+    if (status && (modelInfo?.provider !== status.provider || modelInfo?.model !== status.model)) void loadModels();
     const request = requests[0];
     if (!request) { panel.classList.add('hidden'); approvalRequestId = null; return; }
     if (request.requestId === approvalRequestId) return;
@@ -655,7 +656,8 @@ function gotoFiles() {
 /* ---------- Chat ---------- */
 
 async function loadOverview() {
-  const { sessions, web } = await jfetch('/api/overview');
+  const { sessions, web, status } = await jfetch('/api/overview');
+  if (status && (modelInfo?.provider !== status.provider || modelInfo?.model !== status.model)) void loadModels();
   lastSessions = sessions;
   if (Array.isArray(web)) webList = web;
   const list = document.getElementById('sessionList');
@@ -788,6 +790,7 @@ function scheduleRunSync(id) {
 
 async function openSession(id) {
   currentSession = id;
+  appliedRevision = 0; syncEvents = []; syncing = false; ++syncSeq;
   try { sessionStorage.setItem(LAST_SESSION_KEY, id); } catch { /* private mode */ }
   currentRunId = null;
   liveEl = null;
@@ -802,44 +805,41 @@ async function openSession(id) {
   await listen(id);
   await syncSession(id);
 }
-/**
- * A sync used to be thrown away whenever any event arrived while it was in
- * flight — which, during a run, is always. That is why progress here arrived
- * late and cut short until the page was reloaded. Only a *newer sync* may
- * discard an older one now; live events append on top of whatever it drew.
- */
+/** Snapshot events and SSE share a main-process revision. Buffer every event
+ * during a fetch, then replay only the events newer than that snapshot. */
 let syncSeq = 0;
-/* Text streaming in while the snapshot is in flight is not in that snapshot
- * yet — the main process only records an assistant turn once it completes —
- * so it is held here and put back after the re-render, instead of being wiped. */
 let syncing = false;
-let liveBuffer = '';
+let syncEvents = [];
+let appliedRevision = 0;
 async function syncSession(id) {
   const seq = ++syncSeq;
   syncing = true;
-  liveBuffer = '';
   let payload;
   try {
     payload = await jfetch('/api/session/' + id);
-  } finally {
-    if (seq === syncSeq) syncing = false;
+  } catch (error) {
+    if (seq === syncSeq) {
+      syncing = false;
+      const pending = syncEvents; syncEvents = [];
+      for (const entry of pending) if (entry.id === currentSession) await applyStreamEvent(entry.id, entry.event);
+    }
+    throw error;
   }
-  const { messages, summaries, runId, paused } = payload;
   if (currentSession !== id || seq !== syncSeq) return;
-  currentRunId = runId;
-  if (paused) pausedSessions.add(id); else pausedSessions.delete(id);
+  syncing = false;
+  const pending = syncEvents; syncEvents = [];
+  currentRunId = payload.runId;
+  if (payload.paused) pausedSessions.add(id); else pausedSessions.delete(id);
   hideWorking();
-  liveEl = null;
-  liveGroup = null;
-  renderTranscript(messages, summaries);
-  // The pause marker is ours, not the transcript's, so a re-sync has to put it
-  // back; it disappears on its own once the session is resumed.
+  liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null;
+  renderTranscript(payload.messages, payload.summaries);
+  for (const event of payload.events ?? []) await applyStreamEvent(id, event);
+  appliedRevision = payload.revision ?? 0;
   if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
-  // A group still holding an unfinished step already reads as working; a
-  // second dot below it would double up on the desktop's single indicator.
-  if (runId && !tailRunning) showWorking();
-  if (runId && liveBuffer !== '') appendLive(liveBuffer);
-  liveBuffer = '';
+  if (currentRunId && !tailRunning) showWorking();
+  for (const entry of pending) {
+    if (entry.id === id && (entry.event.revision ?? Infinity) > appliedRevision) await applyStreamEvent(id, entry.event);
+  }
   updateSendBtn();
   scheduleRunSync(id);
 }
@@ -1184,12 +1184,22 @@ function listen(id) {
   let connected = false;
   streamReady = new Promise((resolve, reject) => {
     const timer = setTimeout(() => { source.close(); reject(new Error('Connection timed out. Reopen this session.')); }, 10000);
-    source.onopen = () => { clearTimeout(timer); resolve(); if (connected) void syncSession(id).catch(showError); connected = true; };
-    source.onerror = () => { clearTimeout(timer); reject(new Error('Connection lost. Reconnecting…')); };
+    source.onopen = () => { clearTimeout(timer); resolve(); if (connected && currentSession === id && eventSource === source) void syncSession(id).catch(showError); connected = true; };
+    source.onerror = () => { connected = true; clearTimeout(timer); reject(new Error('Connection lost. Reconnecting…')); };
   });
-  source.onmessage = async (e) => {
+  source.onmessage = (e) => {
     if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
+    if (syncing) { syncEvents.push({ id, event }); return; }
+    if ((event.revision ?? Infinity) <= appliedRevision) return;
+    void applyStreamEvent(id, event).catch(showError);
+  };
+  return streamReady;
+}
+
+async function applyStreamEvent(id, event) {
+    if (currentSession !== id) return;
+    appliedRevision = Math.max(appliedRevision, event.revision ?? 0);
     if (event.type === 'history') {
       // A turn was reverted on the desktop: what is drawn here no longer exists.
       try { await syncSession(id); } catch (error) { showError(error); }
@@ -1239,8 +1249,6 @@ function listen(id) {
       if (event.type === 'error' && currentSession === id) appendLive('Error: ' + event.message);
     }
     updateSendBtn();
-  };
-  return streamReady;
 }
 
 let workingEl = null;
@@ -1321,7 +1329,6 @@ function placeLive(node) {
 }
 
 function appendLive(text) {
-  if (syncing) liveBuffer += text;
   const el = document.getElementById('transcript');
   if (liveEl === null || !el.contains(liveEl)) {
     liveEl = document.createElement('div');
@@ -1715,8 +1722,8 @@ async function submitPrompt(prompt) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId: id, prompt, attachmentIds })
     });
-    for (const item of staged) if (item.localUrl) URL.revokeObjectURL(item.localUrl);
-    staged = [];
+    for (const item of staged) if (attachmentIds.includes(item.id) && item.localUrl) URL.revokeObjectURL(item.localUrl);
+    staged = staged.filter((item) => !attachmentIds.includes(item.id));
     renderStaged();
     clearQuote();
     pausedSessions.delete(id);
@@ -1937,6 +1944,7 @@ function startWebPolling() {
 async function refreshFilesTab() {
   const { sessions } = await jfetch('/api/overview');
   const select = document.getElementById('folderSession');
+  const preferred = currentSession || select.value;
   const code = sessions.filter((s) => s.mode === 'code' && s.workspaceRoot);
   select.innerHTML = '';
   if (code.length === 0) {
@@ -1953,6 +1961,7 @@ async function refreshFilesTab() {
     option.textContent = s.workspaceRoot.split(/[\\\\/]/).pop();
     select.appendChild(option);
   }
+  if (code.some((s) => s.id === preferred)) select.value = preferred;
   if (!folderReady || code.some((s) => s.id === select.value) === false) folderReady = true;
   setFileControlsEnabled(true);
   currentPath = '.';

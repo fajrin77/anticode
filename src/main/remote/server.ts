@@ -1,46 +1,37 @@
 import {
-  beginRun,
-  finishRun,
   cancelRun,
   cancelSessionRuns,
-  isPaused,
   pauseSession,
+  listActiveRuns,
   runForSession
 } from '../runs'
 import http from 'node:http'
 import os from 'node:os'
 import { randomUUID, createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { createReadStream, existsSync, statSync } from 'node:fs'
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { createReadStream, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentEvent, RemoteStatus, RoutedAgentEvent, SessionMode } from '@shared/ipc'
+import type { RemoteStatus, SessionMode } from '@shared/ipc'
 import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
 import { listProviders } from '../providers'
 import {
   listModels,
-  persistSessions,
   createRemoteSession,
   deleteSession,
-  getSession,
   getStatus,
   listSessionSummaries,
   loadSessionMessages,
-  loadSessionSummaries,
   revertLastTurn,
   selectProvider,
   sessionWorkspaceRoot
 } from '../runtime'
 import { approvals } from '../ipc'
 import {
-  attachmentsFor,
-  blocksOf,
-  refsOf,
   registerAttachmentData,
-  releaseAttachments
 } from '../attachments/registry'
-import { announceHistory, announceStatus, forgetRun, forward, registerRun, subscribe } from './bus'
+import { announceHistory, announceStatus, sessionSnapshot, subscribe } from './bus'
 import type { StreamEvent } from './bus'
 import {
   activeWebUrl,
@@ -52,7 +43,7 @@ import {
   setWebVisible
 } from '../web'
 import { capturePhonePage } from '../browser'
-import { steerRunning } from '../steer'
+import { submitPrompt } from '../prompts'
 import sharp from 'sharp'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
@@ -259,14 +250,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     const sessionMatch = /\/api\/session\/([\w-]+)$/.exec(url.pathname)
     if (req.method === 'GET' && sessionMatch !== null) {
-      const messages = loadSessionMessages(sessionMatch[1] ?? '')
-      if (messages === null) return json(res, 404, { error: 'Unknown session' })
-      return json(res, 200, {
-        messages,
-        summaries: loadSessionSummaries(sessionMatch[1] ?? ''),
-        runId: runForSession(sessionMatch[1] ?? ''),
-        paused: isPaused(sessionMatch[1] ?? '')
-      })
+      const snapshot = sessionSnapshot(sessionMatch[1] ?? '')
+      if (snapshot === null) return json(res, 404, { error: 'Unknown session' })
+      return json(res, 200, snapshot)
     }
 
     if (req.method === 'DELETE' && sessionMatch !== null) {
@@ -335,6 +321,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       // delete on the desktop would otherwise leave it on a dead screen.
       return json(res, 200, {
         exists: sessionId === '' || loadSessionMessages(sessionId) !== null,
+        status: getStatus(),
         requests: approvals.listPending().filter((request) => request.runId === runId)
       })
     }
@@ -456,7 +443,8 @@ async function modelsPayload(): Promise<{
     available: entry.credentialAvailable,
     models: entry.id === status.provider ? catalogue.models : []
   }))
-  return { provider: status.provider, model: status.model, providers }
+  const selected = getStatus()
+  return { provider: selected.provider, model: selected.model, providers }
 }
 
 /** Creates a session straight from the phone, validating the folder up front. */
@@ -477,7 +465,7 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   steered: boolean
 }> {
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
-  if (prompt === '') throw new Error('Prompt is empty')
+  if (prompt === '' || prompt.length > 200_000) throw new Error('Enter a prompt of at most 200,000 characters')
 
   const status = getStatus()
   if (!status.providerReady) throw new Error(status.blockedReason ?? 'Provider is not ready')
@@ -487,31 +475,8 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   const ids = Array.isArray(body.attachmentIds)
     ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
     : []
-  // Sent while the session is working: the run in progress takes it.
-  const steered = await steerRunning(sessionId, prompt, ids, approvals)
-  if (steered !== null) return { sessionId, runId: steered, steered: true }
-  const agent = getSession(sessionId, approvals)
-  const runId = randomUUID()
-  const controller = beginRun(runId, sessionId)
-  registerRun(runId, sessionId)
-  const sent = attachmentsFor(sessionId, ids)
-  forward({
-    type: 'prompt', runId, text: prompt, sessionId, attachments: refsOf(sent)
-  } as RoutedAgentEvent)
-  void blocksOf(sent).then((attachments) => agent.run({
-    runId, prompt, signal: controller.signal,
-    emit: (event: AgentEvent) => forward({ ...event, sessionId } as RoutedAgentEvent),
-    attachments
-  })).catch((error: Error) => {
-    forward({ type: 'error', runId, message: error.message, sessionId } as RoutedAgentEvent)
-  }).finally(() => {
-    releaseAttachments(ids)
-    forgetRun(runId)
-    finishRun(runId)
-    persistSessions()
-  })
-
-  return { sessionId, runId, steered: false }
+  const result = await submitPrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids }, approvals)
+  return { sessionId, ...result }
 }
 
 function openEventStream(url: URL, res: http.ServerResponse): void {
@@ -603,14 +568,30 @@ async function readWorkspaceFile(sessionId: string, relativePath: string): Promi
   return { kind: 'file', path: relativePath, content, version: createHash('sha256').update(content).digest('hex') }
 }
 
-async function writeWorkspaceFile(sessionId: string, relativePath: string, content: string, version: string | null): Promise<unknown> {
+function workspaceBusy(root: string): boolean {
+  return listActiveRuns().some((run) => {
+    const other = sessionWorkspaceRoot(run.sessionId)
+    if (other === null) return false
+    const overlaps = (a: string, b: string): boolean => {
+      const relative = path.relative(a, b)
+      return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+    }
+    return overlaps(root, other) || overlaps(other, root)
+  })
+}
+
+function writeWorkspaceFile(sessionId: string, relativePath: string, content: string, version: string | null): unknown {
   const root = sessionWorkspaceRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   const target = resolveInWorkspace(root, relativePath)
-  if (runForSession(sessionId) !== null) throw new Error('Wait for the agent to finish before editing files')
-  const current = await readFile(target, 'utf8')
+  if (workspaceBusy(root)) throw new Error('Wait for the agent to finish before editing files')
+  if (Buffer.byteLength(content) > 2 * 1024 * 1024 || statSync(target).size > 2 * 1024 * 1024) throw new Error('File too large for the editor (limit 2 MB)')
+  // The version check and write form one main-process operation. Awaiting in
+  // between let two phones both accept the same version and overwrite each other.
+  const current = readFileSync(target, 'utf8')
+  if (current.includes('\0') || content.includes('\0')) throw new Error('Binary files cannot be edited as text')
   if (version === null || createHash('sha256').update(current).digest('hex') !== version) throw new Error('File changed since it was opened. Reload it before saving.')
-  await writeFile(target, content, 'utf8')
+  writeFileSync(target, content, 'utf8')
   return { ok: true, path: relativePath, bytes: Buffer.byteLength(content), version: createHash('sha256').update(content).digest('hex') }
 }
 
@@ -619,6 +600,10 @@ function runGit(sessionId: string, action: string, message: string): Promise<unk
     const root = sessionWorkspaceRoot(sessionId)
     if (root === null) {
       reject(new Error('This session has no project folder'))
+      return
+    }
+    if (action !== 'status' && workspaceBusy(root)) {
+      reject(new Error('Wait for the agent to finish before changing git state'))
       return
     }
     const args =

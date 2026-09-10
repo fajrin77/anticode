@@ -149,3 +149,35 @@ it('serves the browser panes, their tabs, and the sticky hide from the phone', a
   expect(stranger.status).toBe(404)
   clearWeb('test-session')
 })
+
+it('rejects concurrent saves from the same file version instead of silently overwriting', async () => {
+  mocks.root = await mkdtemp(path.join(tmpdir(), 'anticode-editor-'))
+  await writeFile(path.join(mocks.root, 'note.txt'), 'original')
+  const status = await setRemoteEnabled(true, 0)
+  const url = `${origin(status.url!)}/api/files?sessionId=test-session&path=note.txt&token=${status.token}`
+  const opened = await (await fetch(url)).json() as { version: string }
+  const save = (content: string) => fetch(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'test-session', path: 'note.txt', version: opened.version, content })
+  })
+  const responses = await Promise.all([save('phone one'), save('phone two')])
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 400])
+  const conflict = responses.find((response) => response.status === 400)!
+  expect((await conflict.json() as { error: string }).error).toContain('File changed')
+})
+
+it('blocks file writes while another session uses the same workspace', async () => {
+  const { beginRun, finishRun } = await import('../runs')
+  mocks.root = await mkdtemp(path.join(tmpdir(), 'anticode-editor-'))
+  await writeFile(path.join(mocks.root, 'note.txt'), 'original')
+  const status = await setRemoteEnabled(true, 0)
+  const url = `${origin(status.url!)}/api/files?sessionId=test-session&path=note.txt&token=${status.token}`
+  const opened = await (await fetch(url)).json() as { version: string }
+  beginRun('other-run', 'another-session')
+  try {
+    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'test-session', path: 'note.txt', version: opened.version, content: 'overwrite' }) })
+    expect(response.status).toBe(400)
+    expect((await response.json() as { error: string }).error).toContain('Wait for the agent')
+  } finally { finishRun('other-run') }
+})

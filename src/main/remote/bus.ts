@@ -1,22 +1,39 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { AgentEvent, SessionPause } from '@shared/ipc'
-import { getStatus, recordRunSummary } from '../runtime'
-import { clearPause } from '../runs'
+import type { AgentEvent, SessionPause, SessionSnapshot, RoutedAgentEvent, RunSummary } from '@shared/ipc'
+import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries } from '../runtime'
+import { clearPause, isPaused, runForSession } from '../runs'
 
 /**
  * What a session's phone stream carries: its runs, whether it is paused, and
  * word that its history changed underneath (a turn was reverted).
  */
-export type StreamEvent =
+export type StreamEvent = (
   | AgentEvent
   | { type: 'pause'; paused: boolean }
   | { type: 'history' }
+) & { revision?: number }
 type Listener = (event: StreamEvent) => void
 
 /** runId → sessionId, so forwarded events land on the right stream. */
 const runSessions = new Map<string, string>()
 const listeners = new Map<string, Set<Listener>>()
+let revision = 0
+const journals = new Map<string, Pick<SessionSnapshot, 'messages' | 'summaries' | 'events'>>()
+
+/** A single synchronous read boundary for both viewers. Live runs replay from
+ * their starting transcript, so snapshots neither lose nor duplicate deltas. */
+export function sessionSnapshot(sessionId: string): SessionSnapshot | null {
+  const messages = loadSessionMessages(sessionId)
+  if (messages === null) return null
+  const runId = runForSession(sessionId)
+  const journal = runId === null ? undefined : journals.get(runId)
+  return structuredClone({
+    messages: journal?.messages ?? messages,
+    summaries: journal?.summaries ?? loadSessionSummaries(sessionId),
+    events: journal?.events ?? [], runId, paused: isPaused(sessionId), revision
+  })
+}
 
 /**
  * What each live run has spent so far. Every event already passes through
@@ -47,24 +64,29 @@ function tally(runId: string): {
  * leave no summary either — that one-to-one is what lets a viewer line the
  * summaries up with the turns without any bookkeeping of its own.
  */
-function closeTally(runId: string, sessionId: string): void {
+function closeTally(runId: string, sessionId: string): RunSummary | undefined {
   const entry = tallies.get(runId)
   tallies.delete(runId)
   if (entry === undefined || entry.turns === 0) return
-  recordRunSummary(sessionId, {
+  const summary = {
     model: entry.model,
     durationMs: Date.now() - entry.startedAt,
     inputTokens: entry.inputTokens,
     outputTokens: entry.outputTokens
-  })
+  }
+  recordRunSummary(sessionId, summary)
+  return summary
 }
 
 export function registerRun(runId: string, sessionId: string): void {
   runSessions.set(runId, sessionId)
+  journals.set(runId, { messages: loadSessionMessages(sessionId) ?? [], summaries: [...loadSessionSummaries(sessionId)], events: [] })
 }
 
 export function forgetRun(runId: string): void {
   runSessions.delete(runId)
+  journals.delete(runId)
+  tallies.delete(runId)
 }
 
 /**
@@ -74,6 +96,7 @@ export function forgetRun(runId: string): void {
 export function forward(event: AgentEvent): void {
   const sessionId = runSessions.get(event.runId)
   if (sessionId === undefined) return
+  const routed: RoutedAgentEvent = { ...event, sessionId }
 
   if (event.type === 'prompt') tally(event.runId).startedAt = Date.now()
   else if (event.type === 'usage') {
@@ -86,20 +109,31 @@ export function forward(event: AgentEvent): void {
 
   if (event.type === 'end' || event.type === 'error') {
     runSessions.delete(event.runId)
-    closeTally(event.runId, sessionId)
+    journals.delete(event.runId)
+    const summary = closeTally(event.runId, sessionId)
+    if (summary !== undefined && (routed.type === 'end' || routed.type === 'error')) routed.summary = summary
     // Paused just as the run was finishing on its own: it finished, so there
     // is nothing left to resume on either screen.
     if (event.type === 'error' || event.reason !== 'cancelled') clearPause(sessionId)
   }
 
-  toWindows(IpcChannel.AGENT_EVENT, { ...event, sessionId })
-  toStreams(sessionId, event)
+  // Clearing a pause can itself emit an event; number this event only after
+  // that notification, in exactly the order viewers receive them.
+  routed.revision = ++revision
+  const events = journals.get(event.runId)?.events
+  const previous = events?.at(-1)
+  if (events !== undefined && previous?.type === 'text_delta' && routed.type === 'text_delta') {
+    events[events.length - 1] = { ...routed, text: previous.text + routed.text }
+  } else events?.push(routed)
+
+  toWindows(IpcChannel.AGENT_EVENT, routed)
+  toStreams(sessionId, routed)
 }
 
 /** A pause starting or ending, wherever it was pressed, reaches every viewer. */
 export function announcePause(sessionId: string, paused: boolean): void {
   toWindows(IpcChannel.SESSION_PAUSED, { sessionId, paused } satisfies SessionPause)
-  toStreams(sessionId, { type: 'pause', paused })
+  toStreams(sessionId, { type: 'pause', paused, revision: ++revision })
 }
 
 /**
@@ -110,7 +144,7 @@ export function announcePause(sessionId: string, paused: boolean): void {
  */
 export function announceHistory(sessionId: string, from: 'desktop' | 'phone'): void {
   if (from === 'phone') toWindows(IpcChannel.SESSION_HISTORY, sessionId)
-  toStreams(sessionId, { type: 'history' })
+  toStreams(sessionId, { type: 'history', revision: ++revision })
 }
 
 /** The model was switched from the phone; the desktop chip follows at once, not on its next poll. */

@@ -248,14 +248,23 @@ export type AgentEvent =
       inputTokens: number
       outputTokens: number
     }
-  | { type: 'end'; runId: string; reason: AgentEndReason }
-  | { type: 'error'; runId: string; message: string }
+  | { type: 'end'; runId: string; reason: AgentEndReason; summary?: RunSummary }
+  | { type: 'error'; runId: string; message: string; summary?: RunSummary }
 
 /**
  * The loop does not know its session id; the IPC and remote layers attach it
  * when routing events, so every window can tell which transcript they touch.
  */
-export type RoutedAgentEvent = AgentEvent & { sessionId: string }
+export type RoutedAgentEvent = AgentEvent & { sessionId: string; revision?: number }
+
+export interface SessionSnapshot {
+  messages: SnapshotMessage[]
+  summaries: RunSummary[]
+  runId: string | null
+  paused: boolean
+  revision: number
+  events: RoutedAgentEvent[]
+}
 
 export interface RemoteStatus {
   enabled: boolean
@@ -363,7 +372,7 @@ export interface AnticodeApi {
   revertLastTurn: (sessionId: string) => Promise<string | null>
   getSessionSnapshot: (
     sessionId: string
-  ) => Promise<{ messages: SnapshotMessage[]; summaries: RunSummary[] } | null>
+  ) => Promise<SessionSnapshot | null>
   listSessions: () => Promise<SessionSpec[]>
   releaseAttachments: (ids: string[]) => Promise<void>
   pendingApprovals: () => Promise<ApprovalRequest[]>

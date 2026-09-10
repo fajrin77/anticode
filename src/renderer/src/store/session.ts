@@ -101,6 +101,7 @@ interface SessionState {
   sessions: Session[]
   /** Running totals per provider+model, kept across sessions for the dashboard. */
   usage: UsageEntry[]
+  seenUsageEvents: string[]
   activeSessionId: string | null
   activeRuns: Record<string, ActiveRun>
   /** Phone-initiated runs mirrored live here: runId → placeholder message. */
@@ -201,7 +202,8 @@ interface SessionState {
     provider: string,
     model: string,
     inputTokens: number,
-    outputTokens: number
+    outputTokens: number,
+    eventKey?: string
   ) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
   setActiveRun: (run: ActiveRun | null, runId?: string) => void
@@ -265,6 +267,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   projects: [],
   sessions: [],
   usage: [],
+  seenUsageEvents: [],
   activeSessionId: null,
   activeRuns: {},
   mirrorRuns: {},
@@ -679,8 +682,9 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       }))
     })),
 
-  addUsage: (sessionId, provider, model, inputTokens, outputTokens) =>
+  addUsage: (sessionId, provider, model, inputTokens, outputTokens, eventKey) =>
     set((state) => {
+      if (eventKey !== undefined && state.seenUsageEvents.includes(eventKey)) return state
       const existing = state.usage.find(
         (entry) => entry.provider === provider && entry.model === model
       )
@@ -697,6 +701,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         : [...state.usage, { provider, model, inputTokens, outputTokens }]
 
       return {
+        seenUsageEvents: eventKey === undefined ? state.seenUsageEvents : [...state.seenUsageEvents, eventKey].slice(-2048),
         usage,
         sessions: mapSession(state, sessionId, (session) => ({
           ...session,
@@ -803,7 +808,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     })
 }), {
   name: 'anticode-session-metadata',
-  partialize: (state) => ({ drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, nextColour: state.nextColour,
+  partialize: (state) => ({ drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 
