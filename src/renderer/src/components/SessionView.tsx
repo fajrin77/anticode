@@ -9,13 +9,20 @@ import { Artifacts, documentsProduced } from './Artifacts'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
-type Block = { kind: 'text'; text: string } | { kind: 'tools'; parts: ToolPart[] }
+type Block =
+  | { kind: 'text'; text: string }
+  | { kind: 'notice'; text: string }
+  | { kind: 'tools'; parts: ToolPart[] }
 
 /** Runs of tool calls fold into one group; narration between them stays loose. */
 function groupBlocks(parts: MessagePart[]): Block[] {
   const blocks: Block[] = []
   for (const part of parts) {
     if (part.kind === 'attachments') continue
+    if (part.kind === 'notice') {
+      blocks.push({ kind: 'notice', text: part.text })
+      continue
+    }
     if (part.kind !== 'tool') {
       blocks.push({ kind: 'text', text: part.text })
       continue
@@ -126,6 +133,18 @@ function MessageView({ message, sessionId }: { message: Message; sessionId: stri
           return (
             <div key={`text-${index}`} className="my-2">
               <RichText text={block.text} />
+            </div>
+          )
+        }
+        // The app talking about itself, in the same grey voice a tool group
+        // uses — never a bubble, because nobody said it.
+        if (block.kind === 'notice') {
+          return (
+            <div
+              key={`notice-${index}`}
+              className="my-3 text-[14px] text-dim transition-colors hover:text-brand"
+            >
+              {block.text}
             </div>
           )
         }

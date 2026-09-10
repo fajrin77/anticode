@@ -15,6 +15,12 @@ export type MessagePart =
   | { kind: 'text'; text: string }
   /** Files sent with a prompt, drawn as pictures and cards above its text. */
   | { kind: 'attachments'; items: AttachmentRef[] }
+  /**
+   * A line the app writes about itself — pausing, resuming — rather than
+   * anything the model or the user said. Drawn like a tool-group line: on the
+   * left, grey, no bubble.
+   */
+  | { kind: 'notice'; text: string }
   | {
       kind: 'tool'
       toolUseId: string
@@ -128,6 +134,8 @@ interface SessionState {
   addMessage: (message: Message) => void
   /** Adds a remotely-sent user prompt unless it is already the last one. */
   addUserPrompt: (sessionId: string, text: string, attachments?: AttachmentRef[]) => void
+  /** Notes a pause or a resume in a session's transcript, never twice running. */
+  addNotice: (sessionId: string, text: string) => void
   appendText: (sessionId: string, messageId: string, text: string) => void
   startTool: (
     sessionId: string,
@@ -557,6 +565,28 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           messages: [
             ...session.messages,
             { id: crypto.randomUUID(), role: 'user' as const, parts, pending: false }
+          ]
+        }
+      })
+    })),
+
+  addNotice: (sessionId, text) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => {
+        const last = session.messages.at(-1)
+        if (last?.parts.some((part) => part.kind === 'notice' && part.text === text)) {
+          return session
+        }
+        return {
+          ...session,
+          messages: [
+            ...session.messages,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant' as const,
+              parts: [{ kind: 'notice' as const, text }],
+              pending: false
+            }
           ]
         }
       })

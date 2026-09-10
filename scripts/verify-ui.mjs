@@ -53,11 +53,30 @@ try {
     if (!ok) failures.push(`${name}: got ${actual}, want ${expected}`)
   }
   const failures = []
+  /**
+   * Chromium recomputes :hover from the real cursor whenever the app
+   * re-renders — the status poll does, every five seconds — and the colour
+   * transition itself takes 150ms. A single hover-then-read therefore catches
+   * a half-finished colour often enough to fail for no reason, so each control
+   * is re-hovered until its colour settles.
+   */
+  const colourOnHover = async (locator, want) => {
+    const target = locator.first()
+    let colour = ''
+    for (let attempt = 0; attempt < 8 && colour !== want; attempt++) {
+      await target.hover()
+      await window.waitForTimeout(200)
+      colour = await colourOf(target)
+    }
+    return colour
+  }
+  const limeOnHover = async (name, locator) => {
+    check(name + ' turns lime on hover', await colourOnHover(locator, LIME), LIME)
+  }
   await window.getByRole('button',{name:'antichat',exact:true}).waitFor()
   await shot('01-dashboard')
   const grid = window.getByTitle('Dashboard')
-  await grid.hover(); await window.waitForTimeout(250)
-  check('grid icon stays lime on hover while dashboard is open', await colourOf(grid), LIME)
+  check('grid icon stays lime on hover while dashboard is open', await colourOnHover(grid, LIME), LIME)
   await shot('02-dashboard-icon-hover-while-on-dashboard')
 
   await window.getByRole('button',{name:'antichat',exact:true}).click()
@@ -66,8 +85,7 @@ try {
   await window.mouse.move(640, 400); await window.waitForTimeout(200)
   check('grid icon is faint inside a session, unhovered', await colourOf(grid), 'rgb(109, 109, 109)')
   await shot('03-in-session')
-  await grid.hover(); await window.waitForTimeout(300)
-  check('grid icon turns lime on hover inside a session', await colourOf(grid), LIME)
+  check('grid icon turns lime on hover inside a session', await colourOnHover(grid, LIME), LIME)
   await shot('04-dashboard-icon-hover-inside-session')
 
   const usage = window.getByTitle('Session usage')
@@ -170,22 +188,6 @@ try {
   // Lime is the one accent, and it marks what the cursor can touch: every icon
   // and every text button turns lime on hover. The rule is written down in
   // CLAUDE.md; this sweep is what keeps it from quietly rotting.
-  // Chromium recomputes :hover from the real cursor whenever the app
-  // re-renders (the status poll does, every 5s) and the colour transition
-  // takes 150ms, so each control is re-hovered until its colour settles.
-  const colourOnHover = async (locator, want) => {
-    const target = locator.first()
-    let colour = ''
-    for (let attempt = 0; attempt < 8 && colour !== want; attempt++) {
-      await target.hover()
-      await window.waitForTimeout(200)
-      colour = await colourOf(target)
-    }
-    return colour
-  }
-  const limeOnHover = async (name, locator) => {
-    check(name + ' turns lime on hover', await colourOnHover(locator, LIME), LIME)
-  }
 
   await window.getByTitle('Dashboard').click(); await window.waitForTimeout(400)
   await limeOnHover('dashboard: search icon', window.getByTitle('Search sessions'))
@@ -258,6 +260,43 @@ try {
   await shot('18-lime-settings')
   await toggle.click(); await window.waitForTimeout(300)
   check('settings: a switch that is off is grey', await trackOf(), 'rgb(46, 46, 46)')
+
+  // Pausing and resuming are the app talking about itself: a grey line on the
+  // left in the same voice a tool group uses — never a bubble on the right,
+  // which would read as something the user typed.
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await composer().fill('slow please'); await composer().press('Enter')
+  await window.waitForTimeout(700)
+  await window.getByRole('button',{name:'Pause'}).click(); await window.waitForTimeout(500)
+  const pauseLine = window.getByText('Okay, taking a break mate!')
+  check('pause: the marker is in the transcript', await pauseLine.count() > 0 ? 'said' : 'silent', 'said')
+  const markerStyle = await pauseLine.evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { colour: s.color, background: s.backgroundColor, radius: s.borderTopLeftRadius,
+             left: Math.round(el.getBoundingClientRect().left) }
+  })
+  // The session tab carries the same words; the bubble is the div in the body.
+  const bubbleLeft = await window.locator('div.rounded-xl', { hasText: 'slow please' }).last().evaluate(
+    (el) => Math.round(el.getBoundingClientRect().left))
+  check('pause: the marker is grey', markerStyle.colour, 'rgb(154, 154, 154)')
+  check('pause: the marker has no bubble', markerStyle.background + ' ' + markerStyle.radius, 'rgba(0, 0, 0, 0) 0px')
+  check('pause: the marker sits left of the user bubble', markerStyle.left < bubbleLeft ? 'left' : 'right', 'left')
+  check('pause: the marker turns lime on hover', await colourOnHover(pauseLine, LIME), LIME)
+  await shot('20-pause-marker')
+
+  await window.getByRole('button',{name:'Resume'}).click(); await window.waitForTimeout(900)
+  const resumeLine = window.getByText('ah sh**, here we go again')
+  check('resume: the marker is in the transcript', await resumeLine.count() > 0 ? 'said' : 'silent', 'said')
+  check('resume: the marker is grey',
+    await resumeLine.evaluate((el) => getComputedStyle(el).color), 'rgb(154, 154, 154)')
+  const typed = await window.evaluate(() =>
+    window.__store.getState().sessions.flatMap((s) => s.messages)
+      .filter((m) => m.role === 'user')
+      .flatMap((m) => m.parts)
+      .filter((p) => p.kind === 'text' && p.text.startsWith('Lanjutkan pekerjaan')).length)
+  check('resume: the continuation paragraph stays out of the transcript', typed === 0 ? 'hidden' : 'shown', 'hidden')
+  await shot('21-resume-marker')
 
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }

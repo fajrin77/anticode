@@ -220,13 +220,11 @@ export function App(): JSX.Element {
       // then pull the finished transcript so nothing is lost in translation.
       switch (event.type) {
         case 'prompt':
-          // A resume from the phone carries the continuation paragraph; the
-          // transcript shows the short marker instead, as a local resume does.
-          store.addUserPrompt(
-            event.sessionId,
-            event.text === CONTINUE_PROMPT ? RESUME_LABEL : event.text,
-            event.attachments
-          )
+          // A resume from the phone carries the continuation paragraph. It is
+          // the app resuming itself, not a prompt anyone typed, so it lands as
+          // the same grey marker a local resume writes.
+          if (event.text === CONTINUE_PROMPT) store.addNotice(event.sessionId, RESUME_LABEL)
+          else store.addUserPrompt(event.sessionId, event.text, event.attachments)
           store.mirrorStart(event.runId, event.sessionId)
           break
         case 'text_delta':

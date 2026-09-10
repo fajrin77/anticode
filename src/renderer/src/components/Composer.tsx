@@ -92,6 +92,7 @@ export function Composer({
   const activeRun = useSessionStore((state) => Object.values(state.activeRuns).find((run) => run.sessionId === session?.id) ?? null)
   const mirrorRunId = useSessionStore((state) => Object.entries(state.mirrorRuns).find(([, run]) => run.sessionId === session?.id)?.[0] ?? null)
   const addMessage = useSessionStore((state) => state.addMessage)
+  const addNotice = useSessionStore((state) => state.addNotice)
   const setActiveRun = useSessionStore((state) => state.setActiveRun)
   const updateSessionConfig = useSessionStore((state) => state.updateSessionConfig)
   const isPaused = useSessionStore(
@@ -193,12 +194,7 @@ export function Composer({
     resumeSession(session.id)
     const runId = crypto.randomUUID()
     const messageId = crypto.randomUUID()
-    addMessage({
-      id: crypto.randomUUID(),
-      role: 'user',
-      parts: [{ kind: 'text', text: RESUME_LABEL }],
-      pending: false
-    })
+    addNotice(session.id, RESUME_LABEL)
     addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
     setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
     try {
@@ -461,12 +457,7 @@ export function Composer({
                 if (isStreaming && !isPaused) {
                   pauseSession(session?.id ?? '')
                   void window.anticode.cancelRun(activeRun?.runId ?? mirrorRunId ?? '')
-                  addMessage({
-                    id: crypto.randomUUID(),
-                    role: 'user',
-                    parts: [{ kind: 'text', text: PAUSE_LABEL }],
-                    pending: false
-                  })
+                  addNotice(session?.id ?? '', PAUSE_LABEL)
                   return
                 }
                 if (isPaused) {

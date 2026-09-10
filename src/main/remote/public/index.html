@@ -121,6 +121,10 @@
     font: 12.5px/1.6 ui-monospace, Menlo, monospace; color: #9a9a9a;
     white-space: pre-wrap; word-break: break-word;
   }
+  /* A line the app writes about itself — pausing, resuming. Left, grey, no
+     bubble, exactly like a tool-group line. */
+  .notice { padding: 8px 0; color: #9a9a9a; font-size: 14px; transition: color .15s; }
+  .notice:hover, .notice:active { color: #d1fa22; }
   .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
   .working .dot {
     width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
@@ -591,7 +595,7 @@ async function syncSession(id) {
   renderTranscript(messages);
   // The pause marker is ours, not the transcript's, so a re-sync has to put it
   // back; it disappears on its own once the session is resumed.
-  if (pausedSessions.has(id)) appendUserBubble(PAUSE_LABEL);
+  if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
   // A group still holding an unfinished step already reads as working; a
   // second dot below it would double up on the desktop's single indicator.
   if (runId && !tailRunning) showWorking();
@@ -764,13 +768,18 @@ function renderTranscript(messages) {
       const files = m.blocks.filter((block) => block.type === 'attachment').map((block) => block.attachment);
       const text = m.blocks.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
       if (text === '' && files.length === 0) continue;
+      // A resume is the app talking, so it reads as a marker, not a prompt.
+      if (text === CONTINUE_PROMPT && files.length === 0) {
+        appendNotice(RESUME_LABEL);
+        continue;
+      }
       const div = document.createElement('div');
       div.className = 'msg user';
       if (files.length > 0) div.appendChild(attachmentsEl(files));
       if (text !== '') {
         const bubble = document.createElement('span');
         bubble.className = 'bubble';
-        bubble.textContent = promptLabel(text);
+        bubble.textContent = text;
         div.appendChild(bubble);
       }
       el.appendChild(div);
@@ -830,7 +839,12 @@ function listen(id) {
     if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
     if (event.type !== 'usage') sessionEventVersion++;
-    if (event.type === 'prompt') { currentRunId = event.runId; liveEl = null; liveGroup = null; hideWorking(); appendUserBubble(event.text, event.attachments); showWorking(); }
+    if (event.type === 'prompt') {
+      currentRunId = event.runId; liveEl = null; liveGroup = null; hideWorking();
+      if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
+      else appendUserBubble(event.text, event.attachments);
+      showWorking();
+    }
     else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output); }
@@ -1090,7 +1104,7 @@ async function pauseSession() {
   try {
     await jfetch('/api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runId: currentRunId }) });
     pausedSessions.add(currentSession);
-    appendUserBubble(PAUSE_LABEL);
+    appendNotice(PAUSE_LABEL);
     updateSendBtn();
   } catch (error) { showError(error); }
 }
@@ -1099,8 +1113,16 @@ const PAUSE_LABEL = 'Okay, taking a break mate!';
 const RESUME_LABEL = 'ah sh**, here we go again';
 /* What a resume actually asks for; the transcript shows RESUME_LABEL instead. */
 const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
-function promptLabel(text) { return text === CONTINUE_PROMPT ? RESUME_LABEL : text; }
 async function resumeSession() { await submitPrompt(CONTINUE_PROMPT); }
+
+function appendNotice(text) {
+  const el = document.getElementById('transcript');
+  const div = document.createElement('div');
+  div.className = 'notice';
+  div.textContent = text;
+  el.appendChild(div);
+  window.scrollTo(0, document.body.scrollHeight);
+}
 
 function appendUserBubble(text, files) {
   const el = document.getElementById('transcript');
@@ -1109,7 +1131,7 @@ function appendUserBubble(text, files) {
   if (files !== undefined && files.length > 0) div.appendChild(attachmentsEl(files));
   const bubble = document.createElement('span');
   bubble.className = 'bubble';
-  bubble.textContent = promptLabel(text);
+  bubble.textContent = text;
   div.appendChild(bubble);
   el.appendChild(div);
   window.scrollTo(0, document.body.scrollHeight);
