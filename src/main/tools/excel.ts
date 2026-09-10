@@ -34,12 +34,15 @@ function cellText(value: ExcelJS.CellValue): string {
  * reading one never writes beside the user's original. SheetJS only bridges
  * the old bytes; exceljs keeps owning edits and explicit .xlsx output.
  */
-async function convertLegacy(filePath: string): Promise<Buffer> {
+async function convertLegacy(filePath: string): Promise<ArrayBuffer> {
   // The ESM build of SheetJS does not bind Node's filesystem helpers, so its
   // readFile/writeFile shortcuts fail inside Electron. Bytes keep this path
   // identical in tests and the packaged app.
   const book = XLSX.read(await readFile(filePath), { type: 'buffer' })
-  return XLSX.write(book, { bookType: 'xlsx', type: 'buffer' }) as Buffer
+  const data = XLSX.write(book, { bookType: 'xlsx', type: 'buffer' }) as Uint8Array
+  // Copy into a plain ArrayBuffer: ExcelJS's public load signature does not
+  // accept Node's wider ArrayBufferLike backing type.
+  return Uint8Array.from(data).buffer
 }
 
 async function open(filePath: string): Promise<ExcelJS.Workbook> {
