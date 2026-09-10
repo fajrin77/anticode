@@ -260,7 +260,29 @@ try {
     })
     await screen.waitForTimeout(300)
     assert.equal(await screen.$eval('#replyBtn', (el) => getComputedStyle(el).display !== 'none'), true)
-    await screen.click('#replyBtn')
+    // Under the selection and out of the way: iOS lays its own Salin / Temukan
+    // Pilihan / Terjemahkan bar over the top edge of a selection.
+    const placement = await screen.evaluate(() => {
+      const button = document.getElementById('replyBtn').getBoundingClientRect()
+      const range = window.getSelection().getRangeAt(0).getBoundingClientRect()
+      const composer = document.getElementById('inputRow').getBoundingClientRect()
+      const style = getComputedStyle(document.getElementById('replyBtn'))
+      return { below: button.top > range.bottom, clear: button.bottom <= composer.top,
+               bg: style.backgroundColor, colour: style.color }
+    })
+    assert.equal(placement.below, true, 'the reply button must sit below the selection')
+    assert.equal(placement.clear, true, 'the reply button must stay clear of the composer')
+    assert.equal(placement.bg, 'rgb(209, 250, 34)')
+    assert.equal(placement.colour, 'rgb(26, 26, 26)')
+
+    // iOS drops the selection the instant the button is tapped, so the text has
+    // to be kept from when it was selected — reading it back finds nothing.
+    await screen.evaluate(() => {
+      window.getSelection().removeAllRanges()
+      document.getElementById('replyBtn').classList.remove('hidden')
+      document.getElementById('replyBtn').dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
     await screen.waitForTimeout(300)
     assert.equal(await screen.$eval('#quoteRow', (el) => getComputedStyle(el).display !== 'none'), true)
     assert.match(await screen.$eval('#quoteText', (el) => el.textContent), new RegExp(quoted.slice(0, 8).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))

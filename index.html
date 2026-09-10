@@ -160,15 +160,13 @@
   /* Selecting part of a reply offers to answer that passage. The button rides
      above the selection; the quote it makes sits over the composer, like a
      staged file, and clears on a tap outside. */
-  /* Below the selection, never above it: iOS puts its own Salin / Temukan
-     Pilihan / Terjemahkan bar over the top edge and would bury this. */
   #replyBtn {
-    position: fixed; z-index: 40; transform: translateX(-50%);
-    background: #d1fa22; border: none; border-radius: 10px;
-    color: #1a1a1a; font-size: 14px; font-weight: 600; padding: 9px 16px;
+    position: fixed; z-index: 40; transform: translate(-50%, -100%);
+    background: #272727; border: 1px solid #303030; border-radius: 10px;
+    color: #ededed; font-size: 14px; padding: 8px 14px;
     box-shadow: 0 8px 24px rgba(0,0,0,.5);
   }
-  #replyBtn:active { background: #c4ef1f; }
+  #replyBtn:active { color: #d1fa22; }
   #quoteRow {
     flex: 0 0 100%; display: flex; align-items: flex-start; gap: 8px;
     background: #202020; border: 1px solid #303030; border-radius: 10px;
@@ -365,8 +363,7 @@
   </div>
   <div class="vbody" id="imgBody"><img id="imgFull" alt="" /></div>
 </div>
-<button id="replyBtn" class="hidden"
-  onpointerdown="event.preventDefault(); quoteSelection()">Balas</button>
+<button id="replyBtn" class="hidden" onclick="quoteSelection()">Balas</button>
 <div class="composer hidden" id="inputRow">
   <div id="quoteRow" class="hidden">
     <span class="qbar"></span>
@@ -1431,23 +1428,15 @@ function clearQuote() {
 
 function hideReplyBtn() {
   document.getElementById('replyBtn').classList.add('hidden');
-  pendingSelection = '';
 }
 
-/**
- * What was selected when the button appeared. iOS collapses the selection as
- * soon as the button is tapped, so reading it back inside the tap handler finds
- * nothing — the text has to be kept from the moment it was selected.
- */
-let pendingSelection = '';
-
+/** Takes what is selected in the transcript up to the composer. */
 function quoteSelection() {
-  const live = window.getSelection()?.toString().trim() ?? '';
-  const text = live !== '' ? live : pendingSelection;
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() ?? '';
   if (text !== '') quoted = text;
   renderQuote();
-  window.getSelection()?.removeAllRanges();
-  pendingSelection = '';
+  selection?.removeAllRanges();
   hideReplyBtn();
   document.getElementById('prompt').focus();
 }
@@ -1466,12 +1455,9 @@ document.addEventListener('selectionchange', () => {
     hideReplyBtn();
     return;
   }
-  pendingSelection = text;
   const box = selection.getRangeAt(0).getBoundingClientRect();
-  const composerTop = document.getElementById('inputRow').getBoundingClientRect().top;
-  button.style.left = Math.min(Math.max(box.left + box.width / 2, 70), window.innerWidth - 70) + 'px';
-  // Under the selection, and never behind the composer.
-  button.style.top = Math.min(box.bottom + 10, composerTop - 56) + 'px';
+  button.style.left = (box.left + box.width / 2) + 'px';
+  button.style.top = Math.max(44, box.top - 8) + 'px';
   button.classList.remove('hidden');
 });
 
