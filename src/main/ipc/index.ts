@@ -1,7 +1,7 @@
 import { beginRun, finishRun, cancelRun, runForSession, hasRuns, listActiveRuns } from '../runs'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
-import { copyFile, stat } from 'node:fs/promises'
+import { copyFile, readFile, stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
@@ -28,6 +28,7 @@ import {
   sessionWorkspaceRoot,
   loadSessionMessages,
   loadSessionSummaries,
+  revertLastTurn,
   policy,
   resetProviderSelection,
   selectProvider,
@@ -190,6 +191,32 @@ export function registerIpcHandlers(): void {
 
   // Opening is by absolute path because an attachment may well sit outside any
   // project folder — the picture the user dragged in from their desktop.
+  // Pictures open in the app, not in Preview: leaving anticode to look at a
+  // screenshot the user just sent is a round trip nobody asked for.
+  ipcMain.handle(
+    IpcChannel.ATTACH_READ_IMAGE,
+    async (_event, target: string): Promise<string | null> => {
+      const extension = path.extname(target).toLowerCase()
+      const type = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp'
+      }[extension]
+      if (type === undefined) return null
+      try {
+        const data = await readFile(target)
+        // Past this the data URL costs more than the round trip saves.
+        if (data.byteLength > 40 * 1024 * 1024) return null
+        return `data:${type};base64,${data.toString('base64')}`
+      } catch {
+        return null
+      }
+    }
+  )
+
   ipcMain.handle(IpcChannel.ATTACH_OPEN, async (_event, target: string): Promise<string | null> => {
     const failure = await shell.openPath(target)
     return failure === '' ? null : failure
@@ -227,6 +254,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.SESSION_CREATE, (_event, spec: SessionSpec): void => {
     createSession(spec)
   })
+
+  ipcMain.handle(IpcChannel.SESSION_REVERT, (_event, sessionId: string) =>
+    revertLastTurn(sessionId)
+  )
 
   ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) => {
     const messages = loadSessionMessages(sessionId)

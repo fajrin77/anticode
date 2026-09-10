@@ -54,6 +54,8 @@ const api: AnticodeApi = {
     subscribe<SessionSpec>(IpcChannel.SESSION_CREATED, listener),
   onSessionClosed: (listener: (sessionId: string) => void) =>
     subscribe<string>(IpcChannel.SESSION_CLOSED, listener),
+  revertLastTurn: (sessionId: string) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_REVERT, sessionId) as Promise<string | null>,
   getSessionSnapshot: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<{
       messages: SnapshotMessage[]
@@ -75,6 +77,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ATTACH_ADD, paths) as Promise<AttachmentInfo[]>,
   addAttachmentData: (name: string, base64: string) =>
     ipcRenderer.invoke(IpcChannel.ATTACH_DATA, name, base64) as Promise<AttachmentInfo[]>,
+  readAttachmentImage: (target: string) =>
+    ipcRenderer.invoke(IpcChannel.ATTACH_READ_IMAGE, target) as Promise<string | null>,
   openAttachment: (target: string) =>
     ipcRenderer.invoke(IpcChannel.ATTACH_OPEN, target) as Promise<string | null>,
   openArtifact: (sessionId: string, relativePath: string) =>

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { AttachmentKind, AttachmentRef } from '@shared/ipc'
 
@@ -43,12 +44,29 @@ export function Attachments({
   items: AttachmentRef[]
   align?: 'start' | 'end'
 }): JSX.Element {
+  // A picture opens here, over the conversation; anything else still belongs
+  // to the app the OS keeps for it.
+  const [viewing, setViewing] = useState<{ name: string; src: string } | null>(null)
   const open = (item: AttachmentRef): void => {
-    void window.anticode.openAttachment(item.path)
+    if (item.kind !== 'image') {
+      void window.anticode.openAttachment(item.path)
+      return
+    }
+    void window.anticode.readAttachmentImage(item.path).then((src) => {
+      if (src === null) void window.anticode.openAttachment(item.path)
+      else setViewing({ name: item.name, src })
+    })
   }
 
   return (
     <div className={`flex flex-wrap gap-2 ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
+      {viewing !== null && (
+        <ImageViewer
+          name={viewing.name}
+          src={viewing.src}
+          onClose={() => setViewing(null)}
+        />
+      )}
       {items.map((item, index) =>
         item.thumbnail !== null ? (
           <button
@@ -82,6 +100,51 @@ export function Attachments({
           </button>
         )
       )}
+    </div>
+  )
+}
+
+/** A picture at full size, over the conversation. Escape or a click dismisses. */
+function ImageViewer({
+  name,
+  src,
+  onClose
+}: {
+  name: string
+  src: string
+  onClose: () => void
+}): JSX.Element {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-label={name}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-bg/95 p-8"
+    >
+      <img
+        src={src}
+        alt={name}
+        onClick={(event) => event.stopPropagation()}
+        className="max-h-[80vh] max-w-full rounded-lg object-contain"
+      />
+      <div className="flex items-center gap-3 text-[12.5px] text-faint">
+        <span className="max-w-96 truncate font-mono">{name}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md px-2 py-1 transition-colors hover:text-brand"
+        >
+          Close
+        </button>
+      </div>
     </div>
   )
 }

@@ -322,7 +322,6 @@ let currentSession = null;
 let currentRunId = null;
 let submitting = false;
 let streamReady = null;
-let sessionEventVersion = 0;
 let openedSessionId = null;
 let fileVersion = null;
 let savedContent = '';
@@ -354,6 +353,7 @@ async function pollApprovals() {
     // on a session that no longer exists.
     if (exists === false) {
       showError('Sesi ini sudah dihapus dari desktop.');
+      forgetLastSession();
       gotoSessions();
       return;
     }
@@ -599,8 +599,24 @@ async function startSession() {
   finally { creatingSession = false; }
 }
 
+/**
+ * While a run is live the phone follows the event stream, but a dropped delta
+ * would leave the transcript short until the run ended. A slow re-fetch keeps
+ * it honest without fighting the live append.
+ */
+let runSyncTimer = null;
+function scheduleRunSync(id) {
+  if (runSyncTimer !== null) { clearTimeout(runSyncTimer); runSyncTimer = null; }
+  if (currentRunId === null || currentSession !== id) return;
+  runSyncTimer = setTimeout(() => {
+    runSyncTimer = null;
+    if (currentRunId !== null && currentSession === id) void syncSession(id).catch(() => undefined);
+  }, 8000);
+}
+
 async function openSession(id) {
   currentSession = id;
+  try { sessionStorage.setItem(LAST_SESSION_KEY, id); } catch { /* private mode */ }
   currentRunId = null;
   liveEl = null;
   hideWorking();
@@ -614,10 +630,30 @@ async function openSession(id) {
   await listen(id);
   await syncSession(id);
 }
+/**
+ * A sync used to be thrown away whenever any event arrived while it was in
+ * flight — which, during a run, is always. That is why progress here arrived
+ * late and cut short until the page was reloaded. Only a *newer sync* may
+ * discard an older one now; live events append on top of whatever it drew.
+ */
+let syncSeq = 0;
+/* Text streaming in while the snapshot is in flight is not in that snapshot
+ * yet — the main process only records an assistant turn once it completes —
+ * so it is held here and put back after the re-render, instead of being wiped. */
+let syncing = false;
+let liveBuffer = '';
 async function syncSession(id) {
-  const version = sessionEventVersion;
-  const { messages, summaries, runId } = await jfetch('/api/session/' + id);
-  if (currentSession !== id || version !== sessionEventVersion) return;
+  const seq = ++syncSeq;
+  syncing = true;
+  liveBuffer = '';
+  let payload;
+  try {
+    payload = await jfetch('/api/session/' + id);
+  } finally {
+    if (seq === syncSeq) syncing = false;
+  }
+  const { messages, summaries, runId } = payload;
+  if (currentSession !== id || seq !== syncSeq) return;
   currentRunId = runId;
   hideWorking();
   liveEl = null;
@@ -629,7 +665,10 @@ async function syncSession(id) {
   // A group still holding an unfinished step already reads as working; a
   // second dot below it would double up on the desktop's single indicator.
   if (runId && !tailRunning) showWorking();
+  if (runId && liveBuffer !== '') appendLive(liveBuffer);
+  liveBuffer = '';
   updateSendBtn();
+  scheduleRunSync(id);
 }
 
 /* Tool calls fold into three simple groups, mirroring the desktop. */
@@ -911,7 +950,6 @@ function listen(id) {
   source.onmessage = async (e) => {
     if (currentSession !== id || eventSource !== source) return;
     const event = JSON.parse(e.data);
-    if (event.type !== 'usage') sessionEventVersion++;
     if (event.type === 'prompt') {
       currentRunId = event.runId; liveEl = null; liveGroup = null; hideWorking();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
@@ -989,6 +1027,7 @@ function redrawLiveGroup() {
 
 let liveEl = null;
 function appendLive(text) {
+  if (syncing) liveBuffer += text;
   const el = document.getElementById('transcript');
   if (liveEl === null || !el.contains(liveEl)) {
     liveEl = document.createElement('div');
@@ -1404,7 +1443,26 @@ document.addEventListener('click', (e) => {
     closeMenu();
   }
 });
-gotoSessions();
+/* A reload used to drop the user back on the session list even when they were
+ * reading a session. The last one opened is remembered for exactly that. */
+const LAST_SESSION_KEY = 'anticode:lastSession';
+function forgetLastSession() {
+  try { sessionStorage.removeItem(LAST_SESSION_KEY); } catch { /* private mode */ }
+}
+
+async function restoreLastSession() {
+  let remembered = null;
+  try { remembered = sessionStorage.getItem(LAST_SESSION_KEY); } catch { /* private mode */ }
+  if (remembered === null) { gotoSessions(); return; }
+  try {
+    const { sessions } = await jfetch('/api/overview');
+    lastSessions = sessions;
+    if (!sessions.some((entry) => entry.id === remembered)) { forgetLastSession(); gotoSessions(); return; }
+    await openSession(remembered);
+  } catch { forgetLastSession(); gotoSessions(); }
+}
+
+void restoreLastSession();
 </script>
 </body>
 </html>

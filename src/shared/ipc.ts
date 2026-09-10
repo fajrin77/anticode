@@ -13,12 +13,14 @@ export const IpcChannel = {
   ATTACH_CHOOSE: 'attachment:choose',
   ATTACH_ADD: 'attachment:add',
   ATTACH_OPEN: 'attachment:open',
+  ATTACH_READ_IMAGE: 'attachment:readImage',
   ATTACH_DATA: 'attachment:data',
   ARTIFACT_OPEN: 'artifact:open',
   ARTIFACT_SAVE: 'artifact:save',
   RUN_LIST: 'agent:runs',
   AGENT_SEND: 'agent:send',
   AGENT_CANCEL: 'agent:cancel',
+  SESSION_REVERT: 'session:revert',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
   APPROVAL_PENDING: 'approval:pending',
@@ -246,6 +248,8 @@ export interface AnticodeApi {
   onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
   /** Fires when a session is deleted from the remote phone. */
   onSessionClosed: (listener: (sessionId: string) => void) => () => void
+  /** Drops the last exchange and returns its prompt, for retyping. */
+  revertLastTurn: (sessionId: string) => Promise<string | null>
   getSessionSnapshot: (
     sessionId: string
   ) => Promise<{ messages: SnapshotMessage[]; summaries: RunSummary[] } | null>
@@ -270,6 +274,8 @@ export interface AnticodeApi {
   addAttachmentData: (name: string, base64: string) => Promise<AttachmentInfo[]>
   /** Opens an attachment in whatever app the OS associates with it. */
   openAttachment: (path: string) => Promise<string | null>
+  /** A data URL for an attached picture, so it opens inside the app. */
+  readAttachmentImage: (path: string) => Promise<string | null>
   /** Opens a file the agent produced, resolved inside the session's folder. */
   openArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   /** Save-a-copy dialog for a produced file; resolves to the chosen path. */

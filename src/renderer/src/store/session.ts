@@ -89,8 +89,12 @@ export interface ActiveRun {
 }
 
 interface SessionState {
-  drafts: Record<string, { text: string; attachments: AttachmentInfo[] }>
-  updateDraft: (id: string, patch: Partial<{ text: string; attachments: AttachmentInfo[] }>) => void
+  /** `quote` is a passage from the transcript the next prompt answers. */
+  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string }>
+  updateDraft: (
+    id: string,
+    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string }>
+  ) => void
   projects: Project[]
   sessions: Session[]
   /** Running totals per provider+model, kept across sessions for the dashboard. */
@@ -113,6 +117,8 @@ interface SessionState {
   /** Next badge-colour index; advances on every session creation. */
   nextColour: number
 
+  /** Puts a passage from the transcript above the composer, to be replied to. */
+  quoteInDraft: (id: string, quote: string) => void
   addProject: (root: string) => void
   openSession: (mode: SessionMode, projectRoot: string | null) => string
   selectSession: (id: string) => void
@@ -158,6 +164,8 @@ interface SessionState {
   addUserPrompt: (sessionId: string, text: string, attachments?: AttachmentRef[]) => void
   /** Notes a pause or a resume in a session's transcript, never twice running. */
   addNotice: (sessionId: string, text: string) => void
+  /** Drops the transcript back to before the last typed prompt. */
+  dropLastTurn: (sessionId: string) => void
   appendText: (sessionId: string, messageId: string, text: string) => void
   startTool: (
     sessionId: string,
@@ -235,6 +243,10 @@ function mapMessage(
 export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   drafts: {},
   updateDraft: (id, patch) => set((state) => ({ drafts: { ...state.drafts, [id]: { text: '', attachments: [], ...state.drafts[id], ...patch } } })),
+  quoteInDraft: (id, quote) =>
+    set((state) => ({
+      drafts: { ...state.drafts, [id]: { text: '', attachments: [], ...state.drafts[id], quote } }
+    })),
   projects: [],
   sessions: [],
   usage: [],
@@ -648,6 +660,21 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             }
           ]
         }
+      })
+    })),
+
+  // Mirrors what the main process just did to the real history: everything
+  // from the last typed prompt onwards is gone, markers included.
+  dropLastTurn: (sessionId) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => {
+        for (let i = session.messages.length - 1; i >= 0; i--) {
+          const message = session.messages[i]
+          if (message?.role !== 'user') continue
+          if (!message.parts.some((part) => part.kind === 'text')) continue
+          return { ...session, messages: session.messages.slice(0, i) }
+        }
+        return session
       })
     })),
 

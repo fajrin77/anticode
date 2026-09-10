@@ -301,6 +301,39 @@ export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null
   return toSnapshot(live.agent?.snapshot().messages ?? live.messages)
 }
 
+/**
+ * Undoes the last exchange in a session and returns the prompt that started
+ * it, so a wrong prompt can be corrected instead of argued with. The run's
+ * summary goes with it — the turn it described no longer exists.
+ */
+export function revertLastTurn(sessionId: string): string | null {
+  const live = sessions.get(sessionId)
+  if (live === undefined) return null
+  if (runForSession(sessionId) !== null) {
+    throw new Error('Pause this session before reverting its last turn')
+  }
+  const reverted = live.agent?.revertLastTurn() ?? null
+  if (reverted === null) {
+    // No agent yet: the session is still just its stored messages.
+    for (let i = live.messages.length - 1; i >= 0; i--) {
+      const message = live.messages[i]
+      if (message?.role !== 'user') continue
+      const text = message.content.find(
+        (block) => block.type === 'text' && block.attachment === undefined
+      )
+      if (text === undefined || text.type !== 'text') continue
+      live.messages.length = i
+      live.summaries.pop()
+      persistSessions()
+      return text.text
+    }
+    return null
+  }
+  live.summaries.pop()
+  persistSessions()
+  return reverted
+}
+
 /** Closes a run: appends what it cost, for every viewer of this session. */
 export function recordRunSummary(sessionId: string, summary: RunSummary): void {
   sessions.get(sessionId)?.summaries.push(summary)

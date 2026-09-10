@@ -21,14 +21,12 @@ const RECENT_TOOL_TURNS = 3
 const STUB_CHARS = 300
 /** Stubbing only pays off once there is real bulk to remove. */
 const STUB_MIN_LENGTH = STUB_CHARS + 400
-/**
- * Ceilings for a single run, not for a session: they stop a loop that never
- * ends from burning the key, and resuming starts a fresh run on the same
- * history. A long refactor honestly spends hundreds of turns, so the turn
- * budget sits well above the point where real work stops and looping begins.
+/*
+ * A run has no turn or token ceiling. Long work has to be allowed to finish,
+ * and a cap that stops it mid-task costs more than it saves — the work is
+ * half-done and the next run replays the whole history to catch up. Pause is
+ * the stop button, and it reaches this run from either device.
  */
-const TURN_BUDGET = 500
-const TOKEN_BUDGET = 2_000_000
 
 interface RunParams {
   runId: string
@@ -139,17 +137,13 @@ export class AgentSession {
       content: [...(params.attachments ?? []), { type: 'text', text: prompt }]
     })
 
-    let usedTokens = 0
     try {
-      for (let step = 0; ; step++) {
-        if (usedTokens >= TOKEN_BUDGET) throw new Error(`Run paused: this run spent its ${TOKEN_BUDGET / 1_000_000} million token budget. Press resume to carry on from here.`)
-        if (step >= TURN_BUDGET) throw new Error(`Run paused: this run reached ${TURN_BUDGET} model turns, the guard against a loop that never ends. Press resume to carry on from here.`)
+      for (;;) {
         if (signal.aborted) break
 
         this.condenseHistory()
         this.trimHistory()
         const response = await this.requestTurn(params)
-        usedTokens += response.usage.inputTokens + response.usage.outputTokens
         this.record({ role: 'assistant', content: response.content })
         emit({
           type: 'usage',
@@ -436,6 +430,33 @@ export class AgentSession {
   }
 
   get messageCount(): number { return this.transcript.length }
+
+  /**
+   * Drops the most recent exchange — the last typed prompt and everything the
+   * run made of it — and hands the prompt back so it can be corrected and sent
+   * again. Only meaningful between runs; the caller cancels first.
+   *
+   * `history` is the replayed context and `transcript` is the record: they are
+   * condensed and trimmed differently, but only ever from the front, so their
+   * tails stay in step and the same count comes off both.
+   */
+  revertLastTurn(): string | null {
+    for (let i = this.transcript.length - 1; i >= 0; i--) {
+      const message = this.transcript[i]
+      if (message?.role !== 'user') continue
+      // Tool results are also user turns; the prompt is the one with prose.
+      const text = message.content.find(
+        (block): block is Extract<ContentBlock, { type: 'text' }> =>
+          block.type === 'text' && block.attachment === undefined
+      )
+      if (text === undefined) continue
+      const removed = this.transcript.length - i
+      this.transcript.length = i
+      this.history.length = Math.max(0, this.history.length - removed)
+      return text.text
+    }
+    return null
+  }
 
   private record(message: Message): void { this.history.push(message); this.transcript.push(message) }
 

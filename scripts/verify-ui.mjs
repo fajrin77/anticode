@@ -323,6 +323,60 @@ try {
     clipped.includes('Fixture reply: ringkasan') && /\d+ tokens/.test(clipped) ? 'both' : clipped.slice(0,40), 'both')
   await shot('22-closing-line')
 
+  // Selecting part of a reply offers to answer that passage: the quote rides
+  // above the composer and travels with the prompt.
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await composer().fill('kutip aku'); await composer().press('Enter')
+  await window.getByText(/Fixture reply: kutip aku/).waitFor(); await window.waitForTimeout(400)
+  await window.evaluate(() => {
+    const node = [...document.querySelectorAll('[data-transcript] div')].find(
+      (el) => el.textContent.trim() === 'Fixture reply: kutip aku' && el.children.length === 0)
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await window.waitForTimeout(300)
+  const balas = window.getByRole('button',{name:'Balas',exact:true})
+  check('selecting a reply offers Balas', await balas.count(), 1)
+  await balas.click(); await window.waitForTimeout(300)
+  check('the quote lands above the composer',
+    await window.getByText('Membalas').count() > 0 ? 'shown' : 'missing', 'shown')
+  await shot('23-reply-to-selection')
+  await composer().fill('jelaskan ini')
+  await composer().press('Enter')
+  await window.waitForTimeout(900)
+  const quoted = await window.evaluate(() =>
+    window.__store.getState().sessions.flatMap((s) => s.messages)
+      .filter((m) => m.role === 'user')
+      .flatMap((m) => m.parts)
+      .some((p) => p.kind === 'text' && p.text.startsWith('> Fixture reply: kutip aku') && p.text.includes('jelaskan ini')))
+  check('the quote is sent with the prompt', quoted ? 'sent' : 'lost', 'sent')
+  check('the quote chip clears after sending',
+    await window.getByText('Membalas').count() === 0 ? 'cleared' : 'stuck', 'cleared')
+
+  // Pausing offers to take the last prompt back for editing.
+  await composer().fill('slow please'); await composer().press('Enter')
+  await window.waitForTimeout(700)
+  await window.getByRole('button',{name:'Pause'}).click(); await window.waitForTimeout(500)
+  const revert = window.getByRole('button',{name:/Revert/})
+  check('pausing offers Revert', await revert.count(), 1)
+  await revert.click(); await window.waitForTimeout(700)
+  check('reverting puts the prompt back in the box', await composer().inputValue(), 'slow please')
+  // Scoped to this session: an earlier check sends the same words elsewhere.
+  const gone = await window.evaluate(() => {
+    const state = window.__store.getState()
+    const session = state.sessions.find((s) => s.id === state.activeSessionId)
+    return (session?.messages ?? [])
+      .flatMap((m) => m.parts)
+      .some((p) => p.kind === 'text' && p.text === 'slow please')
+  })
+  check('reverting removes the turn from the transcript', gone ? 'still there' : 'gone', 'gone')
+  await shot('24-reverted')
+
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})

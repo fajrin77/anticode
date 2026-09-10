@@ -75,6 +75,10 @@ export function Composer({
   const savedDraft = useSessionStore((state) => state.drafts[session?.id ?? ''])
   const draft = savedDraft?.text ?? ''
   const attached = savedDraft?.attachments ?? []
+  const quote = savedDraft?.quote ?? ''
+  const clearQuote = (): void => {
+    if (session) useSessionStore.getState().quoteInDraft(session.id, '')
+  }
   const setDraft = (text: string): void => { if (session) useSessionStore.getState().updateDraft(session.id, { text }) }
   const setAttached = (next: AttachmentInfo[] | ((items: AttachmentInfo[]) => AttachmentInfo[])): void => {
     if (session) {
@@ -100,6 +104,7 @@ export function Composer({
   )
   const pauseSession = useSessionStore((state) => state.pauseSession)
   const resumeSession = useSessionStore((state) => state.resumeSession)
+  const dropLastTurn = useSessionStore((state) => state.dropLastTurn)
 
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
@@ -212,6 +217,20 @@ export function Composer({
     }
   }
 
+  // Pausing because the prompt was wrong: take the exchange back out of the
+  // history and put the prompt in the box, ready to be fixed and sent again.
+  async function revert(): Promise<void> {
+    if (session === undefined) return
+    try {
+      const prompt = await window.anticode.revertLastTurn(session.id)
+      dropLastTurn(session.id)
+      resumeSession(session.id)
+      if (prompt !== null) setDraft(prompt)
+    } catch (failure) {
+      setError((failure as Error).message)
+    }
+  }
+
   async function send(): Promise<void> {
     const prompt = draft.trim()
     if (!canSend || session === undefined) {
@@ -227,17 +246,21 @@ export function Composer({
     }
 
     const attachmentIds = attached.map((item) => item.id)
+    // A quoted passage travels with the prompt so the model answers the part
+    // that was selected, and shows in the transcript for the same reason.
+    const shown = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
     // The files are drawn as pictures and cards; only the typed prompt is text.
     const parts: MessagePart[] =
       attached.length > 0
         ? [
             { kind: 'attachments', items: attached.map(({ id: _id, preview: _preview, ...ref }) => ref) },
-            { kind: 'text', text: prompt }
+            { kind: 'text', text: shown }
           ]
-        : [{ kind: 'text', text: prompt }]
+        : [{ kind: 'text', text: shown }]
 
     setDraft('')
     setAttached([])
+    clearQuote()
     addMessage({ id: crypto.randomUUID(), role: 'user', parts, pending: false })
 
     const messageId = crypto.randomUUID()
@@ -256,7 +279,7 @@ export function Composer({
       })
     }
 
-      await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt, attachmentIds })
+      await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds })
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the composer.
       setError((failure as Error).message)
@@ -288,6 +311,24 @@ export function Composer({
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
         )}
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
+
+        {quote !== '' && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-line bg-surface px-3 py-2">
+            <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
+            <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
+              <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
+              <span className="line-clamp-3 block whitespace-pre-wrap">{quote}</span>
+            </span>
+            <button
+              type="button"
+              onClick={clearQuote}
+              aria-label="Remove quote"
+              className="shrink-0 text-faint transition-colors hover:text-brand"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {attached.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -388,6 +429,7 @@ export function Composer({
                 void send()
               }
             }}
+            data-composer
             className="max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] text-text outline-none placeholder:text-faint"
           />
 
@@ -450,6 +492,21 @@ export function Composer({
             </Chip>
 
             <div className="flex-1" />
+
+            {isPaused && !isStreaming && (
+              <button
+                type="button"
+                onClick={() => void revert()}
+                title="Take back the last prompt and edit it"
+                className="mr-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                  <path d="M6 4.5L2.5 8 6 11.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M2.5 8h7a4 4 0 0 1 0 8H8" strokeLinecap="round" />
+                </svg>
+                Revert
+              </button>
+            )}
 
             <button
               type="button"

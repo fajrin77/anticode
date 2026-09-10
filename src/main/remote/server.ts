@@ -20,6 +20,7 @@ import {
   listSessionSummaries,
   loadSessionMessages,
   loadSessionSummaries,
+  revertLastTurn,
   selectProvider,
   sessionWorkspaceRoot
 } from '../runtime'
@@ -245,6 +246,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     if (req.method === 'POST' && url.pathname === '/api/prompt') {
       return json(res, 200, await startPrompt(body))
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/revert') {
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      return json(res, 200, { prompt: revertLastTurn(sessionId) })
     }
 
     if (req.method === 'GET' && url.pathname === '/api/approvals') {

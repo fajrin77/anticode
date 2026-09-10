@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useActiveSession } from '../store/session'
+import { useActiveSession, useSessionStore } from '../store/session'
 import type { Message, MessagePart } from '../store/session'
 import { ToolBlock } from './ToolBlock'
 import { RichText } from './RichText'
@@ -350,6 +350,56 @@ function RunSummaryCard({
   )
 }
 
+/**
+ * Selecting part of a reply offers to answer that passage: the button follows
+ * the selection, and clicking it carries the text to the composer.
+ */
+function ReplyToSelection({ sessionId }: { sessionId: string }): JSX.Element {
+  const [at, setAt] = useState<{ x: number; y: number; text: string } | null>(null)
+  const quoteInDraft = useSessionStore((state) => state.quoteInDraft)
+
+  useEffect(() => {
+    function onSelect(): void {
+      const selection = window.getSelection()
+      const text = selection?.toString().trim() ?? ''
+      if (selection === null || selection.rangeCount === 0 || text === '') {
+        setAt(null)
+        return
+      }
+      // Only the conversation is quotable; the composer and chrome are not.
+      const anchor = selection.anchorNode
+      const host = anchor instanceof Element ? anchor : anchor?.parentElement
+      if (host?.closest('[data-transcript]') == null) {
+        setAt(null)
+        return
+      }
+      const box = selection.getRangeAt(0).getBoundingClientRect()
+      setAt({ x: box.left + box.width / 2, y: box.top, text })
+    }
+    document.addEventListener('selectionchange', onSelect)
+    return () => document.removeEventListener('selectionchange', onSelect)
+  }, [])
+
+  if (at === null) return <></>
+  return (
+    <button
+      type="button"
+      // Kept off mousedown so the click lands before the selection collapses.
+      onMouseDown={(event) => {
+        event.preventDefault()
+        quoteInDraft(sessionId, at.text)
+        window.getSelection()?.removeAllRanges()
+        setAt(null)
+        document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
+      }}
+      style={{ left: at.x, top: at.y - 10 }}
+      className="fixed z-40 -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-raised px-3 py-1.5 text-[12.5px] text-text shadow-2xl transition-colors hover:text-brand"
+    >
+      Balas
+    </button>
+  )
+}
+
 export function SessionView(): JSX.Element {
   const session = useActiveSession()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -361,8 +411,9 @@ export function SessionView(): JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <ReplyToSelection sessionId={session?.id ?? ''} />
       <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-4">
-        <div className="mx-auto max-w-3xl pb-6">
+        <div data-transcript className="mx-auto max-w-3xl pb-6">
           {messages.map((message) => (
             <MessageView key={message.id} message={message} sessionId={session?.id ?? ''} />
           ))}

@@ -155,6 +155,16 @@ try {
   const turns = summarised.messages.filter(m=>m.role==='assistant').length
   assert(summarised.summaries.length <= turns)
   log('a finished run records what it cost, for both viewers')
+
+  // Reverting takes the last exchange out of the real history, not just the
+  // screen — the next run must not still see the prompt that was withdrawn.
+  const beforeRevert = (await api('/api/session/'+sessionId)).messages.length
+  const reverted = await api('/api/revert',{sessionId})
+  assert.equal(typeof reverted.prompt, 'string')
+  const afterRevert = (await api('/api/session/'+sessionId)).messages
+  assert(afterRevert.length < beforeRevert)
+  assert(!afterRevert.some(m=>m.blocks.some(b=>b.type==='text' && b.text===reverted.prompt)))
+  log('reverting drops the last exchange from the real history')
   const before = await api('/api/session/'+sessionId)
   assert(before.messages.length>0)
   await window.reload()
