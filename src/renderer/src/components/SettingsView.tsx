@@ -153,7 +153,7 @@ function Providers({
         <button
           type="button"
           onClick={() => setAdding((value) => !value)}
-          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-text"
+          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
         >
           + Add provider
         </button>
@@ -223,7 +223,7 @@ function Providers({
                     type="button"
                     onClick={() => setKind(option.value)}
                     className={`flex-1 rounded-md px-2 py-1.5 text-[12.5px] transition-colors ${
-                      kind === option.value ? 'bg-hover text-text' : 'text-dim hover:text-text'
+                      kind === option.value ? 'bg-hover text-text' : 'text-dim hover:text-brand'
                     }`}
                   >
                     {option.label}
@@ -264,7 +264,7 @@ function Providers({
             <button
               type="button"
               onClick={() => setAdding(false)}
-              className="rounded-lg px-3 py-2 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-text"
+              className="rounded-lg px-3 py-2 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
             >
               Cancel
             </button>
@@ -272,7 +272,7 @@ function Providers({
               type="button"
               onClick={add}
               disabled={!valid}
-              className="rounded-lg bg-hover px-4 py-2 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] disabled:cursor-not-allowed disabled:text-faint"
+              className="rounded-lg bg-hover px-4 py-2 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
             >
               Add provider
             </button>
@@ -328,11 +328,15 @@ function Models({
               key={id}
               type="button"
               onClick={() => onSelectProvider(provider, id)}
-              className={`flex w-full items-center gap-3 border-b border-line-soft px-5 py-3.5 text-left transition-colors last:border-b-0 ${
+              className={`group flex w-full items-center gap-3 border-b border-line-soft px-5 py-3.5 text-left transition-colors last:border-b-0 ${
                 active ? 'bg-raised' : 'hover:bg-raised'
               }`}
             >
-              <span className={`min-w-0 truncate font-mono text-[13px] ${active ? 'text-text' : 'text-dim'}`}>
+              <span
+                className={`min-w-0 truncate font-mono text-[13px] transition-colors ${
+                  active ? 'text-text' : 'text-dim group-hover:text-brand'
+                }`}
+              >
                 {id}
               </span>
               {active && <span className="ml-auto shrink-0 text-[11.5px] text-faint">active</span>}
@@ -419,7 +423,7 @@ function Remote(): JSX.Element {
                         window.setTimeout(() => setCopied(false), 1500)
                       })
                     }}
-                    className="rounded-lg bg-hover px-3 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a]"
+                    className="rounded-lg bg-hover px-3 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand"
                   >
                     {copied ? 'Copied' : 'Copy URL'}
                   </button>
@@ -427,7 +431,7 @@ function Remote(): JSX.Element {
                     type="button"
                     onClick={regenerate}
                     title="Invalidate the current link and issue a fresh one"
-                    className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-text"
+                    className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
                   >
                     New pairing link
                   </button>
@@ -508,7 +512,7 @@ export function SettingsView({
               type="button"
               onClick={() => setSection(item.id)}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] transition-colors ${
-                section === item.id ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-text'
+                section === item.id ? 'bg-hover text-text' : 'text-dim hover:bg-raised hover:text-brand'
               }`}
             >
               {item.icon}
@@ -520,7 +524,7 @@ export function SettingsView({
         <button
           type="button"
           onClick={onBack}
-          className="mt-auto px-3 text-left text-[12.5px] text-faint transition-colors hover:text-text"
+          className="mt-auto px-3 text-left text-[12.5px] text-faint transition-colors hover:text-brand"
         >
           ← Back
         </button>

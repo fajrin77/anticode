@@ -78,7 +78,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           <button
             type="button"
             onClick={() => onDecide('reject')}
-            className={`rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-text ${
+            className={`rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand ${
               request.risk === 'high' ? '' : 'ml-auto'
             }`}
           >
@@ -89,7 +89,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
             <button
               type="button"
               onClick={() => onDecide('always')}
-              className="rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-text"
+              className="rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
             >
               Always allow
             </button>
@@ -98,7 +98,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           <button
             type="button"
             onClick={() => onDecide('approve')}
-            className="rounded-md bg-hover px-4 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a]"
+            className="rounded-md bg-hover px-4 py-1.5 text-[12.5px] text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand"
           >
             Approve
           </button>

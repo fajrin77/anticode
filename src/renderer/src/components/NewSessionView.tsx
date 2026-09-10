@@ -178,7 +178,7 @@ function DashboardComposer({
                 <button
                   type="button"
                   onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                  className="text-faint hover:text-text"
+                  className="text-faint transition-colors hover:text-brand"
                 >
                   ×
                 </button>
@@ -217,12 +217,14 @@ function DashboardComposer({
                     onToggleAutoApprove(option.value)
                     setMenu('none')
                   }}
-                  className={`w-full rounded px-2 py-1.5 text-left transition-colors hover:bg-hover ${
+                  className={`group w-full rounded px-2 py-1.5 text-left transition-colors hover:bg-hover hover:text-brand ${
                     status?.autoApprove === option.value ? 'text-text' : 'text-dim'
                   }`}
                 >
                   <div className="text-[12.5px]">{option.name}</div>
-                  <div className="text-[11px] text-faint">{option.hint}</div>
+                  <div className="text-[11px] text-faint transition-colors group-hover:text-brand">
+                    {option.hint}
+                  </div>
                 </button>
               ))}
               <p className="px-2 py-1.5 text-[11px] text-faint">
@@ -272,7 +274,7 @@ function DashboardComposer({
               onClick={() => void send()}
               disabled={sending}
               aria-label={sending ? 'Sending' : 'Send'}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] disabled:cursor-not-allowed disabled:text-faint"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-hover text-text transition-colors hover:bg-[#3a3a3a] hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
             >
               {sending ? (
                 <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />

@@ -56,7 +56,7 @@ export function ModelPicker({
                 entry.id === provider
                   ? 'bg-hover text-text'
                   : entry.credentialAvailable
-                    ? 'text-dim hover:bg-hover'
+                    ? 'text-dim hover:bg-hover hover:text-brand'
                     : 'text-faint'
               }`}
             >
@@ -99,7 +99,7 @@ export function ModelPicker({
           <button
             type="button"
             onClick={() => onSelect(provider, query.trim())}
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] text-dim hover:bg-hover"
+            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
           >
             Use this id: {query.trim()}
           </button>
@@ -110,7 +110,7 @@ export function ModelPicker({
             key={id}
             type="button"
             onClick={() => onSelect(provider, id)}
-            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover ${
+            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover hover:text-brand ${
               id === status?.model ? 'text-code' : 'text-dim'
             }`}
           >
@@ -135,7 +135,7 @@ export function ModelPicker({
                 setLoading(false)
               })
             }}
-            className="hover:text-text"
+            className="transition-colors hover:text-brand"
           >
             Reload
           </button>

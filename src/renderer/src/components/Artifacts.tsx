@@ -63,7 +63,7 @@ export function Artifacts({
                 .then((failure) => setError(failure))
                 .catch((failure: Error) => setError(failure.message))
             }}
-            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-text"
+            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
           >
             Open
           </button>
@@ -78,7 +78,7 @@ export function Artifacts({
                 })
                 .catch((failure: Error) => setError(failure.message))
             }}
-            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-text"
+            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
           >
             Download
           </button>

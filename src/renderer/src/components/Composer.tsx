@@ -319,7 +319,7 @@ export function Composer({
                   type="button"
                   title="Remove"
                   onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                  className="absolute top-1 right-1.5 text-faint hover:text-text"
+                  className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
                 >
                   ×
                 </button>
@@ -358,12 +358,14 @@ export function Composer({
                     onToggleAutoApprove(option.value)
                     setMenu('none')
                   }}
-                  className={`w-full rounded px-2 py-1.5 text-left transition-colors hover:bg-hover ${
+                  className={`group w-full rounded px-2 py-1.5 text-left transition-colors hover:bg-hover hover:text-brand ${
                     status?.autoApprove === option.value ? 'text-text' : 'text-dim'
                   }`}
                 >
                   <div className="text-[12.5px]">{option.name}</div>
-                  <div className="text-[11px] text-faint">{option.hint}</div>
+                  <div className="text-[11px] text-faint transition-colors group-hover:text-brand">
+                    {option.hint}
+                  </div>
                 </button>
               ))}
               <p className="px-2 py-1.5 text-[11px] text-faint">
@@ -481,7 +483,7 @@ export function Composer({
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                 isPaused
                   ? 'bg-brand text-bg hover:bg-brand-strong'
-                  : 'bg-hover text-text hover:bg-[#3a3a3a]'
+                  : 'bg-hover text-text hover:bg-[#3a3a3a] hover:text-brand'
               }`}
             >
               {isStreaming && !isPaused ? (

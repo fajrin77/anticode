@@ -339,7 +339,7 @@ export function App(): JSX.Element {
           <button
             type="button"
             onClick={() => setAppError(null)}
-            className="shrink-0 rounded-md px-2 py-0.5 text-dim transition-colors hover:bg-hover hover:text-text"
+            className="shrink-0 rounded-md px-2 py-0.5 text-dim transition-colors hover:bg-hover hover:text-brand"
           >
             Dismiss
           </button>

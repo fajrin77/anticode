@@ -167,6 +167,65 @@ try {
   check('a produced document is offered for download', offered > 0 ? 'offered' : 'missing', 'offered')
   await shot('15-produced-document')
 
+  // Lime is the one accent, and it marks what the cursor can touch: every icon
+  // and every text button turns lime on hover. The rule is written down in
+  // CLAUDE.md; this sweep is what keeps it from quietly rotting.
+  // Chromium recomputes :hover from the real cursor whenever the app
+  // re-renders (the status poll does, every 5s) and the colour transition
+  // takes 150ms, so each control is re-hovered until its colour settles.
+  const limeOnHover = async (name, locator) => {
+    const target = locator.first()
+    let colour = ''
+    for (let attempt = 0; attempt < 8 && colour !== LIME; attempt++) {
+      await target.hover()
+      await window.waitForTimeout(200)
+      colour = await colourOf(target)
+    }
+    check(name + ' turns lime on hover', colour, LIME)
+  }
+
+  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(400)
+  await limeOnHover('dashboard: search icon', window.getByTitle('Search sessions'))
+  await limeOnHover('dashboard: attach +', window.getByTitle('Attach files'))
+  await limeOnHover('dashboard: model chip', window.locator('button:has(span.font-mono)'))
+  await limeOnHover('dashboard: approval chip', window.getByText('Default',{exact:true}))
+  await limeOnHover('dashboard: antichat label', window.getByRole('button',{name:'antichat',exact:true}))
+  await limeOnHover('dashboard: send arrow', window.getByRole('button',{name:'Send'}))
+  await limeOnHover('dashboard: session row title', window.locator('.group button div.truncate'))
+  await window.getByText('Default',{exact:true}).click(); await window.waitForTimeout(250)
+  await limeOnHover('dashboard: approval menu hint', window.getByText('Skip prompts for medium risk'))
+  await window.keyboard.press('Escape'); await window.waitForTimeout(250)
+
+  // Deleting a session is destructive; red is a warning lime would erase.
+  const destructive = window.getByRole('button',{name:'Delete session'}).first()
+  await destructive.hover(); await window.waitForTimeout(250)
+  check('dashboard: delete stays red', await colourOf(destructive), 'rgb(224, 108, 108)')
+  await shot('16-lime-dashboard')
+
+  await window.getByRole('button',{name:/Fixture reply|halo dunia/}).first().click().catch(() => {})
+  await window.locator('header .group button').first().click(); await window.waitForTimeout(400)
+  await limeOnHover('tab bar: usage icon', window.getByTitle('Session usage'))
+  await limeOnHover('tab bar: new tab +', window.getByRole('button',{name:'New tab',exact:true}))
+  await limeOnHover('tab bar: close x', window.getByRole('button',{name:'Close tab'}))
+  await limeOnHover('session: attach +', window.getByTitle('Attach files'))
+  await composer().fill('draft')
+  await limeOnHover('session: send arrow', window.getByRole('button',{name:'Send'}))
+  await composer().fill('')
+  await limeOnHover('transcript: run summary', window.locator('button:has(span.bg-add)'))
+  await shot('17-lime-session')
+
+  await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
+  await limeOnHover('model picker: model row', window.locator('button.font-mono'))
+  await limeOnHover('model picker: Reload', window.getByRole('button',{name:'Reload'}))
+  await window.keyboard.press('Escape'); await window.waitForTimeout(250)
+
+  await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
+  await limeOnHover('settings: sidebar section', window.getByRole('button',{name:/Providers/}))
+  await window.getByRole('button',{name:/Providers/}).click(); await window.waitForTimeout(300)
+  await limeOnHover('settings: add provider', window.getByRole('button',{name:'+ Add provider'}))
+  await limeOnHover('settings: version line', window.locator('button.mt-auto'))
+  await shot('18-lime-settings')
+
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})

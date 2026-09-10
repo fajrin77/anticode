@@ -46,7 +46,7 @@ function ToolGroup({ parts }: { parts: ToolPart[] }): JSX.Element {
             className={`h-2 w-2 shrink-0 rounded-full ${failed > 0 ? 'bg-del' : 'bg-faint'}`}
           />
         )}
-        <span className="min-w-0 flex-1 truncate text-[14px] text-dim">
+        <span className="min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand">
           {running
             ? `working · ${parts.length} steps`
             : failed > 0
@@ -226,7 +226,7 @@ function RunSummaryCard({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-opacity hover:text-dim ${
+        className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-[opacity,color] hover:text-brand ${
           open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         }`}
       >

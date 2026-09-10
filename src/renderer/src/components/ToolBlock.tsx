@@ -39,8 +39,8 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
         className="group flex w-full items-baseline gap-2.5 text-left"
       >
         <span
-          className={`shrink-0 text-[15px] ${
-            part.status === 'error' ? 'text-del' : 'text-text'
+          className={`shrink-0 text-[15px] transition-colors ${
+            part.status === 'error' ? 'text-del' : 'text-text group-hover:text-brand'
           }`}
         >
           {label(part.name)}

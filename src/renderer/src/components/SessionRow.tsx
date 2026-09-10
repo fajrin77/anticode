@@ -34,7 +34,9 @@ export function SessionRow({
           <Badge label={badgeLabel(session)} colour={session.colour} size="md" spinning={spinning} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13.5px] text-text">{session.title}</div>
+          <div className="truncate text-[13.5px] text-text transition-colors group-hover:text-brand">
+            {session.title}
+          </div>
           {/* Code sessions always name the folder they are bound to. */}
           <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-faint">
             {session.mode === 'chat' ? (

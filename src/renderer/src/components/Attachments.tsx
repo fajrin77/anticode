@@ -20,11 +20,11 @@ export function formatBytes(size: number): string {
 function FileGlyph({ kind }: { kind: AttachmentKind }): JSX.Element {
   return (
     <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
-      <svg width="26" height="30" viewBox="0 0 26 30" fill="none" stroke="currentColor" strokeWidth="1.4" className="text-faint">
+      <svg width="26" height="30" viewBox="0 0 26 30" fill="none" stroke="currentColor" strokeWidth="1.4" className="text-faint transition-colors group-hover:text-brand">
         <path d="M4 1.5h11L22 8v20.5H4z" />
         <path d="M15 1.5V8h7" />
       </svg>
-      <span className="absolute bottom-1 text-[7px] leading-none font-semibold tracking-wider text-dim">
+      <span className="absolute bottom-1 text-[7px] leading-none font-semibold tracking-wider text-dim transition-colors group-hover:text-brand">
         {KIND_TAG[kind]}
       </span>
     </span>
@@ -70,11 +70,13 @@ export function Attachments({
             type="button"
             onClick={() => open(item)}
             title={item.path}
-            className="flex max-w-72 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-colors hover:border-dim"
+            className="group flex max-w-72 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-colors hover:border-dim"
           >
             <FileGlyph kind={item.kind} />
             <span className="min-w-0">
-              <span className="block truncate text-[13px] text-text">{item.name}</span>
+              <span className="block truncate text-[13px] text-text transition-colors group-hover:text-brand">
+                {item.name}
+              </span>
               <span className="block text-[11.5px] text-faint">{formatBytes(item.size)}</span>
             </span>
           </button>

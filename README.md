@@ -157,6 +157,14 @@ buka tab baru untuk mengambil perubahan.
 `dist`, dan kawan-kawannya) serta melaporkan berapa banyak yang diabaikan, supaya context tidak
 banjir derau. Folder ambigu seperti `build` dan `out` sengaja tidak diabaikan.
 
+## Warna dan interaksi
+
+Satu aksen saja: lime `#d1fa22` (`text-brand`). Warna itu menandai apa yang bisa disentuh kursor —
+setiap ikon dan setiap tombol berbentuk teks berubah lime saat didekati. Aturan lengkapnya, termasuk
+tiga pengecualian (aksi merusak tetap merah, kontrol yang sudah berlatar lime tetap gelap, keadaan
+aktif memakai warna penuh) ada di [CLAUDE.md](CLAUDE.md), dan dijaga oleh sapuan hover di
+`npm run test:ui`.
+
 ## Lampiran
 
 Klik **+**, seret berkas ke kolom input, atau tempel tangkapan layar langsung dari clipboard. Di HP,
