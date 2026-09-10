@@ -33,7 +33,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
+        active ? 'glass-control border text-text' : 'glass-ghost text-dim hover:text-brand'
       }`}
     >
       {children}
@@ -278,7 +278,7 @@ function DashboardComposer({
               type="button"
               title="Attach files"
               onClick={() => collect(window.anticode.chooseAttachments())}
-              className="glass-control flex h-7 w-7 items-center justify-center rounded-md border text-dim transition-colors hover:text-brand"
+              className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
             >
               +
             </button>
@@ -307,7 +307,7 @@ function DashboardComposer({
                 (!ready && !(status?.providerReady === true && mode === 'code' && folder === null))
               }
               aria-label={sending ? 'Sending' : 'Send'}
-              className="glass-control flex h-8 w-8 items-center justify-center rounded-lg border text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+              className="glass-ghost flex h-8 w-8 items-center justify-center rounded-lg text-text hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
             >
               {sending ? (
                 <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
@@ -461,8 +461,8 @@ export function NewSessionView({
         setQuery('')
       }}
       title="Search sessions"
-      className={`glass-control flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
-        searchOpen ? 'border-dim text-brand' : 'border-line text-dim hover:text-brand'
+      className={`glass-ghost flex h-9 w-9 items-center justify-center rounded-lg hover:text-brand ${
+        searchOpen ? 'text-brand' : 'text-dim'
       }`}
     >
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

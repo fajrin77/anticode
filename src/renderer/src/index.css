@@ -100,40 +100,89 @@ body {
   backdrop-filter: blur(14px) saturate(115%);
 }
 
-/* The chrome fades into the page instead of ending in an opaque strip. Tabs
-   keep a lighter version of the composer material so they read as floating. */
+/* The chrome floats over the page, and the transcript scrolls underneath it.
+   Its blur is progressive: heaviest at the window's top edge and thinning to
+   nothing at the header's bottom, so there is no line where the chrome ends —
+   text just goes soft as it rises. Four stacked layers stand in for a true
+   variable blur; each blurs what the one before already blurred and stops
+   higher up. They sit in their own element so the masks never touch the tabs. */
 .desktop-header-glass {
   position: relative;
   z-index: 30;
+}
+
+.header-fade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(24, 24, 24, 0.7) 0%,
-    rgba(24, 24, 24, 0.34) 62%,
-    rgba(24, 24, 24, 0.06) 100%
+    rgba(26, 26, 26, 0.8) 0%,
+    rgba(26, 26, 26, 0.55) 50%,
+    rgba(26, 26, 26, 0) 100%
   );
-  -webkit-backdrop-filter: blur(22px) saturate(120%);
-  backdrop-filter: blur(22px) saturate(120%);
 }
 
-.glass-tab {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.04), transparent 54%),
-    rgba(38, 38, 38, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.045);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
-  -webkit-backdrop-filter: blur(14px) saturate(115%);
-  backdrop-filter: blur(14px) saturate(115%);
+.header-fade > span {
+  position: absolute;
+  inset: 0;
 }
 
-.glass-tab.glass-control {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.075), transparent 52%),
-    rgba(46, 46, 46, 0.48);
-  border-color: rgba(255, 255, 255, 0.11);
+.header-fade > span:nth-child(1) {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 60%, transparent 100%);
+}
+
+.header-fade > span:nth-child(2) {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+}
+
+.header-fade > span:nth-child(3) {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 70%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 70%);
+}
+
+.header-fade > span:nth-child(4) {
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 15%, transparent 55%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 15%, transparent 55%);
+}
+
+/* Tabs and icon tools show only their glyph or label: the box keeps its size
+   and its one-pixel border, but both stay transparent until the cursor (or
+   the keyboard) is on it. Hover lime is still the text colour's job. */
+.glass-ghost {
+  background-color: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-duration: 150ms;
+}
+
+.glass-ghost:where(:hover, :focus-visible, :has(:focus-visible)):not(:disabled) {
+  background-color: rgba(46, 46, 46, 0.48);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
 }
 
 .session-transcript {
   padding-bottom: calc(var(--desktop-composer-height, 112px) + 24px);
+}
+
+/* A scroll area that starts under the 48px header, so what scrolls up passes
+   through the header's fading blur rather than being cut off at its edge. */
+.under-header {
+  margin-top: -48px;
+  padding-top: calc(48px + var(--under-header-gap, 16px));
 }
 
 .region-drag {

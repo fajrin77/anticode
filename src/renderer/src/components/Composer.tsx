@@ -71,7 +71,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
+        active ? 'glass-control border text-text' : 'glass-ghost text-dim hover:text-brand'
       }`}
     >
       {children}
@@ -549,7 +549,7 @@ export function Composer({
               type="button"
               title="Attach files"
               onClick={() => void collect(window.anticode.chooseAttachments())}
-              className="glass-control flex h-7 w-7 items-center justify-center rounded-md border text-dim transition-colors hover:text-brand"
+              className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
             >
               +
             </button>
@@ -609,7 +609,7 @@ export function Composer({
                 type="button"
                 onClick={() => void revert()}
                 title="Take back the last prompt and edit it"
-                className="mr-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+                className="glass-ghost mr-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
               >
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
                   <path d="M6 4.5L2.5 8 6 11.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -655,7 +655,7 @@ export function Composer({
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                 resuming
                   ? 'bg-brand text-bg hover:bg-brand-strong'
-                  : 'glass-control border text-text hover:text-brand'
+                  : 'glass-ghost text-text hover:text-brand'
               }`}
             >
               {resuming ? (

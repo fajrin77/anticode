@@ -482,8 +482,8 @@ try {
     } finally {
       await new Promise((resolve) => page.server.close(resolve))
     }
-    // Typing on the phone: the glass shell wears a hairline of lime, not the
-    // browser's blue ring around the text field.
+    // Typing on the phone: the glass shell keeps its neutral hairline — no
+    // lime ring, and no browser blue ring around the text field either.
     await screen.evaluate((id) => openSession(id), sessionId)
     await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
 
@@ -516,12 +516,12 @@ try {
       const shell = getComputedStyle(document.getElementById('inputRow'))
       return { border: shell.borderTopColor, outline: field.outlineStyle }
     })
-    assert.equal(ring.border, 'rgb(209, 250, 34)')
+    assert.equal(ring.border, 'rgba(255, 255, 255, 0.14)')
     assert.equal(ring.outline, 'none')
     await screen.fill('#prompt', 'baris satu\nbaris dua\nbaris tiga')
     assert.ok(await screen.$eval('#prompt', (el) => el.getBoundingClientRect().height) > 48)
     await screen.fill('#prompt', '')
-    log('the phone prompt wears lime while typed in')
+    log('the phone prompt stays neutral while typed in')
 
     // A prompt sent while the session works joins that run. The box empties
     // the moment it is sent, the button is the desktop's own square to pause
@@ -686,13 +686,21 @@ try {
     await screen.setViewportSize({ width: 390, height: 844 })
     const glass = await screen.evaluate(() => {
       const header = getComputedStyle(document.querySelector('header'))
+      const fade = document.querySelectorAll('header .hfade i')
+      const glyph = (el) => { const style = getComputedStyle(el); return style.backgroundColor + ' ' + style.borderTopColor }
       const composer = document.getElementById('inputRow')
       const box = composer.getBoundingClientRect()
       const shell = getComputedStyle(composer)
       const model = document.getElementById('modelChip')
       return {
-        headerBlur: header.backdropFilter,
-        headerBackground: header.backgroundImage,
+        headerBorder: header.borderBottomWidth,
+        headerShadow: header.boxShadow,
+        fadeLayers: fade.length,
+        fadeBlur: getComputedStyle(fade[fade.length - 1]).backdropFilter,
+        fadeMask: getComputedStyle(fade[fade.length - 1]).maskImage,
+        fadeReach: document.querySelector('header .hfade').getBoundingClientRect().bottom - document.querySelector('header').getBoundingClientRect().bottom,
+        menuButton: glyph(document.getElementById('menuBtn')),
+        attachButton: glyph(document.getElementById('attachBtn')),
         composerBlur: shell.backdropFilter,
         composerBackground: shell.backgroundColor,
         bottomGap: innerHeight - box.bottom,
@@ -700,9 +708,18 @@ try {
         modelOverlay: getComputedStyle(model, '::after').content
       }
     })
-    assert.notEqual(glass.headerBlur, 'none', 'the phone header lost its glass blur')
+    // The header has no edge: no border, no shadow, and a blur that thins out
+    // to nothing a little below it.
+    assert.equal(glass.headerBorder, '0px', 'the phone header has a bottom edge again')
+    assert.equal(glass.headerShadow, 'none', 'the phone header casts a shadow edge again')
+    assert.equal(glass.fadeLayers, 4, 'the phone header lost its progressive blur layers')
+    assert.notEqual(glass.fadeBlur, 'none', 'the phone header lost its glass blur')
+    assert.match(glass.fadeMask, /linear-gradient/, 'the phone header blur no longer fades out')
+    assert.ok(glass.fadeReach > 0, 'the phone header blur stops at its own edge')
+    // Header and composer buttons are bare glyphs until pressed.
+    assert.equal(glass.menuButton, 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)', 'the menu button shows its box at rest')
+    assert.equal(glass.attachButton, 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)', 'the attach button shows its box at rest')
     assert.notEqual(glass.composerBlur, 'none', 'the phone composer lost its glass blur')
-    assert.match(glass.headerBackground, /0\.5/)
     assert.match(glass.composerBackground, /rgba\(.+, 0\.58\)/)
     assert.ok(glass.bottomGap <= 5, `the phone composer sits ${glass.bottomGap}px above the bottom`)
     assert.notEqual(glass.modelMask, 'none', 'the clipped model text has no fade mask')

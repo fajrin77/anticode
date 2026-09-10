@@ -34,6 +34,11 @@ className="text-dim transition-colors hover:bg-raised hover:text-brand"
 </button>
 ```
 
+Tab dan tombol ikon di header, composer, dan panel web memakai `glass-ghost`:
+saat diam hanya font/ikonnya yang terlihat, kotak glass-nya muncul saat hover.
+Jangan kembalikan `glass-control` permanen ke kontrol seperti itu; `glass-control`
+hanya untuk keadaan terbuka (misalnya chip yang menunya sedang tampil).
+
 Kesalahan yang paling sering: menaruh `hover:text-brand` di tombol padahal isinya
 punya `text-text`/`text-dim`/`text-faint` sendiri — hover-nya tidak akan terlihat.
 Selalu periksa apakah anak elemennya mewarnai dirinya sendiri.

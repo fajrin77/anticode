@@ -413,7 +413,7 @@ export function SessionView(): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ReplyToSelection sessionId={session?.id ?? ''} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-4">
+      <div className="under-header min-h-0 flex-1 overflow-y-auto px-10">
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
           {messages.map((message) => (
             <MessageView key={message.id} message={message} sessionId={session?.id ?? ''} />

@@ -98,6 +98,49 @@ try {
     `${composerLayer.position} ${composerLayer.background}`, 'absolute rgba(0, 0, 0, 0)')
   check('grid icon is faint inside a session, unhovered', await colourOf(grid), 'rgb(109, 109, 109)')
   await shot('03-in-session')
+
+  // Tabs and icon tools are bare glyphs at rest — the selected tab included —
+  // and their glass box appears only under the cursor.
+  const boxOf = (locator) => locator.first().evaluate((el) => {
+    const style = getComputedStyle(el)
+    return `${style.backgroundColor} ${style.borderTopColor}`
+  })
+  const BARE = 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)'
+  const activeTab = window.locator('header .group').first()
+  check('tab bar: the selected tab has no box at rest', await boxOf(activeTab), BARE)
+  check('tab bar: the settings icon has no box at rest', await boxOf(window.getByTitle('Settings')), BARE)
+  check('composer: the attach + has no box at rest', await boxOf(window.getByTitle('Attach files')), BARE)
+  const boxOnHover = async (locator) => {
+    let box = BARE
+    for (let attempt = 0; attempt < 8 && box === BARE; attempt++) {
+      await locator.first().hover()
+      await window.waitForTimeout(200)
+      box = await boxOf(locator)
+    }
+    return box === BARE ? 'bare' : 'boxed'
+  }
+  check('tab bar: a tab shows its box on hover', await boxOnHover(activeTab), 'boxed')
+  check('tab bar: the settings icon shows its box on hover', await boxOnHover(window.getByTitle('Settings')), 'boxed')
+  await limeOnHover('tab bar: selected tab title', activeTab.locator('button').first())
+  await window.mouse.move(640, 400); await window.waitForTimeout(200)
+
+  // The header has no edge, and the transcript scrolls up underneath it.
+  const chrome = await window.evaluate(() => {
+    const header = document.querySelector('header')
+    const style = getComputedStyle(header)
+    const layers = header.querySelectorAll('.header-fade > span')
+    const scroller = document.querySelector('[data-transcript]').parentElement
+    return {
+      edge: `${style.borderBottomWidth} ${style.boxShadow}`,
+      layers: layers.length,
+      mask: getComputedStyle(layers[layers.length - 1]).maskImage.startsWith('linear-gradient') ? 'fades' : 'hard',
+      under: scroller.getBoundingClientRect().top < header.getBoundingClientRect().bottom ? 'under' : 'below'
+    }
+  })
+  check('header: no bottom edge', chrome.edge, '0px none')
+  check('header: four progressive blur layers', chrome.layers, 4)
+  check('header: the blur fades out downward', chrome.mask, 'fades')
+  check('header: the transcript scrolls beneath it', chrome.under, 'under')
   check('grid icon turns lime on hover inside a session', await colourOnHover(grid, LIME), LIME)
   await shot('04-dashboard-icon-hover-inside-session')
 

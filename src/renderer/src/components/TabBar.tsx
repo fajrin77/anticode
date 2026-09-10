@@ -38,7 +38,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
         type="button"
         onClick={() => setOpen((value) => !value)}
         title="Session usage"
-        className={`glass-control flex h-7 w-7 items-center justify-center rounded-md border transition-colors hover:text-brand ${
+        className={`glass-ghost flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
           open ? 'text-brand' : 'text-dim'
         }`}
       >
@@ -106,7 +106,7 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
       title={shown ? 'Hide browser' : 'Show browser'}
       aria-pressed={shown}
       data-browser-toggle
-      className={`glass-control region-no-drag flex h-7 w-7 items-center justify-center rounded-md border transition-colors hover:text-brand ${
+      className={`glass-ghost region-no-drag flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
         shown ? 'text-brand' : 'text-dim'
       }`}
     >
@@ -177,12 +177,18 @@ export function TabBar({
 
   return (
     <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-1.5 pr-3 pl-20">
+      <div className="header-fade" aria-hidden>
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
       <button
         type="button"
         onClick={onDashboard}
         title="Dashboard"
         aria-pressed={dashboardActive}
-        className={`glass-control region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors hover:text-brand ${
+        className={`glass-ghost region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:text-brand ${
           dashboardActive ? 'text-brand' : 'text-faint'
         }`}
       >
@@ -198,9 +204,9 @@ export function TabBar({
           return (
             <div
               key={session.id}
-              className={`region-no-drag group glass-tab flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3 transition-colors ${
-                isActive ? 'glass-control' : 'hover:border-white/10 hover:text-brand'
-              }`}
+              // No box at rest, the selected tab included: it is told apart by
+              // its brighter title, and the box shows only under the cursor.
+              className="region-no-drag group glass-ghost flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3"
             >
               <Badge
                 label={badgeName(session)}
@@ -211,7 +217,7 @@ export function TabBar({
                 type="button"
                 onClick={() => onSelectSession(session.id)}
                 title={session.title}
-                className={`min-w-0 max-w-52 truncate text-[14px] ${
+                className={`min-w-0 max-w-52 truncate text-[14px] transition-colors group-hover:text-brand ${
                   isActive ? 'text-text' : 'text-dim'
                 }`}
               >
@@ -233,7 +239,7 @@ export function TabBar({
           type="button"
           onClick={onNewTab}
           aria-label="New tab"
-          className="glass-control region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-faint transition-colors hover:text-brand"
+          className="glass-ghost region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-faint hover:text-brand"
         >
           +
         </button>
@@ -249,7 +255,7 @@ export function TabBar({
           onClick={onOpenSettings}
           title="Settings"
           aria-pressed={settingsActive}
-          className={`glass-control region-no-drag flex h-7 w-7 items-center justify-center rounded-md border transition-colors hover:text-brand ${
+          className={`glass-ghost region-no-drag flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
             settingsActive ? 'text-brand' : 'text-dim'
           }`}
         >

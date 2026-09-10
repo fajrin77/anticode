@@ -54,7 +54,7 @@ function IconButton({
       aria-pressed={active}
       onClick={onClick}
       disabled={disabled === true}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-brand disabled:text-faint disabled:hover:bg-transparent disabled:hover:text-faint ${
+      className={`glass-ghost flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:text-brand disabled:text-faint disabled:hover:text-faint ${
         active === true ? 'text-brand' : 'text-dim'
       }`}
     >
@@ -281,9 +281,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
           {entry.tabs.map((tab) => (
             <div
               key={tab.id}
-              className={`glass-tab group flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-2 transition-colors ${
-                tab.id === activeId ? 'glass-control' : 'hover:border-white/10'
-              }`}
+              className="glass-ghost group flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-2"
             >
               <button
                 type="button"
@@ -309,7 +307,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
             type="button"
             onClick={() => void window.anticode.addWebTab(sessionId)}
             aria-label="New tab"
-            className="glass-control flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-faint transition-colors hover:text-brand"
+            className="glass-ghost flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:text-brand"
           >
             +
           </button>

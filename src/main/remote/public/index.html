@@ -26,20 +26,51 @@
     position: sticky; top: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px;
     align-items: center; gap: 10px;
     padding: calc(9px + env(safe-area-inset-top)) 14px 9px;
-    background: linear-gradient(to bottom, rgba(22,22,22,.5), rgba(26,26,26,.26));
-    border-bottom: 1px solid rgba(255,255,255,.08); font-weight: 600; z-index: 5;
-    -webkit-backdrop-filter: blur(28px) saturate(125%);
-    backdrop-filter: blur(28px) saturate(125%);
-    box-shadow: 0 10px 30px rgba(0,0,0,.1);
+    font-weight: 600; z-index: 5;
   }
+  /* No edge under the header: the page scrolls beneath it, and the blur over
+     it thins out downward until the last few pixels are the page itself.
+     Four stacked layers stand in for a true variable blur — each blurs what
+     the one before already blurred, and each stops higher up. The layers
+     run a little past the header so the fade finishes below the title. */
+  header .hfade {
+    position: absolute; left: 0; right: 0; top: 0; bottom: -16px; z-index: -1; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(26,26,26,.82) 0%, rgba(26,26,26,.55) 55%, rgba(26,26,26,0) 100%);
+  }
+  header .hfade i { position: absolute; inset: 0; }
+  header .hfade i:nth-child(1) {
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 65%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 65%, transparent 100%);
+  }
+  header .hfade i:nth-child(2) {
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 50%, transparent 88%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 50%, transparent 88%);
+  }
+  header .hfade i:nth-child(3) {
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 35%, transparent 75%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 35%, transparent 75%);
+  }
+  header .hfade i:nth-child(4) {
+    -webkit-backdrop-filter: blur(24px) saturate(125%); backdrop-filter: blur(24px) saturate(125%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 20%, transparent 60%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 20%, transparent 60%);
+  }
+  /* Header and composer buttons are bare glyphs; their glass circle or box
+     shows only while a finger is on them, together with the lime. */
   header .roundbtn {
     display: flex; width: 48px; height: 48px; align-items: center; justify-content: center;
-    border: 1px solid rgba(255,255,255,.14); border-radius: 50%;
-    background: linear-gradient(145deg, rgba(255,255,255,.09), rgba(36,36,36,.34));
-    color: #ededed; padding: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.22);
-    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid transparent; border-radius: 50%; background: transparent;
+    color: #ededed; padding: 0;
+    transition: color .15s, background .15s, border-color .15s;
   }
-  header .roundbtn:active { color: #d1fa22; border-color: rgba(209,250,34,.45); }
+  header .roundbtn:active {
+    color: #d1fa22; border-color: rgba(255,255,255,.14);
+    background: linear-gradient(145deg, rgba(255,255,255,.09), rgba(36,36,36,.34));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  }
   header .roundbtn.placeholder { visibility: hidden; }
   header .headcopy { min-width: 0; text-align: center; line-height: 1.25; }
   header .title {
@@ -238,10 +269,6 @@
     backdrop-filter: blur(28px) saturate(125%);
     z-index: 20;
   }
-  .composer:focus-within {
-    border-color: #d1fa22;
-    box-shadow: 0 18px 42px rgba(0,0,0,.26), 0 0 0 .5px #d1fa22, inset 0 1px 0 rgba(255,255,255,.075);
-  }
   /* Staged files sit on their own row above the text box. */
   #stagedRow { flex: 0 0 100%; display: flex; gap: 8px; overflow-x: auto; }
   #stagedRow .chip {
@@ -315,6 +342,15 @@
   }
   .composer button:disabled { color: #6d6d6d; }
 
+  .composer .attach, .composer #sendBtn:not(.lime) {
+    background: transparent; border-color: transparent; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .composer .attach:active, .composer #sendBtn:not(.lime):active:not(:disabled) {
+    color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
+  }
   .composer button.lime { background: #d1fa22; color: #1a1a1a; }
   .mode { display: flex; gap: 8px; margin-bottom: 10px; }
   .mode button {
@@ -393,9 +429,12 @@
   #chipRow .grow { flex: 1; }
   .composer #chipRow button {
     background: none; color: #9a9a9a; padding: 4px 8px; border-radius: 8px; font-size: 13px;
+    border-color: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .composer #chipRow button:active { color: #d1fa22; background: #262626; }
+  .composer #chipRow button:active {
+    color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
+  }
   .composer #chipRow #modelChip {
     position: relative; flex: 0 1 44vw; max-width: 44vw; text-align: left;
     font-family: ui-monospace, Menlo, monospace; text-overflow: clip;
@@ -446,6 +485,7 @@
 </head>
 <body>
 <header>
+  <div class="hfade" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <button class="roundbtn placeholder" id="headerBack" onclick="gotoSessions()" aria-label="Back">
     <svg width="21" height="21" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10.5 2.5 5 8l5.5 5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </button>
