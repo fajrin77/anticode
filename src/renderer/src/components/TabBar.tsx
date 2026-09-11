@@ -6,6 +6,7 @@ import { useWebSession } from '../store/web'
 import { Badge } from './Badge'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
 import { formatUsd } from '../money'
+import { InstructionsField } from './InstructionsField'
 
 function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
@@ -15,6 +16,7 @@ function formatNumber(value: number): string {
 function UsageButton({ session }: { session: Session }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [compacting, setCompacting] = useState(false)
+  const [editingInstructions, setEditingInstructions] = useState(false)
   const [compacted, setCompacted] = useState<string | null>(null)
   const setContextTokens = useSessionStore((state) => state.setContextTokens)
   const busy = useSessionStore((state) =>
@@ -125,10 +127,33 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
           </div>
           <button
             type="button"
+            onClick={() => setEditingInstructions((value) => !value)}
+            aria-expanded={editingInstructions}
+            className="mt-3 flex w-full items-baseline justify-between gap-3 rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand"
+          >
+            <span>Session instructions</span>
+            <span className={`text-[11px] text-faint ${session.instructions === undefined ? 'invisible' : ''}`}>set</span>
+          </button>
+          {editingInstructions && (
+            <div className="px-2 pb-2">
+              <InstructionsField
+                value={session.instructions ?? ''}
+                rows={4}
+                placeholder="Only for this session — e.g. focus on the payment module; reply briefly."
+                onSave={(text) =>
+                  window.anticode
+                    .setSessionInstructions(session.id, text)
+                    .then((spec) => useSessionStore.getState().addExternalSession(spec))
+                }
+              />
+            </div>
+          )}
+          <button
+            type="button"
             onClick={compact}
             disabled={compacting || busy}
             title={busy ? 'Pause this session to compact it' : 'Fold earlier turns into a memory the model writes'}
-            className="mt-3 flex w-full items-baseline justify-between gap-3 rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors enabled:hover:bg-raised enabled:hover:text-brand disabled:opacity-50"
+            className="flex w-full items-baseline justify-between gap-3 rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors enabled:hover:bg-raised enabled:hover:text-brand disabled:opacity-50"
           >
             <span>{compacting ? 'Compacting…' : 'Compact context'}</span>
             <span className={`truncate text-[11px] tabular-nums text-faint ${compacted === null ? 'invisible' : ''}`}>

@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import type { ContentBlock, Message } from './providers/types'
 import type { AttachmentRef, RunSummary, SnapshotMessage } from '@shared/ipc'
-import { ROTATE_PROVIDER, SESSION_COLOURS } from '@shared/ipc'
+import { INSTRUCTIONS_MAX_CHARS, ROTATE_PROVIDER, SESSION_COLOURS } from '@shared/ipc'
 import type {
   ModelCatalogue,
   ModelChoice,
@@ -47,6 +47,7 @@ import {
   setRotationGroups
 } from './rotation'
 import { ApprovalPolicy } from './approval/policy'
+import { preferences } from './preferences'
 import type { ApprovalGate } from './approval/types'
 
 export const policy = new ApprovalPolicy()
@@ -457,7 +458,9 @@ export function createSession(spec: SessionSpec): SessionSpec {
     sessionId: spec.sessionId,
     mode: spec.mode,
     workspaceRoot: spec.workspaceRoot,
-    colour
+    colour,
+    // A draft given instructions before its first prompt keeps them when bound.
+    ...(previous?.spec.instructions !== undefined ? { instructions: previous.spec.instructions } : {})
   }
   const live: LiveSession = {
     spec: settled,
@@ -473,6 +476,21 @@ export function createSession(spec: SessionSpec): SessionSpec {
   announcedTitles.set(spec.sessionId, announced.title ?? '')
   sessionCreatedSink?.(announced)
   return announced
+}
+
+/** Instructions for one session; its next request reads them. */
+export function setSessionInstructions(sessionId: string, instructions: unknown): SessionSpec {
+  const live = sessions.get(sessionId)
+  if (live === undefined) throw new Error('Unknown session; reopen this tab')
+  if (typeof instructions !== 'string') throw new Error('Expected text')
+  if (instructions.length > INSTRUCTIONS_MAX_CHARS) {
+    throw new Error(`Keep instructions under ${INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US')} characters`)
+  }
+  const text = instructions.trim()
+  const { instructions: _previous, ...rest } = live.spec
+  live.spec = text === '' ? rest : { ...rest, instructions: text }
+  persistSessions()
+  return specOf(live)
 }
 
 /**
@@ -694,7 +712,10 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       sessionFileRoot(sessionId),
       live.messages,
       live.spec.sessionId,
-      kept !== null ? { checkpointDir: kept } : {}
+      {
+        ...(kept !== null ? { checkpointDir: kept } : {}),
+        instructions: () => ({ global: preferences().instructions, session: live.spec.instructions ?? '' })
+      }
     )
   }
   live.agent.useProvider(provider, fallback)

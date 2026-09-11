@@ -98,6 +98,8 @@ const api: AnticodeApi = {
   onSessionTitle: (listener) => subscribe<SessionTitle>(IpcChannel.SESSION_TITLE, listener),
   revertLastTurn: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_REVERT, sessionId) as Promise<string | null>,
+  setSessionInstructions: (sessionId, instructions) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_INSTRUCTIONS, sessionId, instructions) as Promise<SessionSpec>,
   takeBackPrompt: (sessionId, count) =>
     ipcRenderer.invoke(IpcChannel.SESSION_TAKE_BACK, sessionId, count) as ReturnType<AnticodeApi['takeBackPrompt']>,
   regenerate: (sessionId, runId, choice) =>

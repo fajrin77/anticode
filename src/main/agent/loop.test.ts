@@ -915,3 +915,19 @@ describe('antichat', () => {
     await expect(readFile(path.join(root, 'pwned'))).rejects.toThrow()
   })
 })
+
+it("puts the user's instructions in the system prompt, read fresh on every request", async () => {
+  const systems: string[] = []
+  const provider: LLMProvider = { name: 'spy', model: 'spy', async *chat(params) {
+    systems.push(params.system)
+    yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
+  } }
+  const given = { global: 'Answer in Indonesian.', session: '' }
+  const session = new AgentSession(provider, allowAll, 'chat', null, [], 'scope', { instructions: () => given })
+  await session.run({ runId: '1', prompt: 'a', signal: new AbortController().signal, emit: () => {} })
+  given.session = 'Focus on billing.'
+  await session.run({ runId: '2', prompt: 'b', signal: new AbortController().signal, emit: () => {} })
+  expect(systems[0]).toContain('for every session:\n\nAnswer in Indonesian.')
+  expect(systems[0]).not.toContain('for this session')
+  expect(systems[1]).toMatch(/Answer in Indonesian\.[\s\S]*for this session:\n\nFocus on billing\./)
+})

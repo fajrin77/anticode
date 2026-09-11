@@ -309,6 +309,13 @@ Bila workspace punya `AGENTS.md`, `CLAUDE.md`, atau `.anticode.md` (urutan itu),
 4000 karakter — ditambahkan ke system prompt setiap giliran. Berkas dibaca ulang saat sesi dibuat;
 buka tab baru untuk mengambil perubahan.
 
+**Instruksi sendiri.** Settings → General → **Custom instructions** ditambahkan ke system prompt
+setiap sesi, antichat maupun anticode, sesudah aturan anticode dan `AGENTS.md` project. Setiap sesi
+juga bisa punya instruksinya sendiri lewat **Session instructions** di popover usage tab-nya (label
+`set` menandai yang terisi); instruksi sesi dibaca sesudah yang global dan disimpan bersama sesinya.
+Keduanya dibaca ulang tiap request, jadi perubahan berlaku mulai langkah berikutnya tanpa membuka tab
+baru. Batasnya 8.000 karakter; Cmd/Ctrl+Enter menyimpan.
+
 `list_directory` dan `search_files` melewati folder dependensi dan cache (`node_modules`, `.git`,
 `dist`, dan kawan-kawannya) serta melaporkan berapa banyak yang diabaikan, supaya context tidak
 banjir derau. Folder ambigu seperti `build` dan `out` sengaja tidak diabaikan.

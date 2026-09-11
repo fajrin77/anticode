@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron'
-import { IpcChannel } from '@shared/ipc'
+import { INSTRUCTIONS_MAX_CHARS, IpcChannel } from '@shared/ipc'
 import type { AppPreferences } from '@shared/ipc'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 
@@ -9,7 +9,7 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
  * module only keeps and announces them.
  */
 
-const DEFAULTS: AppPreferences = { tray: true }
+const DEFAULTS: AppPreferences = { tray: true, instructions: '' }
 
 type Listener = (next: AppPreferences, previous: AppPreferences) => void
 const listeners: Listener[] = []
@@ -30,6 +30,9 @@ export function setPreferences(patch: Record<string, unknown>): AppPreferences {
   for (const key of Object.keys(DEFAULTS) as (keyof AppPreferences)[]) {
     const value = patch[key]
     if (value !== undefined && typeof value === typeof DEFAULTS[key]) (next as unknown as Record<string, unknown>)[key] = value
+  }
+  if (next.instructions.length > INSTRUCTIONS_MAX_CHARS) {
+    throw new Error(`Keep instructions under ${INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US')} characters`)
   }
   savePersistedSettings({ preferences: next })
   for (const listener of listeners) listener(next, previous)

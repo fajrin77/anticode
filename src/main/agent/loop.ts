@@ -93,6 +93,11 @@ export interface AgentOptions {
   subagent?: boolean
   /** Where this session's file checkpoints live, so Revert survives a restart. */
   checkpointDir?: string
+  /**
+   * The user's own instructions — for every session, then for this one —
+   * read on every request, so a change in Settings applies from the next step.
+   */
+  instructions?: () => { global: string; session: string }
 }
 
 /**
@@ -882,6 +887,16 @@ export class AgentSession {
   get contextTokens(): number { return replayCost(this.history) }
 
   private systemPrompt(): string {
+    const base = this.basePrompt()
+    const given = this.options.instructions?.()
+    const sections = [
+      ...(given !== undefined && given.global.trim() !== '' ? [`Instructions from the user, for every session:\n\n${given.global.trim()}`] : []),
+      ...(given !== undefined && given.session.trim() !== '' ? [`Instructions from the user, for this session:\n\n${given.session.trim()}`] : [])
+    ]
+    return sections.length === 0 ? base : [base, ...sections].join('\n\n')
+  }
+
+  private basePrompt(): string {
     if (this.options.subagent === true) {
       const lines = [
         'You are a sub-agent of anticode, sent by the main agent to investigate one question in a project folder.',

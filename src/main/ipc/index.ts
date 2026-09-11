@@ -41,6 +41,7 @@ import {
   sessionFileRoot,
   revertLastTurn,
   takeBackPrompt,
+  setSessionInstructions,
   policy,
   applyRotation,
   applyRotationEnabled,
@@ -535,6 +536,10 @@ export function registerIpcHandlers(): void {
     announceHistory(sessionId, 'desktop')
     return prompt
   })
+
+  ipcMain.handle(IpcChannel.SESSION_INSTRUCTIONS, (_event, sessionId: string, instructions: unknown) =>
+    setSessionInstructions(sessionId, instructions)
+  )
 
   ipcMain.handle(IpcChannel.SESSION_TAKE_BACK, (_event, sessionId: string, count: number) => {
     const taken = takeBackPrompt(sessionId, count)

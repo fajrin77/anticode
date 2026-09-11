@@ -30,6 +30,7 @@ export const IpcChannel = {
   SESSION_EXPORT: 'session:export',
   SESSION_COMPACT: 'session:compact',
   SESSION_TAKE_BACK: 'session:takeBack',
+  SESSION_INSTRUCTIONS: 'session:instructions',
   SESSION_REGENERATE: 'session:regenerate',
   MCP_LIST: 'mcp:list',
   MCP_SAVE: 'mcp:save',
@@ -292,6 +293,8 @@ export interface SessionSpec {
    * folder's name, or antichat's first prompt. Viewers show it, never derive it.
    */
   title?: string
+  /** Added to this session's system prompt, after the global instructions. */
+  instructions?: string
 }
 
 export interface SessionTitle {
@@ -508,7 +511,12 @@ export interface PricedModel extends ProviderSelection {
 export interface AppPreferences {
   /** An icon in the menu bar (the tray elsewhere) with quick capture and recent sessions. */
   tray: boolean
+  /** Added to every session's system prompt, antichat and anticode alike. */
+  instructions: string
 }
+
+/** How long instructions may be, global or per session. */
+export const INSTRUCTIONS_MAX_CHARS = 8_000
 
 /** What the quick capture panel sends: a prompt, and where it should go. */
 export interface QuickCapture {
@@ -754,6 +762,8 @@ export interface AnticodeApi {
     runId: string,
     choice: ProviderSelection | null
   ) => Promise<{ runId: string; steered: boolean }>
+  /** Instructions for one session, from its next request on; answers the settled spec. */
+  setSessionInstructions: (sessionId: string, instructions: string) => Promise<SessionSpec>
   /** Drops the last exchange and returns its prompt, for retyping. */
   revertLastTurn: (sessionId: string) => Promise<string | null>
   /**

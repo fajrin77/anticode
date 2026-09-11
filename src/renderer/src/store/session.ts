@@ -94,6 +94,8 @@ export interface Session {
   closed: boolean
   /** Index into SESSION_COLOURS; assigned round-robin at creation. */
   colour: number
+  /** Added to this session's system prompt; kept by the main process. */
+  instructions?: string
 }
 
 export interface UsageEntry {
@@ -421,7 +423,10 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
               session.mode === spec.mode && (spec.mode === 'chat' || session.projectRoot === spec.workspaceRoot)
             const colour = spec.colour ?? session.colour
             const title = bound && spec.title !== undefined ? spec.title : session.title
-            return colour === session.colour && title === session.title ? session : { ...session, colour, title }
+            const instructions = spec.instructions
+            if (colour === session.colour && title === session.title && instructions === session.instructions) return session
+            const { instructions: _dropped, ...rest } = session
+            return { ...rest, colour, title, ...(instructions !== undefined ? { instructions } : {}) }
           })
         }
       }
@@ -440,7 +445,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         model: null,
         lastInputTokens: 0,
         closed: false,
-        colour: spec.colour ?? state.nextColour
+        colour: spec.colour ?? state.nextColour,
+        ...(spec.instructions !== undefined ? { instructions: spec.instructions } : {})
       }
       return {
         sessions: [...state.sessions, session],

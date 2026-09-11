@@ -20,6 +20,7 @@ import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
 import { Pricing } from './settings/Pricing'
 import { Mcp } from './settings/Mcp'
+import { InstructionsField } from './InstructionsField'
 
 interface SettingsViewProps {
   appInfo: AppInfo | null
@@ -81,6 +82,19 @@ function General({
         >
           <span className="font-mono text-[12.5px]">{status === null || status.model !== '' || status.provider === ROTATE_PROVIDER ? modelLabel(status) : 'not set'}</span>
         </SettingRow>
+      </div>
+
+      <h2 className="mb-1 text-[14px] text-text">Custom instructions</h2>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        Read by the model in every session, antichat and anticode, after anticode’s own rules and the project’s
+        AGENTS.md. A session can add its own from the usage menu in its tab bar.
+      </p>
+      <div className="mb-8">
+        <InstructionsField
+          value={preferences?.instructions ?? ''}
+          placeholder={'Answer in Indonesian.\nPrefer small, reviewable commits.\nNever touch files under legacy/.'}
+          onSave={(text) => window.anticode.setPreferences({ instructions: text }).then(setPreferences)}
+        />
       </div>
 
       <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
