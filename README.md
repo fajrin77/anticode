@@ -1,5 +1,12 @@
 # anticode
 
+Versi **0.0.24** menambah tool `share_file` — agent menyerahkan file apa pun (hasil build, keluaran
+command) sebagai kartu Preview/Download, dan tidak lagi boleh mengaku file tampil tanpa kartunya.
+Pause tidak membuang kerja: balasan yang sedang ditulis disimpan, Resume melanjutkannya. Grup Rotate
+usage bisa mengambil satu provider utuh dan diganti langsung dari composer; dropdown model-nya memakai
+menu app sendiri. Transkrip tidak lagi berkedip atau bergetar selama run di desktop maupun HP, plan
+HP yang panjang tetap di dalam composer, dan workbook besar tetap bisa dilampirkan.
+
 Versi **0.0.22** menambah automatic context compaction, checklist `todo_write`, checkpoint file yang
 ikut dipulihkan saat Revert, meter context, enkripsi API key lewat secure storage OS, retry yang
 menghormati `Retry-After`, notifikasi sistem, ekspor transcript Markdown/JSON, dan shortcut global
