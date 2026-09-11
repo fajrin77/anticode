@@ -1,7 +1,6 @@
 import {
   cancelRun,
   runForSession,
-  hasRuns,
   listActiveRuns,
   listPausedSessions,
   pauseSession,
@@ -18,6 +17,7 @@ import type {
   ApprovalResponse,
   FilePreview,
   ModelCatalogue,
+  ProviderEdit,
   ProviderId,
   ProviderInfo,
   ProviderSelection,
@@ -31,6 +31,8 @@ import {
   getStatus,
   listModels,
   listSessionSpecs,
+  forgetCatalogue,
+  providerInUse,
   sessionFileRoot,
   revertLastTurn,
   policy,
@@ -50,7 +52,8 @@ import {
   registerAttachments,
   releaseAttachments
 } from '../attachments/registry'
-import { addCustomProvider, removeCustomProvider } from '../providers/custom'
+import { addCustomProvider, cleanModelIds, removeCustomProvider, updateCustomProvider } from '../providers/custom'
+import { editClinepass, removeClinepass, restoreClinepass } from '../providers/clinepass'
 import { savePersistedSettings } from '../settings'
 import { announceHistory, announcePause, announceSessionTitle, announceStatus, sessionSnapshot } from '../remote/bus'
 import { previewFile } from '../preview'
@@ -111,21 +114,59 @@ function announceProviders(): void {
   }
 }
 
-/** A provider added from either screen shows in every window's list at once. */
+/**
+ * A provider added from either screen shows in every window's list at once.
+ * Adding Clinepass is how it comes back after being removed.
+ */
 export function addProvider(input: CustomProviderInput): ProviderInfo[] {
-  addCustomProvider({
-    label: input.label.trim() !== '' ? input.label.trim() : 'Provider',
-    kind: input.kind,
-    baseURL: input.baseURL.trim(),
-    apiKey: input.apiKey.trim()
-  })
+  const models = cleanModelIds(input.models)
+  if (input.kind === 'clinepass') {
+    restoreClinepass({
+      label: input.label,
+      baseURL: input.baseURL,
+      apiKey: input.apiKey,
+      ...(models.length > 0 ? { models } : {})
+    })
+    forgetCatalogue('clinepass')
+  } else {
+    if (input.kind === 'openai' && input.apiKey.trim() === '') throw new Error('API key is required')
+    addCustomProvider({
+      label: input.label.trim() !== '' ? input.label.trim() : 'Provider',
+      kind: input.kind,
+      baseURL: input.baseURL.trim(),
+      apiKey: input.apiKey.trim(),
+      models
+    })
+  }
+  announceProviders()
+  return listProviders()
+}
+
+/**
+ * A provider changed in Settings — its name, where it lives, its key, or the
+ * model ids it offers (for gateways whose /models is missing or short). The
+ * picker lists the new ids at once, and a provider in use with no model yet
+ * starts on the first one. A run already going keeps the connection it has.
+ */
+export async function updateProvider(id: string, edit: ProviderEdit): Promise<ProviderInfo[]> {
+  if (id === 'clinepass') editClinepass(edit)
+  else if (id.startsWith('custom:')) updateCustomProvider(id, edit)
+  else throw new Error('Unknown provider')
+  forgetCatalogue(id)
+  if (getStatus().provider === id) {
+    await listModels(id)
+    announceStatus()
+  }
   announceProviders()
   return listProviders()
 }
 
 export function removeProvider(id: string): ProviderInfo[] {
-  if (hasRuns()) throw new Error('Wait for running sessions to finish before removing a provider')
-  removeCustomProvider(id)
+  if (providerInUse(id)) throw new Error('A running session is using this provider. Wait for it to finish before removing it.')
+  if (id === 'clinepass') removeClinepass()
+  else if (id.startsWith('custom:')) removeCustomProvider(id)
+  else throw new Error('Unknown provider')
+  forgetCatalogue(id)
   if (getStatus().provider === id) {
     resetProviderSelection()
     announceStatus()
@@ -242,6 +283,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     IpcChannel.PROVIDER_ADD,
     (_event, input: CustomProviderInput): ProviderInfo[] => addProvider(input)
+  )
+
+  ipcMain.handle(
+    IpcChannel.PROVIDER_UPDATE,
+    (_event, id: string, edit: ProviderEdit): Promise<ProviderInfo[]> => updateProvider(id, edit)
   )
 
   ipcMain.handle(IpcChannel.PROVIDER_REMOVE, (_event, id: string): ProviderInfo[] =>

@@ -97,7 +97,7 @@ try {
   check('antichat: the tab is named after its first prompt', await activeTitle(), 'halo dunia')
   await window.mouse.move(640, 400); await window.waitForTimeout(200)
   const composerLayer = await window.locator('.composer-glass').last().evaluate((el) => {
-    const layer = getComputedStyle(el.parentElement.parentElement)
+    const layer = getComputedStyle(el.closest('[data-composer-layer]'))
     return { position: layer.position, background: layer.backgroundColor }
   })
   check('session composer floats without an opaque footer',
@@ -479,6 +479,10 @@ try {
   check('browser: the icon goes quiet again', await colourOf(browserToggle), 'rgb(154, 154, 154)')
 
   await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
+  // The picker sits outside the composer's glass: inside it, its blur could
+  // not reach the transcript and the reply showed through the model list.
+  check('model picker: its blur reaches the transcript',
+    await window.locator('.menu-glass').first().evaluate((el) => el.closest('.composer-glass') === null ? 'outside' : 'inside'), 'outside')
   await limeOnHover('model picker: model row', window.locator('button.font-mono'))
   await limeOnHover('model picker: Reload', window.getByRole('button',{name:'Reload'}))
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
@@ -487,6 +491,26 @@ try {
   await limeOnHover('settings: sidebar section', window.getByRole('button',{name:/Providers/}))
   await window.getByRole('button',{name:/Providers/}).click(); await window.waitForTimeout(300)
   await limeOnHover('settings: add provider', window.getByRole('button',{name:'+ Add provider'}))
+  // A provider added in Settings can be given its model ids by hand.
+  await window.evaluate((baseURL) => window.anticode.addProvider({ label: 'Gateway', kind: 'openai', baseURL, apiKey: 'fixture' }),
+    `http://127.0.0.1:${stub.address().port}/v1`)
+  const editButton = window.getByTitle('Edit Gateway')
+  await editButton.waitFor()
+  await limeOnHover('settings: provider edit', editButton)
+  await limeOnHover('settings: provider use', window.getByTitle('Use Gateway'))
+  await editButton.click(); await window.waitForTimeout(200)
+  await window.locator('textarea').first().fill('vendor/model-a\nvendor/model-b')
+  await window.getByRole('button',{name:'Save',exact:true}).click(); await window.waitForTimeout(400)
+  check('settings: saved models are counted on the provider',
+    await window.getByText(/127\.0\.0\.1:\d+\/v1 · key saved · 2 models/).count() > 0 ? 'counted' : 'missing', 'counted')
+  // Clinepass is a provider like the rest: editable, and removable with a
+  // confirmation that stays red.
+  const removeClinepass = window.getByTitle('Remove Clinepass')
+  check('settings: removing a provider is red on hover', await colourOnHover(removeClinepass, 'rgb(224, 108, 108)'), 'rgb(224, 108, 108)')
+  await limeOnHover('settings: clinepass edit', window.getByTitle('Edit Clinepass'))
+  await removeClinepass.click(); await window.waitForTimeout(200)
+  await limeOnHover('settings: keep instead of removing', window.getByRole('button',{name:'Keep'}))
+  await window.getByRole('button',{name:'Keep'}).click(); await window.waitForTimeout(200)
   await limeOnHover('settings: version line', window.locator('button.mt-auto'))
 
   // Inline code reads as plain white text in a box; the old purple was the

@@ -12,10 +12,11 @@ import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { RemoteStatus, SessionMode } from '@shared/ipc'
+import type { ProviderEdit, RemoteStatus, SessionMode } from '@shared/ipc'
 import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
 import { listProviders } from '../providers'
+import { cleanModelIds } from '../providers/custom'
 import {
   listModels,
   createRemoteSession,
@@ -28,7 +29,7 @@ import {
   sessionFileRoot,
   sessionWorkspaceRoot
 } from '../runtime'
-import { addProvider, approvals, removeProvider, setApprovalMode } from '../ipc'
+import { addProvider, approvals, removeProvider, setApprovalMode, updateProvider } from '../ipc'
 import {
   registerAttachmentData,
 } from '../attachments/registry'
@@ -243,20 +244,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, { status: setApprovalMode(body.autoApprove) })
     }
 
-    // Providers the user added in Settings, managed from either screen.
+    // Providers, managed from either screen: added, edited, removed, and
+    // Clinepass restored (kind 'clinepass') after being removed.
     if (req.method === 'POST' && url.pathname === '/api/providers') {
-      const kind = body.kind === 'ollama' ? 'ollama' : 'openai'
+      const kind = body.kind === 'ollama' ? 'ollama' : body.kind === 'clinepass' ? 'clinepass' : 'openai'
       const text = (value: unknown): string => (typeof value === 'string' ? value : '')
-      if (text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
+      if (kind !== 'clinepass' && text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
       if (kind === 'openai' && text(body.apiKey).trim() === '') return json(res, 400, { error: 'API key is required' })
-      addProvider({ label: text(body.label), kind, baseURL: text(body.baseURL), apiKey: text(body.apiKey) })
+      addProvider({ label: text(body.label), kind, baseURL: text(body.baseURL), apiKey: text(body.apiKey), models: cleanModelIds(body.models) })
       return json(res, 200, await modelsPayload())
     }
     const providerMatch = /^\/api\/providers\/(.+)$/.exec(url.pathname)
-    if (req.method === 'DELETE' && providerMatch !== null) {
+    if (providerMatch !== null && (req.method === 'POST' || req.method === 'DELETE')) {
       const id = decodeURIComponent(providerMatch[1] ?? '')
-      if (!id.startsWith('custom:')) return json(res, 400, { error: 'Only providers added in Settings can be removed' })
-      removeProvider(id)
+      if (!listProviders().some((entry) => entry.id === id)) return json(res, 404, { error: 'Unknown provider' })
+      if (req.method === 'DELETE') removeProvider(id)
+      else await updateProvider(id, providerEdit(body))
       return json(res, 200, await modelsPayload())
     }
 
@@ -471,11 +474,25 @@ async function readBody(
   return body as Record<string, unknown>
 }
 
+/** A provider edit from the phone: only the fields it sent, as strings. */
+function providerEdit(body: Record<string, unknown>): ProviderEdit {
+  const edit: ProviderEdit = {}
+  for (const key of ['label', 'baseURL', 'apiKey'] as const) {
+    const value = body[key]
+    if (typeof value === 'string') edit[key] = value
+  }
+  if (body.models !== undefined) edit.models = cleanModelIds(body.models)
+  return edit
+}
+
 /** Provider list plus the catalogue of the current provider, for the phone picker. */
 async function modelsPayload(): Promise<{
   provider: string
   model: string
-  providers: { id: string; label: string; available: boolean; custom: boolean; models: string[] }[]
+  providers: {
+    id: string; label: string; available: boolean; custom: boolean; models: string[]; listed: string[]
+    kind: string; baseURL: string; hasKey: boolean
+  }[]
 }> {
   const status = getStatus()
   const catalogue = await listModels(status.provider)
@@ -484,7 +501,11 @@ async function modelsPayload(): Promise<{
     label: entry.label,
     available: entry.credentialAvailable,
     custom: entry.id.startsWith('custom:'),
-    models: entry.id === status.provider ? catalogue.models : []
+    models: entry.id === status.provider ? catalogue.models : [],
+    listed: entry.models ?? [],
+    kind: entry.kind ?? 'openai',
+    baseURL: entry.baseURL ?? '',
+    hasKey: entry.hasKey === true
   }))
   const selected = getStatus()
   return { provider: selected.provider, model: selected.model, providers }

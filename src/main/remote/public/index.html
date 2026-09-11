@@ -546,11 +546,27 @@
   .mode button:active { color: #d1fa22; }
   .usage { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 14px; }
   .usage span:nth-child(odd) { color: #6d6d6d; }
-  .prow { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #262626; font-size: 15px; }
+  .prow { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #262626; font-size: 15px; }
   .prow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pedit { padding: 10px 0; border-bottom: 1px solid #262626; }
   /* Removing a provider is destructive: red, never lime. */
   .prow .px { flex: none; background: none; border: none; color: #6d6d6d; font-size: 18px; line-height: 1; padding: 2px 6px; }
   .prow .px:active { color: #e06c6c; }
+  .prow .nm .pdetail { color: #6d6d6d; font: 12.5px ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .prow .pstate { flex: none; color: #d1fa22; font-size: 13px; }
+  .prow .pm { flex: none; background: none; border: none; color: #9a9a9a; font-size: 14px; padding: 2px 6px; }
+  .prestore { background: none; border: none; color: #9a9a9a; font-size: 14px; padding: 10px 0 2px; }
+  .prestore:active { color: #d1fa22; }
+  .prow .pm:active { color: #d1fa22; }
+  /* A provider's model ids, typed one per line — for gateways with no /models. */
+  textarea.models {
+    width: 100%; min-height: 84px; background: var(--glass-field); border: 1px solid var(--glass-border);
+    border-radius: 8px; color: #ededed; padding: 8px 10px; margin: 8px 0;
+    font: 15px/1.5 ui-monospace, Menlo, monospace; resize: vertical;
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+  textarea.models:focus { outline: none; border-color: #d1fa22; box-shadow: 0 0 0 0.5px #d1fa22; }
+  .pedit .faint { display: block; margin-bottom: 8px; }
   #providerList { margin-bottom: 10px; }
   .serr { margin: 8px 0 0; padding: 8px 10px; border: 1px solid #945050; border-radius: 8px; color: #f3aaaa; font-size: 14px; overflow-wrap: anywhere; }
   #sessionSearch { margin-bottom: 8px; }
@@ -727,6 +743,7 @@
       </select>
       <input class="path" id="provURL" placeholder="Base URL, e.g. https://openrouter.ai/api/v1" autocapitalize="off" autocorrect="off" spellcheck="false" />
       <input class="path" id="provKey" type="password" placeholder="API key (not needed for a local server)" autocomplete="off" />
+      <textarea class="models" id="provModels" placeholder="Model ids, one per line (optional)" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
       <div class="actions" style="margin-bottom:0"><button onclick="addPhoneProvider()">Add provider</button></div>
     </div>
   </div>
@@ -1156,12 +1173,16 @@ function scheduleRunSync(id) {
   if (currentRunId === null || currentSession !== id) return;
   runSyncTimer = setTimeout(() => {
     runSyncTimer = null;
-    if (currentRunId !== null && currentSession === id) void syncSession(id).catch(() => undefined);
+    if (currentRunId === null || currentSession !== id) return;
+    // A redraw now would drop a passage being selected to reply to; try later.
+    if (holdsSelection(document.getElementById('transcript'))) { scheduleRunSync(id); return; }
+    void syncSession(id).catch(() => undefined);
   }, 8000);
 }
 
 async function openSession(id) {
   currentSession = id;
+  syncedSession = null;
   appliedRevision = 0; syncEvents = []; syncing = false; ++syncSeq;
   try { sessionStorage.setItem(LAST_SESSION_KEY, id); } catch { /* private mode */ }
   currentRunId = null;
@@ -1183,6 +1204,8 @@ let syncSeq = 0;
 let syncing = false;
 let syncEvents = [];
 let appliedRevision = 0;
+/* The session the transcript was last drawn for. */
+let syncedSession = null;
 async function syncSession(id) {
   const seq = ++syncSeq;
   syncing = true;
@@ -1204,7 +1227,13 @@ async function syncSession(id) {
   if (payload.paused) pausedSessions.add(id); else pausedSessions.delete(id);
   hideWorking();
   liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null;
+  // Redrawn from scratch when a run ends: a reader scrolled up stays where
+  // they were; a session just opened starts at its latest reply.
+  if (syncedSession !== id) following = true;
+  syncedSession = id;
+  const readingAt = window.scrollY;
   renderTranscript(payload.messages, payload.summaries);
+  if (following) followBottom(); else window.scrollTo(0, readingAt);
   lastUsage = { id, summaries: payload.summaries ?? [], messages: (payload.messages ?? []).length };
   for (const event of payload.events ?? []) await applyStreamEvent(id, event);
   appliedRevision = payload.revision ?? 0;
@@ -1290,10 +1319,11 @@ function appendPromptBlock(parent, text, label) {
   parent.appendChild(box);
 }
 
-/* `code` and **bold** inside one line; a bold run may itself hold code, as in
- * **`vercel.json` (root)**, so its inside goes through the same pass. */
+/* `code`, **bold** and [links](…) inside one line; a bold run may itself hold
+ * code, as in **`vercel.json` (root)**, so its inside goes through the same
+ * pass. Kept in step with the desktop's RichText.tsx. */
 function appendInline(parent, content) {
-  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]\n]+\]\([^)\s]+\))/g;
   let last = 0;
   let match;
   while ((match = re.exec(content)) !== null) {
@@ -1303,6 +1333,13 @@ function appendInline(parent, content) {
       const b = document.createElement('strong');
       appendInline(b, token.slice(2, -2));
       parent.appendChild(b);
+    } else if (token.startsWith('[')) {
+      // A markdown link reads as its label, as on the desktop.
+      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      const label = document.createElement('span');
+      if (link !== null) label.title = link[2];
+      appendInline(label, link !== null ? link[1] : token);
+      parent.appendChild(label);
     } else {
       const c = document.createElement('code');
       c.className = 'icode';
@@ -1732,6 +1769,20 @@ async function applyStreamEvent(id, event) {
     updateSendBtn();
 }
 
+/* The transcript follows new output only while the reader is at its end.
+ * Scrolling up to read stops it — the page used to be pulled back down on
+ * every word — and scrolling back down, sending a prompt, or opening a
+ * session starts it again. */
+const FOLLOW_SLACK = 80;
+let following = true;
+window.addEventListener('scroll', () => {
+  following = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - FOLLOW_SLACK;
+}, { passive: true });
+function followBottom(force) {
+  if (force === true) following = true;
+  if (following) window.scrollTo(0, document.documentElement.scrollHeight);
+}
+
 let workingEl = null;
 function showWorking() {
   if (workingEl === null) {
@@ -1745,7 +1796,7 @@ function showWorking() {
     placeLive(workingEl);
   }
   workingEl.lastChild.textContent = 'working';
-  window.scrollTo(0, document.body.scrollHeight);
+  followBottom();
 }
 function hideWorking() {
   workingEl?.remove();
@@ -1794,7 +1845,7 @@ function redrawLiveGroup() {
   liveGroup.el = next;
   if (liveGroup.items.some((item) => item.result === undefined)) hideWorking();
   else showWorking();
-  window.scrollTo(0, document.body.scrollHeight);
+  followBottom();
 }
 
 let liveEl = null;
@@ -1816,14 +1867,24 @@ function placeLive(node) {
 const dirtyLive = new Set();
 let liveFrame = 0;
 
+/* Redrawing a reply while part of it is selected would drop the selection,
+ * and with it the Balas button. Such a reply waits, and catches up with
+ * everything it was sent the moment the selection is let go. */
+function holdsSelection(node) {
+  const selection = window.getSelection();
+  return selection !== null && !selection.isCollapsed && selection.rangeCount > 0 &&
+    node.contains(selection.getRangeAt(0).commonAncestorContainer);
+}
+
 function flushLive() {
   liveFrame = 0;
-  for (const node of dirtyLive) {
+  for (const node of [...dirtyLive]) {
+    if (holdsSelection(node)) continue;
     node.replaceChildren();
     appendRichText(node, node.rawText.trim());
+    dirtyLive.delete(node);
   }
-  dirtyLive.clear();
-  window.scrollTo(0, document.body.scrollHeight);
+  followBottom();
 }
 
 function appendLive(text) {
@@ -2222,7 +2283,7 @@ function appendNotice(text) {
   div.className = 'notice';
   div.textContent = text;
   el.appendChild(div);
-  window.scrollTo(0, document.body.scrollHeight);
+  followBottom();
 }
 
 function appendUserBubble(text, files) {
@@ -2235,7 +2296,7 @@ function appendUserBubble(text, files) {
   bubble.textContent = text;
   div.appendChild(bubble);
   el.appendChild(div);
-  window.scrollTo(0, document.body.scrollHeight);
+  followBottom(true);
   return div;
 }
 
@@ -2277,6 +2338,7 @@ function quoteSelection() {
 }
 
 document.addEventListener('selectionchange', () => {
+  if (dirtyLive.size > 0 && liveFrame === 0) liveFrame = requestAnimationFrame(flushLive);
   const button = document.getElementById('replyBtn');
   const selection = window.getSelection();
   const text = selection?.toString().trim() ?? '';
@@ -2864,26 +2926,141 @@ function renderSettings() {
 function renderProviders() {
   const list = document.getElementById('providerList');
   list.replaceChildren();
-  for (const provider of modelInfo?.providers ?? []) {
+  const providers = modelInfo?.providers ?? [];
+  for (const provider of providers) {
     const row = document.createElement('div');
     row.className = 'prow';
-    const name = document.createElement('span');
-    name.className = 'nm';
+    const text = document.createElement('div');
+    text.className = 'nm';
+    const name = document.createElement('div');
     name.textContent = provider.label;
+    const detail = document.createElement('div');
+    detail.className = 'pdetail';
+    const listed = provider.listed ?? [];
+    detail.textContent = [
+      hostOf(provider.baseURL) || 'no base URL',
+      provider.kind === 'ollama' ? 'local' : provider.hasKey ? 'key saved' : 'no key',
+      listed.length > 0 ? listed.length + (listed.length === 1 ? ' model' : ' models') : ''
+    ].filter((part) => part !== '').join(' · ');
+    text.append(name, detail);
     const state = document.createElement('span');
-    state.className = 'faint';
+    state.className = provider.id === modelInfo.provider ? 'pstate' : 'faint';
     state.textContent = provider.id === modelInfo.provider ? 'in use' : provider.available ? '' : 'no key';
-    row.append(name, state);
-    if (provider.custom) {
-      const remove = document.createElement('button');
-      remove.className = 'px';
-      remove.textContent = '\u00d7';
-      remove.setAttribute('aria-label', 'Remove ' + provider.label);
-      remove.onclick = () => void removePhoneProvider(provider);
-      row.appendChild(remove);
-    }
+    const edit = document.createElement('button');
+    edit.className = 'pm';
+    edit.textContent = 'Edit';
+    edit.onclick = () => { editingProvider = editingProvider === provider.id ? null : provider.id; renderProviders(); };
+    const remove = document.createElement('button');
+    remove.className = 'px';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', 'Remove ' + provider.label);
+    remove.onclick = () => void removePhoneProvider(provider);
+    row.append(text, state, edit, remove);
     list.appendChild(row);
+    if (editingProvider === provider.id) list.appendChild(providerEditor(provider));
   }
+  // Clinepass, once removed, comes back from here.
+  if (modelInfo && !providers.some((provider) => provider.id === 'clinepass')) {
+    const restore = document.createElement('button');
+    restore.className = 'prestore';
+    restore.textContent = 'Restore Clinepass';
+    restore.onclick = () => void restorePhoneClinepass();
+    list.appendChild(restore);
+  }
+}
+
+function hostOf(baseURL) {
+  if (!baseURL) return '';
+  try {
+    const url = new URL(baseURL);
+    return url.host + (url.pathname === '/' ? '' : url.pathname);
+  } catch { return baseURL; }
+}
+
+/* The provider whose Edit form is open. */
+let editingProvider = null;
+
+/* Name, base URL, key and model ids: the desktop's form. The saved key is
+ * never shown; an empty key field keeps it. */
+function providerEditor(provider) {
+  const box = document.createElement('div');
+  box.className = 'pedit';
+  const field = (value, placeholder, type) => {
+    const input = document.createElement('input');
+    input.className = 'path';
+    input.value = value;
+    input.placeholder = placeholder;
+    if (type) input.type = type;
+    input.setAttribute('autocapitalize', 'off');
+    input.setAttribute('autocorrect', 'off');
+    input.spellcheck = false;
+    return input;
+  };
+  const label = field(provider.label, 'Name');
+  const baseURL = field(provider.baseURL ?? '', 'Base URL, e.g. https://openrouter.ai/api/v1');
+  const key = field('', provider.hasKey ? 'API key saved, empty keeps it' : 'API key', 'password');
+  key.autocomplete = 'off';
+  const models = document.createElement('textarea');
+  models.className = 'models';
+  models.value = (provider.listed ?? []).join('\n');
+  models.placeholder = 'Model ids, one per line';
+  models.setAttribute('autocapitalize', 'off');
+  models.setAttribute('autocorrect', 'off');
+  models.spellcheck = false;
+  const hint = document.createElement('span');
+  hint.className = 'faint';
+  hint.textContent = provider.kind === 'clinepass'
+    ? 'The subscription models. Empty goes back to the list anticode ships with.'
+    : 'They show in the model picker even when the provider has no model list; the first is the default.';
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  actions.style.marginBottom = '0';
+  const cancel = document.createElement('button');
+  cancel.textContent = 'Cancel';
+  cancel.onclick = () => { editingProvider = null; renderProviders(); };
+  const save = document.createElement('button');
+  save.textContent = 'Save';
+  save.onclick = () => void savePhoneProvider(provider, {
+    label: label.value, baseURL: baseURL.value, apiKey: key.value, models: models.value
+  });
+  actions.append(cancel, save);
+  box.append(label, baseURL);
+  if (provider.kind !== 'ollama') box.appendChild(key);
+  box.append(models, hint, actions);
+  return box;
+}
+
+function providersChanged(info) {
+  modelInfo = info;
+  document.getElementById('settingsError').classList.add('hidden');
+  fillModelPickers('providerSelect', 'modelSelect');
+  fillModelPickers('setProvider', 'setModel');
+  updateChips();
+  renderProviders();
+}
+
+async function savePhoneProvider(provider, edit) {
+  try {
+    const info = await jfetch('/api/providers/' + encodeURIComponent(provider.id), {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(edit)
+    });
+    editingProvider = null;
+    providersChanged(info);
+  } catch (error) { showError(error); }
+}
+
+async function restorePhoneClinepass() {
+  try {
+    const info = await jfetch('/api/providers', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Clinepass', kind: 'clinepass', baseURL: '', apiKey: '' })
+    });
+    // No key left to find: the form is where it gets one.
+    const back = info.providers.find((provider) => provider.id === 'clinepass');
+    if (back !== undefined && !back.available) editingProvider = 'clinepass';
+    providersChanged(info);
+  } catch (error) { showError(error); }
 }
 
 async function setPolicy(enabled) {
@@ -2906,9 +3083,9 @@ async function addPhoneProvider() {
   try {
     modelInfo = await jfetch('/api/providers', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ label: value('provLabel'), kind, baseURL: value('provURL'), apiKey: value('provKey') })
+      body: JSON.stringify({ label: value('provLabel'), kind, baseURL: value('provURL'), apiKey: value('provKey'), models: value('provModels') })
     });
-    for (const id of ['provLabel', 'provURL', 'provKey']) document.getElementById(id).value = '';
+    for (const id of ['provLabel', 'provURL', 'provKey', 'provModels']) document.getElementById(id).value = '';
     document.getElementById('settingsError').classList.add('hidden');
     fillModelPickers('providerSelect', 'modelSelect');
     fillModelPickers('setProvider', 'setModel');
@@ -2917,13 +3094,13 @@ async function addPhoneProvider() {
 }
 
 async function removePhoneProvider(provider) {
-  if (!confirm('Remove ' + provider.label + '? Its key is deleted from the Mac.')) return;
+  const note = provider.kind === 'clinepass'
+    ? ' What was saved for it in Settings is forgotten; a key in the .env file stays, and Restore brings it back.'
+    : ' Its key is deleted from the Mac.';
+  if (!confirm('Remove ' + provider.label + '?' + note)) return;
   try {
-    modelInfo = await jfetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' });
-    fillModelPickers('providerSelect', 'modelSelect');
-    fillModelPickers('setProvider', 'setModel');
-    updateChips();
-    renderProviders();
+    if (editingProvider === provider.id) editingProvider = null;
+    providersChanged(await jfetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' }));
   } catch (error) { showError(error); }
 }
 

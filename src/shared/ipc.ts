@@ -35,6 +35,7 @@ export const IpcChannel = {
   APPROVAL_RESPOND: 'approval:respond',
   PROVIDER_ADD: 'provider:add',
   PROVIDER_REMOVE: 'provider:remove',
+  PROVIDER_UPDATE: 'provider:update',
   REMOTE_STATUS: 'remote:status',
   REMOTE_SET: 'remote:set',
   REMOTE_REGENERATE: 'remote:regenerate',
@@ -80,9 +81,12 @@ export type ProviderId = string
 
 export interface CustomProviderInput {
   label: string
-  kind: 'openai' | 'ollama'
+  /** 'clinepass' brings back the built-in gateway after it was removed. */
+  kind: 'openai' | 'ollama' | 'clinepass'
   baseURL: string
   apiKey: string
+  /** Model ids typed by the user; the first is the one the provider starts on. */
+  models?: string[]
 }
 
 export interface ProviderInfo {
@@ -94,6 +98,21 @@ export interface ProviderInfo {
   /** True only when the user actually set this provider's env vars. */
   configured: boolean
   credentialHint: string
+  /** The model ids typed for it in Settings (Clinepass: its subscription list). */
+  models?: string[]
+  kind?: 'openai' | 'ollama' | 'clinepass'
+  /** Where it is reached. The key is never sent, only whether one is saved. */
+  baseURL?: string
+  /** A key is saved for it. The key itself never leaves the main process. */
+  hasKey?: boolean
+}
+
+/** A change made in Settings. Blank or missing fields keep what is there. */
+export interface ProviderEdit {
+  label?: string
+  baseURL?: string
+  apiKey?: string
+  models?: string[]
 }
 
 export interface ModelCatalogue {
@@ -469,6 +488,7 @@ export interface AnticodeApi {
   respondToApproval: (response: ApprovalResponse) => Promise<void>
   addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>
   removeProvider: (id: ProviderId) => Promise<ProviderInfo[]>
+  updateProvider: (id: ProviderId, edit: ProviderEdit) => Promise<ProviderInfo[]>
   onAgentEvent: (listener: (event: RoutedAgentEvent) => void) => () => void
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void
 }

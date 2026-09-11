@@ -3,12 +3,14 @@ import type { JSX, ReactNode } from 'react'
 
 /**
  * A deliberately small markdown subset — fenced code, tables, headings, bullets,
- * quotes and inline emphasis — covering what the models actually emit. A full
- * parser would be far more surface area than the output warrants.
+ * numbered lists, quotes, rules and inline emphasis — covering what the models
+ * actually emit. A full parser would be far more surface area than the output
+ * warrants. The phone page (src/main/remote/public/index.html) carries the
+ * same rules in plain DOM; the two should read alike.
  */
 function inline(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = []
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*)/g
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]\n]+\]\([^)\s]+\))/g
   let cursor = 0
   let match: RegExpExecArray | null
   let index = 0
@@ -16,21 +18,31 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
     const token = match[0]
+    const key = `${keyPrefix}-${index}`
 
     if (token.startsWith('`')) {
       nodes.push(
         <code
-          key={`${keyPrefix}-${index}`}
-          className="rounded bg-raised px-1.5 py-0.5 font-mono text-[0.86em] text-text"
+          key={key}
+          className="rounded bg-raised px-1.5 py-0.5 font-mono text-[0.86em] text-text [box-decoration-break:clone]"
         >
           {token.slice(1, -1)}
         </code>
       )
-    } else {
+    } else if (token.startsWith('**')) {
+      // A bold run may hold code of its own, as in **`vercel.json` (root)**.
       nodes.push(
-        <strong key={`${keyPrefix}-${index}`} className="font-semibold text-text">
-          {token.slice(2, -2)}
+        <strong key={key} className="font-semibold text-text">
+          {inline(token.slice(2, -2), key)}
         </strong>
+      )
+    } else {
+      // A markdown link reads as its label; where it points is on hover.
+      const label = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token)
+      nodes.push(
+        <span key={key} title={label?.[2]}>
+          {inline(label?.[1] ?? token, key)}
+        </span>
       )
     }
 
@@ -144,6 +156,12 @@ export function RichText({ text }: { text: string }): JSX.Element {
   const lines = text.split('\n')
   const blocks: ReactNode[] = []
   let index = 0
+  // What the last block was, so blank lines and headings space themselves once.
+  let lastKind: 'start' | 'gap' | 'heading' | 'item' | 'text' | 'block' = 'start'
+  const push = (node: ReactNode, kind: typeof lastKind): void => {
+    blocks.push(node)
+    lastKind = kind
+  }
 
   while (index < lines.length) {
     const line = lines[index] ?? ''
@@ -158,12 +176,13 @@ export function RichText({ text }: { text: string }): JSX.Element {
       }
       index += 1
       const language = line.trim().slice(3).trim()
-      blocks.push(
+      push(
         <PromptBlock
           key={key}
           text={body.join('\n')}
           label={language === '' ? 'Code' : language}
-        />
+        />,
+        'block'
       )
       continue
     }
@@ -180,12 +199,13 @@ export function RichText({ text }: { text: string }): JSX.Element {
       const joined = paragraph.join('\n').trim()
       if (/["\u201d]$/.test(joined) && joined.length > 60) {
         index = scan
-        blocks.push(
+        push(
           <PromptBlock
             key={key}
             text={joined.replace(/^["\u201c]/, '').replace(/["\u201d]$/, '').trim()}
             label="Prompt"
-          />
+          />,
+          'block'
         )
         continue
       }
@@ -197,67 +217,94 @@ export function RichText({ text }: { text: string }): JSX.Element {
         rows.push(lines[index] ?? '')
         index += 1
       }
-      blocks.push(<Table key={key} rows={rows} keyPrefix={key} />)
+      push(<Table key={key} rows={rows} keyPrefix={key} />, 'block')
       continue
     }
 
     index += 1
 
+    // A blank line is a visible gap. One after a heading, a rule or another
+    // gap adds nothing: the heading's own margin already spaces it.
     if (line.trim() === '') {
-      blocks.push(<div key={key} className="h-2" />)
+      if (lastKind !== 'start' && lastKind !== 'gap' && lastKind !== 'heading') {
+        push(<div key={key} className="h-2.5" />, 'gap')
+      }
       continue
     }
 
-    const heading = /^(#{1,3})\s+(.*)$/.exec(line)
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      push(<div key={key} className="my-4 border-t border-line" />, 'heading')
+      continue
+    }
+
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line)
     if (heading) {
-      blocks.push(
-        <div key={key} className="mt-3 mb-1 text-[16px] font-semibold text-text">
-          {inline(heading[2] ?? '', key)}
-        </div>
+      const level = Math.min((heading[1] ?? '#').length, 3)
+      const size = level === 1 ? 'text-[20px]' : level === 2 ? 'text-[17.5px]' : 'text-[15.5px]'
+      const top = lastKind === 'start' ? 'mt-0.5' : lastKind === 'gap' ? 'mt-2' : 'mt-5'
+      push(
+        <div key={key} className={`${top} mb-2 ${size} leading-snug font-semibold text-text`}>
+          {inline((heading[2] ?? '').replace(/^\*\*(.*)\*\*$/, '$1'), key)}
+        </div>,
+        'heading'
       )
       continue
     }
 
-    const bullet = /^\s*[-*]\s+(.*)$/.exec(line)
-    if (bullet) {
+    // Bullets and numbered items hang from their marker, indented by how deep
+    // the model nested them.
+    const item = /^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$/.exec(line)
+    if (item) {
+      const depth = Math.min(Math.floor((item[1] ?? '').replace(/\t/g, '  ').length / 2), 4)
+      let body = item[4] ?? ''
       // A checklist reads as one: a ticked item takes the green mark in place
       // of the bare glyph, whether the model wrote it as a trailing check or
       // as a markdown task box.
-      const item = bullet[1] ?? ''
-      const ticked = /^\[[xX]\]\s*/.exec(item)
-      const trailing = /\s*[\u2713\u2714]\s*$/.exec(item)
-      const body = ticked !== null ? item.slice(ticked[0].length) : item
-      const text = trailing !== null ? body.slice(0, trailing.index) : body
-      blocks.push(
-        <div key={key} className="flex gap-2.5 py-0.5 pl-1">
-          {ticked !== null ? (
-            <span className="shrink-0">✅</span>
+      const box = item[2] !== undefined ? /^\[([ xX])\]\s*/.exec(body) : null
+      if (box !== null) body = body.slice(box[0].length)
+      const trailing = /\s*[\u2713\u2714]\s*$/.exec(body)
+      if (trailing !== null) body = body.slice(0, trailing.index)
+      push(
+        <div key={key} className="flex gap-2.5 py-[3px]" style={{ paddingLeft: 4 + depth * 20 }}>
+          {box !== null ? (
+            <span className="shrink-0">{box[1] === ' ' ? '\u2610' : '\u2705'}</span>
+          ) : item[2] !== undefined ? (
+            <span
+              className={`mt-[0.68em] h-[5px] w-[5px] shrink-0 rounded-full ${
+                depth === 0 ? 'bg-dim' : 'border border-faint'
+              }`}
+            />
           ) : (
-            <span className="mt-[0.6em] h-1 w-1 shrink-0 rounded-full bg-faint" />
+            <span className="min-w-[1.3em] shrink-0 text-right text-dim tabular-nums">
+              {item[3]}.
+            </span>
           )}
-          <span className="min-w-0">
-            {inline(text, key)}
+          <span className="min-w-0 flex-1">
+            {inline(body, key)}
             {trailing !== null && <span className="ml-1.5">✅</span>}
           </span>
-        </div>
+        </div>,
+        'item'
       )
       continue
     }
 
-    const quote = /^>\s?(.*)$/.exec(line)
+    const quote = /^\s*>\s?(.*)$/.exec(line)
     if (quote) {
-      blocks.push(
-        <div key={key} className="border-l-2 border-line py-0.5 pl-3 text-dim">
+      push(
+        <div key={key} className="my-0.5 border-l-2 border-line py-0.5 pl-3 text-dim">
           {inline(quote[1] ?? '', key)}
-        </div>
+        </div>,
+        'text'
       )
       continue
     }
 
-    blocks.push(
-      <div key={key} className="py-0.5">
+    push(
+      <div key={key} className="py-px">
         {inline(line, key)}
-      </div>
+      </div>,
+      'text'
     )
   }
 

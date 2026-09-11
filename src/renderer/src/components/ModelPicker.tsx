@@ -43,7 +43,7 @@ export function ModelPicker({
   const typedIsNew = query.trim() !== '' && !matches.includes(query.trim())
 
   return (
-    <div className="glass-surface absolute bottom-full left-3 z-20 mb-2 flex max-h-64 w-72 flex-col overflow-hidden rounded-lg border border-line shadow-2xl">
+    <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 flex max-h-72 w-80 flex-col overflow-hidden rounded-xl border">
       {providers.length > 1 && (
         <div className="flex flex-wrap gap-0.5 border-b border-line-soft p-1.5">
           {providers.map((entry) => (
@@ -83,14 +83,15 @@ export function ModelPicker({
 
         {!loading && catalogue?.error !== null && catalogue !== null && (
           <div className="max-h-24 overflow-y-auto px-2 py-2 text-[11.5px] leading-relaxed text-faint">
-            Could not load the model list: {catalogue.error}. Type a model id and press Enter.
+            Could not load the model list: {catalogue.error}. Type a model id and press Enter,
+            or add its model ids in Settings → Providers → Edit.
           </div>
         )}
 
         {!loading && catalogue?.error === null && matches.length === 0 && (
           <div className="px-2 py-3 text-[12px] leading-relaxed text-faint">
             {catalogue.models.length === 0
-              ? 'This provider offers no model list. Type an id and press Enter.'
+              ? 'This provider offers no model list. Type an id and press Enter, or add its model ids in Settings → Providers → Edit.'
               : 'No matches. Press Enter to use the id you typed.'}
           </div>
         )}

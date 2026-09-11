@@ -50,7 +50,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
       </button>
 
       {open && (
-        <div className="glass-surface absolute top-full right-0 z-20 mt-1 w-96 rounded-xl border border-line p-4 shadow-2xl">
+        <div className="menu-glass absolute top-full right-0 z-20 mt-1 w-96 rounded-xl border p-4">
           <div className="mb-1 text-[13px] text-text">Session usage</div>
           <div className="mb-2 truncate text-[11.5px] text-faint">{session.title}</div>
           <div className="grid grid-cols-2 gap-x-6 border-t border-line-soft pt-2">

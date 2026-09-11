@@ -398,6 +398,7 @@ export function Composer({
   return (
     <div
       ref={layerRef}
+      data-composer-layer
       className={hero ? 'shrink-0 px-10' : 'absolute inset-x-0 bottom-0 z-20 px-10 pb-6'}
     >
       {viewing !== null && (
@@ -409,11 +410,11 @@ export function Composer({
         )}
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
 
-        <div
-          className={`composer-glass relative overflow-visible rounded-[22px] border border-line transition-colors ${
-            shake ? 'animate-shake' : ''
-          }`}
-        >
+        {/* The menus sit beside the glass card, not inside it: an element with a
+            backdrop-filter is the backdrop for anything inside it, so a menu in
+            there blurred only the card's own empty top and the transcript showed
+            through it unblurred. Out here their blur reaches the page. */}
+        <div className="relative">
           {menu === 'model' && (
             <ModelPicker
               status={status}
@@ -427,7 +428,7 @@ export function Composer({
           )}
 
           {menu === 'mode' && (
-            <div className="glass-surface absolute bottom-full left-3 mb-2 w-72 rounded-lg border border-line p-1.5 shadow-2xl">
+            <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
                 { value: true, name: 'Auto', hint: 'Run everything without asking' }
@@ -455,219 +456,225 @@ export function Composer({
             </div>
           )}
 
-          {quote !== '' && (
-            <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-line bg-bg/35 px-3 py-2">
-              <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
-              <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
-                <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
-                <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
-              </span>
-              <button
-                type="button"
-                onClick={clearQuote}
-                aria-label="Remove quote"
-                className="shrink-0 text-faint transition-colors hover:text-brand"
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {attached.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
-              {attached.map((item) => (
-                <span
-                  key={item.id}
-                  className="group/chip relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
+          <div
+            className={`composer-glass relative overflow-visible rounded-[22px] border border-line transition-colors ${
+              shake ? 'animate-shake' : ''
+            }`}
+          >
+            {quote !== '' && (
+              <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-line bg-bg/35 px-3 py-2">
+                <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
+                <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
+                  <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
+                  <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={clearQuote}
+                  aria-label="Remove quote"
+                  className="shrink-0 text-faint transition-colors hover:text-brand"
                 >
-                  {item.thumbnail !== null ? (
-                    // Staged is not sent: a screenshot is checked here, at full
-                    // size, the same way it can be once it is in the transcript.
+                  ×
+                </button>
+              </div>
+            )}
+
+            {attached.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-3 pt-3">
+                {attached.map((item) => (
+                  <span
+                    key={item.id}
+                    className="group/chip relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
+                  >
+                    {item.thumbnail !== null ? (
+                      // Staged is not sent: a screenshot is checked here, at full
+                      // size, the same way it can be once it is in the transcript.
+                      <button
+                        type="button"
+                        title={`View ${item.name}`}
+                        onClick={() => openAttachment(item, setViewing)}
+                        className="shrink-0 overflow-hidden rounded-lg ring-brand transition-shadow hover:ring-1"
+                      >
+                        <img
+                          src={item.thumbnail}
+                          alt={item.name}
+                          className="h-12 w-12 object-cover"
+                        />
+                      </button>
+                    ) : (
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
+                        {fileTag(item)}
+                      </span>
+                    )}
                     <button
                       type="button"
-                      title={`View ${item.name}`}
                       onClick={() => openAttachment(item, setViewing)}
-                      className="shrink-0 overflow-hidden rounded-lg ring-brand transition-shadow hover:ring-1"
+                      className="group/name min-w-0 text-left"
                     >
-                      <img
-                        src={item.thumbnail}
-                        alt={item.name}
-                        className="h-12 w-12 object-cover"
-                      />
+                      <span className="block truncate text-text transition-colors group-hover/name:text-brand">{item.name}</span>
+                      <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
                     </button>
-                  ) : (
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
-                      {fileTag(item)}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => openAttachment(item, setViewing)}
-                    className="group/name min-w-0 text-left"
-                  >
-                    <span className="block truncate text-text transition-colors group-hover/name:text-brand">{item.name}</span>
-                    <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove"
-                    onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                    className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          <textarea
-            ref={promptRef}
-            rows={1}
-            value={draft}
-            placeholder={
-              isStreaming && !isPaused
-                ? 'Add to the task…'
-                : "Don't work today, just vibes."
-            }
-            onChange={(event) => setDraft(event.target.value)}
-            onPaste={onPaste}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                void send()
-              }
-            }}
-            data-composer
-            className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
-          />
-
-          <div className="flex items-center gap-1 px-2.5 pb-2.5">
-            <button
-              type="button"
-              title="Attach files"
-              onClick={() => void collect(window.anticode.chooseAttachments())}
-              className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
-            >
-              +
-            </button>
-
-            {folder !== null && !hero && (
-              <span
-                title={session?.projectRoot ?? undefined}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim"
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h3l1.4 1.6h5.2a1.2 1.2 0 0 1 1.2 1.2v6A1.2 1.2 0 0 1 12.3 13H2.7a1.2 1.2 0 0 1-1.2-1.2z" />
-                </svg>
-                <span className="max-w-40 truncate font-mono">{folder}</span>
-              </span>
+                    <button
+                      type="button"
+                      title="Remove"
+                      onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
+                      className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
             )}
 
-            {/* Once a code session has messages the hero is gone, and with it
-                the only way to attach a folder — a session that reached this
-                state had no way out. The button lives here too. */}
-            {folderMissing && !hero && session !== undefined && (
+            <textarea
+              ref={promptRef}
+              rows={1}
+              value={draft}
+              placeholder={
+                isStreaming && !isPaused
+                  ? 'Add to the task…'
+                  : "Don't work today, just vibes."
+              }
+              onChange={(event) => setDraft(event.target.value)}
+              onPaste={onPaste}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  void send()
+                }
+              }}
+              data-composer
+              className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
+            />
+
+            <div className="flex items-center gap-1 px-2.5 pb-2.5">
               <button
                 type="button"
-                title="Choose a project folder"
+                title="Attach files"
+                onClick={() => void collect(window.anticode.chooseAttachments())}
+                className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
+              >
+                +
+              </button>
+
+              {folder !== null && !hero && (
+                <span
+                  title={session?.projectRoot ?? undefined}
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim"
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h3l1.4 1.6h5.2a1.2 1.2 0 0 1 1.2 1.2v6A1.2 1.2 0 0 1 12.3 13H2.7a1.2 1.2 0 0 1-1.2-1.2z" />
+                  </svg>
+                  <span className="max-w-40 truncate font-mono">{folder}</span>
+                </span>
+              )}
+
+              {/* Once a code session has messages the hero is gone, and with it
+                  the only way to attach a folder — a session that reached this
+                  state had no way out. The button lives here too. */}
+              {folderMissing && !hero && session !== undefined && (
+                <button
+                  type="button"
+                  title="Choose a project folder"
+                  onClick={() => {
+                    void window.anticode.chooseWorkspace().then((next) => {
+                      if (next.workspaceRoot !== null) {
+                        updateSessionConfig(session.id, {
+                          mode: 'code',
+                          projectRoot: next.workspaceRoot
+                        })
+                      }
+                    })
+                  }}
+                  className={`flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-[12.5px] transition-colors ${
+                    glow ? 'animate-glow text-dim hover:text-brand' : 'text-dim hover:text-brand'
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h3l1.4 1.6h5.2a1.2 1.2 0 0 1 1.2 1.2v6A1.2 1.2 0 0 1 12.3 13H2.7a1.2 1.2 0 0 1-1.2-1.2z" />
+                  </svg>
+                  Choose folder
+                </button>
+              )}
+
+              <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
+                <span className="max-w-56 truncate font-mono">{shortModel}</span>
+              </Chip>
+
+              <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
+                {status?.autoApprove === true ? 'Auto' : 'Default'}
+              </Chip>
+
+              <div className="flex-1" />
+
+              {isPaused && !isStreaming && (
+                <button
+                  type="button"
+                  onClick={() => void revert()}
+                  title="Take back the last prompt and edit it"
+                  className="glass-ghost mr-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
+                >
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                    <path d="M6 4.5L2.5 8 6 11.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M2.5 8h7a4 4 0 0 1 0 8H8" strokeLinecap="round" />
+                  </svg>
+                  Revert
+                </button>
+              )}
+
+              <button
+                type="button"
                 onClick={() => {
-                  void window.anticode.chooseWorkspace().then((next) => {
-                    if (next.workspaceRoot !== null) {
-                      updateSessionConfig(session.id, {
-                        mode: 'code',
-                        projectRoot: next.workspaceRoot
-                      })
-                    }
-                  })
+                  if (steering) {
+                    void send()
+                    return
+                  }
+                  if (isStreaming && !isPaused) {
+                    // The main process pauses whichever run is working in this
+                    // session — started here or on the phone — and tells every
+                    // viewer, this one included, which draws the marker.
+                    const id = session?.id ?? ''
+                    void window.anticode.pauseSession(id).then((paused) => {
+                      if (!paused) void letGoOfFinishedRun(id)
+                    })
+                    return
+                  }
+                  if (resuming) {
+                    void resume()
+                    return
+                  }
+                  void send()
                 }}
-                className={`flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-[12.5px] transition-colors ${
-                  glow ? 'animate-glow text-dim hover:text-brand' : 'text-dim hover:text-brand'
+                // Nothing typed and nothing to resume or pause: nothing to press.
+                // Typed but blocked stays live only when a folder is what is
+                // missing, so pressing it points at the folder button.
+                disabled={
+                  (isPaused && isStreaming) ||
+                  (!isStreaming &&
+                    !resuming &&
+                    (draft.trim() === '' || (!canSend && !folderMissing)))
+                }
+                aria-label={resuming ? 'Resume' : steering ? 'Send' : isStreaming ? 'Pause' : 'Send'}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
+                  resuming
+                    ? 'bg-brand text-bg hover:bg-brand-strong'
+                    : 'glass-ghost text-text hover:text-brand'
                 }`}
               >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h3l1.4 1.6h5.2a1.2 1.2 0 0 1 1.2 1.2v6A1.2 1.2 0 0 1 12.3 13H2.7a1.2 1.2 0 0 1-1.2-1.2z" />
-                </svg>
-                Choose folder
+                {resuming ? (
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+                    <path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" />
+                  </svg>
+                ) : isStreaming && !isPaused && !steering ? (
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
               </button>
-            )}
-
-            <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
-              <span className="max-w-56 truncate font-mono">{shortModel}</span>
-            </Chip>
-
-            <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
-              {status?.autoApprove === true ? 'Auto' : 'Default'}
-            </Chip>
-
-            <div className="flex-1" />
-
-            {isPaused && !isStreaming && (
-              <button
-                type="button"
-                onClick={() => void revert()}
-                title="Take back the last prompt and edit it"
-                className="glass-ghost mr-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
-              >
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-                  <path d="M6 4.5L2.5 8 6 11.5" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M2.5 8h7a4 4 0 0 1 0 8H8" strokeLinecap="round" />
-                </svg>
-                Revert
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                if (steering) {
-                  void send()
-                  return
-                }
-                if (isStreaming && !isPaused) {
-                  // The main process pauses whichever run is working in this
-                  // session — started here or on the phone — and tells every
-                  // viewer, this one included, which draws the marker.
-                  const id = session?.id ?? ''
-                  void window.anticode.pauseSession(id).then((paused) => {
-                    if (!paused) void letGoOfFinishedRun(id)
-                  })
-                  return
-                }
-                if (resuming) {
-                  void resume()
-                  return
-                }
-                void send()
-              }}
-              // Nothing typed and nothing to resume or pause: nothing to press.
-              // Typed but blocked stays live only when a folder is what is
-              // missing, so pressing it points at the folder button.
-              disabled={
-                (isPaused && isStreaming) ||
-                (!isStreaming &&
-                  !resuming &&
-                  (draft.trim() === '' || (!canSend && !folderMissing)))
-              }
-              aria-label={resuming ? 'Resume' : steering ? 'Send' : isStreaming ? 'Pause' : 'Send'}
-              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
-                resuming
-                  ? 'bg-brand text-bg hover:bg-brand-strong'
-                  : 'glass-ghost text-text hover:text-brand'
-              }`}
-            >
-              {resuming ? (
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-                  <path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" />
-                </svg>
-              ) : isStreaming && !isPaused && !steering ? (
-                <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </button>
+            </div>
           </div>
         </div>
 

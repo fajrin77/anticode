@@ -1,6 +1,7 @@
 import type { ProviderId, ProviderInfo } from '@shared/ipc'
 import { AnthropicProvider } from './anthropic'
 import { getCustomProvider, listCustomProviders } from './custom'
+import { clinepassConfig } from './clinepass'
 import { OpenAICompatibleProvider } from './openai'
 import { GoogleProvider } from './google'
 import type { LLMProvider } from './types'
@@ -17,31 +18,44 @@ function ollamaBaseUrl(): string {
 }
 
 /**
- * anticode ships with a single provider: the Clinepass gateway. Its
- * subscription models are listed in models.ts; other adapters stay compiled
- * but are not offered.
+ * anticode ships with a single provider: the Clinepass gateway, supplied by
+ * the env file and editable (or removable) in Settings. Its subscription
+ * models are listed in clinepass.ts; other adapters stay compiled but are not
+ * offered. Everything else is added in Settings.
  */
 export function listProviders(): ProviderInfo[] {
-  const builtIn: ProviderInfo[] = [
-    {
-      id: 'clinepass',
-      label: 'Clinepass',
-      defaultModel: env('CLINEPASS_MODEL') ?? '',
-      credentialAvailable: env('CLINEPASS_API_KEY') !== null && env('CLINEPASS_BASE_URL') !== null,
-      configured: env('CLINEPASS_API_KEY') !== null && env('CLINEPASS_BASE_URL') !== null,
-      credentialHint: 'CLINEPASS_API_KEY and CLINEPASS_BASE_URL'
-    }
-  ]
+  const clinepass = clinepassConfig()
+  const ready = clinepass.apiKey !== null && clinepass.baseURL !== null
+  const builtIn: ProviderInfo[] = clinepass.removed
+    ? []
+    : [
+        {
+          id: 'clinepass',
+          label: clinepass.label,
+          defaultModel: clinepass.modelsEdited ? (clinepass.models[0] ?? '') : (env('CLINEPASS_MODEL') ?? ''),
+          credentialAvailable: ready,
+          configured: ready,
+          credentialHint: 'API key and base URL',
+          models: clinepass.models,
+          kind: 'clinepass',
+          baseURL: clinepass.baseURL ?? '',
+          hasKey: clinepass.apiKey !== null
+        }
+      ]
 
   // User-added endpoints from Settings: hosted OpenAI-compatible gateways and
   // local servers (Ollama, LM Studio, vLLM, anything speaking /v1).
-  const custom = listCustomProviders().map((config) => ({
+  const custom = listCustomProviders().map((config): ProviderInfo => ({
     id: config.id,
     label: config.label,
-    defaultModel: '',
+    defaultModel: config.models?.[0] ?? '',
     credentialAvailable: config.kind === 'ollama' || config.apiKey !== '',
     configured: config.kind === 'ollama' || config.apiKey !== '',
-    credentialHint: config.kind === 'ollama' ? 'Local endpoint' : 'API key'
+    credentialHint: config.kind === 'ollama' ? 'Local endpoint' : 'API key',
+    models: config.models ?? [],
+    kind: config.kind,
+    baseURL: config.baseURL,
+    hasKey: config.apiKey !== ''
   }))
   return [...builtIn, ...custom]
 }
@@ -83,11 +97,11 @@ export function createProvider(id: ProviderId, model: string): LLMProvider {
         maxTokensField: 'max_tokens'
       })
     case 'clinepass': {
-      const apiKey = env('CLINEPASS_API_KEY')
-      const baseURL = env('CLINEPASS_BASE_URL')
-      if (apiKey === null) throw new Error('CLINEPASS_API_KEY is not set')
+      const { apiKey, baseURL, removed } = clinepassConfig()
+      if (removed) throw new Error('Clinepass was removed in Settings')
+      if (apiKey === null) throw new Error('Clinepass has no API key — set one in Settings → Providers')
       // No default URL is guessed: the gateway endpoint is deployment-specific.
-      if (baseURL === null) throw new Error('CLINEPASS_BASE_URL is not set')
+      if (baseURL === null) throw new Error('Clinepass has no base URL — set one in Settings → Providers')
       return new OpenAICompatibleProvider('clinepass', model, {
         apiKey,
         baseURL,

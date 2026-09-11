@@ -3,23 +3,9 @@ import OpenAI from 'openai'
 import { GoogleGenAI } from '@google/genai'
 import type { ProviderId } from '@shared/ipc'
 import { getCustomProvider } from './custom'
+import { clinepassConfig } from './clinepass'
 
 const TIMEOUT_MS = 15_000
-
-/**
- * Clinepass subscription models do not appear in GET /models, so the catalogue
- * is fixed instead of fetched. Ids use the gateway's `cline-pass/` prefix.
- */
-const CLINEPASS_MODELS: string[] = [
-  'cline-pass/glm-5.3-flash',
-  'cline-pass/deepseek-v4-flash',
-  'cline-pass/deepseek-v4-pro',
-  'cline-pass/kimi-k2.7-code',
-  'cline-pass/kimi-k3',
-  'cline-pass/mimo-v2.5',
-  'cline-pass/minimax-m3',
-  'cline-pass/qwen-3.8-max'
-]
 
 function env(name: string): string | null {
   const value = process.env[name]?.trim()
@@ -81,7 +67,16 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
   if (id.startsWith('custom:')) {
     const config = getCustomProvider(id)
     if (config === undefined) return []
-    return listOpenAICompatible(config.kind === 'ollama' ? 'ollama' : config.apiKey, config.baseURL)
+    // The ids typed in Settings always count; the gateway's own list adds to
+    // them, and when it cannot be read the typed ones are the catalogue.
+    const listed = config.models ?? []
+    try {
+      const fetched = await listOpenAICompatible(config.kind === 'ollama' ? 'ollama' : config.apiKey, config.baseURL)
+      return [...listed, ...fetched.filter((model) => !listed.includes(model))]
+    } catch (error) {
+      if (listed.length > 0) return listed
+      throw error
+    }
   }
 
   switch (id) {
@@ -100,9 +95,8 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
     case 'ollama':
       return listOpenAICompatible('ollama', env('OLLAMA_BASE_URL') ?? 'http://127.0.0.1:11434/v1')
     case 'clinepass': {
-      const apiKey = env('CLINEPASS_API_KEY')
-      const baseURL = env('CLINEPASS_BASE_URL')
-      return apiKey === null || baseURL === null ? [] : CLINEPASS_MODELS
+      const { apiKey, baseURL, models, removed } = clinepassConfig()
+      return removed || apiKey === null || baseURL === null ? [] : models
     }
     default:
       return []

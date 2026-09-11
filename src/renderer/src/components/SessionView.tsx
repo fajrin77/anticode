@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import type { Message, MessagePart } from '../store/session'
@@ -404,24 +404,43 @@ function ReplyToSelection({ sessionId }: { sessionId: string }): JSX.Element {
   )
 }
 
+/** How close to the end still counts as reading the end, in pixels. */
+const FOLLOW_SLACK = 80
+
 export function SessionView(): JSX.Element {
   const session = useActiveSession()
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const messages = session?.messages ?? []
+  // The transcript follows new output only while the reader is at its end.
+  // Scrolling up to read stops it; scrolling back down, sending a prompt, or
+  // opening another session starts it again.
+  const following = useRef(true)
+  const seen = useRef<{ sessionId: string | undefined; prompts: number }>({ sessionId: undefined, prompts: 0 })
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages])
+  useLayoutEffect(() => {
+    const box = scrollRef.current
+    if (box === null) return
+    const prompts = messages.filter((message) => message.role === 'user').length
+    if (seen.current.sessionId !== session?.id || prompts > seen.current.prompts) following.current = true
+    seen.current = { sessionId: session?.id, prompts }
+    if (following.current) box.scrollTop = box.scrollHeight
+  }, [messages, session?.id])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ReplyToSelection sessionId={session?.id ?? ''} />
-      <div className="under-header min-h-0 flex-1 overflow-y-auto px-10">
+      <div
+        ref={scrollRef}
+        onScroll={(event) => {
+          const box = event.currentTarget
+          following.current = box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_SLACK
+        }}
+        className="under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
+      >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
           {messages.map((message) => (
             <MessageView key={message.id} message={message} sessionId={session?.id ?? ''} />
           ))}
-          <div ref={bottomRef} />
         </div>
       </div>
     </div>

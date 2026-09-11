@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, KeyboardEvent } from 'react'
 import QRCode from 'qrcode'
 import type {
   AppInfo,
@@ -72,9 +72,11 @@ function Tag({ children }: { children: string }): JSX.Element {
 
 function General({
   status,
+  providers,
   onToggleAutoApprove
 }: {
   status: SessionStatus | null
+  providers: ProviderInfo[]
   onToggleAutoApprove: (enabled: boolean) => void
 }): JSX.Element {
   return (
@@ -89,7 +91,7 @@ function General({
           <Toggle on={status?.autoApprove === true} onChange={onToggleAutoApprove} />
         </SettingRow>
         <SettingRow title="Provider" hint="The gateway anticode talks to">
-          {status?.provider ?? '—'}
+          {providers.find((entry) => entry.id === status?.provider)?.label ?? status?.provider ?? '—'}
         </SettingRow>
         <SettingRow title="Model" hint="Model used for new turns in every session">
           <span className="font-mono text-[12.5px]">{status?.model || 'not set'}</span>
@@ -98,6 +100,187 @@ function General({
     </>
   )
 }
+
+const MODELS_PLACEHOLDER = 'moonshotai/kimi-k2\nqwen/qwen3-coder'
+
+/** What was typed in a models box, as ids: split on lines and commas, blanks dropped. */
+function modelIds(text: string): string[] {
+  return [...new Set(text.split(/[\n,]/).map((id) => id.trim()).filter((id) => id !== ''))]
+}
+
+/** "api.example.com/v1" from "https://api.example.com/v1" — for reading, not for use. */
+function hostOf(baseURL: string | undefined): string {
+  if (baseURL === undefined || baseURL === '') return ''
+  try {
+    const url = new URL(baseURL)
+    return url.host + (url.pathname === '/' ? '' : url.pathname)
+  } catch {
+    return baseURL
+  }
+}
+
+const inputClass =
+  'glass-field w-full rounded-lg border border-line px-3 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover'
+
+type ProviderKind = 'openai' | 'ollama' | 'clinepass'
+
+interface ProviderFormValues {
+  label: string
+  kind: ProviderKind
+  baseURL: string
+  apiKey: string
+  models: string
+}
+
+/**
+ * One form for adding a provider and for editing one, Clinepass included.
+ * Editing never shows a saved key: the field stays empty, and empty keeps it.
+ */
+function ProviderForm({
+  initial,
+  editing,
+  hasKey,
+  onSubmit,
+  onCancel
+}: {
+  initial: ProviderFormValues
+  /** Editing an existing provider rather than adding one. */
+  editing: boolean
+  hasKey: boolean
+  onSubmit: (values: ProviderFormValues) => Promise<void>
+  onCancel: () => void
+}): JSX.Element {
+  const [values, setValues] = useState(initial)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const set = (patch: Partial<ProviderFormValues>): void => setValues((current) => ({ ...current, ...patch }))
+  const needsKey = values.kind !== 'ollama' && !hasKey
+  const valid =
+    editing ||
+    (values.label.trim() !== '' &&
+      values.baseURL.trim() !== '' &&
+      (!needsKey || values.apiKey.trim() !== ''))
+
+  function submit(): void {
+    if (!valid || saving) return
+    setSaving(true)
+    onSubmit(values)
+      .catch((failure) => setError((failure as Error).message))
+      .finally(() => setSaving(false))
+  }
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') onCancel()
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.target instanceof HTMLInputElement)) {
+      event.preventDefault()
+      submit()
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3" onKeyDown={onKeyDown}>
+      <label className="col-span-2 sm:col-span-1">
+        <span className="mb-1 block text-[12px] text-faint">Name</span>
+        <input
+          value={values.label}
+          autoFocus
+          onChange={(event) => set({ label: event.target.value })}
+          placeholder="OpenRouter, LM Studio, …"
+          className={inputClass}
+        />
+      </label>
+      {!editing ? (
+        <label className="col-span-2 sm:col-span-1">
+          <span className="mb-1 block text-[12px] text-faint">Type</span>
+          <div className="flex rounded-lg border border-line p-0.5">
+            {(
+              [
+                { value: 'openai', label: 'Cloud (OpenAI-compatible)' },
+                { value: 'ollama', label: 'Local server' }
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => set({ kind: option.value })}
+                className={`flex-1 rounded-md px-2 py-1.5 text-[12.5px] transition-colors ${
+                  values.kind === option.value ? 'glass-control text-text' : 'text-dim hover:text-brand'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </label>
+      ) : (
+        <div className="col-span-2 sm:col-span-1" />
+      )}
+      <label className="col-span-2">
+        <span className="mb-1 block text-[12px] text-faint">Base URL</span>
+        <input
+          value={values.baseURL}
+          onChange={(event) => set({ baseURL: event.target.value })}
+          placeholder={values.kind === 'ollama' ? 'http://127.0.0.1:11434/v1' : 'https://api.example.com/v1'}
+          spellCheck={false}
+          className={`${inputClass} font-mono text-[12.5px]`}
+        />
+      </label>
+      {values.kind !== 'ollama' && (
+        <label className="col-span-2">
+          <span className="mb-1 block text-[12px] text-faint">API key</span>
+          <input
+            type="password"
+            value={values.apiKey}
+            onChange={(event) => set({ apiKey: event.target.value })}
+            placeholder={hasKey ? 'Saved — leave empty to keep it' : 'sk-…'}
+            autoComplete="off"
+            className={inputClass}
+          />
+        </label>
+      )}
+      <label className="col-span-2">
+        <span className="mb-1 block text-[12px] text-faint">
+          Models{values.kind === 'clinepass' ? '' : ' (optional)'}
+        </span>
+        <textarea
+          value={values.models}
+          rows={Math.min(Math.max(values.models.split('\n').length, 3), 8)}
+          onChange={(event) => set({ models: event.target.value })}
+          placeholder={MODELS_PLACEHOLDER}
+          spellCheck={false}
+          className={`${inputClass} resize-none font-mono text-[12.5px] leading-relaxed`}
+        />
+        <span className="mt-1.5 block text-[11.5px] leading-relaxed text-faint">
+          {values.kind === 'clinepass'
+            ? 'The subscription models, one id per line. Empty goes back to the list anticode ships with.'
+            : 'One id per line. They show in the model picker even when the provider has no model list; the first is the default.'}
+        </span>
+      </label>
+
+      {error !== null && <p className="col-span-2 text-[12px] text-del">{error}</p>}
+
+      <div className="col-span-2 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!valid || saving}
+          className="glass-control rounded-lg border px-4 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+        >
+          {editing ? 'Save' : 'Add provider'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+const EMPTY_FORM: ProviderFormValues = { label: '', kind: 'openai', baseURL: '', apiKey: '', models: '' }
 
 function Providers({
   providers,
@@ -111,42 +294,61 @@ function Providers({
   onProvidersChange: (providers: ProviderInfo[]) => void
 }): JSX.Element {
   const [adding, setAdding] = useState(false)
-  const [label, setLabel] = useState('')
-  const [kind, setKind] = useState<'openai' | 'ollama'>('openai')
-  const [baseURL, setBaseURL] = useState('')
-  const [apiKey, setApiKey] = useState('')
+  // One row at a time is open: for editing, or for confirming its removal.
+  const [open, setOpen] = useState<{ id: string; action: 'edit' | 'remove' } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const clinepassRemoved = !providers.some((entry) => entry.id === 'clinepass')
 
-  const valid =
-    label.trim() !== '' &&
-    baseURL.trim() !== '' &&
-    (kind === 'ollama' || apiKey.trim() !== '')
+  async function add(values: ProviderFormValues): Promise<void> {
+    const next = await window.anticode.addProvider({
+      label: values.label,
+      kind: values.kind,
+      baseURL: values.baseURL,
+      apiKey: values.apiKey,
+      models: modelIds(values.models)
+    })
+    onProvidersChange(next)
+    // Switch straight to the freshly added provider and prefetch its model
+    // catalogue, so its models are immediately usable.
+    const added = next.find((entry) => !providers.some((old) => old.id === entry.id))
+    if (added !== undefined && added.credentialAvailable) onSelectProvider(added.id, '')
+    setAdding(false)
+  }
 
-  function add(): void {
-    if (!valid) return
+  async function save(id: ProviderId, values: ProviderFormValues): Promise<void> {
+    const next = await window.anticode.updateProvider(id, {
+      label: values.label,
+      baseURL: values.baseURL,
+      apiKey: values.apiKey,
+      models: modelIds(values.models)
+    })
+    onProvidersChange(next)
+    setOpen(null)
+  }
+
+  function remove(id: ProviderId): void {
     void window.anticode
-      .addProvider({ label, kind, baseURL, apiKey })
+      .removeProvider(id)
       .then((next) => {
         onProvidersChange(next)
-        // Switch straight to the freshly added provider and prefetch its
-        // model catalogue, so its models are immediately usable.
-        const added = next.find((entry) => !providers.some((old) => old.id === entry.id))
-        if (added !== undefined) onSelectProvider(added.id, '')
-        setAdding(false)
-        setLabel('')
-        setBaseURL('')
-        setApiKey('')
+        setOpen(null)
         setError(null)
       })
       .catch((failure) => setError((failure as Error).message))
   }
 
-  function remove(id: string): void {
-    void window.anticode.removeProvider(id).then(onProvidersChange)
+  function restoreClinepass(): void {
+    void window.anticode
+      .addProvider({ label: 'Clinepass', kind: 'clinepass', baseURL: '', apiKey: '' })
+      .then((next) => {
+        onProvidersChange(next)
+        setError(null)
+        // With no key left to find, the form is where it gets one.
+        const back = next.find((entry) => entry.id === 'clinepass')
+        if (back !== undefined && !back.credentialAvailable) setOpen({ id: 'clinepass', action: 'edit' })
+      })
+      .catch((failure) => setError((failure as Error).message))
   }
-
-  const inputClass =
-    'glass-field w-full rounded-lg border border-line px-3 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover'
 
   return (
     <>
@@ -156,132 +358,154 @@ function Providers({
         <h2 className="text-[14px] text-text">Connected providers</h2>
         <button
           type="button"
-          onClick={() => setAdding((value) => !value)}
-          className="glass-control flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:text-brand"
+          onClick={() => {
+            setAdding((value) => !value)
+            setOpen(null)
+          }}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors hover:text-brand ${
+            adding ? 'glass-control text-text' : 'glass-control border-line text-dim'
+          }`}
         >
           + Add provider
         </button>
       </div>
 
+      {adding && (
+        <div className="glass-surface mb-4 rounded-xl border border-line p-4">
+          <ProviderForm
+            initial={EMPTY_FORM}
+            editing={false}
+            hasKey={false}
+            onSubmit={add}
+            onCancel={() => setAdding(false)}
+          />
+        </div>
+      )}
+
       <div className="glass-surface overflow-hidden rounded-xl border border-line">
         {providers.map((provider) => {
           const active = provider.id === status?.provider
-          const custom = provider.id.startsWith('custom:')
+          const kind: ProviderKind = provider.kind ?? 'openai'
+          const listed = provider.models ?? []
+          const editingThis = open?.id === provider.id && open.action === 'edit'
+          const removingThis = open?.id === provider.id && open.action === 'remove'
+          const details = [
+            hostOf(provider.baseURL) || 'no base URL',
+            kind === 'ollama' ? 'local' : provider.hasKey === true ? 'key saved' : 'no key',
+            listed.length > 0 ? `${listed.length} ${listed.length === 1 ? 'model' : 'models'}` : null
+          ].filter((part) => part !== null)
           return (
-            <div
-              key={provider.id}
-              className="flex items-center gap-3 border-b border-line-soft px-5 py-4 last:border-b-0"
-            >
-              <span className={`text-[13.5px] ${active ? 'text-text' : 'text-dim'}`}>
-                {provider.label}
-              </span>
-              {provider.credentialAvailable ? (
-                custom && provider.credentialHint === 'Local endpoint' ? <Tag>Local</Tag> : <Tag>API key</Tag>
-              ) : (
-                <Tag>needs key</Tag>
+            <div key={provider.id} className="border-b border-line-soft last:border-b-0">
+              <div className="flex items-center gap-3 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`truncate text-[13.5px] ${active ? 'text-text' : 'text-dim'}`}>
+                      {provider.label}
+                    </span>
+                    {kind === 'clinepass' && <Tag>built-in</Tag>}
+                    {active && <span className="text-[11.5px] text-brand">active</span>}
+                    {!provider.credentialAvailable && <Tag>needs key</Tag>}
+                  </div>
+                  <div className="mt-0.5 truncate font-mono text-[11.5px] text-faint">
+                    {details.join(' · ')}
+                  </div>
+                </div>
+                {!active && provider.credentialAvailable && !removingThis && (
+                  <button
+                    type="button"
+                    title={`Use ${provider.label}`}
+                    onClick={() => onSelectProvider(provider.id, '')}
+                    className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
+                  >
+                    Use
+                  </button>
+                )}
+                {removingThis ? (
+                  <>
+                    <span className="shrink-0 text-[12px] text-dim">Remove?</span>
+                    <button
+                      type="button"
+                      onClick={() => setOpen(null)}
+                      className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
+                    >
+                      Keep
+                    </button>
+                    <button
+                      type="button"
+                      title={`Confirm removing ${provider.label}`}
+                      onClick={() => remove(provider.id)}
+                      className="shrink-0 rounded-md px-2 py-1 text-[12px] text-del transition-colors hover:bg-raised"
+                    >
+                      Remove
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      title={`Edit ${provider.label}`}
+                      onClick={() => {
+                        setOpen(editingThis ? null : { id: provider.id, action: 'edit' })
+                        setAdding(false)
+                      }}
+                      className={`shrink-0 rounded-md px-2 py-1 text-[12px] transition-colors hover:bg-raised hover:text-brand ${
+                        editingThis ? 'text-text' : 'text-faint'
+                      }`}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      title={`Remove ${provider.label}`}
+                      onClick={() => setOpen({ id: provider.id, action: 'remove' })}
+                      className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-del"
+                    >
+                      Remove
+                    </button>
+                  </>
+                )}
+              </div>
+              {removingThis && kind === 'clinepass' && (
+                <p className="px-5 pb-3 text-[11.5px] leading-relaxed text-faint">
+                  What Settings saved for Clinepass is forgotten. A key in the .env file stays
+                  there, and Restore Clinepass brings it back.
+                </p>
               )}
-              <span className="ml-auto text-[12px] text-faint">
-                {provider.credentialAvailable
-                  ? active
-                    ? 'active'
-                    : 'ready'
-                  : provider.credentialHint}
-              </span>
-              {custom && (
-                <button
-                  type="button"
-                  onClick={() => remove(provider.id)}
-                  className="shrink-0 text-[12px] text-faint transition-colors hover:text-del"
-                >
-                  Remove
-                </button>
+              {editingThis && (
+                <div className="border-t border-line-soft px-5 py-4">
+                  <ProviderForm
+                    initial={{
+                      label: provider.label,
+                      kind,
+                      baseURL: provider.baseURL ?? '',
+                      apiKey: '',
+                      models: listed.join('\n')
+                    }}
+                    editing
+                    hasKey={provider.hasKey === true}
+                    onSubmit={(values) => save(provider.id, values)}
+                    onCancel={() => setOpen(null)}
+                  />
+                </div>
               )}
             </div>
           )
         })}
+        {providers.length === 0 && (
+          <div className="px-5 py-4 text-[12.5px] text-faint">No providers. Add one to start a session.</div>
+        )}
       </div>
 
-      {adding && (
-        <div className="glass-surface mt-4 rounded-xl border border-line p-4">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="col-span-2">
-              <span className="mb-1 block text-[12px] text-faint">Name</span>
-              <input
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                placeholder="OpenRouter, LM Studio, …"
-                className={inputClass}
-              />
-            </label>
-            <label className="col-span-2">
-              <span className="mb-1 block text-[12px] text-faint">Type</span>
-              <div className="flex rounded-lg border border-line p-0.5">
-                {(
-                  [
-                    { value: 'openai', label: 'OpenAI-compatible (cloud)' },
-                    { value: 'ollama', label: 'Local server (Ollama, LM Studio)' }
-                  ] as const
-                ).map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setKind(option.value)}
-                    className={`flex-1 rounded-md px-2 py-1.5 text-[12.5px] transition-colors ${
-                      kind === option.value ? 'glass-control text-text' : 'text-dim hover:text-brand'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </label>
-            <label className="col-span-2">
-              <span className="mb-1 block text-[12px] text-faint">Base URL</span>
-              <input
-                value={baseURL}
-                onChange={(event) => setBaseURL(event.target.value)}
-                placeholder={
-                  kind === 'ollama' ? 'http://127.0.0.1:11434/v1' : 'https://api.example.com/v1'
-                }
-                className={inputClass}
-              />
-            </label>
-            {kind === 'openai' && (
-              <label className="col-span-2">
-                <span className="mb-1 block text-[12px] text-faint">API key</span>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="sk-…"
-                  className={inputClass}
-                />
-              </label>
-            )}
-          </div>
+      {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
 
-          {error !== null && (
-            <p className="mt-2 text-[12px] text-del">{error}</p>
-          )}
-
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setAdding(false)}
-              className="rounded-lg px-3 py-2 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={add}
-              disabled={!valid}
-              className="glass-control rounded-lg border px-4 py-2 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
-            >
-              Add provider
-            </button>
-          </div>
-        </div>
+      {clinepassRemoved && (
+        <button
+          type="button"
+          onClick={restoreClinepass}
+          className="mt-3 text-[12px] text-faint transition-colors hover:text-brand"
+        >
+          Restore Clinepass
+        </button>
       )}
     </>
   )
@@ -540,7 +764,7 @@ export function SettingsView({
       <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10">
         <div className="mx-auto max-w-2xl">
           {section === 'general' && (
-            <General status={status} onToggleAutoApprove={onToggleAutoApprove} />
+            <General status={status} providers={providers} onToggleAutoApprove={onToggleAutoApprove} />
           )}
           {section === 'providers' && (
             <Providers

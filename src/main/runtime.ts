@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
-import { cancelSessionRuns, clearPause, runForSession, hasRuns } from './runs'
+import { cancelSessionRuns, clearPause, runForSession } from './runs'
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
@@ -115,21 +115,47 @@ export function resetProviderSelection(): void {
   selection = null
 }
 
-/** Switch only between runs; adapters retain the completed conversation. */
+/**
+ * The model a provider starts on when none was named: the first id the user
+ * listed for it in Settings, else the head of a short catalogue.
+ */
+function autoPickFor(provider: ProviderId, models: string[]): string {
+  const listed = listProviders().find((entry) => entry.id === provider)?.defaultModel ?? ''
+  if (listed !== '') return listed
+  return models.length <= AUTO_PICK_LIMIT ? (models[0] ?? '') : ''
+}
+
+/**
+ * Allowed at any time, even while other sessions work: a run keeps the model
+ * it started with (getSession never swaps a working session's agent), and the
+ * new choice applies from each session's next prompt.
+ */
 export function selectProvider(next: ProviderSelection): void {
   if (!listProviders().some((provider) => provider.id === next.provider && provider.credentialAvailable)) {
     throw new Error('Provider unavailable. Configure its credentials first.')
   }
-  if (hasRuns()) throw new Error('Wait for running sessions to finish before changing provider or model.')
   const model = next.model.trim()
   selection = {
     provider: next.provider,
     // Fall back to whatever the catalogue offers so switching provider never
     // lands on an empty model box the user has to fill in by hand.
-    model: model !== '' ? model : ((catalogues.get(next.provider)?.models.length ?? 0) <= AUTO_PICK_LIMIT ? catalogues.get(next.provider)?.models[0] ?? '' : '')
+    model: model !== '' ? model : autoPickFor(next.provider, catalogues.get(next.provider)?.models ?? [])
   }
 
   savePersistedSettings({ provider: selection.provider, model: selection.model })
+}
+
+/** True while a working session is talking to this provider. */
+export function providerInUse(provider: ProviderId): boolean {
+  for (const [sessionId, live] of sessions) {
+    if (live.selection?.provider === provider && runForSession(sessionId) !== null) return true
+  }
+  return false
+}
+
+/** A provider's model list changed in Settings; the next listModels refetches. */
+export function forgetCatalogue(provider: ProviderId): void {
+  catalogues.delete(provider)
 }
 
 /** The cached catalogue without any network round-trip; null when cold. */
@@ -152,8 +178,8 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
   // sane automatic pick. A long one is a marketplace of hundreds — choosing
   // alphabetically there lands on an arbitrary paid model, so the user picks.
   const active = current()
-  const autoPick = catalogue.models.length <= AUTO_PICK_LIMIT ? catalogue.models[0] : undefined
-  if (active.provider === provider && active.model === '' && autoPick !== undefined) {
+  const autoPick = autoPickFor(provider, catalogue.models)
+  if (active.provider === provider && active.model === '' && autoPick !== '') {
     selection = { provider, model: autoPick }
 
     savePersistedSettings({ provider, model: autoPick })
@@ -272,14 +298,14 @@ export function getStatus(): SessionStatus {
   const active = current()
   const info = listProviders().find((p) => p.id === active.provider)
 
-  // The path must match what loadEnvFile() actually reads, or the hint lies.
-  const envFile = app.isPackaged
-    ? `${app.getPath('userData')}/.env`
-    : './.env'
+  // Every provider's credentials can be set in Settings now, so that is where
+  // the hint points — the env file still works, but it is not the only way.
   const blockedReason =
-    info?.credentialAvailable !== true
-      ? `${info?.credentialHint ?? 'Credentials'} not set — fill in ${envFile} and restart the app`
-      : active.model === ''
+    info === undefined
+      ? 'No provider set up — add one in Settings → Providers'
+      : !info.credentialAvailable
+        ? `${info.label} has no ${info.credentialHint} yet — add it in Settings → Providers`
+        : active.model === ''
         ? 'No model selected for this provider'
         : null
 
@@ -300,6 +326,11 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
   if (live.spec.mode === 'code' && live.spec.workspaceRoot === null) {
     throw new Error('A code session needs a project folder')
   }
+
+  // A session that is working keeps the agent it is working with: a follow-up
+  // joins that run, and swapping the agent under it would strand the run. A
+  // model picked meanwhile takes over from this session's next prompt.
+  if (live.agent !== null && runForSession(sessionId) !== null) return live.agent
 
   const active = current()
   if (!live.agent || live.selection?.provider !== active.provider || live.selection?.model !== active.model) {

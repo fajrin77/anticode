@@ -181,11 +181,9 @@ function DashboardComposer({
       <div className="mx-auto max-w-3xl" ref={boxRef}>
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
 
-        <div
-          className={`composer-glass relative rounded-[22px] border transition-colors ${
-            menu !== 'none' ? 'border-dim' : 'border-line'
-          } ${shake ? 'animate-shake' : ''}`}
-        >
+        {/* Menus beside the glass card, not inside it, so their blur reaches
+            the page behind (see Composer). */}
+        <div className="relative">
           {menu === 'model' && (
             <ModelPicker
               status={status}
@@ -199,7 +197,7 @@ function DashboardComposer({
           )}
 
           {menu === 'mode' && (
-            <div className="glass-surface absolute bottom-full left-3 mb-2 w-72 rounded-lg border border-line p-1.5 shadow-2xl">
+            <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
                 { value: true, name: 'Auto', hint: 'Skip prompts for medium risk' }
@@ -227,96 +225,103 @@ function DashboardComposer({
             </div>
           )}
 
-          {attached.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
-              {attached.map((item) => (
-                <span
-                  key={item.id}
-                  className="relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
-                >
-                  {item.thumbnail !== null ? (
-                    <img src={item.thumbnail} alt={item.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
-                  ) : (
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
-                      {fileTag(item)}
-                    </span>
-                  )}
-                  <span className="min-w-0">
-                    <span className="block truncate text-text">{item.name}</span>
-                    <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
-                  </span>
-                  <button
-                    type="button"
-                    title="Remove"
-                    onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
-                    className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
+          <div
+            className={`composer-glass relative rounded-[22px] border transition-colors ${
+              menu !== 'none' ? 'border-dim' : 'border-line'
+            } ${shake ? 'animate-shake' : ''}`}
+          >
+
+            {attached.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-3 pt-3">
+                {attached.map((item) => (
+                  <span
+                    key={item.id}
+                    className="relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
                   >
-                    ×
-                  </button>
+                    {item.thumbnail !== null ? (
+                      <img src={item.thumbnail} alt={item.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                    ) : (
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
+                        {fileTag(item)}
+                      </span>
+                    )}
+                    <span className="min-w-0">
+                      <span className="block truncate text-text">{item.name}</span>
+                      <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      title="Remove"
+                      onClick={() => { void window.anticode.releaseAttachments([item.id]); setAttached((c) => c.filter((a) => a.id !== item.id)) }}
+                      className="absolute top-1 right-1.5 text-faint transition-colors hover:text-brand"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <textarea
+              ref={promptRef}
+              rows={1}
+              value={draft}
+              placeholder="Don't work today, just vibes."
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  void send()
+                }
+              }}
+              className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
+            />
+
+            <div className="flex items-center gap-1 px-2.5 pb-2.5">
+              <button
+                type="button"
+                title="Attach files"
+                onClick={() => collect(window.anticode.chooseAttachments())}
+                className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
+              >
+                +
+              </button>
+
+              <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
+                <span className="max-w-56 truncate font-mono">
+                  {status?.model === '' ? 'pick a model' : (status?.model ?? '…')}
                 </span>
-              ))}
+              </Chip>
+
+              <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
+                {status?.autoApprove === true ? 'Auto' : 'Default'}
+              </Chip>
+
+              <div className="flex-1" />
+
+              <button
+                type="button"
+                onClick={() => void send()}
+                // An empty box has nothing to send, so the arrow is dead rather
+                // than pressable-and-silent. With words typed it stays live even
+                // without a folder, so pressing it shows what is missing.
+                disabled={
+                  sending ||
+                  draft.trim() === '' ||
+                  (!ready && !(status?.providerReady === true && mode === 'code' && folder === null))
+                }
+                aria-label={sending ? 'Sending' : 'Send'}
+                className="glass-ghost flex h-8 w-8 items-center justify-center rounded-lg text-text hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+              >
+                {sending ? (
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
             </div>
-          )}
-
-          <textarea
-            ref={promptRef}
-            rows={1}
-            value={draft}
-            placeholder="Don't work today, just vibes."
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                void send()
-              }
-            }}
-            className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
-          />
-
-          <div className="flex items-center gap-1 px-2.5 pb-2.5">
-            <button
-              type="button"
-              title="Attach files"
-              onClick={() => collect(window.anticode.chooseAttachments())}
-              className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
-            >
-              +
-            </button>
-
-            <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
-              <span className="max-w-56 truncate font-mono">
-                {status?.model === '' ? 'pick a model' : (status?.model ?? '…')}
-              </span>
-            </Chip>
-
-            <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
-              {status?.autoApprove === true ? 'Auto' : 'Default'}
-            </Chip>
-
-            <div className="flex-1" />
-
-            <button
-              type="button"
-              onClick={() => void send()}
-              // An empty box has nothing to send, so the arrow is dead rather
-              // than pressable-and-silent. With words typed it stays live even
-              // without a folder, so pressing it shows what is missing.
-              disabled={
-                sending ||
-                draft.trim() === '' ||
-                (!ready && !(status?.providerReady === true && mode === 'code' && folder === null))
-              }
-              aria-label={sending ? 'Sending' : 'Send'}
-              className="glass-ghost flex h-8 w-8 items-center justify-center rounded-lg text-text hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
-            >
-              {sending ? (
-                <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </button>
           </div>
         </div>
 

@@ -15,6 +15,7 @@ import type {
   RoutedAgentEvent,
   SessionSnapshot,
   ProviderId,
+  ProviderEdit,
   ProviderInfo,
   ProviderSelection,
   SessionPause,
@@ -88,6 +89,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.REMOTE_REGENERATE) as Promise<RemoteStatus>,
   removeProvider: (id: ProviderId) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
+  updateProvider: (id: ProviderId, edit: ProviderEdit) =>
+    ipcRenderer.invoke(IpcChannel.PROVIDER_UPDATE, id, edit) as Promise<ProviderInfo[]>,
   createSession: (spec: SessionSpec) =>
     ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<SessionSpec>,
   setSessionColour: (sessionId: string, colour: number) =>
