@@ -4,6 +4,7 @@ import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
 import { Badge } from './Badge'
+import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
 
 function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
@@ -31,6 +32,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
   }, [open])
 
   const totalTokens = session.inputTokens + session.outputTokens
+  const contextPercent = Math.min(100, Math.round((session.lastInputTokens / HISTORY_TOKEN_BUDGET) * 100))
 
   return (
     <div className="region-no-drag relative" ref={boxRef}>
@@ -71,6 +73,28 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
               <span className="text-[12.5px] text-text">{formatNumber(session.messages.length)}</span>
             </div>
           </div>
+          <div className="mt-2 border-t border-line-soft pt-3">
+            <div className="mb-1.5 flex items-center justify-between text-[11.5px]">
+              <span className="text-faint">Current context</span>
+              <span className={contextPercent >= 85 ? 'text-del' : 'text-dim'}>{contextPercent}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-raised">
+              <div
+                className={`h-full rounded-full transition-[width] ${contextPercent >= 85 ? 'bg-del' : 'bg-brand'}`}
+                style={{ width: `${contextPercent}%` }}
+              />
+            </div>
+            <div className="mt-1.5 text-[10.5px] text-faint">
+              Latest request against {formatNumber(HISTORY_TOKEN_BUDGET)} token replay budget
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void window.anticode.exportSession(session.id)}
+            className="mt-3 w-full rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand"
+          >
+            Export transcript…
+          </button>
         </div>
       )}
     </div>

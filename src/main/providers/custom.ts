@@ -1,5 +1,5 @@
-import { app } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import * as electron from 'electron'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { VENDOR_BASE_URLS } from '@shared/ipc'
@@ -50,20 +50,75 @@ interface ProvidersFile {
 let cache: ProvidersFile | null = null
 
 function file(): string {
-  return path.join(app.getPath('userData'), 'providers.json')
+  return path.join(electron.app.getPath('userData'), 'providers.json')
+}
+
+const ENCRYPTED_PREFIX = 'safe:v1:'
+
+function safeStorage(): typeof electron.safeStorage | null {
+  const storage = (electron as { safeStorage?: typeof electron.safeStorage }).safeStorage
+  try {
+    return storage?.isEncryptionAvailable() === true ? storage : null
+  } catch {
+    return null
+  }
+}
+
+function encryptKey(value: string): string {
+  if (value === '' || value.startsWith(ENCRYPTED_PREFIX)) return value
+  const storage = safeStorage()
+  // Never fall back to plaintext. The key remains usable for this process but
+  // must be entered again after restart on a platform without secure storage.
+  return storage === null ? '' : `${ENCRYPTED_PREFIX}${storage.encryptString(value).toString('base64')}`
+}
+
+function decryptKey(value: string): string {
+  if (!value.startsWith(ENCRYPTED_PREFIX)) return value
+  const storage = safeStorage()
+  if (storage === null) return ''
+  try {
+    return storage.decryptString(Buffer.from(value.slice(ENCRYPTED_PREFIX.length), 'base64'))
+  } catch {
+    return ''
+  }
+}
+
+function decoded(stored: ProvidersFile): ProvidersFile {
+  return {
+    providers: stored.providers.map((provider) => ({ ...provider, apiKey: decryptKey(provider.apiKey) })),
+    builtin: Object.fromEntries(Object.entries(stored.builtin).map(([id, override]) => [
+      id,
+      { ...override, ...(override.apiKey !== undefined ? { apiKey: decryptKey(override.apiKey) } : {}) }
+    ]))
+  }
+}
+
+function encoded(stored: ProvidersFile): ProvidersFile {
+  return {
+    providers: stored.providers.map((provider) => ({ ...provider, apiKey: encryptKey(provider.apiKey) })),
+    builtin: Object.fromEntries(Object.entries(stored.builtin).map(([id, override]) => [
+      id,
+      { ...override, ...(override.apiKey !== undefined ? { apiKey: encryptKey(override.apiKey) } : {}) }
+    ]))
+  }
 }
 
 function load(): ProvidersFile {
   if (cache !== null) return cache
   try {
     const parsed = JSON.parse(readFileSync(file(), 'utf8')) as Partial<ProvidersFile>
-    cache = {
+    const stored = {
       providers: Array.isArray(parsed.providers) ? parsed.providers : [],
       builtin:
         parsed.builtin !== null && typeof parsed.builtin === 'object' && !Array.isArray(parsed.builtin)
           ? parsed.builtin
           : {}
-    }
+    } satisfies ProvidersFile
+    cache = decoded(stored)
+    const plaintext = stored.providers.some((provider) => provider.apiKey !== '' && !provider.apiKey.startsWith(ENCRYPTED_PREFIX)) ||
+      Object.values(stored.builtin).some((override) => override.apiKey !== undefined && override.apiKey !== '' && !override.apiKey.startsWith(ENCRYPTED_PREFIX))
+    // Transparently migrate legacy plaintext files the first time they are read.
+    if (plaintext && safeStorage() !== null) save(cache)
   } catch {
     cache = { providers: [], builtin: {} }
   }
@@ -73,8 +128,11 @@ function load(): ProvidersFile {
 function save(next: ProvidersFile): void {
   cache = next
   mkdirSync(path.dirname(file()), { recursive: true })
-  // Keys live here, so keep the file owner-only.
-  writeFileSync(file(), JSON.stringify(next, null, 2), { mode: 0o600 })
+  // On macOS/Windows safeStorage delegates to Keychain/DPAPI. Atomic replace
+  // also prevents a crash during Settings save from erasing every provider.
+  const temporary = `${file()}.tmp`
+  writeFileSync(temporary, JSON.stringify(encoded(next), null, 2), { mode: 0o600 })
+  renameSync(temporary, file())
 }
 
 export function listCustomProviders(): CustomProviderConfig[] {

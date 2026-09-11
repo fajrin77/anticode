@@ -13,7 +13,8 @@ export class ApprovalCoordinator implements ApprovalGate {
   constructor(
     private readonly policy: ApprovalPolicy,
     private readonly sender: () => WebContents | null,
-    private readonly onDismissed?: (requestId: string) => void
+    private readonly onDismissed?: (requestId: string) => void,
+    private readonly onRequested?: (request: ApprovalRequest) => void
   ) {}
 
   resolve(requestId: string, decision: ApprovalDecision): void {
@@ -36,6 +37,8 @@ export class ApprovalCoordinator implements ApprovalGate {
       preview: await request.preview(),
       allowAlways
     }
+
+    this.onRequested?.(payload)
 
     const decision = await this.awaitDecision(payload, target, request.signal)
     if (decision === 'always' && allowAlways) this.policy.allowAlways(request.toolName, request.sessionId)

@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, Notification } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { AgentEvent, SessionPause, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
 import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries } from '../runtime'
@@ -116,6 +116,16 @@ export function forward(event: AgentEvent): void {
     // Paused just as the run was finishing on its own: it finished, so there
     // is nothing left to resume on either screen.
     if (event.type === 'error' || event.reason !== 'cancelled') clearPause(sessionId)
+    const focused = (BrowserWindow as typeof BrowserWindow & { getFocusedWindow?: () => unknown }).getFocusedWindow
+    const supported = (Notification as typeof Notification | undefined)?.isSupported
+    if (focused?.() === null && supported?.()) {
+      const body = event.type === 'error'
+        ? 'A run stopped with an error.'
+        : event.reason === 'complete'
+          ? 'Your run finished.'
+          : `Your run stopped: ${event.reason}.`
+      new Notification({ title: 'anticode', body }).show()
+    }
   }
 
   // Clearing a pause can itself emit an event; number this event only after

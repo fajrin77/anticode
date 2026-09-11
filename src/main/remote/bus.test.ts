@@ -1,7 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { SnapshotMessage } from '@shared/ipc'
 const mocks = vi.hoisted(() => ({ messages: [] as SnapshotMessage[], record: vi.fn() }))
-vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: () => [] } }))
+vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => ({}) },
+  Notification: { isSupported: () => false }
+}))
 vi.mock('../runtime', () => ({
   getStatus: () => ({}), recordRunSummary: mocks.record,
   loadSessionMessages: () => mocks.messages, loadSessionSummaries: () => []

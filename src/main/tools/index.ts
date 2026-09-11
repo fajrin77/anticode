@@ -26,8 +26,10 @@ import {
   readNetworkRequestsTool
 } from './browser'
 import type { Tool } from './types'
+import { todoWriteTool } from './todoWrite'
 
 export const tools: Tool[] = [
+  todoWriteTool,
   readFileTool,
   writeFileTool,
   editFileTool,
@@ -60,6 +62,7 @@ export const tools: Tool[] = [
  * it works on copies, and hands the results back as downloads.
  */
 const CHAT_TOOL_NAMES = new Set([
+  'todo_write',
   'read_file',
   'write_file',
   'edit_file',

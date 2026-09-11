@@ -103,6 +103,25 @@ describe('AgentSession', () => {
     expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
   })
 
+  it('restores edited and newly-created files when the last turn is reverted', async () => {
+    await writeFile(path.join(root, 'existing.txt'), 'before')
+    const provider = new FakeProvider([
+      turn([
+        { type: 'tool_use', id: 'edit', name: 'edit_file', input: { path: 'existing.txt', old_string: 'before', new_string: 'after' } },
+        { type: 'tool_use', id: 'write', name: 'write_file', input: { path: 'new.txt', content: 'created' } }
+      ], 'tool_use'),
+      turn([{ type: 'text', text: 'done' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    await session.run({ runId: 'checkpoint', prompt: 'change files', signal: new AbortController().signal, emit: () => {} })
+
+    expect(await readFile(path.join(root, 'existing.txt'), 'utf8')).toBe('after')
+    expect(await readFile(path.join(root, 'new.txt'), 'utf8')).toBe('created')
+    expect(session.revertLastTurn()).toBe('change files')
+    expect(await readFile(path.join(root, 'existing.txt'), 'utf8')).toBe('before')
+    await expect(readFile(path.join(root, 'new.txt'))).rejects.toThrow()
+  })
+
   it('returns a tool failure as an error result instead of crashing the loop', async () => {
     const provider = new FakeProvider([
       turn([{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'hilang.txt' } }], 'tool_use'),
@@ -277,8 +296,9 @@ describe('AgentSession', () => {
     // Run 1 makes two requests (tool turn, then the wrap-up); run 2's request
     // is the third.
     const replayed = provider.sent[2] ?? []
-    expect(replayed).toHaveLength(1)
-    expect(replayed[0]?.role).toBe('user')
+    expect(replayed).toHaveLength(2)
+    expect(replayed[0]?.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('Automatic context compaction') })
+    expect(replayed[1]?.role).toBe('user')
     // The cut must never orphan a tool_result: its tool_use goes with it.
     expect(replayed.some((m) => m.content.some((b) => b.type === 'tool_result'))).toBe(false)
   })
@@ -422,7 +442,9 @@ it('retains all prompt turns that still fit the context budget', async () => {
     { role: 'user', content: [{ type: 'text', text: 'keep this prompt' }] }
   ])
   await session.run({ runId: 'trim', prompt: 'latest', signal: new AbortController().signal, emit: () => {} })
-  expect(provider.sent[0]?.flatMap(m => m.content).filter(b => b.type === 'text').map(b => b.text)).toEqual(['keep this prompt', 'latest'])
+  expect(provider.sent[0]?.flatMap(m => m.content).filter(b => b.type === 'text').map(b => b.text)).toEqual([
+    expect.stringContaining('Automatic context compaction'), 'keep this prompt', 'latest'
+  ])
 })
 it('rejects simultaneous run calls before adding the second user prompt', async () => {
   const provider = new FakeProvider([turn([{ type: 'text', text: 'ok' }], 'end_turn')])
@@ -457,14 +479,23 @@ it('cancels even when a provider ignores its abort signal', async () => {
 })
 
 it('keeps the full transcript even when replay history is trimmed', async () => {
-  const provider = new FakeProvider([turn([{type:'text',text:'ok'}], 'end_turn')])
+  const provider = new FakeProvider([
+    turn([{type:'text',text:'ok'}], 'end_turn'),
+    turn([{type:'text',text:'again'}], 'end_turn')
+  ])
   const session = new AgentSession(provider, allowAll, 'chat', null, [
     {role:'user',content:[{type:'text',text:'old'.repeat(150000)}]},
     {role:'assistant',content:[{type:'text',text:'old answer'}]}
   ])
   await session.run({runId:'trim',prompt:'new prompt',signal:new AbortController().signal,emit:()=>{}})
-  expect(provider.sent[0]).toHaveLength(1)
+  expect(provider.sent[0]).toHaveLength(2)
+  expect(provider.sent[0]?.[0]?.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('Automatic context compaction') })
   expect(session.snapshot().messages).toHaveLength(4)
+  expect(session.revertLastTurn()).toBe('new prompt')
+  await session.run({runId:'replacement',prompt:'replacement',signal:new AbortController().signal,emit:()=>{}})
+  expect(provider.sent[1]?.flatMap(message => message.content).filter(block => block.type === 'text').map(block => block.text)).toEqual([
+    expect.stringContaining('Automatic context compaction'), 'replacement'
+  ])
 })
 it('stops a single oversized prompt before calling the provider', async () => {
   const provider = new FakeProvider([])

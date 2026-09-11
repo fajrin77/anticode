@@ -27,6 +27,7 @@ export const IpcChannel = {
   STATUS_UPDATED: 'session:statusUpdated',
   PROVIDERS_UPDATED: 'provider:updated',
   SESSION_REVERT: 'session:revert',
+  SESSION_EXPORT: 'session:export',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
   APPROVAL_PENDING: 'approval:pending',
@@ -513,6 +514,8 @@ export interface AnticodeApi {
   onSessionTitle: (listener: (change: SessionTitle) => void) => () => void
   /** Drops the last exchange and returns its prompt, for retyping. */
   revertLastTurn: (sessionId: string) => Promise<string | null>
+  /** Saves the complete transcript as Markdown or JSON through an OS dialog. */
+  exportSession: (sessionId: string) => Promise<string | null>
   getSessionSnapshot: (
     sessionId: string
   ) => Promise<SessionSnapshot | null>

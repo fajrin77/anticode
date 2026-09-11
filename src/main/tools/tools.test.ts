@@ -10,6 +10,7 @@ import { runCommandTool } from './runCommand'
 import { activeWebUrl, listWeb } from '../web'
 import { resolveInWorkspace } from './workspace'
 import type { ToolContext } from './types'
+import { todoWriteTool } from './todoWrite'
 
 let root: string
 let context: ToolContext
@@ -37,6 +38,24 @@ describe('generated input schemas', () => {
 
   it('keeps genuinely mandatory fields required', () => {
     expect(editFileTool.inputSchema['required']).toEqual(['path', 'old_string', 'new_string'])
+  })
+})
+
+describe('todo_write', () => {
+  it('renders a complete visible checklist', async () => {
+    const output = await todoWriteTool.prepare({ items: [
+      { content: 'Inspect', status: 'completed' },
+      { content: 'Implement', status: 'in_progress' },
+      { content: 'Verify', status: 'pending' }
+    ] }).execute(context)
+    expect(output.text).toBe('Task plan:\n[x] Inspect\n[>] Implement\n[ ] Verify')
+  })
+
+  it('rejects two simultaneously active tasks', async () => {
+    await expect(todoWriteTool.prepare({ items: [
+      { content: 'One', status: 'in_progress' },
+      { content: 'Two', status: 'in_progress' }
+    ] }).execute(context)).rejects.toThrow(/Only one/)
   })
 })
 

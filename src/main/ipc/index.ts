@@ -6,9 +6,9 @@ import {
   pauseSession,
   setPauseSink
 } from '../runs'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
 import path from 'node:path'
-import { copyFile, readFile, stat } from 'node:fs/promises'
+import { copyFile, readFile, stat, writeFile } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
@@ -79,12 +79,18 @@ import { submitPrompt } from '../prompts'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
+import type { SessionSnapshot, SnapshotBlock } from '@shared/ipc'
 
 let lastSender: WebContents | null = null
 
+function notifyWhenAway(title: string, body: string): void {
+  if (BrowserWindow.getFocusedWindow() !== null || !Notification.isSupported()) return
+  new Notification({ title, body }).show()
+}
+
 const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSender.isDestroyed() ? lastSender : BrowserWindow.getAllWindows()[0]?.webContents ?? null, (requestId) => {
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IpcChannel.APPROVAL_DISMISSED, requestId)
-})
+}, (request) => notifyWhenAway('anticode needs approval', `${request.toolName} is waiting for your decision.`))
 
 /** The remote server reuses the same gate and targets the desktop window. */
 export { approvals }
@@ -98,6 +104,25 @@ function artifactPath(sessionId: string, relativePath: string): string {
   const root = sessionFileRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   return resolveInWorkspace(root, relativePath)
+}
+
+function transcriptMarkdown(title: string, snapshot: SessionSnapshot): string {
+  const blockText = (block: SnapshotBlock): string => {
+    if (block.type === 'text') return block.text
+    if (block.type === 'attachment') return `[Attachment: ${block.attachment.name}]`
+    if (block.type === 'tool_use') return `\n\`\`\`json\n${JSON.stringify({ tool: block.name, input: block.input }, null, 2)}\n\`\`\``
+    return `\n\`\`\`text\n${block.content}\n\`\`\``
+  }
+  return [
+    `# ${title}`,
+    '',
+    ...snapshot.messages.flatMap((message) => [
+      `## ${message.role === 'user' ? 'User' : 'Assistant'}`,
+      '',
+      message.blocks.map(blockText).join('\n\n'),
+      ''
+    ])
+  ].join('\n')
 }
 
 /**
@@ -465,6 +490,28 @@ export function registerIpcHandlers(): void {
     const prompt = revertLastTurn(sessionId)
     announceHistory(sessionId, 'desktop')
     return prompt
+  })
+
+  ipcMain.handle(IpcChannel.SESSION_EXPORT, async (event, sessionId: string) => {
+    const snapshot = sessionSnapshot(sessionId)
+    const spec = listSessionSpecs().find((entry) => entry.sessionId === sessionId)
+    if (snapshot === null || spec === undefined) throw new Error('Session not found')
+    const safeTitle = (spec.title ?? 'anticode-session').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      defaultPath: `${safeTitle}.md`,
+      filters: [
+        { name: 'Markdown transcript', extensions: ['md'] },
+        { name: 'JSON transcript', extensions: ['json'] }
+      ]
+    }
+    const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || result.filePath === undefined) return null
+    const content = result.filePath.toLowerCase().endsWith('.json')
+      ? JSON.stringify({ session: spec, ...snapshot }, null, 2)
+      : transcriptMarkdown(spec.title ?? 'anticode session', snapshot)
+    await writeFile(result.filePath, content, 'utf8')
+    return result.filePath
   })
 
   ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) => {

@@ -1,10 +1,15 @@
 # anticode
 
+Versi **0.0.22** menambah automatic context compaction, checklist `todo_write`, checkpoint file yang
+ikut dipulihkan saat Revert, meter context, enkripsi API key lewat secure storage OS, retry yang
+menghormati `Retry-After`, notifikasi sistem, ekspor transcript Markdown/JSON, dan shortcut global
+Cmd/Ctrl+Shift+Space.
+
 Versi **0.0.16** membuat berkas bisa dilihat langsung di dalam sesi: klik kartu berkas hasil atau lampiran dan berkas terbuka di viewer — workbook lengkap dengan warnanya, Word sebagai kertas, PowerPoint sebagai teks slide, teks, gambar, dan PDF — di desktop maupun HP, tanpa diunduh dulu. Judul sesi kini ditentukan main process, jadi antichat yang dimulai dari HP tidak lagi bernama "New session" di desktop. Latar HP tidak lagi berpita seperti tangga, dan petunjuk composer HP kembali menjadi "Message…". Versi **0.0.15** membuat antichat bisa mengedit file hanya dengan melampirkannya: setiap sesi antichat punya folder privat di data app, lampiran disalin ke sana, antichat mengeditnya dengan tool dokumen (file, Excel, Word, PDF — tanpa terminal, hapus, atau internet) tanpa meminta approval, dan hasilnya muncul sebagai Download di desktop dan HP; folder itu ikut terhapus bersama sesinya. Di HP, petunjuk composer kini selalu satu baris dan memudar bila tidak muat, dan nama sesi di header tidak lagi tampil dobel. Versi **0.0.14** mengganti contoh teks composer di dashboard, sesi, dan HP menjadi "Don't work today, just vibes." Versi **0.0.13** membuat chrome lebih bersih: tab dan tombol ikon di header serta composer desktop hanya menampilkan font/ikon, kotak glass-nya muncul saat kursor mendekat; di HP hal yang sama berlaku untuk tombol header dan composer (kotak muncul saat disentuh), dan composer HP tidak lagi bergaris lime saat diketik. Header desktop dan HP kini memakai blur bertingkat yang memudar ke bawah tanpa garis tepi, dengan transkrip menggulir di bawahnya. Versi **0.0.12** menyatukan material glassmorphism pada tombol, tab, composer, menu, kartu rute HP, browser, dan Settings desktop; header tab desktop kini memakai blur bergradasi tanpa bilah hitam solid, dan jarak bawah composer desktop kembali ke 24 px. Versi **0.0.11** membuat glassmorphism lebih nyata: composer desktop mengambang langsung di atas transkrip tanpa footer hitam, composer dan header HP lebih transparan, fade nama model berasal dari hurufnya sendiri, serta popup tiga titik menjadi popover glass yang ringkas dan menempel ke tombol. Versi **0.0.10** menyatukan composer desktop dan HP dalam kotak glass yang tumbuh bersama teks, kutipan, gambar, dan berkas terlampir. Header HP kini blur/glass, nama model panjang memudar sebelum memakai lebih dari setengah lebar composer, dan ruang Revert tetap tersedia. Alur Excel juga lengkap: upload desktop/HP masuk ke workspace sesi, `.xlsx`, `.xlsm`, dan `.xls` bisa dibaca, format warna/bold dapat diubah per range, lalu workbook hasil muncul sebagai unduhan. Versi **0.0.9** membawa semua fungsi desktop ke HP: Revert, chip model dan Default/Auto di bawah kolom input, menu Settings, cari sesi, saran folder, dan Back/Forward di layar Web. Rincian pengujian: [laporan QA](docs/QA-2026-09-10.md). Jalankan `npm run test:desktop` untuk smoke test Electron dengan profil sementara dan provider lokal, `npm run test:packaged` untuk memastikan app hasil packaging bisa dibuka dari profil kosong, dan `npm run test:ui` untuk memeriksa state visual header dan popover.
 
 AI coding agent desktop app — provider-agnostic, tool-use loop, berjalan sebagai aplikasi Electron.
 
-Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, dua puluh empat tool termasuk Excel,
+Status: **Fase 4 selesai**. Lima provider di belakang satu abstraksi, tool termasuk task tracking, Excel,
 Word, PDF, dan browser Playwright, sistem approval berbasis risk tier, serta attachment handler
 dengan input gambar.
 
@@ -42,6 +47,9 @@ node node_modules/electron/install.js
 
 Dashboard juga menampilkan diagram batang pemakaian token, dipecah per model beserta provider-nya,
 dengan segmen terpisah untuk token masuk dan keluar.
+
+Tekan **Cmd/Ctrl+Shift+Space** dari aplikasi lain untuk memunculkan anticode. Popover usage tiap sesi
+menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap ke Markdown atau JSON.
 
 ## Dua mode sesi
 
@@ -143,6 +151,7 @@ nol.
 
 | Tool | Fungsi | Tier |
 |---|---|---|
+| `todo_write` | Terbitkan checklist kerja lengkap yang terlihat dan tersimpan di transcript | rendah |
 | `read_file` | Baca berkas dengan nomor baris | rendah — jalan tanpa bertanya |
 | `list_directory` | Daftar isi folder | rendah — jalan tanpa bertanya |
 | `search_files` | Cari teks di seluruh workspace, per baris | rendah |
@@ -175,9 +184,19 @@ diperlakukan serial meski tidak mengubah berkas.
 ## Context budget
 
 Riwayat yang diputar ulang ke provider diestimasi per giliran (teks ÷ 4 karakter, gambar dihitung
-tetap). Begitu melewati ~100 ribu token, giliran prompt tertua dibuang sampai muat — hanya di batas
-prompt pengguna, sehingga pasangan `tool_use`/`tool_result` tidak pernah terbelah. Error transien
-provider (429, 5xx, timeout) diulang otomatis sampai dua kali dengan backoff eksponensial.
+tetap). Begitu melewati ~100 ribu token, giliran lama dikompaksi menjadi memory summary berisi
+permintaan, keputusan, tool, dan hasil penting; transcript asli tidak dipotong. Pemotongan hanya
+terjadi di batas prompt pengguna, sehingga pasangan `tool_use`/`tool_result` tidak pernah terbelah.
+Error transien provider (429, 5xx, timeout) diulang otomatis sampai dua kali dengan backoff
+eksponensial berjitter dan menghormati header `Retry-After`.
+
+Sebelum `edit_file`, `write_file`, atau penghapusan file berjalan, agent menyimpan byte awal sekali
+per run. **Revert** kini mengembalikan file lama dan menghapus file yang baru dibuat oleh giliran itu,
+bukan hanya memotong transcript. Folder rekursif sengaja tidak disalin sebagai checkpoint tak terbatas.
+
+API key yang dimasukkan lewat Settings disimpan dengan Electron `safeStorage` (Keychain di macOS,
+DPAPI di Windows) dan file plaintext lama dimigrasikan otomatis. Bila secure storage OS tidak
+tersedia, key tidak ditulis ke disk dan perlu dimasukkan kembali setelah app dibuka ulang.
 
 ## Aturan project
 

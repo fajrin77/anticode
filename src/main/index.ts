@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, nativeImage, globalShortcut } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
@@ -107,6 +107,18 @@ void app.whenReady().then(() => {
   registerIpcHandlers()
   void restoreRemoteServer()
   createWindow()
+  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    let window = BrowserWindow.getAllWindows()[0]
+    if (window === undefined) {
+      createWindow()
+      window = BrowserWindow.getAllWindows()[0]
+    }
+    if (window !== undefined) {
+      if (window.isMinimized()) window.restore()
+      window.show()
+      window.focus()
+    }
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -118,6 +130,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll()
   cancelAllRuns()
   persistSessions()
   void closeBrowser()

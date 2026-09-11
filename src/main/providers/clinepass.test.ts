@@ -4,7 +4,14 @@ import path from 'node:path'
 import { beforeAll, expect, it, vi } from 'vitest'
 
 const userData = mkdtempSync(path.join(tmpdir(), 'anticode-clinepass-'))
-vi.mock('electron', () => ({ app: { getPath: () => userData } }))
+vi.mock('electron', () => ({
+  app: { getPath: () => userData },
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (value: string) => Buffer.from(`encrypted:${value}`),
+    decryptString: (value: Buffer) => value.toString().replace(/^encrypted:/, '')
+  }
+}))
 
 import { CLINEPASS_MODELS, clinepassConfig, editClinepass, removeClinepass, restoreClinepass } from './clinepass'
 import { listProviders } from './index'
@@ -31,7 +38,7 @@ it('takes edits from Settings over the env file, and blank fields keep what is t
   expect(clinepassRow()?.defaultModel).toBe('a')
   // The key is kept owner-only on disk and never handed to a viewer.
   expect(JSON.stringify(clinepassRow())).not.toContain('typed-key')
-  expect(readFileSync(path.join(userData, 'providers.json'), 'utf8')).toContain('typed-key')
+  expect(readFileSync(path.join(userData, 'providers.json'), 'utf8')).not.toContain('typed-key')
   expect(() => editClinepass({ baseURL: 'ftp://nope' })).toThrow('http or https')
 })
 

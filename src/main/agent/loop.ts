@@ -1,6 +1,7 @@
 import { closeBrowser } from '../browser'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
 import type { ContentBlock, LLMProvider, LLMResponse, Message } from '../providers/types'
@@ -21,6 +22,9 @@ const RECENT_TOOL_TURNS = 3
 const STUB_CHARS = 300
 /** Stubbing only pays off once there is real bulk to remove. */
 const STUB_MIN_LENGTH = STUB_CHARS + 400
+/** Leave room for the system prompt, tool schemas, and the next response. */
+const COMPACTION_TARGET = Math.floor(MAX_HISTORY_TOKENS * 0.72)
+const MEMORY_MAX_CHARS = 12_000
 /*
  * A run has no turn or token ceiling. Long work has to be allowed to finish,
  * and a cap that stops it mid-task costs more than it saves — the work is
@@ -92,6 +96,21 @@ function isTransient(error: unknown): boolean {
   return status === 408 || status === 429 || (status >= 500 && status <= 599)
 }
 
+/** Provider SDKs expose Retry-After either as seconds or an HTTP date. */
+function retryDelay(error: unknown, attempt: number): number {
+  const record = error as { headers?: Record<string, unknown>; retryAfter?: unknown } | null
+  const raw = record?.retryAfter ?? record?.headers?.['retry-after'] ?? record?.headers?.['Retry-After']
+  if (typeof raw === 'number' && Number.isFinite(raw)) return Math.min(30_000, Math.max(0, raw * 1_000))
+  if (typeof raw === 'string') {
+    const seconds = Number(raw)
+    if (Number.isFinite(seconds)) return Math.min(30_000, Math.max(0, seconds * 1_000))
+    const at = Date.parse(raw)
+    if (Number.isFinite(at)) return Math.min(30_000, Math.max(0, at - Date.now()))
+  }
+  // Small jitter prevents several simultaneous sessions retrying in lockstep.
+  return 1_000 * 2 ** attempt + Math.floor(Math.random() * 250)
+}
+
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
@@ -137,6 +156,9 @@ export class AgentSession {
   private activeSignal: AbortSignal | null = null
   /** Rotation only: who takes a turn the current provider could not serve. */
   private fallback: ProviderFallback | null = null
+  /** One pre-edit snapshot map per user run, newest last. */
+  private readonly checkpoints: Map<string, Buffer | null>[] = []
+  private currentCheckpoint: Map<string, Buffer | null> | null = null
 
   constructor(
     private provider: LLMProvider,
@@ -229,6 +251,8 @@ export class AgentSession {
     // A cancelled previous run may have left images behind; never leak them
     // into this turn's history.
     this.pendingImages = []
+    this.currentCheckpoint = new Map()
+    this.checkpoints.push(this.currentCheckpoint)
     this.record({
       role: 'user',
       content: [...(params.attachments ?? []), { type: 'text', text: prompt }]
@@ -311,7 +335,7 @@ export class AgentSession {
           continue
         }
         if (attempt >= MAX_RETRIES || !isTransient(error)) throw error
-        await delay(1_000 * 2 ** attempt, params.signal)
+        await delay(retryDelay(error, attempt), params.signal)
       }
     }
   }
@@ -410,7 +434,24 @@ export class AgentSession {
     // user prompt supplies a safe boundary for the next continuation.
     if (cut < 0) throw new Error('This turn exceeds the context budget. Send a shorter continuation or start a new session.')
     if (cut === 0) return
-    this.history.splice(0, cut)
+    const removed = this.history.splice(0, cut)
+    const memory = summariseMessages(removed)
+    if (memory !== '') {
+      this.history.unshift({
+        role: 'user',
+        content: [{
+          type: 'text',
+          text: '[Automatic context compaction — durable memory from earlier turns]\n' + memory
+        }]
+      })
+      // A verbose summary must never put replay back over the cliff.
+      while (this.history.length > 1 && replayCost(this.history) > COMPACTION_TARGET) {
+        const boundary = this.history.findIndex((message, index) =>
+          index > 1 && message.role === 'user' && !message.content.some((block) => block.type === 'tool_result'))
+        if (boundary < 0) break
+        this.history.splice(1, boundary - 1)
+      }
+    }
   }
 
   private async executeCalls(calls: ToolUseBlock[], params: RunParams): Promise<ContentBlock[]> {
@@ -468,6 +509,7 @@ export class AgentSession {
       }
 
       params.signal.throwIfAborted()
+      this.captureCheckpoint(call)
       const output = await prepared.execute(context)
       this.pendingImages.push(
         ...output.images.map((image) => ({
@@ -570,9 +612,18 @@ export class AgentSession {
           block.type === 'text' && block.attachment === undefined
       )
       if (text === undefined) continue
-      const removed = this.transcript.length - i
       this.transcript.length = i
-      this.history.length = Math.max(0, this.history.length - removed)
+      // Replay may contain a synthetic compaction summary, so its length no
+      // longer mirrors the full transcript. Cut at its own latest plain user
+      // prompt instead of subtracting transcript message counts.
+      for (let replay = this.history.length - 1; replay >= 0; replay--) {
+        const candidate = this.history[replay]
+        if (candidate?.role !== 'user' || candidate.content.some((block) => block.type === 'tool_result')) continue
+        if (!candidate.content.some((block) => block.type === 'text' && block.attachment === undefined)) continue
+        this.history.length = replay
+        break
+      }
+      this.restoreLastCheckpoint()
       return text.text
     }
     return null
@@ -580,12 +631,47 @@ export class AgentSession {
 
   private record(message: Message): void { this.history.push(message); this.transcript.push(message) }
 
+  /** Capture original bytes once, immediately before a file mutation. */
+  private captureCheckpoint(call: ToolUseBlock): void {
+    if (this.currentCheckpoint === null || this.workspaceRoot === null) return
+    if (!['edit_file', 'write_file', 'delete_file'].includes(call.name)) return
+    const input = call.input as { path?: unknown } | null
+    if (typeof input?.path !== 'string') return
+    const target = path.resolve(this.workspaceRoot, input.path)
+    const relative = path.relative(this.workspaceRoot, target)
+    if (relative.startsWith('..') || path.isAbsolute(relative) || this.currentCheckpoint.has(target)) return
+    try {
+      this.currentCheckpoint.set(target, existsSync(target) ? readFileSync(target) : null)
+    } catch {
+      // Directories and unreadable files are not copied as unbounded archives.
+    }
+  }
+
+  private restoreLastCheckpoint(): void {
+    const checkpoint = this.checkpoints.pop()
+    this.currentCheckpoint = this.checkpoints.at(-1) ?? null
+    if (checkpoint === undefined) return
+    for (const [target, original] of [...checkpoint].reverse()) {
+      try {
+        if (original === null) rmSync(target, { force: true })
+        else {
+          mkdirSync(path.dirname(target), { recursive: true })
+          writeFileSync(target, original)
+        }
+      } catch {
+        // Transcript revert remains usable if an external process locked a file.
+      }
+    }
+  }
+
   dispose(): void { void closeBrowser(this.scope) }
 
   /** A copy of the replayed history, for the remote API and dashboards. */
   snapshot(): { messages: Message[] } {
     return { messages: structuredClone(this.transcript) }
   }
+
+  get contextTokens(): number { return replayCost(this.history) }
 
   private systemPrompt(): string {
     if (this.mode === 'chat') {
@@ -619,6 +705,7 @@ export class AgentSession {
       '- For partial changes use edit_file, not write_file.',
       '- Work in as few steps as possible: issue independent tool calls together in one turn ' +
         'and combine related shell commands into one.',
+      '- For work with three or more meaningful steps, use todo_write before editing and keep it current.',
       '- Check that a tool or dependency already exists before installing or re-running it.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
@@ -649,6 +736,40 @@ export function titleOf(messages: Message[]): string {
 
 function messageCost(message: Message): number {
   return message.content.reduce((sum, block) => sum + blockCost(block), 0)
+}
+
+function replayCost(messages: Message[]): number {
+  return messages.reduce((sum, message) => sum + messageCost(message), 0)
+}
+
+/** Keep intent, conclusions, calls, and outcomes without depending on a live provider. */
+function summariseMessages(messages: Message[]): string {
+  const lines: string[] = []
+  for (const message of messages) {
+    for (const block of message.content) {
+      let line = ''
+      if (block.type === 'text') {
+        line = `${message.role === 'user' ? 'User' : 'Assistant'}: ${block.followUp?.text ?? block.text}`
+      } else if (block.type === 'tool_use') {
+        const input = block.input as Record<string, unknown> | null
+        const subject = typeof input?.path === 'string'
+          ? ` ${input.path}`
+          : typeof input?.command === 'string'
+            ? ` ${input.command.slice(0, 180)}`
+            : ''
+        line = `Tool requested: ${block.name}${subject}`
+      } else if (block.type === 'tool_result') {
+        line = `Tool outcome: ${block.content.slice(-500)}`
+      }
+      const compact = line.replace(/\s+/g, ' ').trim()
+      if (compact !== '') lines.push(`- ${compact.slice(0, 800)}`)
+    }
+  }
+  let result = lines.join('\n')
+  if (result.length > MEMORY_MAX_CHARS) {
+    result = `- Earlier details omitted during compaction.\n${result.slice(-MEMORY_MAX_CHARS)}`
+  }
+  return result
 }
 
 function readWorkspaceFile(root: string, name: string): string | null {
