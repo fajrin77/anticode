@@ -33,7 +33,11 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
     <div className="shrink-0 px-10 pb-3">
       <div className="glass-surface mx-auto max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl">
         <header className="flex items-baseline gap-2.5 px-5 py-3">
-          <span className="text-[14px] text-text">{request.toolName}</span>
+          <span className="text-[14px] text-text">
+            {/^mcp__(.+?)__(.+)$/.test(request.toolName)
+              ? request.toolName.replace(/^mcp__(.+?)__(.+)$/, '$2 · MCP $1')
+              : request.toolName}
+          </span>
           <span
             className={`text-[11.5px] ${request.risk === 'high' ? 'text-del' : 'text-dim'}`}
           >

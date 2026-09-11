@@ -221,6 +221,26 @@ sendiri setelah 30 langkah. antichat tidak ditawari `task`.
 Tool browser (navigate, get_text, screenshot, network) berbagi satu halaman Chromium, jadi mereka
 diperlakukan serial meski tidak mengubah berkas.
 
+## MCP
+
+Settings → **MCP** menghubungkan server Model Context Protocol, dan tool-nya ikut ditawarkan ke sesi
+anticode (antichat tidak pernah mendapatkannya). Server bisa berupa **Command** — proses lokal yang
+diajak bicara lewat stdio, misalnya `npx -y @modelcontextprotocol/server-filesystem /path` — atau
+**URL** Streamable HTTP dengan header seperti `Authorization: Bearer …`. Blok `mcpServers` dari
+konfigurasi klien MCP lain bisa ditempel di **Import**. Environment dan header disegel dengan keychain
+OS seperti API key dan tidak pernah dikirim ke jendela; saat mengedit, kunci yang dikosongkan
+mempertahankan nilai tersimpan. Karena app yang dibuka dari Dock tidak mewarisi PATH shell, anticode
+mengambil PATH dari login shell sekali, jadi `npx`/`uvx`/Homebrew ditemukan.
+
+Server yang menyala dijalankan di latar saat start-up; statusnya (connected · N tools / failed beserta
+pesan stderr-nya, dengan **Retry**) terlihat di Settings, dan daftar tool-nya bisa dibuka. Tool
+tampil sebagai `mcp__server__tool` ke model, sebagai **MCP** `server · tool` di transkrip, dan
+setiap panggilan melewati gerbang approval yang sama dengan tool bawaan: risiko sedang (ditanya, bisa
+"Always allow" per tool per sesi), risiko tinggi bila server menandai tool itu `destructiveHint`, dan
+tanpa bertanya hanya untuk server yang di-**Trust**. Klien MCP-nya ditulis sendiri tanpa dependensi:
+handshake `initialize`, `tools/list` berhalaman, `tools/call` (teks, gambar, resource), `ping`,
+pembatalan, dan `notifications/tools/list_changed`.
+
 ## Context budget
 
 Riwayat yang diputar ulang ke provider diestimasi per giliran (teks ÷ 4 karakter, gambar dihitung

@@ -192,8 +192,8 @@ export class AgentSession {
   private readonly history: Message[] = []
   private readonly transcript: Message[] = []
   private running = false
-  /** Only the tools this mode offers: a name the model invents runs nothing. */
-  private readonly byName: Map<string, Tool>
+  /** A fixed kit (a sub-agent's); otherwise the mode's tools, asked for fresh each step. */
+  private readonly fixedTools: Tool[] | null
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   private projectInstructions: string | null | undefined
@@ -214,7 +214,7 @@ export class AgentSession {
     private readonly scope: string = randomUUID(),
     private readonly options: AgentOptions = {}
   ) {
-    this.byName = new Map((options.tools ?? toolsFor(mode)).map((tool) => [tool.name, tool]))
+    this.fixedTools = options.tools ?? null
     // A sub-agent only reads; it has nothing to take back.
     this.checkpoints =
       workspaceRoot === null || options.subagent === true
@@ -233,6 +233,11 @@ export class AgentSession {
     if (this.running) throw new Error('A run is already active in this session')
     this.provider = provider
     this.fallback = fallback
+  }
+
+  /** What the model is offered now — MCP servers may have come or gone since the last step. */
+  private toolset(): Tool[] {
+    return this.fixedTools ?? toolsFor(this.mode)
   }
 
   get providerName(): string { return this.provider.name }
@@ -406,7 +411,7 @@ export class AgentSession {
 
     const iterator = this.provider.chat({
       system: this.systemPrompt(), messages: this.history,
-      tools: definitionsOf([...this.byName.values()]),
+      tools: definitionsOf(this.toolset()),
       maxTokens: MAX_TOKENS, signal: params.signal
     })[Symbol.asyncIterator]()
     let rejectAbort: (reason: unknown) => void = () => {}
@@ -578,7 +583,8 @@ export class AgentSession {
   private async executeCalls(calls: ToolUseBlock[], params: RunParams): Promise<ContentBlock[]> {
     const results = new Array<ContentBlock | undefined>(calls.length)
     const entries = calls.map((call, index) => ({ call, index }))
-    const isReadOnly = (name: string): boolean => this.byName.get(name)?.readOnly === true
+    const byName = new Map(this.toolset().map((tool) => [tool.name, tool]))
+    const isReadOnly = (name: string): boolean => byName.get(name)?.readOnly === true
 
     await Promise.all(
       entries
@@ -600,7 +606,8 @@ export class AgentSession {
     emit({ type: 'tool_start', runId, toolUseId: call.id, name: call.name, input: call.input })
 
     if (params.signal.aborted) return this.finishCall(params, call.id, 'Cancelled by the user.', true)
-    const tool = this.byName.get(call.name)
+    // Only the tools this mode offers: a name the model invents runs nothing.
+    const tool = this.toolset().find((entry) => entry.name === call.name)
     if (!tool) {
       return this.finishCall(params, call.id, `Unknown tool: ${call.name}`, true)
     }

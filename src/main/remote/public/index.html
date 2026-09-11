@@ -1444,6 +1444,7 @@ async function syncSession(id) {
 /* Tool calls fold into three simple groups, mirroring the desktop. */
 function toolCategory(name) {
   if (name === 'task') return 'agent';
+  if (name.startsWith('mcp__')) return 'mcp';
   if (name === 'run_command') return 'code';
   if (/^(write|edit|delete|add|fill)_/.test(name)) return 'edit';
   return 'explore';
@@ -1689,7 +1690,7 @@ function renderDiff(out, diff) {
 
 /** Which of the three work types a tool belongs to, as a display label. */
 function toolLabel(name) {
-  return { agent: 'Agent', code: 'Code', edit: 'Edit', explore: 'Explore' }[toolCategory(name)];
+  return { agent: 'Agent', mcp: 'MCP', code: 'Code', edit: 'Edit', explore: 'Explore' }[toolCategory(name)];
 }
 
 /** One step inside an open group: its name, subject, and output on tap. */

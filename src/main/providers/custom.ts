@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { VENDOR_BASE_URLS } from '@shared/ipc'
+import { SEALED_PREFIX, seal, secureStorageAvailable, unseal } from '../secrets'
 
 /** The kinds a provider added in Settings can be. */
 export const CUSTOM_KINDS = ['openai', 'ollama', 'anthropic', 'openai-api'] as const
@@ -53,35 +54,10 @@ function file(): string {
   return path.join(electron.app.getPath('userData'), 'providers.json')
 }
 
-const ENCRYPTED_PREFIX = 'safe:v1:'
-
-function safeStorage(): typeof electron.safeStorage | null {
-  const storage = (electron as { safeStorage?: typeof electron.safeStorage }).safeStorage
-  try {
-    return storage?.isEncryptionAvailable() === true ? storage : null
-  } catch {
-    return null
-  }
-}
-
-function encryptKey(value: string): string {
-  if (value === '' || value.startsWith(ENCRYPTED_PREFIX)) return value
-  const storage = safeStorage()
-  // Never fall back to plaintext. The key remains usable for this process but
-  // must be entered again after restart on a platform without secure storage.
-  return storage === null ? '' : `${ENCRYPTED_PREFIX}${storage.encryptString(value).toString('base64')}`
-}
-
-function decryptKey(value: string): string {
-  if (!value.startsWith(ENCRYPTED_PREFIX)) return value
-  const storage = safeStorage()
-  if (storage === null) return ''
-  try {
-    return storage.decryptString(Buffer.from(value.slice(ENCRYPTED_PREFIX.length), 'base64'))
-  } catch {
-    return ''
-  }
-}
+const ENCRYPTED_PREFIX = SEALED_PREFIX
+const encryptKey = seal
+const decryptKey = unseal
+const safeStorage = (): boolean | null => (secureStorageAvailable() ? true : null)
 
 function decoded(stored: ProvidersFile): ProvidersFile {
   return {

@@ -11,6 +11,8 @@ import { initUpdates } from './updates'
 import { mainWindow, setMainWindow, showMainWindow } from './windows'
 import { applyTray, configureQuickCapture, QUICK_CAPTURE_SHORTCUT, showQuickCapture } from './tray'
 import { onPreferences, preferences } from './preferences'
+import { closeMcp, initMcp, mcpTools } from './mcp/manager'
+import { setExternalTools } from './tools'
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -114,6 +116,10 @@ void app.whenReady().then(() => {
   registerIpcHandlers()
   void restoreRemoteServer()
   initUpdates()
+  // MCP servers start in the background; their tools join anticode sessions
+  // as each one becomes ready.
+  setExternalTools(mcpTools)
+  initMcp()
   configureQuickCapture({
     preload: join(import.meta.dirname, '../preload/index.mjs'),
     url: !app.isPackaged && process.env['ELECTRON_RENDERER_URL'] ? process.env['ELECTRON_RENDERER_URL'] : null,
@@ -148,4 +154,5 @@ app.on('before-quit', () => {
   cancelAllRuns()
   persistSessions()
   void closeBrowser()
+  void closeMcp()
 })

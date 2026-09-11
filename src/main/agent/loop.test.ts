@@ -858,7 +858,7 @@ describe('sub-agents', () => {
 
   it('is not offered in antichat', () => {
     const offered = new AgentSession(new FakeProvider([]), allowAll, 'chat', root)
-    expect((offered as unknown as { byName: Map<string, unknown> }).byName.has('task')).toBe(false)
+    expect((offered as unknown as { toolset: () => { name: string }[] }).toolset().some((tool) => tool.name === 'task')).toBe(false)
   })
 })
 

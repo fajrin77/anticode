@@ -86,6 +86,7 @@ import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updat
 import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
 import { pricedModels, setCustomPrice } from '../pricing'
+import { importMcp, listMcp, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
 import { hideQuickCapture, sendQuickCapture } from '../tray'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
@@ -613,6 +614,12 @@ export function registerIpcHandlers(): void {
     lastSender = event.sender
     return submitPrompt(req, approvals)
   })
+
+  ipcMain.handle(IpcChannel.MCP_LIST, () => listMcp())
+  ipcMain.handle(IpcChannel.MCP_SAVE, (_event, input: unknown) => saveMcp(input as never))
+  ipcMain.handle(IpcChannel.MCP_REMOVE, (_event, id: unknown) => removeMcp(String(id)))
+  ipcMain.handle(IpcChannel.MCP_RECONNECT, (_event, id: unknown) => reconnectMcp(String(id)))
+  ipcMain.handle(IpcChannel.MCP_IMPORT, (_event, json: unknown) => importMcp(String(json)))
 
   ipcMain.handle(IpcChannel.PRICING_LIST, (_event, models: unknown) =>
     pricedModels(Array.isArray(models) ? models.filter((entry): entry is ProviderSelection =>

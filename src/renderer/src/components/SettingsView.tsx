@@ -19,6 +19,7 @@ import { compactTokens } from './ModelPicker'
 import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
 import { Pricing } from './settings/Pricing'
+import { Mcp } from './settings/Mcp'
 
 interface SettingsViewProps {
   appInfo: AppInfo | null
@@ -30,7 +31,7 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'models' | 'pricing' | 'remote' | 'updates'
+type Section = 'general' | 'providers' | 'models' | 'pricing' | 'mcp' | 'remote' | 'updates'
 
 function Tag({ children }: { children: string }): JSX.Element {
   return (
@@ -1370,6 +1371,16 @@ export function SettingsView({
       )
     },
     {
+      id: 'mcp',
+      label: 'MCP',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <path d="M6 2.5v3M10 2.5v3M4.5 5.5h7v2.5a3.5 3.5 0 0 1-7 0z" strokeLinejoin="round" />
+          <path d="M8 11.5v2" strokeLinecap="round" />
+        </svg>
+      )
+    },
+    {
       id: 'remote',
       label: 'Remote',
       icon: (
@@ -1444,6 +1455,7 @@ export function SettingsView({
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
           )}
           {section === 'pricing' && <Pricing status={status} providers={providers} />}
+          {section === 'mcp' && <Mcp />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
         </div>

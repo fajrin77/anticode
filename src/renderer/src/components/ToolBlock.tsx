@@ -8,6 +8,9 @@ type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
 /** The one-line subject shown beside the tool name, mirroring a shell prompt. */
 function subject(part: ToolPart): string {
+  // An MCP tool is named after its server and itself.
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(part.name)
+  if (mcp !== null) return `${mcp[1]} · ${mcp[2]}`
   if (part.input === null || typeof part.input !== 'object') return ''
   const record = part.input as Record<string, unknown>
   for (const key of ['command', 'path', 'cell', 'description']) {
@@ -24,6 +27,7 @@ function subject(part: ToolPart): string {
  */
 function label(name: string): string {
   if (name === 'task') return 'Agent'
+  if (name.startsWith('mcp__')) return 'MCP'
   if (name === 'run_command') return 'Code'
   if (/^(write|edit|delete|add|fill)_/.test(name)) return 'Edit'
   return 'Explore'

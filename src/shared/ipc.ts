@@ -31,6 +31,12 @@ export const IpcChannel = {
   SESSION_COMPACT: 'session:compact',
   SESSION_TAKE_BACK: 'session:takeBack',
   SESSION_REGENERATE: 'session:regenerate',
+  MCP_LIST: 'mcp:list',
+  MCP_SAVE: 'mcp:save',
+  MCP_REMOVE: 'mcp:remove',
+  MCP_RECONNECT: 'mcp:reconnect',
+  MCP_IMPORT: 'mcp:import',
+  MCP_UPDATED: 'mcp:updated',
   PRICING_LIST: 'pricing:list',
   PRICING_SET: 'pricing:set',
   PREFERENCES_GET: 'preferences:get',
@@ -452,6 +458,40 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** An MCP server as Settings sends it. A blank secret value keeps the saved one. */
+export interface McpServerInput {
+  id?: string
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'http'
+  /** stdio: the program and its arguments. */
+  command: string
+  args: string[]
+  env: Record<string, string>
+  /** http: the Streamable HTTP endpoint, and headers such as Authorization. */
+  url: string
+  headers: Record<string, string>
+  /** Its tools run without asking. Off, every call is approved like a built-in edit. */
+  trust: boolean
+}
+
+/** An MCP server as Settings shows it; secret values never leave the main process. */
+export interface McpServerStatus {
+  id: string
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'http'
+  command: string
+  args: string[]
+  url: string
+  trust: boolean
+  envKeys: string[]
+  headerKeys: string[]
+  state: 'off' | 'connecting' | 'ready' | 'error'
+  error: string | null
+  tools: { name: string; description: string; destructive: boolean }[]
+}
+
 /** US dollars per million tokens. */
 export interface ModelPrice {
   input: number
@@ -793,6 +833,13 @@ export interface AnticodeApi {
   /** Takes a prompt off the queue; answers it, so it can be edited instead. */
   unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
   onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
+  listMcpServers: () => Promise<McpServerStatus[]>
+  saveMcpServer: (input: McpServerInput) => Promise<McpServerStatus[]>
+  removeMcpServer: (id: string) => Promise<McpServerStatus[]>
+  reconnectMcpServer: (id: string) => Promise<McpServerStatus[]>
+  /** Servers from another client's `mcpServers` JSON; answers how many were added. */
+  importMcpServers: (json: string) => Promise<number>
+  onMcpServers: (listener: (servers: McpServerStatus[]) => void) => () => void
   /** Prices for these models, and where each came from. */
   listPrices: (models: ProviderSelection[]) => Promise<PricedModel[]>
   /** A price for a model id, typed in Settings; null goes back to the built-in or published one. */

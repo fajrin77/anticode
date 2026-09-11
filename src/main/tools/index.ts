@@ -95,8 +95,25 @@ const SUBAGENT_TOOL_NAMES = new Set([
   'fetch_url'
 ])
 
+/**
+ * Tools from outside the app — MCP servers — registered by whoever runs them.
+ * Asked on every request, since servers connect and change their lists while
+ * sessions are open.
+ */
+let external: () => Tool[] = () => []
+
+export function setExternalTools(source: () => Tool[]): void {
+  external = source
+}
+
+/**
+ * anticode gets the built-in tools plus the external ones; antichat only its
+ * document kit — an MCP server can reach anything, so it stays out of there.
+ */
 export function toolsFor(mode: SessionMode): Tool[] {
-  return mode === 'chat' ? tools.filter((tool) => CHAT_TOOL_NAMES.has(tool.name)) : tools
+  if (mode === 'chat') return tools.filter((tool) => CHAT_TOOL_NAMES.has(tool.name))
+  const builtIn = new Set(tools.map((tool) => tool.name))
+  return [...tools, ...external().filter((tool) => !builtIn.has(tool.name))]
 }
 
 export function subagentTools(): Tool[] {
