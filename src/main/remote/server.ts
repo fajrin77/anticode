@@ -78,8 +78,9 @@ import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
 const PORT = Number(process.env['ANTICODE_REMOTE_PORT'] || 8680)
 const BODY_LIMIT = 2 * 1024 * 1024
-/** Room for a phone photo; the attachment handler enforces its own 20 MB cap. */
-const UPLOAD_LIMIT = 28 * 1024 * 1024
+/** Room for a 100 MB file as base64-in-JSON (×4/3) plus headroom; the
+ * attachment handler enforces its own 100 MB cap after decoding. */
+const UPLOAD_LIMIT = 140 * 1024 * 1024
 
 let server: http.Server | null = null
 let lastError: string | null = null

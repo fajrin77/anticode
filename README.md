@@ -107,10 +107,10 @@ tebal, dan kode inline. Parser penuh jauh lebih luas daripada yang benar-benar d
 | Provider | Kredensial | Model |
 |---|---|---|
 | Anthropic | `ANTHROPIC_API_KEY` | default `claude-opus-5` |
-| OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL` |
-| Google Gemini | `GOOGLE_API_KEY` | `GOOGLE_MODEL` |
-| Ollama (lokal) | tidak perlu; `OLLAMA_BASE_URL` | `OLLAMA_MODEL` |
-| Clinepass | `CLINEPASS_API_KEY` + `CLINEPASS_BASE_URL` | `CLINEPASS_MODEL` |
+| OpenAI | `OPENAI_API_KEY` | katalog otomatis |
+| Google Gemini | `GOOGLE_API_KEY` | katalog otomatis |
+| Ollama (lokal) | tidak perlu; `OLLAMA_BASE_URL` | katalog otomatis |
+| Clinepass | `CLINEPASS_API_KEY` + `CLINEPASS_BASE_URL` | `CLINEPASS_MODEL` (opsional) |
 
 Nama model tidak perlu dihafal: begitu sebuah provider punya kredensial, app menanyakan katalognya
 lewat endpoint model milik provider itu sendiri, lalu menampilkannya sebagai daftar yang bisa dicari
@@ -403,7 +403,7 @@ tempel tangkapan layar langsung dari clipboard. Gambar yang sudah menempel di at
 diklik untuk dilihat ukuran penuh sebelum dikirim, sama seperti sesudahnya. Di HP, tombol **+** di
 composer membuka pemilih berkas dan mengunggahnya ke Mac. Berkas dirutekan
 berdasarkan ekstensi: gambar di-resize ke sisi terpanjang 1568 px lalu dikirim sebagai blok gambar;
-xlsx, docx, dan pdf diringkas jadi teks; berkas teks dan kode dibaca apa adanya. Batasnya 20 MB per
+xlsx, docx, dan pdf diringkas jadi teks; berkas teks dan kode dibaca apa adanya. Batasnya 100 MB per
 berkas dan pratinjau dipotong di 2000 karakter agar tidak menghabiskan konteks.
 
 Di transkrip, lampiran tampil sebagaimana dikirim: gambar sebagai gambar (thumbnail 320 px yang ikut
