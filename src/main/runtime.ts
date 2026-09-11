@@ -769,7 +769,8 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
           type: 'tool_result' as const,
           toolUseId: block.toolUseId,
           content: block.content,
-          isError: block.isError
+          isError: block.isError,
+          ...(block.diff !== undefined ? { diff: block.diff } : {})
         }
       })
   }))

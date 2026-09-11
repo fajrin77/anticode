@@ -30,6 +30,8 @@ export interface ToolOutput {
   isError?: boolean
   text: string
   images: ToolImage[]
+  /** The change as a unified diff, for viewers only — the model never reads it. */
+  diff?: string
 }
 
 /** A validated call: risk and preview are derived before anything is executed. */

@@ -362,8 +362,19 @@ sesi, jadi path di luar folder ditolak; lampiran hanya bisa dibuka bila riwayat 
 - **Tinggi** selalu ditanya tiap panggilan selama mode Auto mati. Saat Auto aktif, semua tier
   berjalan tanpa bertanya — penggunanya yang memikul tanggung jawabnya.
 
-Preview yang ditampilkan konkret: diff berwarna untuk `write_file` dan `edit_file`, perintah lengkap
-beserta cwd dan timeout untuk `run_command`.
+Preview yang ditampilkan konkret: diff untuk `write_file` dan `edit_file`, perintah lengkap beserta
+cwd dan timeout untuk `run_command`.
+
+**Diff viewer.** Diff di dialog approval dan di transkrip memakai viewer yang sama: nomor baris lama
+dan baru, baris hijau/merah, syntax highlighting (JS/TS, Python, Go, Rust, C-family/Java/Kotlin/Swift,
+CSS, shell, SQL, YAML/TOML, JSON, Ruby, PHP, HTML/XML — komentar blok dan string multi-baris ikut
+terbawa antarbaris), dan pilihan **unified** atau **split** (lama di kiri, baru di kanan, baris yang
+diganti bersebelahan). Pilihan itu diingat untuk semua diff. Setiap `edit_file`/`write_file` di
+transkrip menampilkan `+N −M`, dan membukanya menampilkan diff lengkap; di baris penutup run, klik
+nama berkas untuk melihat semua perubahan run itu pada berkas tersebut. Diff disimpan bersama
+transkrip (maksimal 30.000 karakter per perubahan) tetapi tidak pernah dikirim ke model. Warna syntax
+sengaja hangat dan redup, supaya tidak tertukar dengan lime maupun hijau/merah diff. Di HP, output
+tool edit tampil sebagai diff berwarna.
 
 Deteksi perintah destruktif (`rm -rf`, `sudo`, `git push --force`, pipe ke shell, dan sejenisnya)
 adalah heuristik, **bukan batas keamanan**. Cocok berarti wajib approval tiap panggilan; tidak cocok

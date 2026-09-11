@@ -322,7 +322,7 @@ export function App(): JSX.Element {
             store.noticeInRun(run.sessionId, run.messageId, event.text)
             break
           case 'tool_end':
-            store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output)
+            store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output, event.diff)
             break
           case 'usage':
             store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent)
@@ -379,7 +379,7 @@ export function App(): JSX.Element {
         case 'tool_end': {
           const messageId = useSessionStore.getState().mirrorRuns[event.runId]?.messageId
           if (messageId !== undefined) {
-            store.endTool(event.sessionId, messageId, event.toolUseId, event.ok, event.output)
+            store.endTool(event.sessionId, messageId, event.toolUseId, event.ok, event.output, event.diff)
           }
           break
         }

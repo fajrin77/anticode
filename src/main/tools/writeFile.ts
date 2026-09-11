@@ -3,7 +3,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
-import { unifiedDiff } from './diff'
+import { TRANSCRIPT_DIFF_CHARS, unifiedDiff } from './diff'
 import { diffStat } from './editFile'
 
 export const writeFileTool = defineTool({
@@ -35,6 +35,10 @@ export const writeFileTool = defineTool({
     }
     const stat =
       original === null ? `(+${input.content === '' ? 0 : input.content.split('\n').length})` : diffStat(original, input.content)
-    return `Saved: ${input.path} ${stat}`
+    return {
+      text: `Saved: ${input.path} ${stat}`,
+      images: [],
+      diff: unifiedDiff(input.path, original ?? '', input.content, TRANSCRIPT_DIFF_CHARS)
+    }
   }
 })

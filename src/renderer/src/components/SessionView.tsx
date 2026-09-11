@@ -7,6 +7,7 @@ import { ToolBlock } from './ToolBlock'
 import { RichText } from './RichText'
 import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
+import { DiffView } from './DiffView'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -317,6 +318,8 @@ interface FileStat {
   path: string
   added: number
   removed: number
+  /** Every change the run made to it, oldest first. */
+  diffs: string[]
 }
 
 const STAT_PATTERN = /\(\+(\d+)(?:\s*-\s*(\d+))?\)/
@@ -338,7 +341,8 @@ function fileStats(parts: MessagePart[]): FileStat[] {
     const stat: FileStat = {
       path,
       added: match !== null ? Number(match[1] ?? 0) : 0,
-      removed: match !== null ? Number(match[2] ?? 0) : 0
+      removed: match !== null ? Number(match[2] ?? 0) : 0,
+      diffs: part.diff !== undefined ? [part.diff] : []
     }
     const existing = files.get(path)
     if (existing === undefined) {
@@ -346,6 +350,7 @@ function fileStats(parts: MessagePart[]): FileStat[] {
     } else {
       existing.added += stat.added
       existing.removed += stat.removed
+      existing.diffs.push(...stat.diffs)
     }
   }
   return [...files.values()]
@@ -470,6 +475,7 @@ function RunSummaryCard({
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [shownFile, setShownFile] = useState<string | null>(null)
   const files = fileStats(message.parts)
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
@@ -555,12 +561,33 @@ function RunSummaryCard({
         </button>
       </div>
       {open && files.length > 0 && (
-        <div className="mt-1 flex flex-col items-center">
+        <div className="mt-1 flex w-full flex-col items-center">
           {files.map((file) => (
-            <div key={file.path} className="flex items-baseline gap-2 py-0.5 text-[12px]">
-              <span className="max-w-96 truncate font-mono text-faint">{file.path}</span>
-              {file.added > 0 && <span className="text-add">+{file.added}</span>}
-              {file.removed > 0 && <span className="text-del">−{file.removed}</span>}
+            <div key={file.path} className="flex w-full flex-col items-center">
+              <button
+                type="button"
+                disabled={file.diffs.length === 0}
+                onClick={() => setShownFile(shownFile === file.path ? null : file.path)}
+                title={file.diffs.length > 0 ? 'Show what changed' : undefined}
+                className="group/file flex items-baseline gap-2 py-0.5 text-[12px] enabled:cursor-pointer"
+              >
+                <span
+                  className={`max-w-96 truncate font-mono transition-colors ${
+                    file.diffs.length > 0 ? 'group-hover/file:text-brand' : ''
+                  } ${shownFile === file.path ? 'text-text' : 'text-faint'}`}
+                >
+                  {file.path}
+                </span>
+                {file.added > 0 && <span className="text-add">+{file.added}</span>}
+                {file.removed > 0 && <span className="text-del">−{file.removed}</span>}
+              </button>
+              {shownFile === file.path && (
+                <div className="my-1.5 flex w-full flex-col gap-2 text-left">
+                  {file.diffs.map((diff, index) => (
+                    <DiffView key={index} patch={diff} path={file.path} />
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

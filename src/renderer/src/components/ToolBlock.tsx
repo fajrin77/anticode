@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import type { MessagePart } from '../store/session'
+import { DiffView } from './DiffView'
+import { parseUnifiedDiff } from '../diff'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -31,6 +33,7 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
   const [open, setOpen] = useState(false)
   const line = subject(part)
   const isShell = part.name === 'run_command'
+  const stats = useMemo(() => (part.diff === undefined ? null : parseUnifiedDiff(part.diff)), [part.diff])
 
   return (
     <div className="my-3">
@@ -47,6 +50,13 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
           {label(part.name)}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-dim">{line}</span>
+        {stats !== null && (
+          <span className="shrink-0 text-[12px] tabular-nums">
+            {stats.added > 0 && <span className="text-add">+{stats.added}</span>}
+            {stats.added > 0 && stats.removed > 0 && ' '}
+            {stats.removed > 0 && <span className="text-del">−{stats.removed}</span>}
+          </span>
+        )}
         <span
           className={`shrink-0 text-[11px] text-faint transition-opacity ${
             part.status === 'running' || open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
@@ -56,7 +66,12 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
         </span>
       </button>
 
-      {open && (
+      {open && part.diff !== undefined && (
+        <div className="mt-2">
+          <DiffView patch={part.diff} path={line} />
+        </div>
+      )}
+      {open && part.diff === undefined && (
         <div className="mt-2 overflow-hidden rounded-lg border border-line bg-surface">
           <pre className="max-h-96 overflow-auto px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-dim">
             {isShell ? `$ ${line}\n\n` : ''}

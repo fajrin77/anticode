@@ -1,22 +1,12 @@
 import { useEffect } from 'react'
 import type { JSX } from 'react'
 import type { ApprovalDecision, ApprovalRequest, RiskTier } from '@shared/ipc'
+import { DiffView } from './DiffView'
 
 const RISK_LABEL: Record<RiskTier, string> = {
   low: 'low',
   medium: 'medium',
   high: 'high'
-}
-
-function DiffLine({ line }: { line: string }): JSX.Element {
-  const tone = line.startsWith('+')
-    ? 'text-add'
-    : line.startsWith('-')
-      ? 'text-del'
-      : line.startsWith('@@')
-        ? 'text-dim'
-        : 'text-faint'
-  return <div className={tone}>{line === '' ? ' ' : line}</div>
 }
 
 interface ApprovalModalProps {
@@ -54,19 +44,17 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           </span>
         </header>
 
-        <div className="max-h-48 overflow-auto border-y border-line-soft px-5 py-3">
-          {preview.kind === 'diff' ? (
-            <div className="overflow-x-auto font-mono text-[12px] leading-relaxed">
-              {preview.detail.split('\n').map((line, index) => (
-                <DiffLine key={index} line={line} />
-              ))}
-            </div>
-          ) : (
+        {preview.kind === 'diff' ? (
+          <div className="border-y border-line-soft px-5 py-3">
+            <DiffView patch={preview.detail} path={preview.subject} maxHeight="max-h-[45vh]" />
+          </div>
+        ) : (
+          <div className="max-h-48 overflow-auto border-y border-line-soft px-5 py-3">
             <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-dim">
               {preview.detail}
             </pre>
-          )}
-        </div>
+          </div>
+        )}
 
         <footer className="flex items-center gap-2 px-5 py-3">
           {request.risk === 'high' && (

@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
-import { unifiedDiff } from './diff'
+import { TRANSCRIPT_DIFF_CHARS, unifiedDiff } from './diff'
 
 /** A compact "+added -removed" tail the UI parses into run summaries. */
 export function diffStat(before: string, after: string): string {
@@ -98,6 +98,10 @@ export const editFileTool = defineTool({
       throw new ToolError(`Failed to write ${input.path}: ${(error as Error).message}`)
     }
 
-    return `Edited: ${input.path} ${diffStat(original, updated)}`
+    return {
+      text: `Edited: ${input.path} ${diffStat(original, updated)}`,
+      images: [],
+      diff: unifiedDiff(input.path, original, updated, TRANSCRIPT_DIFF_CHARS)
+    }
   }
 })

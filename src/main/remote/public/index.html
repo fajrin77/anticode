@@ -209,6 +209,10 @@
   .trow summary::-webkit-details-marker { display: none; }
   .trow .tname { flex: none; }
   .trow .tname.bad { color: #e06c6c; }
+  .trow .tout.diff { white-space: pre; overflow-x: auto; }
+  .tout.diff .dadd { color: #5ac37f; background: rgba(90,195,127,.1); }
+  .tout.diff .ddel { color: #e06c6c; background: rgba(224,108,108,.1); }
+  .tout.diff .dhunk { color: #6d6d6d; }
   .trow .tsubject {
     flex: 1; min-width: 0; color: #9a9a9a; font-size: 13px;
     font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1651,6 +1655,18 @@ function appendRichText(parent, text) {
   }
 }
 
+/** A file change, one line per row, green and red like the desktop's viewer. */
+function renderDiff(out, diff) {
+  out.classList.add('diff');
+  for (const line of diff.split('\n')) {
+    if (/^(Index:|={3,}|--- |\+\+\+ )/.test(line)) continue;
+    const row = document.createElement('div');
+    row.className = line.startsWith('+') ? 'dadd' : line.startsWith('-') ? 'ddel' : line.startsWith('@@') ? 'dhunk' : '';
+    row.textContent = line === '' ? ' ' : line;
+    out.appendChild(row);
+  }
+}
+
 /** Which of the three work types a tool belongs to, as a display label. */
 function toolLabel(name) {
   return { agent: 'Agent', code: 'Code', edit: 'Edit', explore: 'Explore' }[toolCategory(name)];
@@ -1674,7 +1690,8 @@ function toolRowEl(item) {
   const out = document.createElement('pre');
   out.className = 'tout';
   const shell = item.name === 'run_command' ? '$ ' + toolSubject(item) + '\n\n' : '';
-  out.textContent = shell + (item.result?.content || '(no output yet)');
+  if (typeof item.result?.diff === 'string') renderDiff(out, item.result.diff);
+  else out.textContent = shell + (item.result?.content || '(no output yet)');
   row.append(head, out);
   row.addEventListener('toggle', () => {
     if (item.result !== undefined) chev.textContent = row.open ? '\u2303' : '\u2304';
@@ -1928,7 +1945,7 @@ async function applyStreamEvent(id, event) {
     }
     else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
-    else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output); }
+    else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output, event.diff); }
     else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
     else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; appendNotice(event.text); }
     else if (event.type === 'end' || event.type === 'error') {
@@ -1992,20 +2009,20 @@ function liveToolStart(toolUseId, name, input) {
 /* Groups a follow-up closed off while their steps were still running. */
 let sealedGroups = [];
 
-function liveToolEnd(toolUseId, ok, output) {
+function liveToolEnd(toolUseId, ok, output, diff) {
   const item = liveGroup?.items.find((entry) => entry.id === toolUseId);
   if (item === undefined) {
     const sealed = sealedGroups.find((group) => group.items.some((entry) => entry.id === toolUseId));
     const entry = sealed?.items.find((candidate) => candidate.id === toolUseId);
     if (sealed === undefined || entry === undefined) return;
-    entry.result = { content: output, isError: !ok };
+    entry.result = { content: output, isError: !ok, diff };
     const el = document.getElementById('transcript');
     const next = toolGroupEl(sealed.items);
     if (sealed.el !== null && el.contains(sealed.el)) el.replaceChild(next, sealed.el);
     sealed.el = next;
     return;
   }
-  item.result = { content: output, isError: !ok };
+  item.result = { content: output, isError: !ok, diff };
   redrawLiveGroup();
 }
 

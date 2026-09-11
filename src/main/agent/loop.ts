@@ -651,7 +651,7 @@ export class AgentSession {
           data: image.data
         }))
       )
-      return this.finishCall(params, call.id, truncate(output.text), output.isError === true)
+      return this.finishCall(params, call.id, truncate(output.text), output.isError === true, false, output.diff)
     } catch (error) {
       return this.finishCall(params, call.id, describeError(error), true)
     }
@@ -703,7 +703,8 @@ export class AgentSession {
     toolUseId: string,
     output: string,
     isError: boolean,
-    rejected = false
+    rejected = false,
+    diff?: string
   ): ContentBlock {
     params.emit({
       type: 'tool_end',
@@ -711,9 +712,10 @@ export class AgentSession {
       toolUseId,
       ok: !isError,
       output,
-      ...(rejected ? { rejected: true } : {})
+      ...(rejected ? { rejected: true } : {}),
+      ...(diff !== undefined ? { diff } : {})
     })
-    return { type: 'tool_result', toolUseId, content: output, isError }
+    return { type: 'tool_result', toolUseId, content: output, isError, ...(diff !== undefined ? { diff } : {}) }
   }
 
   /**

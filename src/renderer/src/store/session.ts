@@ -32,6 +32,8 @@ export type MessagePart =
       input: unknown
       status: ToolStatus
       output: string
+      /** The file change it made, as a unified diff, for the diff viewer. */
+      diff?: string
     }
 
 export type { RunSummary } from '@shared/ipc'
@@ -150,6 +152,9 @@ interface SessionState {
   followUpMode: 'steer' | 'queue'
   setQueue: (sessionId: string, items: QueuedPrompt[]) => void
   setFollowUpMode: (mode: 'steer' | 'queue') => void
+  /** How diffs are drawn: one column, or old and new side by side. Remembered. */
+  diffLayout: 'unified' | 'split'
+  setDiffLayout: (layout: 'unified' | 'split') => void
 
   /** Puts a passage from the transcript above the composer, to be replied to. */
   quoteInDraft: (id: string, quote: string) => void
@@ -229,7 +234,8 @@ interface SessionState {
     messageId: string,
     toolUseId: string,
     ok: boolean,
-    output: string
+    output: string,
+    diff?: string
   ) => void
   addUsage: (
     sessionId: string,
@@ -249,6 +255,11 @@ interface SessionState {
   setContextTokens: (sessionId: string, tokens: number) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
   setActiveRun: (run: ActiveRun | null, runId?: string) => void
+}
+
+/** The diff a tool result carries, spread-ready, or nothing. */
+function diffOf(result: { diff?: string } | undefined): { diff?: string } {
+  return result?.diff !== undefined ? { diff: result.diff } : {}
 }
 
 function baseName(root: string): string {
@@ -325,6 +336,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       return { queues }
     }),
   setFollowUpMode: (followUpMode) => set({ followUpMode }),
+  diffLayout: 'unified',
+  setDiffLayout: (diffLayout) => set({ diffLayout }),
 
   addProject: (root) =>
     set((state) =>
@@ -496,7 +509,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
                 name: block.name,
                 input: block.input,
                 status: results.get(block.id)?.isError ? 'error' : results.has(block.id) ? 'ok' : 'error',
-                output: results.get(block.id)?.content ?? 'Interrupted before a result was recorded.'
+                output: results.get(block.id)?.content ?? 'Interrupted before a result was recorded.',
+                ...diffOf(results.get(block.id))
               })
             }
           }
@@ -678,7 +692,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   // Found by its id wherever it sits: a follow-up moves the run on to a fresh
   // reply while tools the earlier one started are still finishing.
-  endTool: (sessionId, _messageId, toolUseId, ok, output) =>
+  endTool: (sessionId, _messageId, toolUseId, ok, output, diff) =>
     set((state) => ({
       sessions: mapSession(state, sessionId, (session) => ({
         ...session,
@@ -688,7 +702,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
                 ...message,
                 parts: message.parts.map((part) =>
                   part.kind === 'tool' && part.toolUseId === toolUseId
-                    ? { ...part, status: ok ? 'ok' : 'error', output }
+                    ? { ...part, status: ok ? 'ok' : 'error', output, ...(diff !== undefined ? { diff } : {}) }
                     : part
                 )
               }
@@ -929,7 +943,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     })
 }), {
   name: 'anticode-session-metadata',
-  partialize: (state) => ({ followUpMode: state.followUpMode, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
+  partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 

@@ -479,6 +479,8 @@ export type AgentEvent =
       ok: boolean
       output: string
       rejected?: boolean
+      /** A file change as a unified diff, drawn in the transcript. */
+      diff?: string
     }
   | {
       type: 'usage'
@@ -564,7 +566,7 @@ export type SnapshotBlock =
     }
   | { type: 'attachment'; attachment: AttachmentRef }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: string }
 
 export interface SnapshotMessage {
   role: 'user' | 'assistant'
