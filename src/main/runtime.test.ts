@@ -41,6 +41,7 @@ vi.mock('./agent/loop', () => ({
 
 import {
   applyRotation,
+  applyRotationEnabled,
   createSession,
   deleteSession,
   getSession,
@@ -60,6 +61,7 @@ const modelOf = (sessionId: string): string => agentOf(sessionId).provider.model
 beforeEach(() => {
   resetRotationForTests()
   applyRotation([])
+  applyRotationEnabled(true)
   selectProvider({ provider: 'one', model: 'm1' })
   for (const id of ['a', 'b', 'c']) deleteSession(id)
 })
@@ -203,6 +205,32 @@ it('hands a failed turn to the next pool entry and rests the one that failed', (
   // A fixed model has no fallback: its failures are reported as they are.
   selectProvider({ provider: 'three', model: 'm3' }, 'a')
   expect(agentOf('a').fallback).toBeNull()
+})
+
+it('offers no Rotate and counts nothing while Rotate usage is off', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  applyRotationEnabled(false)
+  expect(getStatus().rotationEnabled).toBe(false)
+  expect(() => selectProvider({ provider: ROTATE_PROVIDER, model: '' })).toThrow(/Rotate usage is off/)
+  recordRotationUsage({ provider: 'one', model: 'm1' }, { inputTokens: 500, outputTokens: 100 })
+  expect(getStatus().rotation.map((entry) => entry.inputTokens + entry.outputTokens)).toEqual([0, 0])
+})
+
+it('moves sessions off Rotate when Rotate usage is switched off', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'b')
+  const used = modelOf('a')
+
+  applyRotationEnabled(false)
+  // The one that sent a prompt keeps the model it went to; the default and
+  // the one that never sent anything land on a plain model.
+  expect(getStatus('a')).toMatchObject({ provider: used === 'm1' ? 'one' : 'two', model: used, providerReady: true })
+  expect(getStatus().provider).not.toBe(ROTATE_PROVIDER)
+  expect(getStatus('b').provider).not.toBe(ROTATE_PROVIDER)
+  expect(getStatus('b').providerReady).toBe(true)
 })
 
 it('lets an emptied pool stop being the default', () => {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { ROTATE_PROVIDER } from '@shared/ipc'
-import type { ModelCatalogue, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
+import type { ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 
 interface ModelPickerProps {
   status: SessionStatus | null
@@ -23,53 +23,29 @@ export function ModelPicker({
   onSelect,
   onClose
 }: ModelPickerProps): JSX.Element {
-  const [catalogue, setCatalogue] = useState<ModelCatalogue | null>(null)
-  const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
-  const [showAll, setShowAll] = useState(false)
   const provider = status?.provider ?? 'anthropic'
   const rotating = provider === ROTATE_PROVIDER
   const pool = status?.rotation ?? []
-  // The models ticked in Settings → Models for this provider. When there are
-  // any, they are the whole list; the catalogue is only a search away.
+  // The models ticked in Settings → Models for this provider are the whole
+  // list: a catalogue of hundreds is chosen from there, not from here. Until
+  // something is ticked the list is empty.
   const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
-  const shortlisted = picked.length > 0 && !showAll
-
-  useEffect(() => {
-    let active = true
-    setCatalogue(null)
-    // Rotation is not a provider with a catalogue; its list is the pool.
-    if (rotating) {
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    void window.anticode.listModels(provider).then((result) => {
-      if (!active) return
-      setCatalogue(result)
-      setLoading(false)
-    })
-    return () => {
-      active = false
-    }
-  }, [provider, rotating])
+  const providerLabel = providers.find((entry) => entry.id === provider)?.label ?? provider
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (needle === '' && shortlisted) {
-      // The session's own model stays in view even when it was not ticked.
-      const current = status?.model !== undefined && status.model !== '' && !picked.includes(status.model) ? [status.model] : []
-      return [...current, ...picked]
-    }
-    const models = [...new Set([...picked, ...(catalogue?.models ?? [])])]
+    // The session's own model stays in view even when it was not ticked.
+    const current = status?.model !== undefined && status.model !== '' && !picked.includes(status.model) ? [status.model] : []
+    const models = [...current, ...picked]
     return needle === '' ? models : models.filter((id) => id.toLowerCase().includes(needle))
-  }, [catalogue, query, shortlisted, picked.join('\n'), status?.model])
+  }, [query, picked.join('\n'), status?.model])
 
   const typedIsNew = query.trim() !== '' && !matches.includes(query.trim())
   const tabs = [
     ...providers.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` })),
-    // Offered once the pool has something to rotate over.
-    ...(pool.length > 0
+    // Offered only while Rotate usage is switched on and has models to rotate over.
+    ...(status?.rotationEnabled === true && pool.length > 0
       ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Spread this session’s prompts over the Rotate usage pool' }]
       : [])
   ]
@@ -140,20 +116,10 @@ export function ModelPicker({
           />
 
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            {loading && <div className="px-2 py-3 text-[12px] text-faint">Loading models…</div>}
-
-            {/* With models picked there is a list to show; the failure can wait. */}
-            {!loading && catalogue?.error !== null && catalogue !== null && !shortlisted && (
-              <div className="max-h-24 overflow-y-auto px-2 py-2 text-[11.5px] leading-relaxed text-faint">
-                Could not load the model list: {catalogue.error}. Type a model id and press Enter,
-                or add its model ids in Settings → Providers → Edit.
-              </div>
-            )}
-
-            {!loading && catalogue?.error === null && matches.length === 0 && (
-              <div className="px-2 py-3 text-[12px] leading-relaxed text-faint">
-                {catalogue.models.length === 0
-                  ? 'This provider offers no model list. Type an id and press Enter, or add its model ids in Settings → Providers → Edit.'
+            {matches.length === 0 && (
+              <div data-picker-empty className="px-2 py-3 text-[12px] leading-relaxed text-faint">
+                {query.trim() === ''
+                  ? `No ${providerLabel} models chosen yet. Choose the ones you want in Settings → Models.`
                   : 'No matches. Press Enter to use the id you typed.'}
               </div>
             )}
@@ -183,37 +149,9 @@ export function ModelPicker({
             ))}
           </div>
 
-          {catalogue !== null && catalogue.models.length > 0 && (
-            <div className="flex items-center justify-between gap-3 border-t border-line-soft px-3 py-1.5 text-[11px] text-faint">
-              {picked.length > 0 ? (
-                <button
-                  type="button"
-                  data-picker-scope
-                  onClick={() => setShowAll((value) => !value)}
-                  title={shortlisted ? 'Show the whole catalogue' : 'Show only the models picked in Settings → Models'}
-                  className="min-w-0 truncate transition-colors hover:text-brand"
-                >
-                  {shortlisted ? `${picked.length} picked · show all ${catalogue.models.length}` : `All ${catalogue.models.length} · show picked`}
-                </button>
-              ) : (
-                <span className="min-w-0 truncate">
-                  {providers.find((entry) => entry.id === provider)?.label ?? provider} ·{' '}
-                  {catalogue.models.length} models · pick favourites in Settings → Models
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true)
-                  void window.anticode.listModels(provider, true).then((result) => {
-                    setCatalogue(result)
-                    setLoading(false)
-                  })
-                }}
-                className="shrink-0 transition-colors hover:text-brand"
-              >
-                Reload
-              </button>
+          {picked.length > 0 && (
+            <div className="truncate border-t border-line-soft px-3 py-1.5 text-[11px] text-faint">
+              {providerLabel} · {picked.length} chosen · more in Settings → Models
             </div>
           )}
         </>

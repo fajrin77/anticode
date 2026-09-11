@@ -38,6 +38,7 @@ export const IpcChannel = {
   PROVIDER_UPDATE: 'provider:update',
   ROTATION_SET: 'rotation:set',
   ROTATION_RESET: 'rotation:reset',
+  ROTATION_ENABLE: 'rotation:enable',
   REMOTE_STATUS: 'remote:status',
   REMOTE_SET: 'remote:set',
   REMOTE_REGENERATE: 'remote:regenerate',
@@ -283,6 +284,11 @@ export interface SessionStatus {
   sessions: Record<string, ModelChoice>
   /** The Rotate usage pool, with what each entry has used. */
   rotation: RotationEntryStatus[]
+  /**
+   * Rotate usage is switched on in Settings. Off, Rotate is not offered as a
+   * model and no token is counted; the pool is still the composer's list.
+   */
+  rotationEnabled: boolean
   /** Always null here: only a session has a latest prompt to point at. */
   lastUsed: ProviderSelection | null
 }
@@ -530,6 +536,8 @@ export interface AnticodeApi {
   setRotation: (entries: RotationEntry[]) => Promise<SessionStatus>
   /** Starts every pool entry's token count from zero. */
   resetRotationUsage: () => Promise<SessionStatus>
+  /** Switches Rotate usage on or off; off moves sessions on Rotate to a plain model. */
+  setRotationEnabled: (enabled: boolean) => Promise<SessionStatus>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */
   createSession: (spec: SessionSpec) => Promise<SessionSpec>

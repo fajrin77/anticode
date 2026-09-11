@@ -26,20 +26,40 @@ interface SettingsViewProps {
 
 type Section = 'general' | 'providers' | 'models' | 'remote'
 
-function Toggle({ on, onChange }: { on: boolean; onChange: (value: boolean) => void }): JSX.Element {
+/**
+ * The one switch the app has: Auto-accept, Rotate usage, and every model in
+ * Settings → Models. Extra data-* attributes land on the button.
+ */
+function Toggle({
+  on,
+  onChange,
+  label,
+  title,
+  ...data
+}: {
+  on: boolean
+  onChange: (value: boolean) => void
+  label?: string
+  title?: string
+  [attribute: `data-${string}`]: string
+}): JSX.Element {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={label}
+      title={title}
+      {...data}
       onClick={() => onChange(!on)}
-      className={`h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-brand' : 'glass-control border'}`}
+      className={`group/switch h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-brand' : 'glass-control border'}`}
     >
       {/* On the lime track the knob goes dark: white on lime is all but
-          invisible, and dark-on-lime is what every other lime control does. */}
+          invisible, and dark-on-lime is what every other lime control does.
+          Off, the knob is what lights up under the cursor. */}
       <span
-        className={`block h-4 w-4 rounded-full shadow transition-transform ${
-          on ? 'translate-x-4 bg-bg' : 'translate-x-0 bg-white'
+        className={`block h-4 w-4 rounded-full shadow transition-[transform,background-color] ${
+          on ? 'translate-x-4 bg-bg' : 'translate-x-0 bg-white group-hover/switch:bg-brand'
         }`}
       />
     </button>
@@ -545,8 +565,9 @@ function Providers({
  * The Rotate usage pool: models that share the token load of every session
  * set to Rotate. A session stays on one for 2 prompts, then moves to the one
  * that has used the fewest tokens; one that fails hands the turn to the next
- * and rests for a minute. Changes
- * reach every window through the status broadcast.
+ * and rests for a minute. It runs only while switched on here — off, Rotate
+ * is not offered and nothing is counted. Changes reach every window through
+ * the status broadcast.
  */
 function RotateUsage({
   status,
@@ -563,6 +584,7 @@ function RotateUsage({
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const rotatingByDefault = status?.provider === ROTATE_PROVIDER
+  const enabled = status?.rotationEnabled === true
   const now = Date.now()
 
   // The ids offered for the provider being added: what it lists, then what
@@ -582,6 +604,14 @@ function RotateUsage({
   function save(next: RotationEntry[]): Promise<void> {
     return window.anticode
       .setRotation(next)
+      .then(() => setError(null))
+      .catch((failure) => setError((failure as Error).message))
+  }
+
+  function setEnabled(on: boolean): void {
+    if (!on) setAdding(null)
+    void window.anticode
+      .setRotationEnabled(on)
       .then(() => setError(null))
       .catch((failure) => setError((failure as Error).message))
   }
@@ -611,167 +641,170 @@ function RotateUsage({
 
   return (
     <>
-      <div className="mb-3 mt-10 flex items-center justify-between gap-4">
+      <div className={`mt-10 flex items-center justify-between gap-4 ${enabled ? 'mb-4' : ''}`}>
         <h2 className="text-[14px] text-text">Rotate usage</h2>
-        {pool.length > 0 &&
-          (rotatingByDefault ? (
-            <span className="text-[11.5px] text-brand">default for new sessions</span>
-          ) : (
-            <button
-              type="button"
-              title="New sessions start on Rotate"
-              onClick={() => onSelectProvider(ROTATE_PROVIDER, '')}
-              className="rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
-            >
-              Use for new sessions
-            </button>
-          ))}
-      </div>
-      <p className="mb-4 text-[12.5px] leading-relaxed text-faint">
-        Shares the token load between the models picked in Settings → Models — the same ones the
-        composer offers. A session set to <span className="text-dim">Rotate</span> in its model menu
-        stays on one model for 2 prompts, then moves to the one here that has used the fewest
-        tokens; one that hits a rate limit, runs out of quota, or fails hands the turn to the next
-        and rests for a minute. Tokens are counted from every session.
-      </p>
-
-      <div className="glass-surface overflow-hidden rounded-xl border border-line">
-        {pool.map((entry) => {
-          const resting = entry.coolingUntil !== null && entry.coolingUntil > now
-          return (
-            <div
-              key={`${entry.provider}\n${entry.model}`}
-              className="flex items-center gap-3 border-b border-line-soft px-5 py-3 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className={`truncate font-mono text-[12.5px] ${entry.ready ? 'text-text' : 'text-dim'}`}>
-                    {entry.model}
-                  </span>
-                  {!entry.ready && <Tag>needs key</Tag>}
-                  {resting && <Tag>resting</Tag>}
-                </div>
-                <div className="mt-0.5 truncate text-[11.5px] text-faint">
-                  {entry.label} · {compactTokens(entry.inputTokens)} in · {compactTokens(entry.outputTokens)} out
-                </div>
-              </div>
+        <div className="flex items-center gap-3">
+          {enabled &&
+            pool.length > 0 &&
+            (rotatingByDefault ? (
+              <span className="text-[11.5px] text-brand">default for new sessions</span>
+            ) : (
               <button
                 type="button"
-                title={`Take ${entry.model} out of the rotation`}
-                aria-label={`Take ${entry.model} out of the rotation`}
-                onClick={() =>
-                  void save(
-                    pool
-                      .filter((item) => !(item.provider === entry.provider && item.model === entry.model))
-                      .map(({ provider, model }) => ({ provider, model }))
-                  )
-                }
-                className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
+                title="New sessions start on Rotate"
+                onClick={() => onSelectProvider(ROTATE_PROVIDER, '')}
+                className="rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
               >
-                ×
+                Use for new sessions
               </button>
-            </div>
-          )
-        })}
-        {pool.length === 0 && adding === null && (
-          <div className="px-5 py-4 text-[12.5px] text-faint">
-            No models yet. Add two or more to rotate between them.
-          </div>
-        )}
-        {adding !== null && (
-          <div
-            className="flex items-center gap-2 border-t border-line-soft px-5 py-3 first:border-t-0"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setAdding(null)
-              if (event.key === 'Enter') add()
-            }}
-          >
-            <select
-              value={adding.provider}
-              aria-label="Provider"
-              onChange={(event) => {
-                const next = usable.find((entry) => entry.id === event.target.value)
-                setAdding({ provider: event.target.value, model: next?.defaultModel ?? '' })
-              }}
-              className="glass-field w-40 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[12.5px] text-text outline-none"
-            >
-              {usable.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-            <input
-              value={adding.model}
-              autoFocus
-              list="rotation-models"
-              spellCheck={false}
-              placeholder="Model id"
-              onChange={(event) => setAdding({ ...adding, model: event.target.value })}
-              className="glass-field min-w-0 flex-1 rounded-lg border border-line px-3 py-1.5 font-mono text-[12.5px] text-text outline-none placeholder:text-faint focus:border-hover"
-            />
-            <datalist id="rotation-models">
-              {suggestions.map((id) => (
-                <option key={id} value={id} />
-              ))}
-            </datalist>
-            <button
-              type="button"
-              onClick={() => setAdding(null)}
-              className="shrink-0 rounded-lg px-2 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={add}
-              disabled={adding.model.trim() === ''}
-              className="glass-control shrink-0 rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
-            >
-              Add
-            </button>
-          </div>
-        )}
+            ))}
+          <Toggle on={enabled} onChange={setEnabled} label="Rotate usage" />
+        </div>
       </div>
 
-      {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+      {!enabled && error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
 
-      <div className="mt-3 flex items-center gap-4">
-        {adding === null && (
-          <button
-            type="button"
-            data-rotation-add
-            onClick={startAdding}
-            className="text-[12px] text-faint transition-colors hover:text-brand"
-          >
-            + Add model
-          </button>
-        )}
-        {pool.length > 0 && (
-          <button
-            type="button"
-            title="Start every model's token count from zero"
-            onClick={() =>
-              void window.anticode
-                .resetRotationUsage()
-                .then(() => setError(null))
-                .catch((failure) => setError((failure as Error).message))
-            }
-            className="text-[12px] text-faint transition-colors hover:text-brand"
-          >
-            Reset counts
-          </button>
-        )}
-      </div>
+      {enabled && (
+        <>
+          <div className="glass-surface overflow-hidden rounded-xl border border-line">
+            {pool.map((entry) => {
+              const resting = entry.coolingUntil !== null && entry.coolingUntil > now
+              return (
+                <div
+                  key={`${entry.provider}\n${entry.model}`}
+                  className="flex items-center gap-3 border-b border-line-soft px-5 py-3 last:border-b-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`truncate font-mono text-[12.5px] ${entry.ready ? 'text-text' : 'text-dim'}`}>
+                        {entry.model}
+                      </span>
+                      {!entry.ready && <Tag>needs key</Tag>}
+                      {resting && <Tag>resting</Tag>}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                      {entry.label} · {compactTokens(entry.inputTokens)} in · {compactTokens(entry.outputTokens)} out
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    title={`Take ${entry.model} out of the rotation`}
+                    aria-label={`Take ${entry.model} out of the rotation`}
+                    onClick={() =>
+                      void save(
+                        pool
+                          .filter((item) => !(item.provider === entry.provider && item.model === entry.model))
+                          .map(({ provider, model }) => ({ provider, model }))
+                      )
+                    }
+                    className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
+                  >
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+            {pool.length === 0 && adding === null && (
+              <div className="px-5 py-4 text-[12.5px] text-faint">
+                No models yet. Add two or more to rotate between them.
+              </div>
+            )}
+            {adding !== null && (
+              <div
+                className="flex items-center gap-2 border-t border-line-soft px-5 py-3 first:border-t-0"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setAdding(null)
+                  if (event.key === 'Enter') add()
+                }}
+              >
+                <select
+                  value={adding.provider}
+                  aria-label="Provider"
+                  onChange={(event) => {
+                    const next = usable.find((entry) => entry.id === event.target.value)
+                    setAdding({ provider: event.target.value, model: next?.defaultModel ?? '' })
+                  }}
+                  className="glass-field w-40 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[12.5px] text-text outline-none"
+                >
+                  {usable.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={adding.model}
+                  autoFocus
+                  list="rotation-models"
+                  spellCheck={false}
+                  placeholder="Model id"
+                  onChange={(event) => setAdding({ ...adding, model: event.target.value })}
+                  className="glass-field min-w-0 flex-1 rounded-lg border border-line px-3 py-1.5 font-mono text-[12.5px] text-text outline-none placeholder:text-faint focus:border-hover"
+                />
+                <datalist id="rotation-models">
+                  {suggestions.map((id) => (
+                    <option key={id} value={id} />
+                  ))}
+                </datalist>
+                <button
+                  type="button"
+                  onClick={() => setAdding(null)}
+                  className="shrink-0 rounded-lg px-2 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={add}
+                  disabled={adding.model.trim() === ''}
+                  className="glass-control shrink-0 rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+                >
+                  Add
+                </button>
+              </div>
+            )}
+          </div>
+
+          {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+
+          <div className="mt-3 flex items-center gap-4">
+            {adding === null && (
+              <button
+                type="button"
+                data-rotation-add
+                onClick={startAdding}
+                className="text-[12px] text-faint transition-colors hover:text-brand"
+              >
+                + Add model
+              </button>
+            )}
+            {pool.length > 0 && (
+              <button
+                type="button"
+                title="Start every model's token count from zero"
+                onClick={() =>
+                  void window.anticode
+                    .resetRotationUsage()
+                    .then(() => setError(null))
+                    .catch((failure) => setError((failure as Error).message))
+                }
+                className="text-[12px] text-faint transition-colors hover:text-brand"
+              >
+                Reset counts
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </>
   )
 }
 
 /**
  * The models the composer offers. A provider's catalogue can run to hundreds;
- * the ones ticked here are all its picker shows, and they are also the pool a
- * session set to Rotate spreads its prompts over. Ticking nothing leaves the
- * picker showing everything, as before.
+ * the ones switched on here are all its picker shows, and they are also the
+ * pool a session set to Rotate spreads its prompts over while Rotate usage is
+ * on. Switching none on leaves the picker empty.
  */
 function Models({
   status,
@@ -834,9 +867,9 @@ function Models({
     <>
       <h1 className="mb-2 text-[19px] text-text">Models</h1>
       <p className="mb-6 text-[12.5px] leading-relaxed text-faint">
-        Tick the models the composer should offer — its picker then shows only those, not the whole
-        catalogue. Sessions set to <span className="text-dim">Rotate</span> spread their prompts over
-        the same models.
+        Switch on the models the composer should offer — its picker shows only these. With Rotate
+        usage on, sessions set to <span className="text-dim">Rotate</span> spread their prompts over the
+        same models.
       </p>
 
       {providers.length > 1 && (
@@ -910,48 +943,42 @@ function Models({
           const on = picked.includes(id)
           const isDefault = id === status?.model && status.provider === provider
           return (
-            <div key={id} className="group flex items-center border-b border-line-soft transition-colors last:border-b-0 hover:bg-raised">
+            <div
+              key={id}
+              className="group flex items-center gap-2 border-b border-line-soft pr-5 transition-colors last:border-b-0 hover:bg-raised"
+            >
+              {/* The name switches the model too; the switch is the same one
+                  Auto-accept and Rotate usage wear. */}
               <button
                 type="button"
-                role="checkbox"
-                aria-checked={on}
-                data-model-pick={id}
+                data-model-name={id}
                 title={on ? 'Hide from the composer' : 'Show in the composer'}
                 onClick={() => setPicked(id, !on)}
-                className="group/pick flex min-w-0 flex-1 items-center gap-3 px-5 py-3 text-left"
+                className={`min-w-0 flex-1 truncate py-3 pl-5 text-left font-mono text-[13px] transition-colors hover:text-brand ${
+                  on ? 'text-text' : 'text-dim'
+                }`}
               >
-                {/* Ticked is lime with a dark mark: lime is what is switched on. */}
-                <span
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                    on ? 'border-brand bg-brand text-bg' : 'border-line group-hover/pick:border-brand'
-                  }`}
-                >
-                  {on && (
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M2.5 6.2 5 8.6l4.5-5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </span>
-                <span
-                  className={`min-w-0 truncate font-mono text-[13px] transition-colors group-hover/pick:text-brand ${
-                    on ? 'text-text' : 'text-dim'
-                  }`}
-                >
-                  {id}
-                </span>
+                {id}
               </button>
               {isDefault ? (
-                <span className="shrink-0 px-5 text-[11.5px] text-faint">default</span>
+                <span className="shrink-0 px-2 text-[11.5px] text-faint">default</span>
               ) : (
                 <button
                   type="button"
                   title="Start new sessions on this model"
                   onClick={() => onSelectProvider(provider, id)}
-                  className="mr-3 shrink-0 rounded-md px-2 py-1 text-[12px] text-faint opacity-0 transition-colors hover:bg-raised hover:text-brand focus-visible:opacity-100 group-hover:opacity-100"
+                  className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint opacity-0 transition-colors hover:bg-raised hover:text-brand focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   Use
                 </button>
               )}
+              <Toggle
+                on={on}
+                onChange={(value) => setPicked(id, value)}
+                label={id}
+                title={on ? 'Hide from the composer' : 'Show in the composer'}
+                data-model-pick={id}
+              />
             </div>
           )
         })}
@@ -960,7 +987,7 @@ function Models({
             {catalogue === null
               ? 'Loading models…'
               : pickedOnly
-                ? 'Nothing picked from this provider yet — the composer shows its whole list.'
+                ? 'Nothing picked from this provider yet — the composer offers none of its models.'
                 : catalogue.error !== null
                   ? `Could not load the model list: ${catalogue.error}. Type an id above and press Enter.`
                   : 'No models match.'}

@@ -31,9 +31,11 @@ import {
   countedProvider,
   forgetRotationProvider,
   rankRotation,
+  rotationEnabled,
   rotationEntries,
   rotationKey,
   rotationUsage,
+  setRotationEnabled,
   setRotationEntries
 } from './rotation'
 import { ApprovalPolicy } from './approval/policy'
@@ -138,7 +140,7 @@ export function initPersistedState(): void {
   }
   if (persisted.provider !== null && persisted.provider !== undefined) {
     const exists = persisted.provider === ROTATE_PROVIDER
-      ? rotationEntries().length > 0
+      ? rotationEnabled() && rotationEntries().length > 0
       : listProviders().some((p) => p.id === persisted.provider && p.credentialAvailable)
     if (exists) {
       selection = { provider: persisted.provider, model: persisted.provider === ROTATE_PROVIDER ? '' : (persisted.model ?? '') }
@@ -204,6 +206,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   if (sessionId !== null && sessionId !== undefined && live === undefined) throw new Error('Unknown session; reopen this tab')
   let chosen: ProviderSelection
   if (next.provider === ROTATE_PROVIDER) {
+    if (!rotationEnabled()) throw new Error('Rotate usage is off — turn it on in Settings → Providers')
     if (rotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
     chosen = { provider: ROTATE_PROVIDER, model: '' }
   } else {
@@ -247,6 +250,28 @@ export function applyRotation(entries: RotationEntry[]): void {
     selection = null
     savePersistedSettings({ provider: current().provider, model: current().model })
   }
+}
+
+/**
+ * Rotate usage switched on or off. Off, nothing may be left on Rotate: each
+ * session on it keeps the model its last prompt went to (or the default,
+ * before it sent one), and the default goes back to a plain model.
+ */
+export function applyRotationEnabled(on: boolean): void {
+  setRotationEnabled(on)
+  if (on) return
+  if (current().provider === ROTATE_PROVIDER) {
+    selection = null
+    savePersistedSettings({ provider: current().provider, model: current().model })
+  }
+  let changed = false
+  for (const live of sessions.values()) {
+    if (live.choice?.provider !== ROTATE_PROVIDER) continue
+    live.choice = live.selection !== undefined ? { ...live.selection } : { ...current() }
+    delete live.promptsOnEntry
+    changed = true
+  }
+  if (changed) persistSessions()
 }
 
 /** A provider's model list changed in Settings; the next listModels refetches. */
@@ -420,11 +445,13 @@ function readiness(
   if (choice.provider === ROTATE_PROVIDER) {
     const pool = rotationEntries()
     blockedReason =
-      pool.length === 0
-        ? 'Rotate usage has no models yet — add them in Settings → Providers'
-        : !pool.some((entry) => entryReady(entry, providers))
-          ? 'No model in Rotate usage is ready — check their providers in Settings → Providers'
-          : null
+      !rotationEnabled()
+        ? 'Rotate usage is off — turn it on in Settings → Providers, or pick a model'
+        : pool.length === 0
+          ? 'Rotate usage has no models yet — add them in Settings → Providers'
+          : !pool.some((entry) => entryReady(entry, providers))
+            ? 'No model in Rotate usage is ready — check their providers in Settings → Providers'
+            : null
   } else {
     const info = providers.find((p) => p.id === choice.provider)
     // Every provider's credentials can be set in Settings now, so that is where
@@ -435,7 +462,7 @@ function readiness(
         : !info.credentialAvailable
           ? `${info.label} has no ${info.credentialHint} yet — add it in Settings → Providers`
           : choice.model === ''
-            ? 'No model selected for this provider'
+            ? 'No model selected — choose one in Settings → Models'
             : null
   }
   return { providerReady: blockedReason === null, blockedReason }
@@ -478,7 +505,8 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     blockedReason: top.blockedReason,
     lastUsed: top.lastUsed,
     sessions: Object.fromEntries([...sessions].map(([id, live]) => [id, choiceStatus(live, providers)])),
-    rotation: rotationStatus(providers)
+    rotation: rotationStatus(providers),
+    rotationEnabled: rotationEnabled()
   }
 }
 
@@ -518,6 +546,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     // moves to the pool entry with the least load other than the one it
     // leaves. One that fails mid-run rests for a while and hands the turn on.
     const providers = listProviders()
+    if (!rotationEnabled()) throw new Error(readiness(choice, providers).blockedReason ?? 'Rotate usage is off')
     const ready = (entry: RotationEntry): boolean => entryReady(entry, providers)
     const tried = new Set<string>()
     const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried })[0]

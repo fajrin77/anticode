@@ -32,6 +32,7 @@ import {
 import {
   addProvider,
   approvals,
+  enableRotation,
   pickModel,
   removeProvider,
   resetRotation,
@@ -290,9 +291,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, { ok: true, status: getStatus() })
     }
 
-    // Rotate usage: the pool replaced, or its token counts started over.
+    // Rotate usage: switched on or off, the pool replaced, or its token counts
+    // started over.
     if (req.method === 'POST' && url.pathname === '/api/rotation') {
-      if (body.reset === true) resetRotation()
+      if (typeof body.enabled === 'boolean') enableRotation(body.enabled)
+      else if (body.reset === true) resetRotation()
       else setRotation(body.entries)
       return json(res, 200, await modelsPayload(typeof body.sessionId === 'string' ? body.sessionId : null))
     }
@@ -518,6 +521,7 @@ async function modelsPayload(sessionId: string | null = null): Promise<{
     kind: string; baseURL: string; hasKey: boolean; defaultModel: string
   }[]
   rotation: RotationEntryStatus[]
+  rotationEnabled: boolean
 }> {
   const known = sessionId !== null && loadSessionMessages(sessionId) !== null ? sessionId : null
   const status = getStatus(known)
@@ -535,7 +539,14 @@ async function modelsPayload(sessionId: string | null = null): Promise<{
     defaultModel: entry.defaultModel
   }))
   const selected = getStatus(known)
-  return { provider: selected.provider, model: selected.model, lastUsed: selected.lastUsed, providers, rotation: selected.rotation }
+  return {
+    provider: selected.provider,
+    model: selected.model,
+    lastUsed: selected.lastUsed,
+    providers,
+    rotation: selected.rotation,
+    rotationEnabled: selected.rotationEnabled
+  }
 }
 
 /** Creates a session straight from the phone, validating the folder up front. */

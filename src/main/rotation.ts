@@ -12,6 +12,9 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
  * Tokens are counted for every session, not only rotating ones: a session
  * pinned to a pooled model loads that account just the same, and balancing
  * that ignored it would keep sending rotating prompts to the busiest one.
+ *
+ * It runs only while switched on in Settings. Off, the pool is just the
+ * models the composer offers: nothing rotates and nothing is counted.
  */
 
 /** How long an entry that failed stays at the back of the queue. */
@@ -23,6 +26,7 @@ interface Tally {
 }
 
 let entries: RotationEntry[] | null = null
+let enabled = false
 const usage = new Map<string, Tally>()
 const cooling = new Map<string, number>()
 
@@ -36,6 +40,7 @@ function load(): RotationEntry[] {
   entries = Array.isArray(saved?.entries)
     ? clean(saved.entries)
     : []
+  enabled = saved?.enabled === true
   for (const [key, tally] of Object.entries(saved?.usage ?? {})) {
     if (typeof tally?.inputTokens === 'number' && typeof tally.outputTokens === 'number') {
       usage.set(key, { inputTokens: tally.inputTokens, outputTokens: tally.outputTokens })
@@ -65,6 +70,7 @@ function persist(): void {
   const keys = new Set(list.map(rotationKey))
   savePersistedSettings({
     rotation: {
+      enabled,
       entries: list,
       usage: Object.fromEntries([...usage].filter(([key]) => keys.has(key)))
     }
@@ -73,6 +79,17 @@ function persist(): void {
 
 export function rotationEntries(): RotationEntry[] {
   return [...load()]
+}
+
+export function rotationEnabled(): boolean {
+  load()
+  return enabled
+}
+
+export function setRotationEnabled(on: boolean): void {
+  load()
+  enabled = on
+  persist()
 }
 
 /**
@@ -115,10 +132,13 @@ export function rotationUsage(entry: RotationEntry): Tally {
   return { ...(usage.get(rotationKey(entry)) ?? { inputTokens: 0, outputTokens: 0 }) }
 }
 
-/** Counted only for models in the pool; anything else has nothing to balance. */
+/**
+ * Counted only for models in the pool, and only while rotation is on;
+ * anything else has nothing to balance.
+ */
 export function recordRotationUsage(entry: RotationEntry, spent: Usage): void {
   const key = rotationKey(entry)
-  if (!load().some((item) => rotationKey(item) === key)) return
+  if (!load().some((item) => rotationKey(item) === key) || !enabled) return
   const tally = usage.get(key) ?? { inputTokens: 0, outputTokens: 0 }
   tally.inputTokens += Math.max(0, spent.inputTokens || 0)
   tally.outputTokens += Math.max(0, spent.outputTokens || 0)
@@ -191,6 +211,7 @@ export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMPr
 /** For tests: forget everything loaded. */
 export function resetRotationForTests(): void {
   entries = null
+  enabled = false
   usage.clear()
   cooling.clear()
 }

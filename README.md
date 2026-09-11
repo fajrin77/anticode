@@ -124,11 +124,13 @@ jalan. Pilihan terakhir juga menjadi model awal untuk sesi baru. Pilihan tiap se
 
 **Model di composer.** Di Settings → Models, centang model yang ingin ditawarkan composer (per
 provider, termasuk id yang diketik manual). Picker model di composer — desktop maupun HP — lalu hanya
-menampilkan model yang dicentang; katalog lengkap tetap bisa dicari atau dibuka lewat "show all".
-Provider tanpa centang tetap menampilkan seluruh katalognya.
+menampilkan model yang dicentang. Provider yang belum punya centang menawarkan nol model, dengan
+petunjuk untuk memilihnya di Settings → Models; id yang diketik di kotak pencarian tetap bisa dipakai.
 
-**Rotate usage.** Model yang dicentang itu juga menjadi pool Rotate usage (terlihat beserta hitungan
-tokennya di Settings → Providers → Rotate usage): model-model yang
+**Rotate usage.** Rotate usage punya switch on/off di Settings → Providers dan mulai dalam keadaan
+off. Selama off, **Rotate** tidak ditawarkan di picker dan tidak ada token yang dihitung; mematikannya
+memindahkan sesi yang sedang di Rotate ke model terakhir yang dipakainya. Saat on, model yang dicentang
+itu menjadi pool Rotate usage (terlihat beserta hitungan tokennya di bawah switch): model-model yang
 berbagi beban token — misalnya beberapa akun di gateway yang sama. Sesi yang memilih **Rotate** di
 chip modelnya memakai satu model selama **2 prompt**, lalu pindah ke model lain di pool yang tokennya
 paling sedikit terpakai; sesi yang mulai bersamaan disebar dulu ke model yang sedang tidak dipakai. Model yang gagal (rate limit,

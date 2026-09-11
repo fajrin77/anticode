@@ -106,7 +106,10 @@
     cursor: pointer; color: #ededed; font-size: 16px; font-weight: 500; text-align: left;
   }
   #menuDrop .mrow:active { color: #d1fa22; background: rgba(255,255,255,.065); }
-  main { padding: 12px 16px calc(var(--composer-height, 160px) + 18px); }
+  /* --composer-height is the composer's content box; its padding, border and
+     bottom offset add 26px more. The rest is air between the transcript's
+     last line (or the working dot) and the composer's edge. */
+  main { padding: 12px 16px calc(var(--composer-height, 160px) + 26px + 18px); }
   .card {
     background: var(--glass-panel); border: 1px solid var(--glass-border); border-radius: 12px;
     padding: 10px 14px; margin-bottom: 8px;
@@ -558,6 +561,21 @@
   .prestore { background: none; border: none; color: #9a9a9a; font-size: 14px; padding: 10px 0 2px; }
   .prestore:active { color: #d1fa22; }
   .prow .pm:active { color: #d1fa22; }
+  /* The desktop's switch: lime track with a dark knob when on, glass with a
+     white knob when off. The knob lights up while a finger is on it. */
+  .shead2 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .shead2 .muted { font-size: 14px; }
+  .switch {
+    flex: none; width: 44px; height: 26px; border-radius: 13px; padding: 3px; cursor: pointer;
+    background: var(--glass-control); border: 1px solid var(--glass-border); transition: background-color .15s;
+  }
+  .switch::after {
+    content: ''; display: block; width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s, background-color .15s;
+  }
+  .switch:active::after { background: #d1fa22; }
+  .switch.on { background: #d1fa22; border-color: #d1fa22; }
+  .switch.on::after { transform: translateX(18px); background: #1a1a1a; }
   /* A provider's model ids, typed one per line — for gateways with no /models. */
   textarea.models {
     width: 100%; min-height: 84px; background: var(--glass-field); border: 1px solid var(--glass-border);
@@ -750,16 +768,22 @@
       <div class="actions" style="margin-bottom:0"><button onclick="addPhoneProvider()">Add provider</button></div>
     </div>
     <div class="ssec" id="secRotation">
-      <div class="muted">Rotate usage</div>
-      <div class="faint" style="margin-bottom:8px">Shares the token load between several models. A session set to Rotate stays on one model for 2 prompts, then moves to the one here that has used the fewest tokens; one that hits a limit or fails hands the turn to the next.</div>
-      <div id="rotationList"></div>
-      <select class="wide" id="rotProvider" aria-label="Provider" onchange="fillRotationModels()"></select>
-      <input class="path" id="rotModel" list="rotModels" placeholder="Model id" autocapitalize="off" autocorrect="off" spellcheck="false"
-        enterkeyhint="done" onkeydown="if (event.key === 'Enter') addRotationModel()" />
-      <datalist id="rotModels"></datalist>
-      <div class="actions" style="margin-bottom:0">
-        <button onclick="addRotationModel()">Add model</button>
-        <button id="rotReset" class="hidden" onclick="saveRotation([], true)">Reset counts</button>
+      <div class="shead2">
+        <div class="muted">Rotate usage</div>
+        <button class="switch" id="rotSwitch" role="switch" aria-checked="false" aria-label="Rotate usage"
+          onclick="setRotationEnabled(this.getAttribute('aria-checked') !== 'true')"></button>
+      </div>
+      <!-- Off, nothing rotates and nothing is counted; the pool shows only while on. -->
+      <div id="rotationBody" class="hidden">
+        <div id="rotationList"></div>
+        <select class="wide" id="rotProvider" aria-label="Provider" onchange="fillRotationModels()"></select>
+        <input class="path" id="rotModel" list="rotModels" placeholder="Model id" autocapitalize="off" autocorrect="off" spellcheck="false"
+          enterkeyhint="done" onkeydown="if (event.key === 'Enter') addRotationModel()" />
+        <datalist id="rotModels"></datalist>
+        <div class="actions" style="margin-bottom:0">
+          <button onclick="addRotationModel()">Add model</button>
+          <button id="rotReset" class="hidden" onclick="saveRotation([], true)">Reset counts</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1113,8 +1137,8 @@ function fillModelPickers(providerId, modelId) {
   for (const provider of modelInfo?.providers ?? []) {
     const option = document.createElement('option'); option.value = provider.id; option.textContent = provider.label; option.disabled = !provider.available; option.selected = provider.id === modelInfo.provider; providers.append(option);
   }
-  // Rotate, once the pool has something to rotate over.
-  if ((modelInfo?.rotation ?? []).length > 0) {
+  // Rotate, only while Rotate usage is on and has something to rotate over.
+  if (modelInfo?.rotationEnabled === true && (modelInfo?.rotation ?? []).length > 0) {
     const option = document.createElement('option'); option.value = ROTATE; option.textContent = 'Rotate usage'; option.selected = modelInfo.provider === ROTATE; providers.append(option);
   }
   const select = document.getElementById(modelId);
@@ -1126,16 +1150,21 @@ function fillModelPickers(providerId, modelId) {
       ? 'rotate: ' + modelInfo.rotation.length + (modelInfo.rotation.length === 1 ? ' model' : ' models')
       : 'model: ' + (modelInfo.model || modelInfo.provider);
     select.appendChild(current);
-    const entry = modelInfo.providers.find((p) => p.id === modelInfo.provider);
-    // The models picked in desktop Settings → Models, when there are any, are
-    // the whole list — the same short list the desktop composer offers.
+    // The models chosen in desktop Settings → Models are the whole list — the
+    // same short list the desktop composer offers. None chosen, none listed.
     const picked = (modelInfo.rotation ?? []).filter((item) => item.provider === modelInfo.provider).map((item) => item.model);
-    for (const m of picked.length > 0 ? picked : (entry?.models ?? [])) {
+    for (const m of picked) {
       if (m === modelInfo.model) continue;
       const option = document.createElement('option');
       option.value = modelInfo.provider + '|' + m;
       option.textContent = m;
       select.appendChild(option);
+    }
+    if (picked.length === 0 && modelInfo.provider !== ROTATE) {
+      const hint = document.createElement('option');
+      hint.disabled = true;
+      hint.textContent = 'Choose models in Settings → Models on the Mac';
+      select.appendChild(hint);
     }
   }
 }
@@ -2888,7 +2917,8 @@ function noteStatus(status) {
   const shown = shownStatus(status);
   const modelMoved = modelInfo?.provider !== shown.provider || modelInfo?.model !== shown.model ||
     JSON.stringify(modelInfo?.lastUsed ?? null) !== JSON.stringify(shown.lastUsed ?? null) ||
-    JSON.stringify(modelInfo?.rotation ?? []) !== JSON.stringify(shown.rotation ?? []);
+    JSON.stringify(modelInfo?.rotation ?? []) !== JSON.stringify(shown.rotation ?? []) ||
+    (modelInfo?.rotationEnabled === true) !== (shown.rotationEnabled === true);
   lastStatus = status;
   if (modelMoved) void loadModels();
   updateChips();
@@ -3031,6 +3061,11 @@ function compactTokens(value) {
 }
 
 function renderRotation() {
+  const enabled = modelInfo?.rotationEnabled === true;
+  const toggle = document.getElementById('rotSwitch');
+  toggle.classList.toggle('on', enabled);
+  toggle.setAttribute('aria-checked', String(enabled));
+  document.getElementById('rotationBody').classList.toggle('hidden', !enabled);
   const list = document.getElementById('rotationList');
   list.replaceChildren();
   const pool = modelInfo?.rotation ?? [];
@@ -3100,6 +3135,16 @@ async function saveRotation(entries, reset = false) {
       body: JSON.stringify(reset ? { reset: true, sessionId: currentSession } : {
         entries: entries.map(({ provider, model }) => ({ provider, model })), sessionId: currentSession
       })
+    });
+    providersChanged(info);
+  } catch (error) { showError(error); }
+}
+
+async function setRotationEnabled(enabled) {
+  try {
+    const info = await jfetch('/api/rotation', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled, sessionId: currentSession })
     });
     providersChanged(info);
   } catch (error) { showError(error); }

@@ -17,6 +17,8 @@ export interface PersistedSettings {
 }
 
 export interface PersistedRotation {
+  /** Switched on in Settings; absent means off. */
+  enabled?: boolean
   entries: { provider: string; model: string }[]
   /** Tokens per entry since the last reset, keyed by rotationKey. */
   usage: Record<string, { inputTokens: number; outputTokens: number }>

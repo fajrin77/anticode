@@ -73,6 +73,8 @@ const api: AnticodeApi = {
   setRotation: (entries: RotationEntry[]) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_SET, entries) as Promise<SessionStatus>,
   resetRotationUsage: () => ipcRenderer.invoke(IpcChannel.ROTATION_RESET) as Promise<SessionStatus>,
+  setRotationEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke(IpcChannel.ROTATION_ENABLE, enabled) as Promise<SessionStatus>,
   setAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
   addProvider: (input: CustomProviderInput) =>

@@ -40,6 +40,7 @@ import {
   revertLastTurn,
   policy,
   applyRotation,
+  applyRotationEnabled,
   selectProvider,
   setOnSessionClosed,
   setOnSessionCreated,
@@ -195,6 +196,14 @@ export function setRotation(entries: unknown): SessionStatus {
   return getStatus()
 }
 
+/** Rotate usage switched on or off, from either screen. */
+export function enableRotation(enabled: unknown): SessionStatus {
+  if (typeof enabled !== 'boolean') throw new Error('Expected on or off')
+  applyRotationEnabled(enabled)
+  announceStatus()
+  return getStatus()
+}
+
 export function resetRotation(): SessionStatus {
   resetRotationUsage()
   announceStatus()
@@ -302,6 +311,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.ROTATION_SET, (_event, entries: unknown): SessionStatus => setRotation(entries))
   ipcMain.handle(IpcChannel.ROTATION_RESET, (): SessionStatus => resetRotation())
+  ipcMain.handle(IpcChannel.ROTATION_ENABLE, (_event, enabled: unknown): SessionStatus => enableRotation(enabled))
 
   ipcMain.handle(
     IpcChannel.PROVIDER_MODELS,

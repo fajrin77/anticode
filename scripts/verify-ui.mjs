@@ -499,7 +499,9 @@ try {
   check('model picker: its blur reaches the transcript',
     await window.locator('.menu-glass').first().evaluate((el) => el.closest('.composer-glass') === null ? 'outside' : 'inside'), 'outside')
   await limeOnHover('model picker: model row', window.locator('button.font-mono'))
-  await limeOnHover('model picker: Reload', window.getByRole('button',{name:'Reload'}))
+  // Rotate usage starts off, so the picker offers no Rotate tab.
+  check('model picker: no Rotate while Rotate usage is off',
+    String(await window.locator('.menu-glass button', { hasText: /^Rotate$/ }).count()), '0')
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
 
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
@@ -540,8 +542,17 @@ try {
   await limeOnHover('settings: keep instead of removing', window.getByRole('button',{name:'Keep'}))
   await window.getByRole('button',{name:'Keep'}).click(); await window.waitForTimeout(200)
 
-  // Rotate usage: a pool of models sharing the token load. Taking one out of
-  // the pool deletes nothing, so it is lime like every other control.
+  // Rotate usage: a pool of models sharing the token load, run only once
+  // switched on. Taking one out of the pool deletes nothing, so it is lime
+  // like every other control.
+  const rotateSwitch = window.getByRole('switch', { name: 'Rotate usage' })
+  check('settings: rotate usage starts off', await rotateSwitch.getAttribute('aria-checked'), 'false')
+  check('settings: rotate usage hides its pool while off',
+    String(await window.locator('[data-rotation-add]').count()), '0')
+  check('settings: rotate usage has no long description',
+    String(await window.getByText(/Shares the token load/).count()), '0')
+  await rotateSwitch.click(); await window.waitForTimeout(300)
+  check('settings: rotate usage switches on', await rotateSwitch.getAttribute('aria-checked'), 'true')
   const addRotation = window.locator('[data-rotation-add]')
   await limeOnHover('settings: rotate usage add model', addRotation)
   await addRotation.click(); await window.waitForTimeout(200)
@@ -590,20 +601,34 @@ try {
   // Settings → Models: the ticked models are the composer's whole list, and
   // the same pool Rotate spreads prompts over.
   await window.getByRole('button',{name:/Models/}).click(); await window.waitForTimeout(400)
-  const pickRow = window.locator('[data-model-pick]')
+  const pickRow = window.locator('[data-model-name]')
   await pickRow.first().waitFor()
-  await limeOnHover('settings: models pick row', pickRow.locator('span.font-mono'))
-  check('settings: models shows the pooled model ticked',
-    await window.locator('[data-model-pick="test-model"]').getAttribute('aria-checked'), 'true')
+  await limeOnHover('settings: models pick row', pickRow.first())
+  // Each model wears the same switch as Auto-accept and Rotate usage.
+  const pickSwitch = window.locator('[data-model-pick="test-model"]')
+  check('settings: models uses the switch', await pickSwitch.getAttribute('role'), 'switch')
+  check('settings: models shows the pooled model switched on', await pickSwitch.getAttribute('aria-checked'), 'true')
+  check('settings: a model switched on is lime',
+    await pickSwitch.evaluate((el) => getComputedStyle(el).backgroundColor), LIME)
+  const offSwitch = window.locator('[data-model-pick][aria-checked="false"]').first()
+  if (await offSwitch.count() > 0) {
+    await offSwitch.hover(); await window.waitForTimeout(250)
+    check('settings: an off switch lights its knob on hover',
+      await offSwitch.evaluate((el) => getComputedStyle(el.firstElementChild).backgroundColor), LIME)
+  }
   await shot('18c-models-picked')
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
   await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
   check('model picker: shows only the picked models',
     (await window.locator('.menu-glass button.font-mono span.truncate').allTextContents()).join(','), 'test-model')
-  await limeOnHover('model picker: show all', window.locator('[data-picker-scope]'))
+  check('model picker: Rotate is offered once Rotate usage is on',
+    String(await window.locator('.menu-glass button', { hasText: /^Rotate$/ }).count()), '1')
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
-  await window.evaluate(() => window.anticode.setRotation([])); await window.waitForTimeout(200)
+  await window.evaluate(async () => {
+    await window.anticode.setRotation([])
+    await window.anticode.setRotationEnabled(false)
+  }); await window.waitForTimeout(200)
   await limeOnHover('settings: version line', window.locator('button.mt-auto'))
 
   // Inline code reads as plain white text in a box; the old purple was the
