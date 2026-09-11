@@ -55,13 +55,16 @@ function DashboardComposer({
   providers,
   onSelectProvider,
   onToggleAutoApprove,
-  extra
+  extra,
+  fill
 }: {
   status: SessionStatus | null
   providers: ProviderInfo[]
   onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   extra: JSX.Element
+  /** { text, pulse } — a pulse bump re-applies the same preset text. */
+  fill: { text: string; pulse: number }
 }): JSX.Element {
   const [mode, setMode] = useState<'chat' | 'code'>('code')
   const [folder, setFolder] = useState<string | null>(null)
@@ -92,6 +95,13 @@ function DashboardComposer({
     field.style.height = `${Math.min(field.scrollHeight, 192)}px`
     field.style.overflowY = field.scrollHeight > 192 ? 'auto' : 'hidden'
   }, [draft])
+
+  // A preset click lands here: fill.text carries the prompt, fill.pulse makes
+  // re-applying the same preset still register as a change.
+  useEffect(() => {
+    if (fill.pulse === 0) return
+    setDraft(fill.text)
+  }, [fill.pulse, fill.text])
 
   // Blocked send with anticode and no folder: shake the composer and glow the
   // Choose folder button until a folder is picked.
@@ -282,6 +292,19 @@ function DashboardComposer({
             />
 
             <div className="flex items-center gap-1 px-2.5 pb-2.5">
+              {draft.trim() !== '' && (
+                <button
+                  type="button"
+                  title="Save this prompt as a reusable preset"
+                  onClick={() => {
+                    const name = draft.trim().split('\n')[0]!.slice(0, 24) || 'Preset'
+                    useSessionStore.getState().savePreset(name, draft.trim())
+                  }}
+                  className="glass-ghost flex h-7 items-center justify-center rounded-md px-2 text-[11.5px] text-dim transition-colors hover:text-brand"
+                >
+                  Save preset
+                </button>
+              )}
               <button
                 type="button"
                 title="Attach files"
@@ -454,9 +477,13 @@ export function NewSessionView({
 }: NewSessionViewProps): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [fillText, setFillText] = useState('')
+  const [fillPulse, setFillPulse] = useState(0)
   const sessions = useSessionStore((state) => state.sessions)
   const deleteSession = useSessionStore((state) => state.deleteSession)
   const duplicateSession = useSessionStore((state) => state.duplicateSession)
+  const presets = useSessionStore((state) => state.presets)
+  const deletePreset = useSessionStore((state) => state.deletePreset)
   const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
 
@@ -466,6 +493,12 @@ export function NewSessionView({
     for (const run of Object.values(activeRuns)) if (run.sessionId === id) void window.anticode.cancelRun(run.runId)
     void window.anticode.closeSession(id)
     deleteSession(id)
+  }
+
+  /** A preset fills the dashboard composer; Enter then sends it. */
+  function usePreset(preset: { name: string; prompt: string }): void {
+    setFillText(preset.prompt)
+    setFillPulse((value) => value + 1)
   }
 
   // Only sessions that actually have a conversation are listed — fresh
@@ -524,6 +557,7 @@ export function NewSessionView({
             onSelectProvider={onSelectProvider}
             onToggleAutoApprove={onToggleAutoApprove}
             extra={searchButton}
+            fill={{ text: fillText, pulse: fillPulse }}
           />
         )}
       </div>
@@ -537,6 +571,31 @@ export function NewSessionView({
             placeholder="Search sessions"
             className="glass-field w-full rounded-lg border border-line px-4 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover"
           />
+        </div>
+      )}
+
+      {presets.length > 0 && !searchOpen && (
+        <div className="mx-auto mt-5 flex max-w-3xl flex-wrap items-center justify-center gap-2 px-10">
+          {presets.map((preset) => (
+            <span key={preset.id} className="group/preset relative">
+              <button
+                type="button"
+                onClick={() => usePreset(preset)}
+                title={preset.prompt}
+                className="glass-ghost rounded-full border border-line px-3 py-1 text-[12px] text-dim transition-colors hover:text-brand"
+              >
+                {preset.name}
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete preset ${preset.name}`}
+                onClick={() => deletePreset(preset.id)}
+                className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-raised text-[10px] text-faint transition-colors hover:text-del group-hover/preset:flex"
+              >
+                ×
+              </button>
+            </span>
+          ))}
         </div>
       )}
 

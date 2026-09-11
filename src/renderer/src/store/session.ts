@@ -127,6 +127,13 @@ export interface ActiveRun {
   outputTokens?: number
 }
 
+interface SessionPreset {
+  id: string
+  name: string
+  /** Pre-fills the composer so a preset is one click plus one Enter. */
+  prompt: string
+}
+
 interface SessionState {
   /** `quote` is a passage from the transcript the next prompt answers. */
   drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string }>
@@ -134,6 +141,10 @@ interface SessionState {
     id: string,
     patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string }>
   ) => void
+  /** Named prompt starters, saved by the user and listed on the dashboard. */
+  presets: SessionPreset[]
+  savePreset: (name: string, prompt: string) => void
+  deletePreset: (id: string) => void
   projects: Project[]
   sessions: Session[]
   /** Running totals per provider+model, kept across sessions for the dashboard. */
@@ -335,6 +346,13 @@ function mapMessage(
 
 export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   drafts: {},
+  presets: [],
+  savePreset: (name, prompt) =>
+    set((state) => ({
+      presets: [...state.presets, { id: crypto.randomUUID(), name, prompt }]
+    })),
+  deletePreset: (id) =>
+    set((state) => ({ presets: state.presets.filter((preset) => preset.id !== id) })),
   updateDraft: (id, patch) => set((state) => ({ drafts: { ...state.drafts, [id]: { text: '', attachments: [], ...state.drafts[id], ...patch } } })),
   quoteInDraft: (id, quote) =>
     set((state) => ({
@@ -1037,7 +1055,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   name: 'anticode-session-metadata',
   storage: createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage)),
   skipHydration: typeof window === 'undefined',
-  partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
+  partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 
