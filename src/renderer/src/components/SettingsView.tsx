@@ -103,10 +103,7 @@ function General({
         </SettingRow>
       </div>
 
-      <h2 className="mb-1 text-[14px] text-text">Notifications</h2>
-      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        System notifications for what happens while you look elsewhere. Clicking one opens the session it is about.
-      </p>
+      <h2 className="mb-3 text-[14px] text-text">Notifications</h2>
       <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
         <SettingRow title="Notifications" hint="Off mutes every kind below at once">
           <Toggle
@@ -1130,12 +1127,7 @@ function Models({
 
   return (
     <>
-      <h1 className="mb-2 text-[19px] text-text">Models</h1>
-      <p className="mb-6 text-[12.5px] leading-relaxed text-faint">
-        Switch on the models the composer should offer — its picker shows only these. With Rotate
-        usage on, sessions set to <span className="text-dim">Rotate</span> spread their prompts over the
-        same models.
-      </p>
+      <h1 className="mb-6 text-[19px] text-text">Models</h1>
 
       {providers.length > 1 && (
         <div className="mb-3 flex flex-wrap gap-1">

@@ -313,9 +313,6 @@ export function Mcp(): JSX.Element {
       )}
 
       <h2 className="mb-2 text-[14px] text-text">Import</h2>
-      <p className="mb-2 text-[12px] text-faint">
-        Paste an <span className="font-mono">mcpServers</span> block from another MCP client’s configuration.
-      </p>
       <textarea
         value={json}
         onChange={(event) => setJson(event.target.value)}
