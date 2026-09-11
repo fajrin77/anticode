@@ -180,6 +180,10 @@ interface SessionState {
   selectSession: (id: string) => void
   /** Reopens a closed session's tab and makes it active. */
   reopenSession: (id: string) => void
+  /** Clones a session into a fresh editable copy; the original stays untouched. */
+  duplicateSession: (id: string) => string | null
+  /** Branches a new session from the transcript up to and including one message. */
+  forkSession: (id: string, uptoMessageId: string) => string | null
   /**
    * Brings an archived session's tab back because something happened in it —
    * a run from the phone, or from another window. The active tab is left
@@ -389,6 +393,68 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       ),
       activeSessionId: id
     })),
+
+  /** Clones a session's transcript and config into a fresh tab; runs stay behind. */
+  duplicateSession: (id) => {
+    let newId = ''
+    set((state) => {
+      const source = state.sessions.find((session) => session.id === id)
+      if (source === undefined || source.messages.length === 0) return state
+      const clone: Session = {
+        ...source,
+        id: crypto.randomUUID(),
+        title: `${source.title} (copy)`,
+        createdAt: Date.now(),
+        messages: source.messages.map((message) => ({
+          ...message,
+          parts: message.parts.map((part) => ({ ...part }))
+        })),
+        inputTokens: 0,
+        outputTokens: 0,
+        lastInputTokens: 0,
+        closed: false
+      }
+      newId = clone.id
+      return {
+        sessions: [...state.sessions, clone],
+        activeSessionId: clone.id,
+        nextColour: (state.nextColour + 1) % SESSION_COLOURS.length
+      }
+    })
+    return newId
+  },
+
+  /** Replays a transcript's prefix into a fresh session — a branch from the past. */
+  forkSession: (id, uptoMessageId) => {
+    let newId = ''
+    set((state) => {
+      const source = state.sessions.find((session) => session.id === id)
+      const index = source?.messages.findIndex((message) => message.id === uptoMessageId) ?? -1
+      if (source === undefined || index < 0) return state
+      const kept = source.messages.slice(0, index + 1)
+      const clone: Session = {
+        ...source,
+        id: crypto.randomUUID(),
+        title: `${source.title} (fork)`,
+        createdAt: Date.now(),
+        messages: kept.map((message) => ({
+          ...message,
+          parts: message.parts.map((part) => ({ ...part }))
+        })),
+        inputTokens: 0,
+        outputTokens: 0,
+        lastInputTokens: 0,
+        closed: false
+      }
+      newId = clone.id
+      return {
+        sessions: [...state.sessions, clone],
+        activeSessionId: clone.id,
+        nextColour: (state.nextColour + 1) % SESSION_COLOURS.length
+      }
+    })
+    return newId
+  },
 
   surfaceSession: (id) =>
     set((state) =>

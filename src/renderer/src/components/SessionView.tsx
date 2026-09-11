@@ -200,17 +200,35 @@ function EditPrompt({ sessionId, message }: { sessionId: string; message: Messag
           </button>
         </>
       ) : (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          title="Edit this prompt and send it again"
-          className="flex items-center gap-1 text-faint transition-colors hover:text-brand"
-        >
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-            <path d="M10.5 2.5l3 3L6 13H3v-3z" strokeLinejoin="round" />
-          </svg>
-          Edit
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            title="Edit this prompt and send it again"
+            className="flex items-center gap-1 text-faint transition-colors hover:text-brand"
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+              <path d="M10.5 2.5l3 3L6 13H3v-3z" strokeLinejoin="round" />
+            </svg>
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const forked = useSessionStore.getState().forkSession(sessionId, message.id)
+              if (forked !== null) setConfirming(false)
+            }}
+            title="Branch a new session from here; this one stays as it is"
+            className="flex items-center gap-1 text-faint transition-colors hover:text-brand"
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+              <circle cx="4" cy="4" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <path d="M4 6v3a3 3 0 0 0 3 3h3" strokeLinecap="round" />
+            </svg>
+            Fork
+          </button>
+        </>
       )}
     </div>
   )

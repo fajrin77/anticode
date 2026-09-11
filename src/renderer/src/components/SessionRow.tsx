@@ -16,11 +16,13 @@ export function SessionRow({
   session,
   onSelect,
   onDelete,
+  onDuplicate,
   spinning = false
 }: {
   session: Session
   onSelect: (id: string) => void
   onDelete?: (id: string) => void
+  onDuplicate?: (id: string) => void
   spinning?: boolean
 }): JSX.Element {
   return (
@@ -54,6 +56,19 @@ export function SessionRow({
           </div>
         </div>
       </button>
+      {onDuplicate !== undefined && (
+        <button
+          type="button"
+          aria-label="Duplicate session"
+          onClick={() => onDuplicate(session.id)}
+          className="absolute top-2 right-10 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-brand"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+            <path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H4.5A1.5 1.5 0 0 0 3 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2" />
+          </svg>
+        </button>
+      )}
       {onDelete !== undefined && (
         <button
           type="button"

@@ -388,6 +388,7 @@ function SessionColumn({
   query,
   onSelect,
   onDelete,
+  onDuplicate,
   runningIds
 }: {
   title: string
@@ -395,6 +396,7 @@ function SessionColumn({
   query: string
   onSelect: (id: string) => void
   onDelete: (id: string) => void
+  onDuplicate: (id: string) => void
   runningIds: Set<string>
 }): JSX.Element {
   const needle = query.trim().toLowerCase()
@@ -426,6 +428,7 @@ function SessionColumn({
               session={session}
               onSelect={onSelect}
               onDelete={onDelete}
+              onDuplicate={onDuplicate}
               spinning={runningIds.has(session.id)}
             />
           ))
@@ -453,6 +456,7 @@ export function NewSessionView({
   const [query, setQuery] = useState('')
   const sessions = useSessionStore((state) => state.sessions)
   const deleteSession = useSessionStore((state) => state.deleteSession)
+  const duplicateSession = useSessionStore((state) => state.duplicateSession)
   const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
 
@@ -544,6 +548,7 @@ export function NewSessionView({
             query={query}
             onSelect={onSelectSession}
             onDelete={removeSession}
+            onDuplicate={duplicateSession}
             runningIds={runningIds}
           />
           <SessionColumn
@@ -552,6 +557,7 @@ export function NewSessionView({
             query={query}
             onSelect={onSelectSession}
             onDelete={removeSession}
+            onDuplicate={duplicateSession}
             runningIds={runningIds}
           />
         </div>
