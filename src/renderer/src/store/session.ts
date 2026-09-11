@@ -211,6 +211,10 @@ interface SessionState {
   ) => void
   /** A running tool reported a step — a sub-agent reading a file. */
   progressTool: (sessionId: string, toolUseId: string, text: string) => void
+  /** The app noted something about a run in progress — its context was compacted. */
+  noticeInRun: (sessionId: string, messageId: string, text: string) => void
+  /** The replay estimate after a compaction, until the next request measures it. */
+  setContextTokens: (sessionId: string, tokens: number) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
   setActiveRun: (run: ActiveRun | null, runId?: string) => void
 }
@@ -712,6 +716,21 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             : message
         )
       }))
+    })),
+
+  noticeInRun: (sessionId, messageId, text) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) =>
+        mapMessage(session, messageId, (message) => ({
+          ...message,
+          parts: [...message.parts, { kind: 'notice', text }]
+        }))
+      )
+    })),
+
+  setContextTokens: (sessionId, tokens) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => ({ ...session, lastInputTokens: tokens }))
     })),
 
   addUsage: (sessionId, provider, model, inputTokens, outputTokens, eventKey, subagent) =>

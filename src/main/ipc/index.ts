@@ -28,6 +28,7 @@ import type {
 import { resetRotationUsage, setRotationChangeSink } from '../rotation'
 import {
   deleteSession,
+  compactSession,
   createSession,
   adoptSessionColour,
   getStatus,
@@ -525,6 +526,8 @@ export function registerIpcHandlers(): void {
     announceHistory(sessionId, 'desktop')
     return prompt
   })
+
+  ipcMain.handle(IpcChannel.SESSION_COMPACT, (_event, sessionId: string) => compactSession(sessionId, approvals))
 
   ipcMain.handle(IpcChannel.SESSION_EXPORT, async (event, sessionId: string) => {
     const snapshot = sessionSnapshot(sessionId)

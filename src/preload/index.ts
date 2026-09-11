@@ -92,6 +92,8 @@ const api: AnticodeApi = {
   onSessionTitle: (listener) => subscribe<SessionTitle>(IpcChannel.SESSION_TITLE, listener),
   revertLastTurn: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_REVERT, sessionId) as Promise<string | null>,
+  compactSession: (sessionId: string) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_COMPACT, sessionId) as Promise<{ before: number; after: number }>,
   exportSession: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_EXPORT, sessionId) as Promise<string | null>,
   getSessionSnapshot: (sessionId: string) =>

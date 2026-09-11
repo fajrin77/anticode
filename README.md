@@ -207,9 +207,15 @@ diperlakukan serial meski tidak mengubah berkas.
 ## Context budget
 
 Riwayat yang diputar ulang ke provider diestimasi per giliran (teks ÷ 4 karakter, gambar dihitung
-tetap). Begitu melewati ~100 ribu token, giliran lama dikompaksi menjadi memory summary berisi
-permintaan, keputusan, tool, dan hasil penting; transcript asli tidak dipotong. Pemotongan hanya
-terjadi di batas prompt pengguna, sehingga pasangan `tool_use`/`tool_result` tidak pernah terbelah.
+tetap). Begitu melewati ~100 ribu token, giliran lama diganti memory yang **ditulis model sesi itu
+sendiri**: tujuan dan permintaan pengguna, keputusan, berkas, perintah beserta hasilnya, dan keadaan
+kerja terakhir; memory sebelumnya ikut dilebur, bukan diulang. Pemotongan hanya terjadi di batas
+prompt pengguna, sehingga pasangan `tool_use`/`tool_result` tidak pernah terbelah, dan menyisakan
+ruang (~72%) supaya langkah berikutnya tidak memicu kompaksi lagi. Bila provider gagal, lambat
+(>2 menit), atau menjawab kosong, ringkasan deterministik lama dipakai — kompaksi tidak pernah
+menghentikan run. Transkrip menampilkan baris `context compacted · 104,000 → 38,000 tokens`, token
+ringkasan ikut dihitung di baris penutup run, dan transcript asli tidak dipotong. **Compact context**
+di popover usage (desktop) dan di Settings HP menjalankan kompaksi yang sama kapan saja di antara run.
 Error transien provider (429, 5xx, timeout) diulang otomatis sampai dua kali dengan backoff
 eksponensial berjitter dan menghormati header `Retry-After`.
 

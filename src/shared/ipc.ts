@@ -28,6 +28,7 @@ export const IpcChannel = {
   PROVIDERS_UPDATED: 'provider:updated',
   SESSION_REVERT: 'session:revert',
   SESSION_EXPORT: 'session:export',
+  SESSION_COMPACT: 'session:compact',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
   APPROVAL_PENDING: 'approval:pending',
@@ -462,11 +463,14 @@ export type AgentEvent =
       inputTokens: number
       outputTokens: number
       /**
-       * Spent by a sub-agent. It counts toward the run's cost, but its request
+       * Spent on a side request — a sub-agent, or the memory written when the
+       * context is compacted. It counts toward the run's cost, but that request
        * is not the session's context, so the context meter ignores it.
        */
       subagent?: boolean
     }
+  /** A line the app writes about the run itself — the context was compacted. */
+  | { type: 'notice'; runId: string; text: string }
   | { type: 'end'; runId: string; reason: AgentEndReason; summary?: RunSummary }
   | { type: 'error'; runId: string; message: string; summary?: RunSummary }
 
@@ -591,6 +595,11 @@ export interface AnticodeApi {
   onSessionTitle: (listener: (change: SessionTitle) => void) => () => void
   /** Drops the last exchange and returns its prompt, for retyping. */
   revertLastTurn: (sessionId: string) => Promise<string | null>
+  /**
+   * Folds everything before the latest prompt into a memory the model writes.
+   * Answers with the replay estimate, in tokens, before and after.
+   */
+  compactSession: (sessionId: string) => Promise<{ before: number; after: number }>
   /** Saves the complete transcript as Markdown or JSON through an OS dialog. */
   exportSession: (sessionId: string) => Promise<string | null>
   getSessionSnapshot: (

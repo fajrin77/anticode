@@ -7,7 +7,7 @@ import { CheckpointStore } from '../checkpoints'
 import type { WorkspaceScan } from '../checkpoints'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
-import type { ContentBlock, LLMProvider, LLMResponse, Message } from '../providers/types'
+import type { ContentBlock, LLMProvider, LLMResponse, Message, ProviderEvent, Usage } from '../providers/types'
 import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
 import type { Tool } from '../tools'
 import type { DelegatedTask } from '../tools/types'
@@ -29,6 +29,24 @@ const STUB_MIN_LENGTH = STUB_CHARS + 400
 /** Leave room for the system prompt, tool schemas, and the next response. */
 const COMPACTION_TARGET = Math.floor(MAX_HISTORY_TOKENS * 0.72)
 const MEMORY_MAX_CHARS = 12_000
+/** How much of the dropped turns the model is shown when it writes the memory. */
+const COMPACTION_INPUT_CHARS = 160_000
+const COMPACTION_MAX_TOKENS = 4_096
+/** A summary that takes longer than this falls back to the deterministic one. */
+const COMPACTION_TIMEOUT_MS = 120_000
+const MEMORY_HEADER = '[Automatic context compaction — durable memory from earlier turns]'
+const COMPACTION_SYSTEM = [
+  'You compact the earlier part of a working session between a user and anticode, a coding agent, so the ' +
+    'agent can carry on without the full history.',
+  'Write a dense memory of it in the language the user writes in, under short headings:',
+  '- Goal and requirements: what the user wants, constraints, preferences, and corrections they gave.',
+  '- Decisions: what was chosen and why.',
+  '- Files: paths created, changed, or inspected, with the specifics that matter (functions, settings, lines).',
+  '- Commands and results: what ran, errors, test outcomes.',
+  '- State: what is done, what is in progress, and the next steps.',
+  'If the conversation opens with an earlier memory, fold it in rather than repeating it.',
+  'State only what the conversation shows. No preamble or pleasantries; at most about 1200 words.'
+].join('\n')
 /**
  * A sub-agent answers one question, so unlike a run it has a ceiling: past
  * this many requests it is told to report, and a little later it is stopped.
@@ -292,7 +310,7 @@ export class AgentSession {
         }
 
         this.condenseHistory()
-        this.trimHistory()
+        await this.compactHistory(params)
         const response = await this.requestTurn(params)
         this.record({ role: 'assistant', content: response.content })
         emit({
@@ -437,13 +455,15 @@ export class AgentSession {
   }
 
   /**
-   * Drops the oldest prompt turns once the replayed history would blow past the
-   * context budget. Cuts only at plain user prompts — never between an
-   * assistant tool_use and its tool_result, which providers reject.
+   * Once the replayed history would blow past the context budget, the oldest
+   * prompt turns are replaced by a memory the model writes of them — goals,
+   * decisions, files, results, state. The cut lands on plain user prompts only,
+   * never between an assistant tool_use and its tool_result, which providers
+   * reject; and it leaves headroom, so the next steps do not compact again.
    */
-  private trimHistory(): void {
-    const total = this.history.reduce((sum, message) => sum + messageCost(message), 0)
-    if (total <= MAX_HISTORY_TOKENS) return
+  private async compactHistory(params: RunParams): Promise<void> {
+    const before = replayCost(this.history)
+    if (before <= MAX_HISTORY_TOKENS) return
 
     const suffixCosts: number[] = new Array(this.history.length)
     let running = 0
@@ -451,39 +471,96 @@ export class AgentSession {
       running += messageCost(this.history[i] ?? { role: 'user', content: [] })
       suffixCosts[i] = running
     }
-
-    let cut = -1
-    for (let i = 0; i < this.history.length; i++) {
-      const message = this.history[i]
-      if (message === undefined) continue
-      const isPlainUserPrompt =
-        message.role === 'user' && !message.content.some((block) => block.type === 'tool_result')
-      if (!isPlainUserPrompt) continue
-      const suffix = suffixCosts[i]
-      if (suffix !== undefined && suffix <= MAX_HISTORY_TOKENS) { cut = i; break }
-    }
+    const boundaries = this.history.flatMap((message, index) => isPlainPrompt(message) ? [index] : [])
+    const fits = (limit: number): number | undefined =>
+      boundaries.find((index) => (suffixCosts[index] ?? Infinity) <= limit)
+    const cut = fits(COMPACTION_TARGET) ?? fits(MAX_HISTORY_TOKENS) ?? -1
 
     // Do not repeatedly send an oversized single turn to the provider. A new
     // user prompt supplies a safe boundary for the next continuation.
     if (cut < 0) throw new Error('This turn exceeds the context budget. Send a shorter continuation or start a new session.')
     if (cut === 0) return
-    const removed = this.history.splice(0, cut)
-    const memory = summariseMessages(removed)
-    if (memory !== '') {
-      this.history.unshift({
-        role: 'user',
-        content: [{
-          type: 'text',
-          text: '[Automatic context compaction — durable memory from earlier turns]\n' + memory
-        }]
-      })
-      // A verbose summary must never put replay back over the cliff.
-      while (this.history.length > 1 && replayCost(this.history) > COMPACTION_TARGET) {
-        const boundary = this.history.findIndex((message, index) =>
-          index > 1 && message.role === 'user' && !message.content.some((block) => block.type === 'tool_result'))
-        if (boundary < 0) break
-        this.history.splice(1, boundary - 1)
+    await this.replaceWithMemory(cut, params.signal, (usage) => params.emit({
+      type: 'usage',
+      runId: params.runId,
+      provider: this.provider.name,
+      model: this.provider.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      subagent: true
+    }))
+    params.emit({
+      type: 'notice',
+      runId: params.runId,
+      text: `context compacted · ${before.toLocaleString('en-US')} → ${replayCost(this.history).toLocaleString('en-US')} tokens`
+    })
+  }
+
+  /**
+   * Compacts on request, between runs: everything before the latest prompt
+   * becomes one memory. Returns the replay estimate before and after.
+   */
+  async compact(signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<{ before: number; after: number }> {
+    if (this.running) throw new Error('Pause this session before compacting it')
+    this.running = true
+    try {
+      const before = replayCost(this.history)
+      let cut = -1
+      for (let i = this.history.length - 1; i > 0; i--) {
+        if (isPlainPrompt(this.history[i])) { cut = i; break }
       }
+      // Only the memory itself precedes the latest prompt: nothing new to fold.
+      const alreadyCompact = cut === 1 && isMemory(this.history[0])
+      if (cut > 0 && !alreadyCompact) await this.replaceWithMemory(cut, signal, onUsage)
+      return { before, after: replayCost(this.history) }
+    } finally {
+      this.running = false
+    }
+  }
+
+  private async replaceWithMemory(cut: number, signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<void> {
+    const memory = await this.writeMemory(this.history.slice(0, cut), signal, onUsage)
+    this.history.splice(0, cut)
+    if (memory === '') return
+    this.history.unshift({ role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${memory}` }] })
+    // A verbose summary must never put replay back over the cliff.
+    while (this.history.length > 1 && replayCost(this.history) > COMPACTION_TARGET) {
+      const boundary = this.history.findIndex((message, index) => index > 1 && isPlainPrompt(message))
+      if (boundary < 0) break
+      this.history.splice(1, boundary - 1)
+    }
+  }
+
+  /**
+   * The memory of the dropped turns, written by the session's own model. A
+   * provider that fails, stalls, or answers nothing gets the deterministic
+   * digest instead — compaction must never be what stops a run.
+   */
+  private async writeMemory(removed: Message[], signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<string> {
+    const digest = summariseMessages(removed)
+    if (digest === '') return ''
+    const limited = AbortSignal.any([signal, AbortSignal.timeout(COMPACTION_TIMEOUT_MS)])
+    try {
+      const response = await collectResponse(
+        this.provider.chat({
+          system: COMPACTION_SYSTEM,
+          messages: [{ role: 'user', content: [{ type: 'text', text: compactionMaterial(removed) }] }],
+          tools: [],
+          maxTokens: COMPACTION_MAX_TOKENS,
+          signal: limited
+        }),
+        limited
+      )
+      onUsage?.(response.usage)
+      const text = response.content
+        .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+        .join('\n')
+        .trim()
+      if (text === '') return digest
+      return text.length > MEMORY_MAX_CHARS * 2 ? `${text.slice(0, MEMORY_MAX_CHARS * 2)}\n…` : text
+    } catch {
+      signal.throwIfAborted()
+      return digest
     }
   }
 
@@ -857,6 +934,70 @@ function finalText(messages: Message[]): string {
     if (text !== '') return text
   }
   return ''
+}
+
+/** A user turn that is a prompt, not tool results: the only safe place to cut. */
+function isPlainPrompt(message: Message | undefined): boolean {
+  return message?.role === 'user' && !message.content.some((block) => block.type === 'tool_result')
+}
+
+function isMemory(message: Message | undefined): boolean {
+  const first = message?.content[0]
+  return message?.role === 'user' && first?.type === 'text' && first.text.startsWith(MEMORY_HEADER)
+}
+
+/**
+ * Drains a provider stream to its final response, without trusting its
+ * iterator to notice an abort (some SDK iterators never settle on one).
+ */
+async function collectResponse(stream: AsyncIterable<ProviderEvent>, signal: AbortSignal): Promise<LLMResponse> {
+  const iterator = stream[Symbol.asyncIterator]()
+  let rejectAbort: (reason: unknown) => void = () => {}
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
+  const onAbort = (): void => rejectAbort(new Error('aborted'))
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    signal.throwIfAborted()
+    let response: LLMResponse | null = null
+    for (;;) {
+      const next = await Promise.race([iterator.next(), aborted])
+      if (next.done) break
+      if (next.value.type === 'response') response = next.value.response
+    }
+    if (response === null) throw new Error('Provider returned no response')
+    return response
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+    void iterator.return?.().catch(() => undefined)
+  }
+}
+
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text
+  const half = Math.floor(max / 2)
+  return `${text.slice(0, half)}\n… [${text.length - max} characters omitted] …\n${text.slice(-half)}`
+}
+
+/** The dropped turns as the model reads them to write the memory. */
+function compactionMaterial(messages: Message[]): string {
+  const parts: string[] = []
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type === 'text') {
+        const who = message.role === 'user' ? (block.attachment !== undefined ? 'USER (attachment)' : 'USER') : 'ASSISTANT'
+        parts.push(`${who}: ${clip(block.followUp?.text ?? block.text, 6_000)}`)
+      } else if (block.type === 'tool_use') {
+        parts.push(`TOOL CALL ${block.name}: ${clip(JSON.stringify(block.input ?? {}), 800)}`)
+      } else if (block.type === 'tool_result') {
+        parts.push(`TOOL RESULT${block.isError ? ' (error)' : ''}: ${clip(block.content, 1_500)}`)
+      } else if (block.type === 'image') {
+        parts.push('[image]')
+      }
+    }
+  }
+  let body = parts.join('\n\n')
+  if (body.length > COMPACTION_INPUT_CHARS) body = `[… the earliest part is omitted …]\n\n${body.slice(-COMPACTION_INPUT_CHARS)}`
+  return `Write the memory of this conversation.\n\n<conversation>\n${body}\n</conversation>`
 }
 
 function messageCost(message: Message): number {

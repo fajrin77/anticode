@@ -309,6 +309,9 @@ export function App(): JSX.Element {
           case 'tool_progress':
             store.progressTool(run.sessionId, event.toolUseId, event.text)
             break
+          case 'notice':
+            store.noticeInRun(run.sessionId, run.messageId, event.text)
+            break
           case 'tool_end':
             store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output)
             break
@@ -373,6 +376,9 @@ export function App(): JSX.Element {
         }
         case 'tool_progress':
           store.progressTool(event.sessionId, event.toolUseId, event.text)
+          break
+        case 'notice':
+          store.noticeInRun(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
           break
         case 'usage':
           store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent)

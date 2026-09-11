@@ -756,6 +756,8 @@
     <div class="ssec" id="secUsage">
       <div class="muted" id="usageTitle">Session usage</div>
       <div id="usageGrid"></div>
+      <div class="actions"><button id="compactBtn" onclick="compactContext()">Compact context</button></div>
+      <div class="faint hidden" id="compactResult"></div>
     </div>
     <div class="ssec" id="secProviders">
       <div class="muted">Providers</div>
@@ -1914,6 +1916,7 @@ async function applyStreamEvent(id, event) {
     else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output); }
+    else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; appendNotice(event.text); }
     else if (event.type === 'end' || event.type === 'error') {
       steerAnchor = null;
       hideWorking();
@@ -3486,6 +3489,32 @@ async function removePhoneProvider(provider) {
     if (editingProvider === provider.id) editingProvider = null;
     providersChanged(await jfetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' }));
   } catch (error) { showError(error); }
+}
+
+/* Folds the earlier turns into a memory the model writes, the way a run does
+ * on its own near the context ceiling. Only between runs. */
+async function compactContext() {
+  const id = currentSession;
+  const result = document.getElementById('compactResult');
+  if (id === null) return;
+  if (currentRunId !== null) { result.textContent = 'Pause this session to compact it.'; result.classList.remove('hidden'); return; }
+  const button = document.getElementById('compactBtn');
+  button.disabled = true;
+  button.textContent = 'Compacting\u2026';
+  try {
+    const { before, after } = await jfetch('/api/compact', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: id })
+    });
+    result.textContent = after < before
+      ? before.toLocaleString('en-US') + ' \u2192 ' + after.toLocaleString('en-US') + ' tokens'
+      : 'Nothing earlier to compact';
+  } catch (error) {
+    result.textContent = error.message;
+  }
+  result.classList.remove('hidden');
+  button.disabled = false;
+  button.textContent = 'Compact context';
 }
 
 /* Paused because the prompt was wrong: the exchange comes back out of the Mac's

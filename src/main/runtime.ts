@@ -826,6 +826,21 @@ export function revertLastTurn(sessionId: string): string | null {
   return reverted
 }
 
+/**
+ * Folds everything before the latest prompt into one memory, on request —
+ * the same compaction a run does on its own near the context ceiling. The
+ * session's current agent does it, so a rotating session is not moved on.
+ */
+export async function compactSession(sessionId: string, gate: ApprovalGate): Promise<{ before: number; after: number }> {
+  const live = sessions.get(sessionId)
+  if (live === undefined) throw new Error('Unknown session; reopen this tab')
+  if (runForSession(sessionId) !== null) throw new Error('Pause this session before compacting it')
+  const status = getStatus(sessionId)
+  if (live.agent === null && !status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+  const agent = live.agent ?? getSession(sessionId, gate)
+  return agent.compact(new AbortController().signal)
+}
+
 /** Closes a run: appends what it cost, for every viewer of this session. */
 export function recordRunSummary(sessionId: string, summary: RunSummary): void {
   sessions.get(sessionId)?.summaries.push(summary)

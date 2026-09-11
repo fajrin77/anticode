@@ -24,6 +24,10 @@ class FakeProvider implements LLMProvider {
   readonly model = 'fake-model'
   /** History as it was sent on each turn, so tests can assert what the loop built. */
   readonly sent: Message[][] = []
+  /** What each compaction request was shown; they do not use up a turn. */
+  readonly compactions: string[] = []
+  /** The memory a compaction request answers with; null makes it fail. */
+  memory: string | null = 'MODEL MEMORY: goal, decisions, files, next steps'
 
   constructor(
     private readonly turns: LLMResponse[],
@@ -31,6 +35,13 @@ class FakeProvider implements LLMProvider {
   ) {}
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+    if (params.system.startsWith('You compact')) {
+      const shown = params.messages[0]?.content[0]
+      this.compactions.push(shown?.type === 'text' ? shown.text : '')
+      if (this.memory === null) throw new Error('summary failed')
+      yield { type: 'response', response: turn([{ type: 'text', text: this.memory }], 'end_turn') }
+      return
+    }
     const index = this.sent.length
     this.sent.push(structuredClone(params.messages))
     this.onTurn?.(index)
@@ -634,6 +645,72 @@ describe('follow-ups sent while a run is working', () => {
     expect(followUpsIn(last?.content ?? [])).toEqual([{ text: 'jangan lupa tes', during: false }])
     // Stopping refuses anything more.
     expect(agent.steer('lagi')).toBe(false)
+  })
+})
+
+describe('semantic compaction', () => {
+  const long = (label: string): Message[] => [
+    { role: 'user', content: [{ type: 'text', text: `${label} ${'x'.repeat(200_000)}` }] },
+    { role: 'assistant', content: [{ type: 'text', text: `${label} answered` }] }
+  ]
+
+  it('replaces the dropped turns with a memory the model writes', async () => {
+    const provider = new FakeProvider([turn([{ type: 'text', text: 'ok' }], 'end_turn')])
+    const session = new AgentSession(provider, allowAll, 'chat', null, [...long('first'), ...long('second')])
+    await session.run({ runId: 'c', prompt: 'latest', signal: new AbortController().signal, emit: (event) => events.push(event) })
+
+    const first = provider.sent[0]?.[0]?.content[0]
+    expect(first?.type === 'text' ? first.text : '').toContain('MODEL MEMORY')
+    // The model was shown the turns it summarised, in readable form.
+    expect(provider.compactions[0]).toContain('USER: first')
+    expect(provider.compactions[0]).toContain('ASSISTANT: first answered')
+    expect(events).toContainEqual(expect.objectContaining({ type: 'notice', text: expect.stringContaining('context compacted') }))
+    expect(events).toContainEqual(expect.objectContaining({ type: 'usage', subagent: true }))
+    // The record is never cut, only the replay.
+    expect(session.snapshot().messages).toHaveLength(6)
+  })
+
+  it('falls back to the deterministic digest when the summary fails', async () => {
+    const provider = new FakeProvider([turn([{ type: 'text', text: 'ok' }], 'end_turn')])
+    provider.memory = null
+    const session = new AgentSession(provider, allowAll, 'chat', null, [...long('first'), ...long('second')])
+    await session.run({ runId: 'c', prompt: 'latest', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    const first = provider.sent[0]?.[0]?.content[0]
+    expect(first?.type === 'text' ? first.text : '').toContain('User: first')
+    expect(events.at(-1)).toEqual({ type: 'end', runId: 'c', reason: 'complete' })
+  })
+
+  it('leaves headroom so the next step does not compact again', async () => {
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 't', name: 'todo_write', input: { items: [{ content: 'a', status: 'in_progress' }] } }], 'tool_use'),
+      turn([{ type: 'text', text: 'ok' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'chat', root, [...long('first'), ...long('second')])
+    await session.run({ runId: 'c', prompt: 'latest', signal: new AbortController().signal, emit: () => {} })
+    expect(provider.compactions).toHaveLength(1)
+  })
+
+  it('compacts on request between runs', async () => {
+    const provider = new FakeProvider([
+      turn([{ type: 'text', text: 'one' }], 'end_turn'),
+      turn([{ type: 'text', text: 'two' }], 'end_turn'),
+      turn([{ type: 'text', text: 'three' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'chat')
+    for (const prompt of ['p1', 'p2']) {
+      await session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: () => {} })
+    }
+    const result = await session.compact(new AbortController().signal)
+    expect(result.after).toBeLessThanOrEqual(result.before + 50)
+    // Compacting again has nothing new to fold in.
+    await session.compact(new AbortController().signal)
+    expect(provider.compactions).toHaveLength(1)
+
+    await session.run({ runId: 'p3', prompt: 'p3', signal: new AbortController().signal, emit: () => {} })
+    const replay = provider.sent[2]?.flatMap((message) => message.content).filter((block) => block.type === 'text').map((block) => block.type === 'text' ? block.text : '')
+    expect(replay?.[0]).toContain('MODEL MEMORY')
+    expect(replay).toContain('p2')
+    expect(replay).not.toContain('p1')
   })
 })
 

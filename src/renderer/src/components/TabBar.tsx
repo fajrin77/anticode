@@ -13,6 +13,30 @@ function formatNumber(value: number): string {
 /** Per-session usage only — an icon that unfolds the totals on demand. */
 function UsageButton({ session }: { session: Session }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const [compacted, setCompacted] = useState<string | null>(null)
+  const setContextTokens = useSessionStore((state) => state.setContextTokens)
+  const busy = useSessionStore((state) =>
+    Object.values(state.activeRuns).some((run) => run.sessionId === session.id) ||
+    Object.values(state.mirrorRuns).some((run) => run.sessionId === session.id)
+  )
+
+  function compact(): void {
+    setCompacting(true)
+    setCompacted(null)
+    void window.anticode
+      .compactSession(session.id)
+      .then(({ before, after }) => {
+        setContextTokens(session.id, after)
+        setCompacted(
+          after < before
+            ? `${formatNumber(before)} → ${formatNumber(after)} tokens`
+            : 'Nothing earlier to compact'
+        )
+      })
+      .catch((error: Error) => setCompacted(error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+      .finally(() => setCompacting(false))
+  }
   const boxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -90,8 +114,20 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
           </div>
           <button
             type="button"
+            onClick={compact}
+            disabled={compacting || busy}
+            title={busy ? 'Pause this session to compact it' : 'Fold earlier turns into a memory the model writes'}
+            className="mt-3 flex w-full items-baseline justify-between gap-3 rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors enabled:hover:bg-raised enabled:hover:text-brand disabled:opacity-50"
+          >
+            <span>{compacting ? 'Compacting…' : 'Compact context'}</span>
+            <span className={`truncate text-[11px] tabular-nums text-faint ${compacted === null ? 'invisible' : ''}`}>
+              {compacted ?? '—'}
+            </span>
+          </button>
+          <button
+            type="button"
             onClick={() => void window.anticode.exportSession(session.id)}
-            className="mt-3 w-full rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand"
+            className="w-full rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand"
           >
             Export transcript…
           </button>

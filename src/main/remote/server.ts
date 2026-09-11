@@ -28,6 +28,7 @@ import { cleanModelIds } from '../providers/custom'
 import {
   listModels,
   createRemoteSession,
+  compactSession,
   deleteSession,
   getStatus,
   listSessionSummaries,
@@ -384,6 +385,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       const prompt = revertLastTurn(sessionId)
       announceHistory(sessionId, 'phone')
       return json(res, 200, { prompt })
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/compact') {
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      return json(res, 200, await compactSession(sessionId, approvals))
     }
 
     if (req.method === 'GET' && url.pathname === '/api/approvals') {
