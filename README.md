@@ -270,7 +270,17 @@ memulainya; 40 prompt terakhir disimpan, dan checkpoint ikut terhapus bersama se
 
 API key yang dimasukkan lewat Settings disimpan dengan Electron `safeStorage` (Keychain di macOS,
 DPAPI di Windows) dan file plaintext lama dimigrasikan otomatis. Bila secure storage OS tidak
-tersedia, key tidak ditulis ke disk dan perlu dimasukkan kembali setelah app dibuka ulang.
+tersedia, key tidak ditulis ke disk dan perlu dimasukkan kembali setelah app dibuka ulang — Settings →
+Providers kini mengatakannya terang-terangan.
+
+Key di `.env` tetap milik pengguna dan tidak pernah diubah diam-diam. Kartu **Credentials** di bawah
+Settings → Providers menampilkan variabel rahasia yang dibaca dari file itu (nama yang berakhiran
+`API_KEY`, `TOKEN`, `SECRET`, `PASSWORD`) hanya dalam bentuk tersamar (`sk-l…abcd`), mana yang dipakai
+anticode, dan apakah akun lain di komputer ini bisa membaca filenya. Dua tindakan eksplisit tersedia:
+**Move to secure storage** (dua klik) menyegel key yang dipakai anticode (`CLINEPASS_API_KEY`) ke
+keychain lalu mengganti barisnya di `.env` dengan komentar bertanggal — baris lain tidak disentuh, dan
+tindakan ini ditolak bila secure storage tidak ada; **Make it readable only by me** menjalankan
+`chmod 600` pada file itu. Server MCP menyimpan environment dan header-nya dengan penyegelan yang sama.
 
 ## Estimasi biaya
 

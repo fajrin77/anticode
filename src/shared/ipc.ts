@@ -32,6 +32,9 @@ export const IpcChannel = {
   SESSION_TAKE_BACK: 'session:takeBack',
   SESSION_INSTRUCTIONS: 'session:instructions',
   SESSION_REGENERATE: 'session:regenerate',
+  CREDENTIALS_STATUS: 'credentials:status',
+  CREDENTIALS_MOVE: 'credentials:move',
+  CREDENTIALS_RESTRICT: 'credentials:restrict',
   MCP_LIST: 'mcp:list',
   MCP_SAVE: 'mcp:save',
   MCP_REMOVE: 'mcp:remove',
@@ -461,6 +464,26 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** A secret-looking variable in the .env file, never with its value. */
+export interface EnvCredential {
+  name: string
+  /** The first and last four characters, or dots for a short one. */
+  masked: string
+  /** The provider that reads it, when anticode does. */
+  usedBy: string | null
+  /** anticode can take it into sealed storage. */
+  movable: boolean
+}
+
+export interface CredentialStatus {
+  /** The OS keychain can seal secrets typed into Settings. */
+  secureStorage: boolean
+  envFile: string | null
+  /** Accounts other than its owner can read the .env file. */
+  envFileOpen: boolean
+  envKeys: EnvCredential[]
+}
+
 /** An MCP server as Settings sends it. A blank secret value keeps the saved one. */
 export interface McpServerInput {
   id?: string
@@ -843,6 +866,11 @@ export interface AnticodeApi {
   /** Takes a prompt off the queue; answers it, so it can be edited instead. */
   unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
   onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
+  getCredentialStatus: () => Promise<CredentialStatus>
+  /** Seals the .env keys anticode uses and comments them out of the file. */
+  moveEnvCredentials: () => Promise<CredentialStatus>
+  /** chmod 600 on the .env file. */
+  restrictEnvFile: () => Promise<CredentialStatus>
   listMcpServers: () => Promise<McpServerStatus[]>
   saveMcpServer: (input: McpServerInput) => Promise<McpServerStatus[]>
   removeMcpServer: (id: string) => Promise<McpServerStatus[]>

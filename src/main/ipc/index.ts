@@ -88,6 +88,7 @@ import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
 import { pricedModels, setCustomPrice } from '../pricing'
 import { importMcp, listMcp, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
+import { credentialStatus, moveEnvKeys, restrictEnvFile } from '../credentials'
 import { hideQuickCapture, sendQuickCapture } from '../tray'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
@@ -620,6 +621,15 @@ export function registerIpcHandlers(): void {
     return submitPrompt(req, approvals)
   })
 
+  ipcMain.handle(IpcChannel.CREDENTIALS_STATUS, () => credentialStatus())
+  ipcMain.handle(IpcChannel.CREDENTIALS_MOVE, () => {
+    const status = moveEnvKeys()
+    forgetCatalogue('clinepass')
+    announceStatus()
+    announceProviders()
+    return status
+  })
+  ipcMain.handle(IpcChannel.CREDENTIALS_RESTRICT, () => restrictEnvFile())
   ipcMain.handle(IpcChannel.MCP_LIST, () => listMcp())
   ipcMain.handle(IpcChannel.MCP_SAVE, (_event, input: unknown) => saveMcp(input as never))
   ipcMain.handle(IpcChannel.MCP_REMOVE, (_event, id: unknown) => removeMcp(String(id)))

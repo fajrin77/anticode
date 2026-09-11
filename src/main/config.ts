@@ -9,6 +9,13 @@ const DEFAULT_MODEL = 'claude-opus-5'
  * or the Dock runs with cwd = '/', so there the credentials live in the
  * per-user application-data directory instead.
  */
+let loadedEnvFile: string | null = null
+
+/** The env file credentials were read from at start-up, if any. */
+export function envFilePath(): string | null {
+  return loadedEnvFile
+}
+
 export function loadEnvFile(): void {
   const candidates = app.isPackaged
     ? [path.join(app.getPath('userData'), '.env')]
@@ -18,6 +25,7 @@ export function loadEnvFile(): void {
     if (!existsSync(candidate)) continue
     try {
       process.loadEnvFile(candidate)
+      loadedEnvFile = candidate
       return
     } catch (error) {
       console.warn(`Failed to read ${candidate}: ${(error as Error).message}`)

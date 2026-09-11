@@ -21,6 +21,7 @@ import { Updates } from './settings/Updates'
 import { Pricing } from './settings/Pricing'
 import { Mcp } from './settings/Mcp'
 import { InstructionsField } from './InstructionsField'
+import { Credentials } from './settings/Credentials'
 
 interface SettingsViewProps {
   appInfo: AppInfo | null
@@ -1458,12 +1459,17 @@ export function SettingsView({
             <General status={status} providers={providers} onToggleAutoApprove={onToggleAutoApprove} />
           )}
           {section === 'providers' && (
-            <Providers
-              providers={providers}
-              status={status}
-              onSelectProvider={onSelectProvider}
-              onProvidersChange={onProvidersChange}
-            />
+            <>
+              <Providers
+                providers={providers}
+                status={status}
+                onSelectProvider={onSelectProvider}
+                onProvidersChange={onProvidersChange}
+              />
+              <div className="mt-8">
+                <Credentials onChanged={() => void window.anticode.listProviders().then(onProvidersChange)} />
+              </div>
+            </>
           )}
           {section === 'models' && (
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />

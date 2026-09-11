@@ -9,6 +9,7 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   AttachmentInfo,
+  CredentialStatus,
   CustomProviderInput,
   FilePreview,
   McpServerStatus,
@@ -149,6 +150,9 @@ const api: AnticodeApi = {
   unqueuePrompt: (sessionId, id) =>
     ipcRenderer.invoke(IpcChannel.QUEUE_REMOVE, sessionId, id) as Promise<QueuedPrompt | null>,
   onSessionQueue: (listener) => subscribe<SessionQueue>(IpcChannel.QUEUE_UPDATED, listener),
+  getCredentialStatus: () => ipcRenderer.invoke(IpcChannel.CREDENTIALS_STATUS) as Promise<CredentialStatus>,
+  moveEnvCredentials: () => ipcRenderer.invoke(IpcChannel.CREDENTIALS_MOVE) as Promise<CredentialStatus>,
+  restrictEnvFile: () => ipcRenderer.invoke(IpcChannel.CREDENTIALS_RESTRICT) as Promise<CredentialStatus>,
   listMcpServers: () => ipcRenderer.invoke(IpcChannel.MCP_LIST) as Promise<McpServerStatus[]>,
   saveMcpServer: (input) => ipcRenderer.invoke(IpcChannel.MCP_SAVE, input) as Promise<McpServerStatus[]>,
   removeMcpServer: (id) => ipcRenderer.invoke(IpcChannel.MCP_REMOVE, id) as Promise<McpServerStatus[]>,
