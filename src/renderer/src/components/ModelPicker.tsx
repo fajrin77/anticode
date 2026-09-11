@@ -40,13 +40,9 @@ export function ModelPicker({
   }, [query, picked.join('\n')])
 
   const typedIsNew = query.trim() !== '' && !matches.includes(query.trim())
-  const tabs = [
-    ...providers.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` })),
-    // Offered only while Rotate usage is switched on and has models to rotate over.
-    ...(status?.rotationEnabled === true && pool.length > 0
-      ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Spread this session’s prompts over the Rotate usage pool' }]
-      : [])
-  ]
+  const tabs = status?.rotationEnabled === true
+    ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Rotate usage controls every session while it is on' }]
+    : providers.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
 
   return (
     <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 flex max-h-72 w-80 flex-col overflow-hidden rounded-xl border">

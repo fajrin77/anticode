@@ -61,7 +61,7 @@ const modelOf = (sessionId: string): string => agentOf(sessionId).provider.model
 beforeEach(() => {
   resetRotationForTests()
   applyRotation([])
-  applyRotationEnabled(true)
+  applyRotationEnabled(false)
   selectProvider({ provider: 'one', model: 'm1' })
   for (const id of ['a', 'b', 'c']) deleteSession(id)
 })
@@ -123,23 +123,18 @@ it('starts a provider picked without a model on the first model chosen for it', 
   expect(getStatus().model).toBe('m2b')
 })
 
-it('uses no model a provider lists until one is chosen in Settings → Models', () => {
+it('uses the connected provider default while Rotate usage is off', () => {
   applyRotation([])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
-  // m1 is the provider's listed default, and the session's own pick, but
-  // nothing is switched on: the composer offers nothing and asks for a pick.
-  expect(getStatus('a')).toMatchObject({ provider: 'one', model: '', providerReady: false })
-  expect(getStatus('a').blockedReason).toMatch(/Settings → Models/)
-  applyRotation([{ provider: 'one', model: 'm1' }])
   expect(getStatus('a')).toMatchObject({ model: 'm1', providerReady: true })
 })
 
-it('moves a session off a model once it is switched off', () => {
+it('does not move a fixed session when the inactive rotation pool changes', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'one', model: 'm1b' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   selectProvider({ provider: 'one', model: 'm1b' }, 'a')
   applyRotation([{ provider: 'one', model: 'm1' }])
-  expect(modelOf('a')).toBe('m1')
+  expect(modelOf('a')).toBe('m1b')
 })
 
 it('chooses an id typed by hand, so the composer offers it', () => {
@@ -153,9 +148,33 @@ it('refuses Rotate while the pool is empty', () => {
   expect(() => selectProvider({ provider: ROTATE_PROVIDER, model: '' })).toThrow(/Rotate usage/)
 })
 
+it('applies Rotate usage globally to existing and new sessions and locks model picks', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+
+  applyRotationEnabled(true)
+  expect(getStatus().provider).toBe(ROTATE_PROVIDER)
+  expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
+  expect(() => selectProvider({ provider: 'two', model: 'm2' }, 'a')).toThrow(/Turn off Rotate usage/)
+
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
+})
+
+it('falls every composer back to the first connected provider when Rotate usage is turned off', () => {
+  applyRotation([{ provider: 'two', model: 'm2' }, { provider: 'one', model: 'm1' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+
+  applyRotationEnabled(false)
+  expect(getStatus()).toMatchObject({ provider: 'one', model: 'm1', providerReady: true })
+  expect(getStatus('a')).toMatchObject({ provider: 'one', model: 'm1', providerReady: true })
+})
+
 it('keeps a rotating session on one model for two prompts, then moves to the least-used other', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   expect(getStatus('a').providerReady).toBe(true)
 
@@ -178,6 +197,7 @@ it('keeps a rotating session on one model for two prompts, then moves to the lea
 it('moves on early when the model it was on starts resting', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   const agent = agentOf('a')
   expect(agent.provider.model).toBe('m1')
@@ -191,13 +211,15 @@ it('moves on early when the model it was on starts resting', () => {
 it('stays on the only model in the pool', () => {
   applyRotation([{ provider: 'one', model: 'm1' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   expect([modelOf('a'), modelOf('a'), modelOf('a')]).toEqual(['m1', 'm1', 'm1'])
 })
 
-it('counts pooled tokens spent by sessions pinned to that model too', async () => {
+it('counts tokens spent by the globally rotating session', async () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   const provider = agentOf('a').provider as unknown as { chat: (params: unknown) => AsyncIterable<unknown> }
   for await (const _event of provider.chat({})) { /* drain */ }
   expect(getStatus().rotation.map((entry) => [entry.inputTokens, entry.outputTokens])).toEqual([[40, 2], [0, 0]])
@@ -207,6 +229,7 @@ it('spreads prompts sent together over the pool before any tokens are counted', 
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'b')
 
@@ -218,6 +241,7 @@ it('spreads prompts sent together over the pool before any tokens are counted', 
 it('hands a failed turn to the next pool entry and rests the one that failed', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
 
   const agent = agentOf('a')
@@ -229,9 +253,7 @@ it('hands a failed turn to the next pool entry and rests the one that failed', (
 
   const pool = getStatus().rotation
   expect(pool.every((entry) => entry.coolingUntil !== null)).toBe(true)
-  // A fixed model has no fallback: its failures are reported as they are.
-  selectProvider({ provider: 'three', model: 'm3' }, 'a')
-  expect(agentOf('a').fallback).toBeNull()
+  expect(() => selectProvider({ provider: 'three', model: 'm3' }, 'a')).toThrow(/Turn off Rotate usage/)
 })
 
 it('offers no Rotate and counts nothing while Rotate usage is off', () => {
@@ -247,6 +269,7 @@ it('moves sessions off Rotate when Rotate usage is switched off', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'b')
   const used = modelOf('a')
@@ -260,16 +283,17 @@ it('moves sessions off Rotate when Rotate usage is switched off', () => {
   expect(getStatus('b').providerReady).toBe(true)
 })
 
-it('lets an emptied pool stop being the default', () => {
+it('keeps the global Rotate mode visible when its pool is emptied', () => {
   applyRotation([{ provider: 'one', model: 'm1' }])
-  selectProvider({ provider: ROTATE_PROVIDER, model: '' })
+  applyRotationEnabled(true)
   expect(getStatus().provider).toBe(ROTATE_PROVIDER)
   applyRotation([])
-  expect(getStatus().provider).not.toBe(ROTATE_PROVIDER)
+  expect(getStatus()).toMatchObject({ provider: ROTATE_PROVIDER, providerReady: false })
 })
 
 it('starts a model joining the pool level with the least-used one, not at zero', () => {
   applyRotation([{ provider: 'one', model: 'm1' }])
+  applyRotationEnabled(true)
   recordRotationUsage({ provider: 'one', model: 'm1' }, { inputTokens: 300, outputTokens: 0 })
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   expect(getStatus().rotation.map((entry) => entry.inputTokens)).toEqual([300, 300])

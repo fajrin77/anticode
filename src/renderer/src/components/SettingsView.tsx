@@ -357,7 +357,7 @@ function Providers({
     // Switch straight to the freshly added provider and prefetch its model
     // catalogue, so its models are immediately usable.
     const added = next.find((entry) => !providers.some((old) => old.id === entry.id))
-    if (added !== undefined && added.credentialAvailable) onSelectProvider(added.id, '')
+    if (added !== undefined && added.credentialAvailable && status?.rotationEnabled !== true) onSelectProvider(added.id, '')
     setAdding(false)
   }
 
@@ -556,7 +556,7 @@ function Providers({
         </button>
       )}
 
-      <RotateUsage status={status} providers={providers} onSelectProvider={onSelectProvider} />
+      <RotateUsage status={status} providers={providers} />
     </>
   )
 }
@@ -571,19 +571,16 @@ function Providers({
  */
 function RotateUsage({
   status,
-  providers,
-  onSelectProvider
+  providers
 }: {
   status: SessionStatus | null
   providers: ProviderInfo[]
-  onSelectProvider: (provider: ProviderId, model: string) => void
 }): JSX.Element {
   const pool = status?.rotation ?? []
   const usable = providers.filter((entry) => entry.credentialAvailable)
   const [adding, setAdding] = useState<RotationEntry | null>(null)
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const rotatingByDefault = status?.provider === ROTATE_PROVIDER
   const enabled = status?.rotationEnabled === true
   const now = Date.now()
 
@@ -644,20 +641,9 @@ function RotateUsage({
       <div className={`mt-10 flex items-center justify-between gap-4 ${enabled ? 'mb-4' : ''}`}>
         <h2 className="text-[14px] text-text">Rotate usage</h2>
         <div className="flex items-center gap-3">
-          {enabled &&
-            pool.length > 0 &&
-            (rotatingByDefault ? (
-              <span className="text-[11.5px] text-brand">default for new sessions</span>
-            ) : (
-              <button
-                type="button"
-                title="New sessions start on Rotate"
-                onClick={() => onSelectProvider(ROTATE_PROVIDER, '')}
-                className="rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
-              >
-                Use for new sessions
-              </button>
-            ))}
+          {enabled && pool.length > 0 && (
+            <span className="text-[11.5px] text-brand">active for every session</span>
+          )}
           <Toggle on={enabled} onChange={setEnabled} label="Rotate usage" />
         </div>
       </div>
@@ -827,6 +813,7 @@ function Models({
       : (usable[0]?.id ?? 'clinepass')
   )
   const pool = status?.rotation ?? []
+  const enabled = status?.rotationEnabled === true
   const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
 
   useEffect(() => {
@@ -966,7 +953,7 @@ function Models({
               </button>
               {isDefault ? (
                 <span className="shrink-0 px-2 text-[11.5px] text-faint">default</span>
-              ) : (
+              ) : !enabled ? (
                 <button
                   type="button"
                   title="Start new sessions on this model"
@@ -975,7 +962,7 @@ function Models({
                 >
                   Use
                 </button>
-              )}
+              ) : null}
               <Toggle
                 on={on}
                 onChange={(value) => setPicked(id, value)}

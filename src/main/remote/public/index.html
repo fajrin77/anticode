@@ -1142,6 +1142,9 @@ function fillModelPickers(providerId, modelId) {
     const option = document.createElement('option'); option.value = ROTATE; option.textContent = 'Rotate usage'; option.selected = modelInfo.provider === ROTATE; providers.append(option);
   }
   const select = document.getElementById(modelId);
+  const locked = modelInfo?.rotationEnabled === true;
+  providers.disabled = locked;
+  select.disabled = locked;
   if (modelInfo !== null) {
     select.innerHTML = '';
     const current = document.createElement('option');
@@ -2938,6 +2941,12 @@ function updateChips() {
   const label = chip.querySelector('.modelText');
   label.textContent = model === '' ? 'pick a model' : model;
   chip.title = model === '' ? 'Pick a model' : model;
+  const modelLocked = modelInfo?.rotationEnabled === true;
+  chip.disabled = modelLocked;
+  document.getElementById('customModelId').disabled = modelLocked;
+  document.getElementById('useModelBtn').disabled = modelLocked;
+  document.getElementById('setCustomModel').disabled = modelLocked;
+  document.querySelector('#secModel .actions button').disabled = modelLocked;
   document.getElementById('modeChip').textContent = lastStatus?.autoApprove === true ? 'Auto' : 'Default';
   requestAnimationFrame(updateModelFade);
   if (!document.getElementById('settingsSheet').classList.contains('hidden')) renderSettings();

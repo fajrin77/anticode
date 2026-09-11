@@ -563,8 +563,10 @@ try {
   await takeOut.waitFor()
   await limeOnHover('settings: rotate usage take out', takeOut)
   await limeOnHover('settings: rotate usage reset counts', window.getByRole('button',{name:'Reset counts'}))
-  await limeOnHover('settings: rotate usage default', window.getByRole('button',{name:'Use for new sessions'}))
+  check('settings: rotate usage applies to every session',
+    String(await window.getByText('active for every session').count()), '1')
   await shot('18b-rotate-usage')
+  await rotateSwitch.click(); await window.waitForTimeout(300)
 
   // A model picked in one session is that session's alone.
   const perSession = await window.evaluate(async () => {
@@ -653,12 +655,10 @@ try {
   }
   await shot('18c-models-picked')
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
-  await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
-  check('model picker: shows only the picked models',
-    (await window.locator('.menu-glass button.font-mono span.truncate').allTextContents()).join(','), 'test-model')
-  check('model picker: Rotate is offered once Rotate usage is on',
-    String(await window.locator('.menu-glass button', { hasText: /^Rotate$/ }).count()), '1')
-  await window.keyboard.press('Escape'); await window.waitForTimeout(250)
+  await window.evaluate(() => window.anticode.setRotationEnabled(true)); await window.waitForTimeout(300)
+  const composerModel = window.locator('button:has(span.font-mono)').first()
+  check('model picker: composer is locked while Rotate usage is on', String(await composerModel.isDisabled()), 'true')
+  check('model picker: composer shows Rotate usage globally', (await composerModel.textContent()).trim(), 'rotate usage')
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
   await window.evaluate(async () => {
     await window.anticode.setRotation([{ provider: 'clinepass', model: 'test-model' }])

@@ -23,18 +23,21 @@ interface NewSessionViewProps {
 function Chip({
   children,
   onClick,
-  active
+  active,
+  disabled = false
 }: {
   children: JSX.Element | string
   onClick: () => void
   active: boolean
+  disabled?: boolean
 }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-        active ? 'glass-control border text-text' : 'glass-ghost text-dim hover:text-brand'
+        disabled ? 'glass-ghost cursor-default text-dim' : active ? 'glass-control border text-text' : 'glass-ghost text-dim hover:text-brand'
       }`}
     >
       {children}
@@ -288,7 +291,7 @@ function DashboardComposer({
                 +
               </button>
 
-              <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
+              <Chip disabled={status?.rotationEnabled === true} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">
                   {modelLabel(status)}
                 </span>

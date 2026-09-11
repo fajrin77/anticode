@@ -98,6 +98,16 @@ function current(): ProviderSelection {
   return selection
 }
 
+/** The first connected provider is the deterministic non-rotation fallback. */
+function firstConnectedSelection(): ProviderSelection {
+  const provider = listProviders().find((entry) => entry.credentialAvailable)
+  if (provider === undefined) return { provider: 'clinepass', model: '' }
+  return {
+    provider: provider.id,
+    model: chosenFor(provider.id)[0] ?? provider.defaultModel
+  }
+}
+
 export function setWorkspaceRoot(root: string): void {
   workspaceRoot = root
 }
@@ -143,6 +153,9 @@ export function initPersistedState(): void {
       selection = { provider: persisted.provider, model: persisted.provider === ROTATE_PROVIDER ? '' : (persisted.model ?? '') }
     }
   }
+  // Rotate usage is a global mode, not a per-composer selection. Restored
+  // sessions and the new-session default must therefore agree immediately.
+  if (rotationEnabled()) applyRotationEnabled(true)
 }
 
 /**
@@ -195,6 +208,10 @@ function chosenFor(provider: ProviderId): string[] {
  */
 function effective(choice: ProviderSelection): ProviderSelection {
   if (choice.provider === ROTATE_PROVIDER) return choice
+  // When rotation is off, applyRotationEnabled has already chosen the first
+  // connected provider and its best known model. It remains usable even when
+  // that model is not part of the (currently inactive) rotation pool.
+  if (!rotationEnabled()) return choice
   const chosen = chosenFor(choice.provider)
   return chosen.includes(choice.model) ? choice : { provider: choice.provider, model: chosen[0] ?? '' }
 }
@@ -210,6 +227,9 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   const live = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
   if (sessionId !== null && sessionId !== undefined && live === undefined) throw new Error('Unknown session; reopen this tab')
   let chosen: ProviderSelection
+  if (rotationEnabled() && next.provider !== ROTATE_PROVIDER) {
+    throw new Error('Turn off Rotate usage before choosing a model')
+  }
   if (next.provider === ROTATE_PROVIDER) {
     if (!rotationEnabled()) throw new Error('Rotate usage is off — turn it on in Settings → Providers')
     if (rotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
@@ -250,32 +270,33 @@ export function providerInUse(provider: ProviderId): boolean {
 /** Replaces the Rotate usage pool; sessions set to rotate use it from their next prompt. */
 export function applyRotation(entries: RotationEntry[]): void {
   setRotationEntries(entries)
-  // An emptied pool leaves nothing to rotate over. Sessions set to rotate say
-  // so in their composer; the default goes back to a plain model.
-  if (rotationEntries().length === 0 && current().provider === ROTATE_PROVIDER) {
+  // While the global mode is on, an empty pool remains visibly Rotate but
+  // blocked, so every composer still reflects the setting truthfully.
+  if (!rotationEnabled() && rotationEntries().length === 0 && current().provider === ROTATE_PROVIDER) {
     selection = null
     savePersistedSettings({ provider: current().provider, model: current().model })
   }
 }
 
 /**
- * Rotate usage switched on or off. Off, nothing may be left on Rotate: each
- * session on it keeps the model its last prompt went to (or the default,
- * before it sent one), and the default goes back to a plain model.
+ * Rotate usage is global. On, every existing and future composer follows the
+ * pool. Off, every composer falls back to the first connected provider.
  */
 export function applyRotationEnabled(on: boolean): void {
   setRotationEnabled(on)
-  if (on) return
-  if (current().provider === ROTATE_PROVIDER) {
-    selection = null
-    savePersistedSettings({ provider: current().provider, model: current().model })
-  }
+  const chosen = on
+    ? { provider: ROTATE_PROVIDER, model: '' }
+    : firstConnectedSelection()
+  selection = chosen
+  savePersistedSettings({ provider: chosen.provider, model: chosen.model })
   let changed = false
-  for (const live of sessions.values()) {
-    if (live.choice?.provider !== ROTATE_PROVIDER) continue
-    live.choice = live.selection !== undefined ? { ...live.selection } : { ...current() }
+  for (const [sessionId, live] of sessions) {
+    if (live.choice?.provider !== chosen.provider || live.choice.model !== chosen.model) changed = true
+    live.choice = { ...chosen }
+    // Do not replace the provider beneath a run already in progress. Its next
+    // prompt follows the newly applied global mode.
+    if (runForSession(sessionId) === null) delete live.selection
     delete live.promptsOnEntry
-    changed = true
   }
   if (changed) persistSessions()
 }
