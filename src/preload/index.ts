@@ -26,6 +26,7 @@ import type {
   SessionSpec,
   SessionStatus,
   SessionTitle,
+  UpdateState,
   WebSession
 } from '../shared/ipc'
 
@@ -143,6 +144,12 @@ const api: AnticodeApi = {
   unqueuePrompt: (sessionId, id) =>
     ipcRenderer.invoke(IpcChannel.QUEUE_REMOVE, sessionId, id) as Promise<QueuedPrompt | null>,
   onSessionQueue: (listener) => subscribe<SessionQueue>(IpcChannel.QUEUE_UPDATED, listener),
+  getUpdateState: () => ipcRenderer.invoke(IpcChannel.UPDATE_STATE) as Promise<UpdateState>,
+  configureUpdates: (patch) => ipcRenderer.invoke(IpcChannel.UPDATE_CONFIGURE, patch) as Promise<UpdateState>,
+  checkForUpdates: () => ipcRenderer.invoke(IpcChannel.UPDATE_CHECK) as Promise<UpdateState>,
+  downloadUpdate: () => ipcRenderer.invoke(IpcChannel.UPDATE_DOWNLOAD) as Promise<UpdateState>,
+  installUpdate: () => ipcRenderer.invoke(IpcChannel.UPDATE_INSTALL) as Promise<void>,
+  onUpdateState: (listener) => subscribe<UpdateState>(IpcChannel.UPDATE_EVENT, listener),
   cancelRun: (runId: string) => ipcRenderer.invoke(IpcChannel.AGENT_CANCEL, runId) as Promise<void>,
   pauseSession: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_PAUSE, sessionId) as Promise<boolean>,

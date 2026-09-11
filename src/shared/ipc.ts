@@ -31,6 +31,12 @@ export const IpcChannel = {
   SESSION_COMPACT: 'session:compact',
   SESSION_TAKE_BACK: 'session:takeBack',
   SESSION_REGENERATE: 'session:regenerate',
+  UPDATE_STATE: 'update:state',
+  UPDATE_CONFIGURE: 'update:configure',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_EVENT: 'update:event',
   QUEUE_ADD: 'queue:add',
   QUEUE_REMOVE: 'queue:remove',
   QUEUE_UPDATED: 'queue:updated',
@@ -437,6 +443,30 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** Where updates come from, and how much happens without asking. */
+export interface UpdateSettings {
+  /** A GitHub repository (owner/repo), a feed URL, or a local folder; empty is none. */
+  source: string
+  /** Ask the source at start-up and every six hours. */
+  autoCheck: boolean
+  /** Download a newer build as soon as it is found. Installing always waits for a click. */
+  autoDownload: boolean
+}
+
+export interface UpdateState extends UpdateSettings {
+  status: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'error'
+  /** The version running now. */
+  current: string
+  latest: string | null
+  notes: string | null
+  /** 0–1 while downloading. */
+  progress: number | null
+  error: string | null
+  checkedAt: number | null
+  /** False in a dev run: there is no app bundle of anticode's own to replace. */
+  canInstall: boolean
+}
+
 /** A prompt waiting for the session's run to finish, to go out as the next run. */
 export interface QueuedPrompt {
   id: string
@@ -719,6 +749,13 @@ export interface AnticodeApi {
   /** Takes a prompt off the queue; answers it, so it can be edited instead. */
   unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
   onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
+  getUpdateState: () => Promise<UpdateState>
+  configureUpdates: (patch: Partial<UpdateSettings>) => Promise<UpdateState>
+  checkForUpdates: () => Promise<UpdateState>
+  downloadUpdate: () => Promise<UpdateState>
+  /** Quits and swaps in the downloaded build; the new version opens by itself. */
+  installUpdate: () => Promise<void>
+  onUpdateState: (listener: (state: UpdateState) => void) => () => void
   /** Records the colour a desktop has been showing, for a session that has none. */
   setSessionColour: (sessionId: string, colour: number) => Promise<void>
   cancelRun: (runId: string) => Promise<void>

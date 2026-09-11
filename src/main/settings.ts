@@ -14,6 +14,7 @@ export interface PersistedSettings {
   model?: string | null
   remote?: RemoteSettings
   rotation?: PersistedRotation
+  updates?: { source: string; autoCheck: boolean; autoDownload: boolean }
 }
 
 export interface PersistedRotation {

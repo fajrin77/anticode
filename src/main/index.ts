@@ -7,6 +7,7 @@ import { cancelAllRuns } from './runs'
 import { initPersistedState, persistSessions } from './runtime'
 import { restoreRemoteServer } from './remote/server'
 import { closeBrowser } from './browser'
+import { initUpdates } from './updates'
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -106,6 +107,7 @@ void app.whenReady().then(() => {
   initPersistedState()
   registerIpcHandlers()
   void restoreRemoteServer()
+  initUpdates()
   createWindow()
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
     let window = BrowserWindow.getAllWindows()[0]

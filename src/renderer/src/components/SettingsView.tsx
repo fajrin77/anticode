@@ -15,6 +15,8 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { compactTokens } from './ModelPicker'
+import { SettingRow, Toggle } from './settings/controls'
+import { Updates } from './settings/Updates'
 
 interface SettingsViewProps {
   appInfo: AppInfo | null
@@ -26,67 +28,7 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'models' | 'remote'
-
-/**
- * The one switch the app has: Auto-accept, Rotate usage, and every model in
- * Settings → Models. Extra data-* attributes land on the button.
- */
-function Toggle({
-  on,
-  onChange,
-  label,
-  title,
-  ...data
-}: {
-  on: boolean
-  onChange: (value: boolean) => void
-  label?: string
-  title?: string
-  [attribute: `data-${string}`]: string
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      title={title}
-      {...data}
-      onClick={() => onChange(!on)}
-      className={`group/switch h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors ${on ? 'border-brand bg-brand' : 'glass-control'}`}
-    >
-      {/* On the lime track the knob goes dark: white on lime is all but
-          invisible, and dark-on-lime is what every other lime control does.
-          Off, the knob is what lights up under the cursor. */}
-      <span
-        className={`block h-4 w-4 rounded-full shadow transition-[transform,background-color] ${
-          on ? 'translate-x-3.5 bg-bg' : 'translate-x-0 bg-white group-hover/switch:bg-brand'
-        }`}
-      />
-    </button>
-  )
-}
-
-function SettingRow({
-  title,
-  hint,
-  children
-}: {
-  title: string
-  hint: string
-  children: JSX.Element | string
-}): JSX.Element {
-  return (
-    <div className="flex items-center gap-6 border-b border-line-soft px-5 py-4 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] text-text">{title}</div>
-        <div className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{hint}</div>
-      </div>
-      <div className="shrink-0 text-[13px] text-dim">{children}</div>
-    </div>
-  )
-}
+type Section = 'general' | 'providers' | 'models' | 'remote' | 'updates'
 
 function Tag({ children }: { children: string }): JSX.Element {
   return (
@@ -1406,6 +1348,16 @@ export function SettingsView({
           <rect x="6.5" y="7" width="8" height="6" rx="1.2" />
         </svg>
       )
+    },
+    {
+      id: 'updates',
+      label: 'Updates',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <path d="M8 2.5v7.5M4.8 7L8 10.2 11.2 7" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M2.5 11.5v1a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-1" strokeLinecap="round" />
+        </svg>
+      )
     }
   ]
 
@@ -1462,6 +1414,7 @@ export function SettingsView({
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
           )}
           {section === 'remote' && <Remote />}
+          {section === 'updates' && <Updates />}
         </div>
       </div>
     </div>

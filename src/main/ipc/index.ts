@@ -81,6 +81,7 @@ import {
 import { closePhonePage } from '../browser'
 import { forgetQueue, queuePrompt, regenerate, submitPrompt, unqueuePrompt } from '../prompts'
 import { setQueueSink } from '../queue'
+import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updateState } from '../updates'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
@@ -607,6 +608,14 @@ export function registerIpcHandlers(): void {
     lastSender = event.sender
     return submitPrompt(req, approvals)
   })
+
+  ipcMain.handle(IpcChannel.UPDATE_STATE, () => updateState())
+  ipcMain.handle(IpcChannel.UPDATE_CONFIGURE, (_event, patch: unknown) =>
+    configureUpdates(typeof patch === 'object' && patch !== null ? (patch as Record<string, unknown>) : {})
+  )
+  ipcMain.handle(IpcChannel.UPDATE_CHECK, () => checkForUpdates())
+  ipcMain.handle(IpcChannel.UPDATE_DOWNLOAD, () => downloadUpdate())
+  ipcMain.handle(IpcChannel.UPDATE_INSTALL, () => installUpdate())
 
   // Queued on either screen, shown and removable on both: the queue lives here.
   setQueueSink(announceQueue)

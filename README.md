@@ -242,6 +242,24 @@ API key yang dimasukkan lewat Settings disimpan dengan Electron `safeStorage` (K
 DPAPI di Windows) dan file plaintext lama dimigrasikan otomatis. Bila secure storage OS tidak
 tersedia, key tidak ditulis ke disk dan perlu dimasukkan kembali setelah app dibuka ulang.
 
+## Update otomatis
+
+Settings → **Updates** memeriksa versi baru dari sumber yang diisi pengguna — belum ada sumber bawaan:
+
+- repository GitHub (`owner/repo` atau URL-nya): release terbaru beserta asetnya;
+- URL feed electron-builder (folder-nya atau `latest-mac.yml`/`latest.yml`/`latest-linux.yml`);
+- folder lokal berisi build, misalnya `release/` project ini — nama berkas electron-builder
+  (`anticode-0.0.24-arm64.dmg`) cukup untuk menemukan versi terbarunya.
+
+**Check automatically** (on) bertanya saat start-up dan tiap enam jam; **Download automatically** (off)
+langsung mengunduh build yang lebih baru. Unduhan dicek dengan sha512 bila sumber mencantumkannya dan
+dibuang bila tidak cocok. **Memasang tidak pernah terjadi sendiri**: tombol **Restart to update** (dua
+klik) menutup app, lalu helper kecil menunggu app benar-benar keluar, mengganti bundle — bundle lama
+dikembalikan bila penyalinan gagal — dan membuka versi baru. Karena build ini tidak ditandatangani,
+Squirrel/electron-updater tidak dipakai: di macOS dmg di-mount (atau zip dibuka) dan `.app`-nya disalin
+dengan `ditto`, di Windows installer NSIS dijalankan senyap, di Linux AppImage diganti. App harus berada
+di folder yang bisa ditulis (mis. `/Applications`), dan dev run tidak bisa memasang apa pun.
+
 ## Aturan project
 
 Bila workspace punya `AGENTS.md`, `CLAUDE.md`, atau `.anticode.md` (urutan itu), isinya — maksimal
