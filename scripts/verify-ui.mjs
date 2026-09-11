@@ -529,7 +529,7 @@ try {
   const editButton = window.getByTitle('Edit Gateway')
   await editButton.waitFor()
   await limeOnHover('settings: provider edit', editButton)
-  await limeOnHover('settings: provider use', window.getByTitle('Start new sessions on Gateway'))
+  await limeOnHover('settings: provider default', window.getByTitle('Use Gateway as the default provider'))
   await editButton.click(); await window.waitForTimeout(200)
   await window.locator('textarea').first().fill('vendor/model-a\nvendor/model-b')
   await window.getByRole('button',{name:'Save',exact:true}).click(); await window.waitForTimeout(400)

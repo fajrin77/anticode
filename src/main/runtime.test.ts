@@ -161,14 +161,19 @@ it('applies Rotate usage globally to existing and new sessions and locks model p
   expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
 })
 
-it('falls every composer back to the first connected provider when Rotate usage is turned off', () => {
+it('falls every composer back to the explicitly selected default when Rotate usage is turned off', () => {
   applyRotation([{ provider: 'two', model: 'm2' }, { provider: 'one', model: 'm1' }])
+  selectProvider({ provider: 'two', model: 'm2' })
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   applyRotationEnabled(true)
 
+  // The default can also be changed while rotation remains globally active.
+  selectProvider({ provider: 'three', model: 'm3' })
+  expect(getStatus()).toMatchObject({ provider: ROTATE_PROVIDER, defaultProvider: 'three', defaultModel: 'm3' })
+
   applyRotationEnabled(false)
-  expect(getStatus()).toMatchObject({ provider: 'one', model: 'm1', providerReady: true })
-  expect(getStatus('a')).toMatchObject({ provider: 'one', model: 'm1', providerReady: true })
+  expect(getStatus()).toMatchObject({ provider: 'three', model: 'm3', providerReady: true })
+  expect(getStatus('a')).toMatchObject({ provider: 'three', model: 'm3', providerReady: true })
 })
 
 it('keeps a rotating session on one model for two prompts, then moves to the least-used other', () => {

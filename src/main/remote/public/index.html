@@ -3035,8 +3035,14 @@ function renderProviders() {
     ].filter((part) => part !== '').join(' · ');
     text.append(name, detail);
     const state = document.createElement('span');
-    state.className = provider.id === modelInfo.provider ? 'pstate' : 'faint';
-    state.textContent = provider.id === modelInfo.provider ? 'in use' : provider.available ? '' : 'no key';
+    state.className = provider.id === modelInfo.defaultProvider ? 'pstate' : 'faint';
+    state.textContent = provider.id === modelInfo.defaultProvider ? 'default' : provider.available ? '' : 'no key';
+    const makeDefault = document.createElement('button');
+    makeDefault.className = 'pm';
+    makeDefault.textContent = 'Default';
+    makeDefault.title = 'Use ' + provider.label + ' as the default provider';
+    makeDefault.classList.toggle('hidden', provider.id === modelInfo.defaultProvider || !provider.available);
+    makeDefault.onclick = () => void pickDefaultProvider(provider.id);
     const edit = document.createElement('button');
     edit.className = 'pm';
     edit.textContent = 'Edit';
@@ -3046,7 +3052,7 @@ function renderProviders() {
     remove.textContent = '×';
     remove.setAttribute('aria-label', 'Remove ' + provider.label);
     remove.onclick = () => void removePhoneProvider(provider);
-    row.append(text, state, edit, remove);
+    row.append(text, state, makeDefault, edit, remove);
     list.appendChild(row);
     if (editingProvider === provider.id) list.appendChild(providerEditor(provider));
   }
@@ -3239,6 +3245,16 @@ function providersChanged(info) {
   fillModelPickers('setProvider', 'setModel');
   updateChips();
   renderProviders();
+}
+
+async function pickDefaultProvider(provider) {
+  try {
+    await jfetch('/api/model', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider, model: '', sessionId: null })
+    });
+    await loadModels();
+  } catch (error) { showError(error); }
 }
 
 async function savePhoneProvider(provider, edit) {

@@ -70,6 +70,8 @@ interface LiveSession {
 
 let workspaceRoot: string | null = null
 let selection: ProviderSelection | null = null
+/** The explicit provider/model to restore whenever global rotation is off. */
+let fallbackSelection: ProviderSelection | null = null
 const sessions = new Map<string, LiveSession>()
 const catalogues = new Map<ProviderId, ModelCatalogue>()
 /** Next badge colour, round-robin, so fresh sessions tell apart at a glance. */
@@ -98,7 +100,7 @@ function current(): ProviderSelection {
   return selection
 }
 
-/** The first connected provider is the deterministic non-rotation fallback. */
+/** Used only when no explicit default has ever been saved, or it was removed. */
 function firstConnectedSelection(): ProviderSelection {
   const provider = listProviders().find((entry) => entry.credentialAvailable)
   if (provider === undefined) return { provider: 'clinepass', model: '' }
@@ -106,6 +108,23 @@ function firstConnectedSelection(): ProviderSelection {
     provider: provider.id,
     model: chosenFor(provider.id)[0] ?? provider.defaultModel
   }
+}
+
+function fallback(): ProviderSelection {
+  if (fallbackSelection !== null) return fallbackSelection
+  const persisted = loadPersistedSettings()
+  const available = listProviders().some(
+    (provider) => provider.id === persisted.provider && provider.credentialAvailable
+  )
+  fallbackSelection = available && persisted.provider !== ROTATE_PROVIDER
+    ? { provider: persisted.provider as ProviderId, model: persisted.model ?? '' }
+    : firstConnectedSelection()
+  return fallbackSelection
+}
+
+function saveFallback(next: ProviderSelection): void {
+  fallbackSelection = { ...next }
+  savePersistedSettings({ provider: next.provider, model: next.model })
 }
 
 export function setWorkspaceRoot(root: string): void {
@@ -145,14 +164,10 @@ export function initPersistedState(): void {
   if (persisted.autoApprove !== undefined) {
     policy.setAutoApprove(persisted.autoApprove)
   }
-  if (persisted.provider !== null && persisted.provider !== undefined) {
-    const exists = persisted.provider === ROTATE_PROVIDER
-      ? rotationEnabled() && rotationEntries().length > 0
-      : listProviders().some((p) => p.id === persisted.provider && p.credentialAvailable)
-    if (exists) {
-      selection = { provider: persisted.provider, model: persisted.provider === ROTATE_PROVIDER ? '' : (persisted.model ?? '') }
-    }
-  }
+  fallback()
+  selection = rotationEnabled()
+    ? { provider: ROTATE_PROVIDER, model: '' }
+    : { ...fallback() }
   // Rotate usage is a global mode, not a per-composer selection. Restored
   // sessions and the new-session default must therefore agree immediately.
   if (rotationEnabled()) applyRotationEnabled(true)
@@ -170,6 +185,10 @@ export function forgetProvider(provider: ProviderId): void {
       delete live.choice
       changed = true
     }
+  }
+  if (fallback().provider === provider) {
+    fallbackSelection = null
+    saveFallback(firstConnectedSelection())
   }
   if (current().provider === provider) selection = null
   if (changed) persistSessions()
@@ -227,7 +246,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   const live = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
   if (sessionId !== null && sessionId !== undefined && live === undefined) throw new Error('Unknown session; reopen this tab')
   let chosen: ProviderSelection
-  if (rotationEnabled() && next.provider !== ROTATE_PROVIDER) {
+  if (rotationEnabled() && next.provider !== ROTATE_PROVIDER && live !== undefined) {
     throw new Error('Turn off Rotate usage before choosing a model')
   }
   if (next.provider === ROTATE_PROVIDER) {
@@ -235,7 +254,8 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     if (rotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
     chosen = { provider: ROTATE_PROVIDER, model: '' }
   } else {
-    if (!listProviders().some((provider) => provider.id === next.provider && provider.credentialAvailable)) {
+    const providerInfo = listProviders().find((provider) => provider.id === next.provider && provider.credentialAvailable)
+    if (providerInfo === undefined) {
       throw new Error('Provider unavailable. Configure its credentials first.')
     }
     const model = next.model.trim()
@@ -245,7 +265,17 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
       setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
     }
     // No model named: the first one chosen for that provider, or none yet.
-    chosen = { provider: next.provider, model: model !== '' ? model : (chosenFor(next.provider)[0] ?? '') }
+    chosen = {
+      provider: next.provider,
+      model: model !== '' ? model : (chosenFor(next.provider)[0] ?? providerInfo.defaultModel)
+    }
+  }
+
+  // The Providers page may change the saved fallback while rotation stays
+  // active. It does not unlock either composer or disturb rotating sessions.
+  if (rotationEnabled() && chosen.provider !== ROTATE_PROVIDER) {
+    saveFallback(chosen)
+    return
   }
 
   pinSessions()
@@ -256,7 +286,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     persistSessions()
   }
   selection = chosen
-  savePersistedSettings({ provider: chosen.provider, model: chosen.model })
+  if (chosen.provider !== ROTATE_PROVIDER) saveFallback(chosen)
 }
 
 /** True while a working session is talking to this provider. */
@@ -286,9 +316,8 @@ export function applyRotationEnabled(on: boolean): void {
   setRotationEnabled(on)
   const chosen = on
     ? { provider: ROTATE_PROVIDER, model: '' }
-    : firstConnectedSelection()
+    : { ...fallback() }
   selection = chosen
-  savePersistedSettings({ provider: chosen.provider, model: chosen.model })
   let changed = false
   for (const [sessionId, live] of sessions) {
     if (live.choice?.provider !== chosen.provider || live.choice.model !== chosen.model) changed = true
@@ -510,6 +539,8 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     workspaceRoot,
     provider: top.provider,
     model: top.model,
+    defaultProvider: fallback().provider,
+    defaultModel: fallback().model,
     autoApprove: policy.isAutoApprove(),
     providerReady: top.providerReady,
     blockedReason: top.blockedReason,

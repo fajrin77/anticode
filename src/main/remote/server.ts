@@ -515,6 +515,8 @@ function providerEdit(body: Record<string, unknown>): ProviderEdit {
 async function modelsPayload(sessionId: string | null = null): Promise<{
   provider: string
   model: string
+  defaultProvider: string
+  defaultModel: string
   lastUsed: ProviderSelection | null
   providers: {
     id: string; label: string; available: boolean; custom: boolean; models: string[]; listed: string[]
@@ -542,6 +544,8 @@ async function modelsPayload(sessionId: string | null = null): Promise<{
   return {
     provider: selected.provider,
     model: selected.model,
+    defaultProvider: selected.defaultProvider,
+    defaultModel: selected.defaultModel,
     lastUsed: selected.lastUsed,
     providers,
     rotation: selected.rotation,

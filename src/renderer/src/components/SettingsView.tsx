@@ -430,7 +430,7 @@ function Providers({
 
       <div className="glass-surface overflow-hidden rounded-xl border border-line">
         {providers.map((provider) => {
-          const active = provider.id === status?.provider
+          const active = provider.id === status?.defaultProvider
           const kind: ProviderKind = provider.kind ?? 'openai'
           const listed = provider.models ?? []
           const editingThis = open?.id === provider.id && open.action === 'edit'
@@ -461,11 +461,11 @@ function Providers({
                 {!active && provider.credentialAvailable && !removingThis && (
                   <button
                     type="button"
-                    title={`Start new sessions on ${provider.label}`}
+                    title={`Use ${provider.label} as the default provider`}
                     onClick={() => onSelectProvider(provider.id, '')}
                     className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
                   >
-                    Use
+                    Default
                   </button>
                 )}
                 {removingThis ? (
@@ -932,7 +932,7 @@ function Models({
         )}
         {matches.map((id) => {
           const on = picked.includes(id)
-          const isDefault = id === status?.model && status.provider === provider
+          const isDefault = id === status?.defaultModel && status.defaultProvider === provider
           return (
             <div
               key={id}

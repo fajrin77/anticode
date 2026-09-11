@@ -276,6 +276,9 @@ export interface SessionStatus {
    */
   provider: ProviderId
   model: string
+  /** Provider/model used when Rotate usage is off. */
+  defaultProvider: ProviderId
+  defaultModel: string
   autoApprove: boolean
   /** Whether the selected provider has credentials and a model name. */
   providerReady: boolean
