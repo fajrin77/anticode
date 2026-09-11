@@ -64,7 +64,20 @@ async function buildThumbnail(filePath: string): Promise<string | null> {
   }
 }
 
+/**
+ * The preview is a courtesy to the model, not a gate on the file: a workbook
+ * too large for the Excel tools, or a document that will not parse, still
+ * attaches. The model is told why it cannot see inside, and says so.
+ */
 async function buildPreview(kind: AttachmentInfo['kind'], filePath: string): Promise<string> {
+  try {
+    return await readPreview(kind, filePath)
+  } catch (error) {
+    return `(contents not previewed: ${(error as Error).message})`
+  }
+}
+
+async function readPreview(kind: AttachmentInfo['kind'], filePath: string): Promise<string> {
   switch (kind) {
     case 'text':
       return clip(await readFile(filePath, 'utf8'))
@@ -159,7 +172,7 @@ export async function prepareAttachment(
   if (info === null || !info.isFile()) throw new AttachmentError(`Not a file: ${filePath}`)
   if (info.size > MAX_BYTES) {
     throw new AttachmentError(
-      `File too large (${Math.round(info.size / 1024 / 1024)} MB, limit 20 MB)`
+      `File too large (${Math.round(info.size / 1024 / 1024)} MB, limit 100 MB)`
     )
   }
 

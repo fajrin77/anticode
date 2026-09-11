@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
 import { modelLabel, ROTATE_PROVIDER, VENDOR_BASE_URLS } from '@shared/ipc'
 import type {
@@ -566,6 +567,209 @@ function Providers({
   )
 }
 
+/** A whole provider, offered at the top of the model list in a group. */
+interface WholeProvider {
+  label: string
+  /** Its models switched on in Settings → Models right now. */
+  count: number
+  linked: boolean
+  onPick: () => void
+}
+
+/** Past this many ids the list is a search, not a menu. */
+const MAX_SUGGESTIONS = 200
+
+/**
+ * The model id field, its suggestions in the app's own menu rather than the
+ * OS's datalist — that one floats loose over the window in its own bold
+ * white. The menu is drawn in the body, under the field, because the card
+ * holding the field clips anything that leaves it.
+ */
+function ModelCombo({
+  value,
+  onChange,
+  suggestions,
+  placeholder,
+  whole
+}: {
+  value: string
+  onChange: (value: string) => void
+  suggestions: string[]
+  placeholder: string
+  whole: WholeProvider | null
+}): JSX.Element {
+  const fieldRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(-1)
+  const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null)
+
+  const needle = value.trim().toLowerCase()
+  const matches = suggestions
+    .filter((id) => needle === '' || (id.toLowerCase().includes(needle) && id !== value.trim()))
+    .slice(0, MAX_SUGGESTIONS)
+  const showWhole = whole !== null && needle === ''
+  const count = matches.length + (showWhole ? 1 : 0)
+
+  // Under the field when there is room, above it when there is not; kept
+  // there while the page scrolls or the window changes size.
+  useLayoutEffect(() => {
+    if (!open) return
+    function measure(): void {
+      const box = fieldRef.current?.getBoundingClientRect()
+      if (box === undefined) return
+      const below = window.innerHeight - box.bottom
+      setPlace(
+        below >= 220 || below >= box.top
+          ? { left: box.left, width: box.width, top: box.bottom + 4 }
+          : { left: box.left, width: box.width, bottom: window.innerHeight - box.top + 4 }
+      )
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function onOutside(event: MouseEvent): void {
+      const target = event.target as Node
+      if (!fieldRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [open])
+
+  useEffect(() => setActive(-1), [value])
+
+  useEffect(() => {
+    menuRef.current?.querySelector(`[data-combo-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
+  function pick(index: number): void {
+    if (showWhole && index === 0) {
+      if (whole !== null && !whole.linked) whole.onPick()
+    } else {
+      const id = matches[index - (showWhole ? 1 : 0)]
+      if (id !== undefined) onChange(id)
+    }
+    setOpen(false)
+  }
+
+  const itemClass = (index: number, disabled = false): string =>
+    `flex w-full items-baseline gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ${
+      disabled ? 'cursor-default text-faint' : `hover:bg-hover hover:text-brand ${index === active ? 'bg-hover text-brand' : 'text-dim'}`
+    }`
+
+  return (
+    <div ref={fieldRef} className="relative min-w-0 flex-1">
+      <input
+        value={value}
+        autoFocus
+        spellCheck={false}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
+        onChange={(event) => {
+          onChange(event.target.value)
+          setOpen(true)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            setOpen(true)
+            if (count === 0) return
+            const step = event.key === 'ArrowDown' ? 1 : -1
+            setActive((current) => (current + step + count) % count)
+            return
+          }
+          // A highlighted suggestion is taken; otherwise Enter adds what is typed.
+          if (event.key === 'Enter' && open && active >= 0) {
+            event.preventDefault()
+            event.stopPropagation()
+            pick(active)
+            return
+          }
+          if (event.key === 'Escape' && open) {
+            event.stopPropagation()
+            setOpen(false)
+          }
+        }}
+        className="glass-field w-full rounded-lg border border-line py-1.5 pr-8 pl-3 font-mono text-[12.5px] text-text outline-none placeholder:text-faint focus:border-hover"
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Show models"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setOpen((current) => !current)}
+        className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-faint transition-colors hover:text-brand"
+      >
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d={open ? 'M3.5 10l4.5-4.5 4.5 4.5' : 'M3.5 6l4.5 4.5 4.5-4.5'} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open &&
+        place !== null &&
+        count > 0 &&
+        createPortal(
+          <div
+            ref={menuRef}
+            data-model-combo
+            role="listbox"
+            style={{ position: 'fixed', left: place.left, width: place.width, top: place.top, bottom: place.bottom }}
+            className="menu-glass z-50 max-h-64 overflow-y-auto rounded-xl border p-1"
+          >
+            {showWhole && whole !== null && (
+              <>
+                <button
+                  type="button"
+                  data-combo-index={0}
+                  data-rotation-whole
+                  disabled={whole.linked}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => pick(0)}
+                  className={itemClass(0, whole.linked)}
+                >
+                  <span className="min-w-0 flex-1 truncate">All {whole.label} models</span>
+                  <span className="shrink-0 text-[11.5px] text-faint tabular-nums">
+                    {whole.linked ? 'in this group' : whole.count === 0 ? 'none switched on yet' : `${whole.count} switched on`}
+                  </span>
+                </button>
+                {matches.length > 0 && <div className="mx-2 my-1 border-t border-line-soft" />}
+              </>
+            )}
+            {matches.map((id, index) => {
+              const at = index + (showWhole ? 1 : 0)
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="option"
+                  aria-selected={at === active}
+                  data-combo-index={at}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => pick(at)}
+                  className={itemClass(at)}
+                >
+                  <span className="min-w-0 flex-1 truncate">{id}</span>
+                </button>
+              )
+            })}
+          </div>,
+          document.body
+        )}
+    </div>
+  )
+}
+
 /**
  * The Rotate usage pool: models that share the token load of every session
  * set to Rotate. A session stays on one for 2 prompts, then moves to the one
@@ -645,8 +849,18 @@ function RotateUsage({
     return settle(window.anticode.setRotationGroups(next))
   }
 
+  /**
+   * Every group as the main process takes it back: the models picked by hand,
+   * and the providers linked whole — not the models those links bring in, or
+   * unlinking one would leave its models behind as picked ones.
+   */
   function plainGroups(): RotationGroupInput[] {
-    return groups.map((group) => ({ id: group.id, name: group.name, entries: group.entries.map(plainEntry) }))
+    return groups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      entries: group.entries.filter((entry) => !group.providers.includes(entry.provider)).map(plainEntry),
+      providers: [...group.providers]
+    }))
   }
 
   /** Every group as it is, one of them rewritten — or, for null, removed. */
@@ -721,6 +935,33 @@ function RotateUsage({
     )
   }
 
+  /**
+   * Takes a provider whole into the group in view. A group still under the
+   * name it was made with takes the provider's name as well.
+   */
+  function link(provider: ProviderId): void {
+    if (viewed === null) return
+    const label = usable.find((entry) => entry.id === provider)?.label ?? provider
+    const nameFree = !groups.some((group) => group.id !== viewed.id && group.name.toLowerCase() === label.toLowerCase())
+    const rename = /^Group \d+$/.test(viewed.name) && nameFree
+    void saveGroups(
+      groupsWith(viewed.id, (group) => ({
+        ...group,
+        name: rename ? label : group.name,
+        providers: [...(group.providers ?? []), provider]
+      }))
+    ).then((saved) => {
+      if (saved) setAdding(null)
+    })
+  }
+
+  function unlink(provider: string): void {
+    if (viewed === null) return
+    void saveGroups(
+      groupsWith(viewed.id, (group) => ({ ...group, providers: (group.providers ?? []).filter((id) => id !== provider) }))
+    )
+  }
+
   function startAdding(replacing?: RotationEntryStatus): void {
     const first = usable[0]
     if (replacing !== undefined) {
@@ -747,8 +988,11 @@ function RotateUsage({
       replacing === undefined
         ? [...list, entry]
         : list.map((item) => (sameEntry(item, replacing) ? entry : plainEntry(item)))
+    // A model a provider link brought in is replaced where it lives, in the
+    // pool; the link then brings the replacement in if it is that provider's.
+    const linkedHere = replacing !== undefined && viewed !== null && viewed.providers.includes(replacing.provider)
     let saved: boolean
-    if (viewed !== null) {
+    if (viewed !== null && !linkedHere) {
       saved = await saveGroups(groupsWith(viewed.id, (group) => ({ ...group, entries: swapped(group.entries) })))
     } else if (replacing !== undefined) {
       // Replaced in the whole pool, it is replaced in every group it was in
@@ -884,8 +1128,42 @@ function RotateUsage({
               )}
             </div>
 
+            {/* A provider taken whole reads as one line; its models follow
+                below with the rest, since they rotate like any other. */}
+            {(viewed?.providers ?? []).map((provider) => {
+              const label = providers.find((entry) => entry.id === provider)?.label ?? provider
+              const count = pool.filter((entry) => entry.provider === provider).length
+              return (
+                <div
+                  key={`provider\n${provider}`}
+                  data-rotation-linked={provider}
+                  className="flex items-center gap-3 border-b border-line-soft px-5 py-3 last:border-b-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] text-text">All {label} models</div>
+                    <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                      {count === 0
+                        ? 'None switched on yet — switch some on in Settings → Models'
+                        : `${count} switched on in Settings → Models · ones switched on later join too`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    title={`Take ${label} out of ${viewed?.name ?? 'this group'}`}
+                    aria-label={`Take ${label} out of ${viewed?.name ?? 'this group'}`}
+                    onClick={() => unlink(provider)}
+                    className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
+                  >
+                    ×
+                  </button>
+                </div>
+              )
+            })}
             {shown.map((entry) => {
               const resting = entry.coolingUntil !== null && entry.coolingUntil > now
+              // Here because its provider is linked: it leaves with the link
+              // or by being switched off in Settings → Models, not on its own.
+              const viaLink = viewed !== null && viewed.providers.includes(entry.provider)
               const spent = entry.outOfUsage
               const replacingThis = adding?.replacing !== undefined && sameEntry(adding.replacing, entry)
               return (
@@ -934,23 +1212,32 @@ function RotateUsage({
                       Replace
                     </button>
                   )}
-                  <button
-                    type="button"
-                    title={viewed === null ? `Take ${entry.model} out of the rotation` : `Take ${entry.model} out of ${viewed.name}`}
-                    aria-label={viewed === null ? `Take ${entry.model} out of the rotation` : `Take ${entry.model} out of ${viewed.name}`}
-                    onClick={() => remove(entry)}
-                    className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
-                  >
-                    ×
-                  </button>
+                  {viaLink ? (
+                    <span
+                      className="shrink-0 px-2 py-0.5 text-[11.5px] text-faint"
+                      title={`In ${viewed.name} with every ${entry.label} model — switch it off in Settings → Models to leave`}
+                    >
+                      via {entry.label}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      title={viewed === null ? `Take ${entry.model} out of the rotation` : `Take ${entry.model} out of ${viewed.name}`}
+                      aria-label={viewed === null ? `Take ${entry.model} out of the rotation` : `Take ${entry.model} out of ${viewed.name}`}
+                      onClick={() => remove(entry)}
+                      className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               )
             })}
-            {shown.length === 0 && adding === null && (
+            {shown.length === 0 && (viewed?.providers.length ?? 0) === 0 && adding === null && (
               <div className="px-5 py-4 text-[12.5px] text-faint">
                 {viewed === null
                   ? 'No models yet. Add two or more to rotate between them.'
-                  : 'No models in this group yet. Add the ones that suit its work.'}
+                  : 'No models in this group yet. Add the ones that suit its work, or every model of one provider.'}
               </div>
             )}
             {adding !== null && (
@@ -976,20 +1263,23 @@ function RotateUsage({
                     </option>
                   ))}
                 </select>
-                <input
+                <ModelCombo
+                  key={adding.provider}
                   value={adding.model}
-                  autoFocus
-                  list="rotation-models"
-                  spellCheck={false}
+                  suggestions={suggestions}
                   placeholder={adding.replacing !== undefined ? `Replace ${adding.replacing.model} with…` : 'Model id'}
-                  onChange={(event) => setAdding({ ...adding, model: event.target.value })}
-                  className="glass-field min-w-0 flex-1 rounded-lg border border-line px-3 py-1.5 font-mono text-[12.5px] text-text outline-none placeholder:text-faint focus:border-hover"
+                  onChange={(model) => setAdding({ ...adding, model })}
+                  whole={
+                    viewed !== null && adding.replacing === undefined
+                      ? {
+                          label: usable.find((entry) => entry.id === adding.provider)?.label ?? adding.provider,
+                          count: pool.filter((entry) => entry.provider === adding.provider).length,
+                          linked: viewed.providers.includes(adding.provider),
+                          onPick: () => link(adding.provider)
+                        }
+                      : null
+                  }
                 />
-                <datalist id="rotation-models">
-                  {suggestions.map((id) => (
-                    <option key={id} value={id} />
-                  ))}
-                </datalist>
                 <button
                   type="button"
                   onClick={() => setAdding(null)}

@@ -514,7 +514,7 @@ try {
     // it gets is a separate mobile rendering of the active URL.
     const menuOrder = await screen.evaluate(() =>
       [...document.querySelectorAll('#menuDrop .mrow')].map((el) => el.textContent.trim()))
-    assert.deepEqual(menuOrder, ['New session','Sessions','Web','Files','Settings'])
+    assert.deepEqual(menuOrder, ['New session','Sessions','Web','Files','Export transcript','Settings'])
 
     const page = await createStaticPage()
     try {

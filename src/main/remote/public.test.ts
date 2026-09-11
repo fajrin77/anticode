@@ -45,7 +45,7 @@ it('labels the model chip as the desktop does, group included', () => {
     `const ROTATE = '${ROTATE_PROVIDER}'; const ROTATE_LABEL = '${ROTATE_LABEL}';` +
       pageFunction('activeRotationGroup') + pageFunction('modelLabel') + 'return modelLabel;'
   )() as (info: unknown) => string
-  const groups = [{ id: 'g1', name: 'code only', entries: [] }]
+  const groups = [{ id: 'g1', name: 'code only', entries: [], providers: [] }]
   for (const status of [
     { provider: ROTATE_PROVIDER, model: '', lastUsed: null, rotationGroups: groups, rotationGroup: null },
     { provider: ROTATE_PROVIDER, model: '', lastUsed: null, rotationGroups: groups, rotationGroup: 'g1' },

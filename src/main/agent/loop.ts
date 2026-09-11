@@ -201,6 +201,12 @@ export class AgentSession {
   private readonly fixedTools: Tool[] | null
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
+  /**
+   * The reply the model is writing right now, as far as it got. A pause that
+   * lands mid-reply keeps it in the history, so a resume carries on from its
+   * last word instead of paying to write the whole reply again.
+   */
+  private streamed = ''
   private projectInstructions: string | null | undefined
   /** Instructions sent while a run was working, waiting for its next step. */
   private followUps: FollowUp[] = []
@@ -377,6 +383,7 @@ export class AgentSession {
     } catch (error) {
       this.pendingImages = []
       this.sealPendingToolUses()
+      if (signal.aborted) this.keepInterruptedReply()
       if (signal.aborted) {
         emit({ type: 'end', runId, reason: 'cancelled' })
       } else {
@@ -413,6 +420,7 @@ export class AgentSession {
 
   private async streamTurn(params: RunParams): Promise<LLMResponse> {
     let response: LLMResponse | null = null
+    this.streamed = ''
 
     const iterator = this.provider.chat({
       system: this.systemPrompt(), messages: this.history,
@@ -430,7 +438,10 @@ export class AgentSession {
         if (next.done) break
         params.signal.throwIfAborted()
         const event = next.value
-        if (event.type === 'text_delta') params.emit({ type: 'text_delta', runId: params.runId, text: event.text })
+        if (event.type === 'text_delta') {
+          this.streamed += event.text
+          params.emit({ type: 'text_delta', runId: params.runId, text: event.text })
+        }
         else response = event.response
       }
     } finally {
@@ -441,6 +452,8 @@ export class AgentSession {
     }
 
     if (!response) throw new Error('Provider returned no response')
+    // Finished, it is recorded whole; only a reply cut off is kept from here.
+    this.streamed = ''
     return response
   }
 
@@ -733,6 +746,19 @@ export class AgentSession {
   }
 
   /**
+   * Stopped while the model was writing: what it wrote so far stays, as its
+   * turn, so a resume continues it rather than starting it over. A tool call
+   * it was halfway through spelling out cannot be kept — its arguments are cut
+   * off — but the words before it are.
+   */
+  private keepInterruptedReply(): void {
+    const said = this.streamed.trim()
+    this.streamed = ''
+    if (said === '' || this.history.at(-1)?.role !== 'user') return
+    this.record({ role: 'assistant', content: [{ type: 'text', text: said }] })
+  }
+
+  /**
    * A cancelled turn can leave an assistant message whose tool_use blocks have no
    * matching tool_result. Providers reject that history on the next request, so
    * close the gap before the run ends.
@@ -927,7 +953,8 @@ export class AgentSession {
         'To change an attached file, read it first, then edit that copy in place — or write a ' +
           'new file next to it when the user wants a separate one. You can also create new ' +
           'documents there. Every document you write is offered to the user as a download on ' +
-          'the desktop and the phone, so say what you changed instead of pasting the file back.',
+          'the desktop and the phone, so say what you changed instead of pasting the file back. ' +
+          'To hand back a file you did not write — an attachment as it is — call share_file on it.',
         'Without an attachment there is nothing to edit: ask the user to attach the file.',
         'Do not offer scripts for the user to run as a substitute unless they ask for one.',
         'Reply in the language the user writes in; be concise and to the point.',
@@ -954,7 +981,13 @@ export class AgentSession {
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
       '- Files the user attaches from outside the project are copied into .anticode/uploads/. ' +
-        'To change one, work on that copy; the files you write are offered to the user as downloads.',
+        'To change one, work on that copy.',
+      '- A file reaches the user as a downloadable card only in two ways: a document ' +
+        '(.pdf, .xlsx, .xlsm, .docx, .csv, .pptx, .zip) written successfully by one of your tools, or a ' +
+        'share_file call. Anything else — source files, files copied or built with run_command — is ' +
+        'invisible to the user until you call share_file on it. ' +
+        'When the user wants to get or open a file, call share_file; never say a file is shown or ' +
+        'downloadable unless one of those calls succeeded in this turn.',
       '- Reply in the language the user writes in; be concise and to the point.',
       '- Do not use emojis or decorative symbols in your replies.'
     ]

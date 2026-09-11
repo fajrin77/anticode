@@ -15,18 +15,21 @@ function extensionOf(target: string): string {
  * The documents a run produced, read back from its own tool calls. Only
  * successful writes count, and only of the kinds someone would want to keep —
  * source files stay where they belong, in the diff. antichat has no project
- * to keep them in, so there every file it writes is one to hand back.
+ * to keep them in, so there every file it writes is one to hand back. A file
+ * the agent passed to `share_file` always counts: it was handed over on
+ * purpose, whatever its kind.
  */
 export function documentsProduced(parts: MessagePart[], everyFile = false): string[] {
   const paths: string[] = []
   for (const part of parts) {
     if (part.kind !== 'tool' || part.status !== 'ok') continue
-    if (!/^(write|create|fill|add|format)_/.test(part.name)) continue
+    const shared = part.name === 'share_file'
+    if (!shared && !/^(write|create|fill|add|format)_/.test(part.name)) continue
     if (part.input === null || typeof part.input !== 'object') continue
     const input = part.input as Record<string, unknown>
     const target = typeof input.output_path === 'string' ? input.output_path : input.path
     if (typeof target !== 'string') continue
-    if (!everyFile && !DOCUMENT_EXTENSIONS.includes(extensionOf(target))) continue
+    if (!shared && !everyFile && !DOCUMENT_EXTENSIONS.includes(extensionOf(target))) continue
     if (!paths.includes(target)) paths.push(target)
   }
   return paths

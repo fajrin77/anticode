@@ -397,6 +397,42 @@ it('adds a model a group names to the pool, and drops it from groups when it lea
   expect(getStatus().rotationGroups[0]?.entries).toEqual([])
 })
 
+it('rotates a group linked to a provider over every model of it switched on, now and later', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'two', model: 'm2b' }])
+  applyRotationGroups([{ name: 'Two', entries: [], providers: ['two'] }])
+  const group = getStatus().rotationGroups[0]!
+  expect(group.providers).toEqual(['two'])
+  expect(group.entries.map((entry) => entry.model)).toEqual(['m2', 'm2b'])
+
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  applyRotationGroup(group.id)
+  const seen = new Set([modelOf('a'), modelOf('a'), modelOf('a'), modelOf('a')])
+  expect([...seen].sort()).toEqual(['m2', 'm2b'])
+
+  // A link, not a copy: switched on later, a model joins; switched off, it leaves.
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2b' }, { provider: 'two', model: 'm2c' }])
+  expect(getStatus().rotationGroups[0]?.entries.map((entry) => entry.model)).toEqual(['m2b', 'm2c'])
+})
+
+it('keeps a provider link when a group comes back with its models spelled out and no links', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  applyRotationGroups([{ name: 'mixed', entries: [{ provider: 'one', model: 'm1' }], providers: ['two'] }])
+  // What an older client sends back: the resolved list, no `providers`.
+  const shown = getStatus().rotationGroups[0]!
+  applyRotationGroups([{ id: shown.id, name: 'mixed', entries: shown.entries }])
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'two', model: 'm2b' }])
+  const after = getStatus().rotationGroups[0]!
+  expect(after.providers).toEqual(['two'])
+  expect(after.entries.map((entry) => entry.model)).toEqual(['m1', 'm2', 'm2b'])
+
+  // Unlinked the way Settings does it — hand-picked models only — the
+  // provider's models leave with the link.
+  const picked = after.entries.filter((entry) => !after.providers.includes(entry.provider))
+  applyRotationGroups([{ id: after.id, name: 'mixed', entries: picked, providers: [] }])
+  expect(getStatus().rotationGroups[0]?.entries.map((entry) => entry.model)).toEqual(['m1'])
+})
+
 it('blocks Rotate while the group in use is empty, and falls back to the pool when it is removed', () => {
   applyRotation([{ provider: 'one', model: 'm1' }])
   applyRotationGroups([{ name: 'media only', entries: [] }])

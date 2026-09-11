@@ -527,6 +527,46 @@ it('cancels even when a provider ignores its abort signal', async () => {
   expect(events.at(-1)).toMatchObject({type: 'end', reason: 'cancelled'})
 })
 
+it('keeps a reply cut off by a pause, so the resume continues it instead of writing it again', async () => {
+  const controller = new AbortController()
+  const sent: Message[][] = []
+  let call = 0
+  const provider: LLMProvider = { name: 'slow', model: 'slow', async *chat(params) {
+    sent.push(structuredClone(params.messages))
+    if (call++ === 0) {
+      yield { type: 'text_delta', text: 'Bagian satu, ' }
+      yield { type: 'text_delta', text: 'bagian dua' }
+      await new Promise(() => {})
+    }
+    yield { type: 'response', response: turn([{ type: 'text', text: 'lanjutan' }], 'end_turn') }
+  } }
+  const session = new AgentSession(provider, allowAll, 'chat')
+  let deltas = 0
+  await session.run({ runId: 'paused', prompt: 'tulis panjang', signal: controller.signal, emit: (event) => {
+    if (event.type === 'text_delta' && ++deltas === 2) controller.abort()
+  } })
+  await session.run({ runId: 'resumed', prompt: CONTINUE_PROMPT, signal: new AbortController().signal, emit: () => {} })
+  expect(sent[1]?.map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
+  expect(sent[1]?.[1]?.content).toEqual([{ type: 'text', text: 'Bagian satu, bagian dua' }])
+})
+
+it('does not keep a finished reply twice when the pause lands on the tools it asked for', async () => {
+  const controller = new AbortController()
+  const provider = new FakeProvider([
+    turn([{ type: 'text', text: 'Membaca dulu.' }, { type: 'tool_use', id: 't1', name: 'list_directory', input: {} }], 'tool_use'),
+    turn([{ type: 'text', text: 'selesai' }], 'end_turn')
+  ])
+  const session = new AgentSession(provider, allowAll, 'code', root)
+  await session.run({ runId: 'paused', prompt: 'baca', signal: controller.signal, emit: (event) => {
+    if (event.type === 'tool_start') controller.abort()
+  } })
+  const said = session.snapshot().messages
+    .filter((message) => message.role === 'assistant')
+    .flatMap((message) => message.content.filter((block) => block.type === 'text').map((block) => block.type === 'text' ? block.text : ''))
+  expect(said).toEqual(['Membaca dulu.'])
+  expect(session.snapshot().messages.at(-1)?.role).toBe('user')
+})
+
 it('keeps the full transcript even when replay history is trimmed', async () => {
   const provider = new FakeProvider([
     turn([{type:'text',text:'ok'}], 'end_turn'),

@@ -7,6 +7,7 @@ import { listDirectoryTool } from './listDirectory'
 import { runCommandTool } from './runCommand'
 import { deleteFileTool } from './deleteFile'
 import { searchFilesTool } from './searchFiles'
+import { shareFileTool } from './shareFile'
 import {
   addExcelFormulaTool,
   createExcelTool,
@@ -37,6 +38,7 @@ export const tools: Tool[] = [
   editFileTool,
   listDirectoryTool,
   searchFilesTool,
+  shareFileTool,
   runCommandTool,
   deleteFileTool,
   readExcelTool,
@@ -69,6 +71,7 @@ const CHAT_TOOL_NAMES = new Set([
   'write_file',
   'edit_file',
   'list_directory',
+  'share_file',
   'read_excel',
   'create_excel',
   'write_excel_cell',

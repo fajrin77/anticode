@@ -588,6 +588,57 @@ try {
   const allTabAfter = await allTab.boundingBox()
   check('settings: putting a group in use moves no tab',
     allTabBefore?.x === allTabAfter?.x && allTabBefore?.width === allTabAfter?.width ? 'still' : 'moved', 'still')
+
+  // The model list is the app's own menu, hanging under its field in the grey
+  // the provider names wear — not the OS datalist, loose over the window in
+  // bold white.
+  await addRotation.click(); await window.waitForTimeout(300)
+  const combo = window.locator('[data-model-combo]')
+  check('settings: rotate usage models open in the app’s own menu', String(await combo.count()), '1')
+  check('settings: the model list hangs under its field', await window.evaluate(() => {
+    const field = document.querySelector('[role="combobox"]').getBoundingClientRect()
+    const menu = document.querySelector('[data-model-combo]').getBoundingClientRect()
+    return menu.top >= field.bottom && Math.abs(menu.left - field.left) < 1 && Math.abs(menu.width - field.width) < 1
+      ? 'under the field' : `field ${field.left},${field.bottom} menu ${menu.left},${menu.top}`
+  }), 'under the field')
+  const option = combo.locator('[role="option"]').first()
+  check('settings: model ids in the list are grey at rest', await colourOf(option), 'rgb(154, 154, 154)')
+  await limeOnHover('settings: rotate usage model id', option)
+  await shot('18b2b-rotate-usage-model-list')
+  const whole = combo.locator('[data-rotation-whole]')
+  check('settings: a group offers every model of a provider', /^All Clinepass models/.test(await whole.innerText()) ? 'offered' : await whole.innerText(), 'offered')
+  await limeOnHover('settings: rotate usage every model of a provider', whole)
+  await whole.click(); await window.waitForTimeout(400)
+  check('settings: the group takes the provider whole', await window.evaluate(async () => {
+    const status = await window.anticode.getStatus()
+    const group = status.rotationGroups.find((item) => item.name === 'code only')
+    return `${group?.providers.join(',')} · ${group?.entries.map((entry) => entry.model).join(',')}`
+  }), 'clinepass · test-model')
+  const linkedRow = window.locator('[data-rotation-linked="clinepass"]')
+  check('settings: the linked provider reads as one line', String(await linkedRow.count()), '1')
+  await limeOnHover('settings: taking the provider out of the group', linkedRow.getByRole('button'))
+  await shot('18b3-rotate-usage-provider-group')
+
+  // The group in use is switched from the composer too, through the main
+  // process, so every screen follows.
+  await window.getByTitle('Settings').first().click(); await window.waitForTimeout(400)
+  await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
+  const pickAll = window.locator('[data-picker-group="All models"]')
+  check('model picker: offers the rotate groups', String(await window.locator('[data-picker-group]').count()), '2')
+  await limeOnHover('model picker: a rotate group', pickAll)
+  await pickAll.click(); await window.waitForTimeout(400)
+  check('model picker: switching the group reaches the main process',
+    await window.evaluate(async () => String((await window.anticode.getStatus()).rotationGroup)), 'null')
+  await window.locator('[data-picker-group="code only"]').click(); await window.waitForTimeout(400)
+  check('model picker: and back again', await window.evaluate(async () => {
+    const status = await window.anticode.getStatus()
+    return status.rotationGroups.find((group) => group.id === status.rotationGroup)?.name ?? 'none'
+  }), 'code only')
+  await shot('18b4-model-picker-groups')
+  await window.keyboard.press('Escape'); await window.waitForTimeout(250)
+  await window.getByTitle('Settings').first().click(); await window.waitForTimeout(400)
+  await window.getByRole('button',{name:/Providers/}).click(); await window.waitForTimeout(300)
+  await window.locator('[data-rotation-group="code only"]').click(); await window.waitForTimeout(300)
   const deleteGroup = window.getByRole('button', { name: 'Delete group' })
   check('settings: deleting a group is red on hover', await colourOnHover(deleteGroup, 'rgb(224, 108, 108)'), 'rgb(224, 108, 108)')
   await shot('18b2-rotate-usage-group')

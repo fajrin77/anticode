@@ -72,7 +72,7 @@ menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap
 | | antichat | anticode |
 |---|---|---|
 | Folder project | tidak perlu | wajib |
-| Tool | tidak ada sama sekali | kedua puluh enam tool |
+| Tool | tidak ada sama sekali | kedua puluh tujuh tool |
 | Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
 
 antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider

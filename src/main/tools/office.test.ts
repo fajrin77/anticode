@@ -467,4 +467,12 @@ describe('attachment handler', () => {
     await writeFile(file, Buffer.alloc(101 * 1024 * 1024))
     await expect(prepareAttachment(file, root)).rejects.toThrow(/too large/)
   })
+
+  it('still attaches a workbook too large for the Excel tools, and says why', async () => {
+    const file = path.join(root, 'besar.xlsx')
+    await writeFile(file, Buffer.alloc(31 * 1024 * 1024))
+    const attachment = await prepareAttachment(file, root)
+    expect(attachment.kind).toBe('excel')
+    expect(attachment.preview).toMatch(/contents not previewed: Workbook too large to open whole/)
+  })
 })

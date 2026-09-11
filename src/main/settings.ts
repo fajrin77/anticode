@@ -29,7 +29,7 @@ export interface PersistedRotation {
   /** Tokens per entry since the last reset, keyed by rotationKey. */
   usage: Record<string, { inputTokens: number; outputTokens: number }>
   /** Named parts of the pool; absent means none were made. */
-  groups?: { id: string; name: string; entries: { provider: string; model: string }[] }[]
+  groups?: { id: string; name: string; entries: { provider: string; model: string }[]; providers?: string[] }[]
   /** The group in use; absent or null means the whole pool. */
   group?: string | null
   /** Entries whose quota ran out, keyed by rotationKey. */

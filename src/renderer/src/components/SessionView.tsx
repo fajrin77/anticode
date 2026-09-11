@@ -9,6 +9,7 @@ import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
 import { DiffView } from './DiffView'
 import { formatUsd } from '../money'
+import { PAUSE_LABEL, RESUME_LABEL } from '../labels'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -39,21 +40,33 @@ function groupBlocks(parts: MessagePart[]): Block[] {
 
 function ToolGroup({
   parts,
+  live = false,
   open: openFromParent,
   onToggle: toggleFromParent
 }: {
   parts: ToolPart[]
+  /**
+   * The run's newest group, with nothing after it yet. It stays "working"
+   * between two steps too — the gap while the model picks its next tool —
+   * or the line would flip to "ran" and back on every step.
+   */
+  live?: boolean
   /** Given while this is the live run: the working line folds it. */
   open?: boolean
   onToggle?: () => void
 }): JSX.Element {
   const [openSelf, setOpenSelf] = useState(false)
+  // Mirrors the live state, so the group stays as the user left it once the
+  // run moves past it instead of snapping shut.
+  useEffect(() => {
+    if (openFromParent !== undefined) setOpenSelf(openFromParent)
+  }, [openFromParent])
   const open = openFromParent ?? openSelf
   const setOpen = (change: (value: boolean) => boolean): void => {
     if (toggleFromParent !== undefined) toggleFromParent()
     else setOpenSelf(change)
   }
-  const running = parts.some((part) => part.status === 'running')
+  const running = live || parts.some((part) => part.status === 'running')
   const failed = parts.filter((part) => part.status === 'error').length
 
   return (
@@ -232,12 +245,18 @@ async function retryLastPrompt(sessionId: string, choice: ProviderSelection | nu
 function MessageView({
   message,
   sessionId,
-  lastAnswer
+  lastAnswer,
+  paused = false
 }: {
   message: Message
   sessionId: string
   /** The session's latest finished reply, which can be answered again. */
   lastAnswer: boolean
+  /**
+   * The run was paused, not finished: its steps stay in view, with no closing
+   * line or retry — a resume carries the same work on.
+   */
+  paused?: boolean
 }): JSX.Element {
   const [stepsOpen, setStepsOpen] = useState(false)
   const busy = useSessionBusy(sessionId)
@@ -267,9 +286,13 @@ function MessageView({
 
   const blocks = groupBlocks(message.parts)
   const tail = blocks.at(-1)
+  // Live for the whole stretch of steps, not only while one of them runs:
+  // only text after the group ends it.
   const tailRunning =
-    tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
-  const done = message.summary !== undefined
+    tail !== undefined &&
+    tail.kind === 'tools' &&
+    (message.pending || tail.parts.some((part) => part.status === 'running'))
+  const done = message.summary !== undefined && !paused
   const documents = documentsProduced(message.parts, chat)
   // While the run streams, keep live tool details closed unless the user opens
   // them. Auto-opening the first streamed tool made the transcript flash between
@@ -304,18 +327,20 @@ function MessageView({
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
-            {...(tailRunning && block === tail ? { open: liveOpen, onToggle: () => setLiveOpen((value) => !value) } : {})}
+            {...(tailRunning && block === tail ? { live: true, open: liveOpen, onToggle: () => setLiveOpen((value) => !value) } : {})}
           />
         )
       })}
       {documents.length > 0 && <Artifacts sessionId={sessionId} paths={documents} />}
+      {/* The same box as a step group's line: when the next step starts, its
+          group takes this line's place and nothing below moves. */}
       {message.pending && !tailRunning && (
         <button
           type="button"
           onClick={() => setLiveOpen(true)}
-          className="mt-2 flex items-center gap-2.5 text-[14px] text-dim transition-colors hover:text-brand"
+          className="my-3 flex items-center gap-2.5 text-[14px] text-dim transition-colors hover:text-brand"
         >
-          <span className="h-2.5 w-2.5 animate-breathe rounded-full bg-dim" />
+          <span className="h-2 w-2 shrink-0 animate-breathe rounded-full bg-dim" />
           working
         </button>
       )}
@@ -681,6 +706,29 @@ function ReplyToSelection({ sessionId }: { sessionId: string }): JSX.Element {
   )
 }
 
+function isNotice(message: Message | undefined, text: string): boolean {
+  return message?.parts.some((part) => part.kind === 'notice' && part.text === text) === true
+}
+
+/**
+ * Replies whose run a pause stopped: the pause or resume marker follows them,
+ * or — in a session paused right now, the marker not drawn yet — they are the
+ * latest reply of all.
+ */
+function pausedTurns(messages: Message[], sessionPaused: boolean): Set<string> {
+  const ids = new Set<string>()
+  messages.forEach((message, index) => {
+    if (message.role !== 'assistant' || message.parts.every((part) => part.kind === 'notice')) return
+    const next = messages[index + 1]
+    if (isNotice(next, PAUSE_LABEL) || isNotice(next, RESUME_LABEL)) ids.add(message.id)
+  })
+  if (sessionPaused) {
+    const latest = messages.findLast((message) => message.role === 'assistant' && message.parts.some((part) => part.kind !== 'notice'))
+    if (latest !== undefined) ids.add(latest.id)
+  }
+  return ids
+}
+
 /** How close to the end still counts as reading the end, in pixels. */
 const FOLLOW_SLACK = 80
 
@@ -690,8 +738,11 @@ export function SessionView(): JSX.Element {
   const messages = session?.messages ?? []
   // The latest finished reply with no prompt after it is the one Retry answers.
   const lastPrompt = messages.findLastIndex(isTypedPrompt)
+  const sessionPaused = useSessionStore((state) => session !== undefined && state.pausedSessions[session.id] === true)
+  const pausedIds = pausedTurns(messages, sessionPaused)
   const lastAnswerId = messages.findLast(
-    (message, index) => index > lastPrompt && message.role === 'assistant' && message.summary !== undefined
+    (message, index) =>
+      index > lastPrompt && message.role === 'assistant' && message.summary !== undefined && !pausedIds.has(message.id)
   )?.id
   // The transcript follows new output only while the reader is at its end.
   // Scrolling up to read stops it; scrolling back down, sending a prompt, or
@@ -726,6 +777,7 @@ export function SessionView(): JSX.Element {
               message={message}
               sessionId={session?.id ?? ''}
               lastAnswer={message.id === lastAnswerId}
+              paused={pausedIds.has(message.id)}
             />
           ))}
         </div>

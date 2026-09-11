@@ -231,7 +231,7 @@
      what it cost. Centred and faint, exactly as on the desktop. */
   .runsum {
     display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
-    gap: 8px; margin-top: 8px; color: #6d6d6d; font-size: 12.5px;
+    gap: 8px; margin: 12px 0; min-height: 25px; color: #6d6d6d; font-size: 12.5px;
   }
   .runsum .copy {
     display: inline-flex; align-items: center; background: none; border: none;
@@ -323,9 +323,11 @@
   #fileBody img { display: block; margin: auto; max-width: 100%; }
   #fileBody .vmsg { padding: 28px 20px; color: #9a9a9a; font-size: 14px; text-align: center; }
   .att img { cursor: zoom-in; }
-  .working { display: flex; align-items: center; gap: 8px; color: #9a9a9a; padding: 8px 0; }
+  /* The same box as a step group's line and the run's closing line: one
+     takes the other's place as the run goes on, and nothing below moves. */
+  .working { display: flex; align-items: center; gap: 10px; color: #9a9a9a; margin: 12px 0; padding: 2px 0; font-size: 14px; }
   .working .dot {
-    width: 10px; height: 10px; border-radius: 50%; background: #9a9a9a;
+    flex: none; width: 8px; height: 8px; border-radius: 50%; background: #9a9a9a;
     animation: breathe 1.6s ease-in-out infinite;
   }
   @keyframes breathe {
@@ -343,20 +345,22 @@
     z-index: 20;
   }
   /* The plan todo_write published last, folded to a line until tapped. */
-  #planRow { flex: 0 0 100%; font-size: 12.5px; background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; padding: 6px 10px; }
+  /* min-width 0: a flex item otherwise grows to fit its longest unwrapped
+   * line, and the collapsed plan's one-line step pushed out of the composer. */
+  #planRow { flex: 0 0 100%; min-width: 0; font-size: 12.5px; background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; padding: 6px 10px; }
   #planRow .phead { display: flex; gap: 8px; align-items: center; }
   #planRow .phead:active .plabel { color: #d1fa22; }
   #planRow .plabel { color: #9a9a9a; flex: none; }
   #planRow .pcount { color: #6d6d6d; flex: none; font-variant-numeric: tabular-nums; }
   #planRow .pnow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9a9a9a; }
   #planRow ol { margin: 6px 0 0; padding: 0; list-style: none; max-height: 30vh; overflow-y: auto; }
-  #planRow li { display: flex; gap: 8px; padding: 1px 0; color: #9a9a9a; }
+  #planRow li { display: flex; gap: 8px; padding: 1px 0; color: #9a9a9a; overflow-wrap: anywhere; }
   #planRow li .pm { flex: none; width: 12px; text-align: center; color: #6d6d6d; }
   #planRow li.done { color: #6d6d6d; text-decoration: line-through; }
   #planRow li.done .pm { color: #5ac37f; text-decoration: none; }
   #planRow li.now { color: #ededed; }
   /* Prompts waiting for the run to finish, oldest first, above everything else. */
-  #queueRow { flex: 0 0 100%; display: flex; flex-direction: column; gap: 4px; }
+  #queueRow { flex: 0 0 100%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   #queueRow .qitem {
     display: flex; align-items: center; gap: 8px; font-size: 12.5px;
     background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; padding: 6px 10px;
@@ -756,7 +760,7 @@
   </div>
   <button id="sendBtn" onclick="onSendBtn()" aria-label="Send"></button>
   <div id="chipRow">
-    <button id="modelChip" onclick="openSettings('model')" title="Model"><span class="modelText">…</span></button>
+    <button id="modelChip" onclick="openSettings(modelInfo?.rotationEnabled === true ? 'rotation' : 'model')" title="Model"><span class="modelText">…</span></button>
     <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
     <button id="followChip" class="hidden" onclick="toggleFollowMode()" title="What a prompt sent while the run works does">steer</button>
     <span class="grow"></span>
@@ -1448,7 +1452,7 @@ async function syncSession(id) {
   currentRunId = payload.runId;
   if (payload.paused) pausedSessions.add(id); else pausedSessions.delete(id);
   hideWorking();
-  liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null;
+  liveEl = null; liveRun = null; liveGroup = null; sealedGroups = []; steerAnchor = null;
   // Redrawn from scratch when a run ends: a reader scrolled up stays where
   // they were; a session just opened starts at its latest reply.
   if (syncedSession !== id) following = true;
@@ -1752,11 +1756,13 @@ function toolRowEl(item) {
 
 /* A run of tool calls folds into one line — the desktop's ToolGroup, verbatim:
  * "ran 5 steps" while it is history, "working · 5 steps" while it runs. */
-function toolGroupEl(items) {
+function toolGroupEl(items, live = false) {
   const details = document.createElement('details');
   details.className = 'tgroup';
   const summary = document.createElement('summary');
-  const running = items.some((item) => item.result === undefined);
+  // The live group says "working" between steps too, while the model picks
+  // its next tool — otherwise it flips to "ran" and back on every step.
+  const running = live || items.some((item) => item.result === undefined);
   const failed = items.filter((item) => item.result?.isError === true).length;
   const dot = document.createElement('span');
   dot.className = 'tdot' + (running ? ' live' : failed > 0 ? ' bad' : '');
@@ -1980,9 +1986,10 @@ async function applyStreamEvent(id, event) {
       else if (currentSession === id) showSessionHeader(id);
     }
     else if (event.type === 'prompt') {
-      currentRunId = event.runId; liveEl = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
+      currentRunId = event.runId; liveEl = null; liveRun = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
       else appendUserBubble(event.text, event.attachments);
+      liveRunEl();
       showWorking();
     }
     else if (event.type === 'steer') {
@@ -1996,23 +2003,30 @@ async function applyStreamEvent(id, event) {
     else if (event.type === 'steer_taken') {
       // From here the run answers the new instructions: its output goes below
       // them, and steps still in flight settle where they were drawn.
-      currentRunId = event.runId; steerAnchor = null; liveEl = null; hideWorking();
+      currentRunId = event.runId; steerAnchor = null; liveEl = null; liveRun = null; hideWorking();
+      settleLiveGroup();
       if (liveGroup !== null) sealedGroups.push(liveGroup);
       liveGroup = null;
       showWorking();
     }
-    else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
+    else if (event.type === 'text_delta') {
+      currentRunId = event.runId; settleLiveGroup(); liveGroup = null; appendLive(event.text);
+      // Under the text as it streams, as on the desktop — not taken away the
+      // moment words arrive, which dropped the transcript by a line.
+      showWorking();
+    }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output, event.diff); }
     else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
-    else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; appendNotice(event.text); }
+    else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; liveRun = null; appendNotice(event.text); }
     else if (event.type === 'end' || event.type === 'error') {
       steerAnchor = null;
-      hideWorking();
       liveGroup = null;
       currentRunId = null;
       updateSendBtn();
-      try { await syncSession(id); } catch (error) { showError(error); }
+      // The working line stays until the redraw puts the closing line in its
+      // place; taken away first, the transcript dipped while the fetch ran.
+      try { await syncSession(id); } catch (error) { hideWorking(); showError(error); }
       if (event.type === 'error' && currentSession === id) appendLive('Error: ' + event.message);
     }
     updateSendBtn();
@@ -2051,7 +2065,8 @@ function showWorking() {
         if (summary !== null) summary.click();
       }
     });
-    placeLive(workingEl);
+    if (liveRun !== null && document.getElementById('transcript').contains(liveRun)) liveRun.appendChild(workingEl);
+    else placeLive(workingEl);
   }
   // The steps are open right now: the working line steps aside instead of
   // duplicating what the expanded group already says.
@@ -2089,7 +2104,10 @@ function liveToolEnd(toolUseId, ok, output, diff) {
     entry.result = { content: output, isError: !ok, diff };
     const el = document.getElementById('transcript');
     const next = toolGroupEl(sealed.items);
-    if (sealed.el !== null && el.contains(sealed.el)) el.replaceChild(next, sealed.el);
+    if (sealed.el !== null && el.contains(sealed.el)) {
+      next.open = sealed.el.open;
+      sealed.el.replaceWith(next);
+    }
     sealed.el = next;
     return;
   }
@@ -2097,20 +2115,62 @@ function liveToolEnd(toolUseId, ok, output, diff) {
   redrawLiveGroup();
 }
 
-/* While a step is in flight the group says so itself; once they have all
- * landed the model is thinking again, which is what the working dot means. */
+/* The group says "working" itself for as long as it is the newest thing the
+ * run drew, so no separate working line comes and goes between steps. It is
+ * rebuilt on every step; an open group stays open. */
 function redrawLiveGroup() {
   const el = document.getElementById('transcript');
-  const next = toolGroupEl(liveGroup.items);
-  if (liveGroup.el !== null && el.contains(liveGroup.el)) el.replaceChild(next, liveGroup.el);
-  else placeLive(next);
+  const next = toolGroupEl(liveGroup.items, true);
+  if (liveGroup.el !== null && el.contains(liveGroup.el)) {
+    next.open = liveGroup.el.open;
+    liveGroup.el.replaceWith(next);
+  } else {
+    placeInRun(next);
+  }
   liveGroup.el = next;
-  if (liveGroup.items.some((item) => item.result === undefined)) hideWorking();
-  else showWorking();
+  hideWorking();
   followBottom();
 }
 
+/* Something came after the live group — text, or a follow-up taken in — so
+ * it is history now and reads "ran N steps", still open if it was. */
+function settleLiveGroup() {
+  const el = document.getElementById('transcript');
+  if (liveGroup === null || liveGroup.el === null || !el.contains(liveGroup.el)) return;
+  const next = toolGroupEl(liveGroup.items);
+  next.open = liveGroup.el.open;
+  liveGroup.el.replaceWith(next);
+  liveGroup.el = next;
+}
+
 let liveEl = null;
+
+/* One run's output, drawn the way the settled transcript draws it — one
+ * assistant message holding its text and its step groups, the working line
+ * last — so the redraw when the run ends puts everything where it already is. */
+let liveRun = null;
+function liveRunEl() {
+  const el = document.getElementById('transcript');
+  if (liveRun === null || !el.contains(liveRun)) {
+    liveRun = document.createElement('div');
+    liveRun.className = 'msg assistant';
+    // A working line drawn before the run had a place of its own moves in.
+    if (workingEl !== null && workingEl.parentNode === el) {
+      el.insertBefore(liveRun, workingEl);
+      liveRun.appendChild(workingEl);
+    } else {
+      placeLive(liveRun);
+    }
+  }
+  return liveRun;
+}
+/** Adds to the live run, above the working line when it is there. */
+function placeInRun(node) {
+  const run = liveRunEl();
+  if (workingEl !== null && workingEl.parentNode === run) run.insertBefore(node, workingEl);
+  else run.appendChild(node);
+}
+
 /* The first instruction sent into the working run, until the run takes it in.
  * What the run is still writing belongs above it, so live output is placed
  * before this rather than at the end of the transcript. */
@@ -2152,10 +2212,14 @@ function flushLive() {
 function appendLive(text) {
   const el = document.getElementById('transcript');
   if (liveEl === null || !el.contains(liveEl)) {
+    // The block the settled transcript draws for the same text.
     liveEl = document.createElement('div');
-    liveEl.className = 'msg assistant';
-    liveEl.rawText = '';
-    placeLive(liveEl);
+    liveEl.style.whiteSpace = 'pre-wrap';
+    liveEl.rawText = text;
+    appendRichText(liveEl, text.trim());
+    placeInRun(liveEl);
+    followBottom();
+    return;
   }
   liveEl.rawText += text;
   dirtyLive.add(liveEl);
@@ -2339,19 +2403,21 @@ function attachmentsEl(items) {
 
 /* Documents a run produced, offered as downloads — the same rule the desktop
  * uses: a successful write of something a person opens rather than reads. In
- * antichat every file it writes counts; it has no project to leave them in. */
+ * antichat every file it writes counts; it has no project to leave them in.
+ * A file passed to share_file always counts, whatever its kind. */
 const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip'];
 
 function documentsProduced(items, everyFile = false) {
   const paths = [];
   for (const item of items) {
-    if (!/^(write|create|fill|add|format)_/.test(item.name)) continue;
+    const shared = item.name === 'share_file';
+    if (!shared && !/^(write|create|fill|add|format)_/.test(item.name)) continue;
     if (item.result === undefined || item.result.isError) continue;
     const input = item.input || {};
     const target = typeof input.output_path === 'string' ? input.output_path : input.path;
     if (typeof target !== 'string') continue;
     const dot = target.lastIndexOf('.');
-    if (!everyFile && (dot === -1 || !DOCUMENT_EXTENSIONS.includes(target.slice(dot).toLowerCase()))) continue;
+    if (!shared && !everyFile && (dot === -1 || !DOCUMENT_EXTENSIONS.includes(target.slice(dot).toLowerCase()))) continue;
     if (!paths.includes(target)) paths.push(target);
   }
   return paths;
@@ -3159,7 +3225,9 @@ function updateChips() {
   label.textContent = model === '' ? 'pick a model' : model;
   chip.title = model === '' ? 'Pick a model' : model;
   const modelLocked = modelInfo?.rotationEnabled === true;
-  chip.disabled = modelLocked;
+  // Under Rotate usage the model is not picked here, but the group in use is:
+  // with groups made, the chip opens straight at that choice.
+  chip.disabled = modelLocked && (modelInfo?.rotationGroups ?? []).length === 0;
   document.getElementById('customModelId').disabled = modelLocked;
   document.getElementById('useModelBtn').disabled = modelLocked;
   document.getElementById('setCustomModel').disabled = modelLocked;
@@ -3191,7 +3259,7 @@ function openSettings(section) {
   renderSettings();
   void loadModels();
   void jfetch('/api/overview').then(({ status }) => { if (status) noteStatus(status); }).catch(() => undefined);
-  const target = section === 'model' ? 'secModel' : section === 'mode' ? 'secMode' : null;
+  const target = section === 'model' ? 'secModel' : section === 'mode' ? 'secMode' : section === 'rotation' ? 'secRotation' : null;
   if (target !== null) document.getElementById(target).scrollIntoView({ block: 'start' });
 }
 

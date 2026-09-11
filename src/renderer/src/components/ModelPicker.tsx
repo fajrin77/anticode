@@ -36,6 +36,8 @@ export function ModelPicker({
   // Rotating, the list is what sessions rotate over: the group in use, or all.
   const rotatingOver = activeRotationEntries(status)
   const group = activeRotationGroup(status)
+  const groups = status?.rotationGroups ?? []
+  const [groupError, setGroupError] = useState<string | null>(null)
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -73,9 +75,38 @@ export function ModelPicker({
 
       {rotating ? (
         <>
-          {group !== null && (
-            <div className="truncate border-b border-line-soft px-3 py-1.5 text-[12px] text-text">{group.name}</div>
+          {/* Which group every session rotates over, switched from here as
+              in Settings: the main process owns it, so every composer and
+              the phone follow at once. */}
+          {groups.length > 0 && (
+            <div data-picker-groups className="flex flex-wrap gap-0.5 border-b border-line-soft p-1.5">
+              {[{ id: null as string | null, name: 'All models' }, ...groups].map((choice) => (
+                <button
+                  key={choice.id ?? ''}
+                  type="button"
+                  data-picker-group={choice.name}
+                  title={choice.id === (group?.id ?? null) ? `${choice.name} — in use` : `Rotate over ${choice.name}`}
+                  onClick={() => {
+                    if (choice.id === (group?.id ?? null)) return
+                    setGroupError(null)
+                    void window.anticode
+                      .selectRotationGroup(choice.id)
+                      .catch((failure: Error) =>
+                        setGroupError(failure.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+                      )
+                  }}
+                  className={`max-w-40 truncate rounded border px-2 py-1 text-[12px] transition-colors ${
+                    choice.id === (group?.id ?? null)
+                      ? 'border-line bg-hover text-text'
+                      : 'border-transparent text-dim hover:bg-hover hover:text-brand'
+                  }`}
+                >
+                  {choice.name}
+                </button>
+              ))}
+            </div>
           )}
+          {groupError !== null && <div className="border-b border-line-soft px-3 py-1.5 text-[11.5px] text-del">{groupError}</div>}
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
             {rotatingOver.map((entry) => (
               <div
@@ -105,7 +136,7 @@ export function ModelPicker({
           </div>
           <div className="border-t border-line-soft px-3 py-1.5 text-[11px] leading-relaxed text-faint">
             This session stays on a model for 2 prompts, then moves to the one that has used the
-            fewest tokens. Pick models and groups in Settings → Providers.
+            fewest tokens. Models and groups are made in Settings → Providers.
           </div>
         </>
       ) : (

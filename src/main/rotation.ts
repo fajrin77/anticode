@@ -21,6 +21,10 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
  * The group in use is what every session rotates over; with none in use, the
  * whole pool is. A group only ever holds pool models: one it names joins the
  * pool, and one that leaves the pool leaves every group.
+ *
+ * A group can also take a provider whole — "nvidia", rotating over every
+ * nvidia model switched on. It is a link, not a copy: a model switched on for
+ * that provider later joins the group, one switched off leaves it.
  */
 
 /** How long an entry that failed stays at the back of the queue. */
@@ -36,7 +40,15 @@ interface Tally {
 
 let entries: RotationEntry[] | null = null
 let enabled = false
-let groups: RotationGroup[] = []
+/** As kept: hand-picked entries only, never ones a provider link covers. */
+interface StoredGroup {
+  id: string
+  name: string
+  entries: RotationEntry[]
+  providers: string[]
+}
+
+let groups: StoredGroup[] = []
 let activeGroup: string | null = null
 const usage = new Map<string, Tally>()
 const cooling = new Map<string, number>()
@@ -66,7 +78,7 @@ function load(): RotationEntry[] {
     }
   }
   const inPool = new Set(entries.map(rotationKey))
-  groups = cleanGroups(Array.isArray(saved?.groups) ? saved.groups : [], inPool)
+  groups = cleanGroups(Array.isArray(saved?.groups) ? saved.groups : [], inPool, [])
   activeGroup = groups.some((group) => group.id === saved?.group) ? (saved?.group ?? null) : null
   for (const [key, mark] of Object.entries(saved?.outOfUsage ?? {})) {
     if (inPool.has(key) && typeof mark?.since === 'number' && typeof mark.reason === 'string') {
@@ -79,21 +91,33 @@ function load(): RotationEntry[] {
 /**
  * Named, each id once, and holding only pool models. A group made just now
  * gets its id here. A group left with no models stays: it is being filled.
+ * One sent without `providers` — an older client — keeps the links it had,
+ * and entries a link covers are dropped: the link brings them in anyway.
  */
-function cleanGroups(list: unknown[], inPool: Set<string>): RotationGroup[] {
+function cleanGroups(list: unknown[], inPool: Set<string>, previous: StoredGroup[]): StoredGroup[] {
   const ids = new Set<string>()
-  const kept: RotationGroup[] = []
+  const kept: StoredGroup[] = []
   for (const item of list) {
-    const raw = item as { id?: unknown; name?: unknown; entries?: unknown } | null
+    const raw = item as { id?: unknown; name?: unknown; entries?: unknown; providers?: unknown } | null
     const name = typeof raw?.name === 'string' ? raw.name.trim().slice(0, GROUP_NAME_MAX) : ''
     if (name === '') continue
     let id = typeof raw?.id === 'string' && raw.id.trim() !== '' ? raw.id.trim() : randomUUID()
     if (ids.has(id)) id = randomUUID()
     ids.add(id)
-    const members = clean(Array.isArray(raw?.entries) ? raw.entries : []).filter((entry) => inPool.has(rotationKey(entry)))
-    kept.push({ id, name, entries: members })
+    const providers = Array.isArray(raw?.providers)
+      ? [...new Set(raw.providers.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter((value) => value !== ''))]
+      : (previous.find((group) => group.id === id)?.providers ?? [])
+    const members = clean(Array.isArray(raw?.entries) ? raw.entries : [])
+      .filter((entry) => inPool.has(rotationKey(entry)) && !providers.includes(entry.provider))
+    kept.push({ id, name, entries: members, providers: [...providers] })
   }
   return kept
+}
+
+/** What a group rotates over: its hand-picked models, then its providers' ones, pool order. */
+function membersOf(group: StoredGroup): RotationEntry[] {
+  const linked = load().filter((entry) => group.providers.includes(entry.provider))
+  return [...group.entries, ...linked].map((entry) => ({ ...entry }))
 }
 
 /** Well-formed, trimmed, and each provider+model once, in the order given. */
@@ -133,7 +157,12 @@ export function rotationEntries(): RotationEntry[] {
 
 export function rotationGroups(): RotationGroup[] {
   load()
-  return groups.map((group) => ({ ...group, entries: group.entries.map((entry) => ({ ...entry })) }))
+  return groups.map((group): RotationGroup => ({
+    id: group.id,
+    name: group.name,
+    entries: membersOf(group),
+    providers: [...group.providers]
+  }))
 }
 
 export function activeRotationGroupId(): string | null {
@@ -145,7 +174,7 @@ export function activeRotationGroupId(): string | null {
 export function activeRotationEntries(): RotationEntry[] {
   const list = load()
   const group = groups.find((item) => item.id === activeGroup)
-  return group === undefined ? [...list] : group.entries.map((entry) => ({ ...entry }))
+  return group === undefined ? [...list] : membersOf(group)
 }
 
 /**
@@ -163,7 +192,7 @@ export function setRotationGroups(next: unknown[]): RotationGroup[] {
   const joining = named.filter((entry, index) =>
     !inPool.has(rotationKey(entry)) && named.findIndex((other) => rotationKey(other) === rotationKey(entry)) === index)
   if (joining.length > 0) setRotationEntries([...pool, ...joining])
-  groups = cleanGroups(next, new Set(load().map(rotationKey)))
+  groups = cleanGroups(next, new Set(load().map(rotationKey)), groups)
   if (!groups.some((group) => group.id === activeGroup)) activeGroup = null
   persist()
   return rotationGroups()
@@ -215,11 +244,13 @@ export function setRotationEntries(next: unknown[]): RotationEntry[] {
   return [...list]
 }
 
-/** Drops every entry of a provider that is gone. */
+/** Drops every entry of a provider that is gone, and every group's link to it. */
 export function forgetRotationProvider(provider: string): void {
   const list = load()
-  if (!list.some((entry) => entry.provider === provider)) return
-  setRotationEntries(list.filter((entry) => entry.provider !== provider))
+  const linked = groups.some((group) => group.providers.includes(provider))
+  groups = groups.map((group) => ({ ...group, providers: group.providers.filter((id) => id !== provider) }))
+  if (list.some((entry) => entry.provider === provider)) setRotationEntries(list.filter((entry) => entry.provider !== provider))
+  else if (linked) persist()
 }
 
 /** Counts start over, and every model gets another chance. */

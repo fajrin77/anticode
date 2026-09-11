@@ -218,7 +218,7 @@ export function Composer({
       const added = await promise
       setAttached((current) => [...current, ...added])
     } catch (failure) {
-      setError((failure as Error).message)
+      setError((failure as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
 
@@ -667,7 +667,10 @@ export function Composer({
                 </button>
               )}
 
-              <Chip disabled={status?.rotationEnabled === true} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
+              {/* Under Rotate usage the model is not picked per session, but the
+                  group every session rotates over is — so with groups made,
+                  the chip opens on that choice. */}
+              <Chip disabled={status?.rotationEnabled === true && (status.rotationGroups ?? []).length === 0} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">{shortModel}</span>
               </Chip>
 

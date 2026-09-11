@@ -57,7 +57,7 @@ export function DropZone({ sessionId, children }: { sessionId: string; children:
       store.updateDraft(sessionId, { attachments: [...previous, ...added] })
       document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
     } catch (failure) {
-      setError((failure as Error).message)
+      setError((failure as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
 

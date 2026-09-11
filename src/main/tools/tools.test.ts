@@ -11,6 +11,8 @@ import { activeWebUrl, listWeb } from '../web'
 import { resolveInWorkspace } from './workspace'
 import type { ToolContext } from './types'
 import { todoWriteTool } from './todoWrite'
+import { shareFileTool } from './shareFile'
+import { toolsFor } from './index'
 
 let root: string
 let context: ToolContext
@@ -244,4 +246,30 @@ it('caps command output while reporting truncation', async () => {
   const output = await runCommandTool.prepare({command: 'node -e "process.stdout.write(\'x\'.repeat(200000))"'}).execute(context)
   expect(output.text.length).toBeLessThan(11000)
   expect(output.text).toContain('truncated')
+})
+
+describe('share_file', () => {
+  it('hands over an existing file of any kind, with its size', async () => {
+    await mkdir(path.join(root, 'release'))
+    await writeFile(path.join(root, 'release', 'app Setup.exe'), Buffer.alloc(2048))
+    const output = await shareFileTool.prepare({ path: 'release/app Setup.exe' }).execute(context)
+    expect(output.isError).toBeUndefined()
+    expect(output.text).toContain('release/app Setup.exe (2.0 KB)')
+  })
+
+  it('refuses a file that is not there, so no card is drawn for it', async () => {
+    await expect(shareFileTool.prepare({ path: 'missing.exe' }).execute(context)).rejects.toThrow(/not found/)
+  })
+
+  it('refuses folders and paths outside the workspace', async () => {
+    await mkdir(path.join(root, 'release'))
+    await expect(shareFileTool.prepare({ path: 'release' }).execute(context)).rejects.toThrow(/folder/)
+    await expect(shareFileTool.prepare({ path: '../outside.exe' }).execute(context)).rejects.toThrow(/outside/)
+  })
+
+  it('is available in both anticode and antichat, without approval', () => {
+    expect(toolsFor('code').some((tool) => tool.name === 'share_file')).toBe(true)
+    expect(toolsFor('chat').some((tool) => tool.name === 'share_file')).toBe(true)
+    expect(shareFileTool.prepare({ path: 'a.exe' }).risk).toBe('low')
+  })
 })

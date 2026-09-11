@@ -231,14 +231,28 @@ export interface OutOfUsage {
 export interface RotationGroup {
   id: string
   name: string
+  /**
+   * Every model the group rotates over: the ones picked by hand, then each
+   * model switched on for a linked provider — so readers never expand links.
+   */
   entries: RotationEntry[]
+  /**
+   * Providers the group takes whole: every model of theirs switched on in
+   * Settings → Models belongs to it, including ones switched on later.
+   */
+  providers: string[]
 }
 
-/** A group as Settings sends it: one made just now has no id yet. */
+/**
+ * A group as Settings sends it: one made just now has no id yet. Entries of a
+ * linked provider may come back in `entries`; the link already covers them.
+ * Leaving `providers` out keeps the links the group had.
+ */
 export interface RotationGroupInput {
   id?: string
   name: string
   entries: RotationEntry[]
+  providers?: string[]
 }
 
 /** A session's own model — each tab keeps the one it was given. */
