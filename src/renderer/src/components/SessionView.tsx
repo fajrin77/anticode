@@ -37,8 +37,22 @@ function groupBlocks(parts: MessagePart[]): Block[] {
   return blocks
 }
 
-function ToolGroup({ parts }: { parts: ToolPart[] }): JSX.Element {
-  const [open, setOpen] = useState(false)
+function ToolGroup({
+  parts,
+  open: openFromParent,
+  onToggle: toggleFromParent
+}: {
+  parts: ToolPart[]
+  /** Given while this is the live run: the working line folds it. */
+  open?: boolean
+  onToggle?: () => void
+}): JSX.Element {
+  const [openSelf, setOpenSelf] = useState(false)
+  const open = openFromParent ?? openSelf
+  const setOpen = (change: (value: boolean) => boolean): void => {
+    if (toggleFromParent !== undefined) toggleFromParent()
+    else setOpenSelf(change)
+  }
   const running = parts.some((part) => part.status === 'running')
   const failed = parts.filter((part) => part.status === 'error').length
 
@@ -257,6 +271,10 @@ function MessageView({
     tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
   const done = message.summary !== undefined
   const documents = documentsProduced(message.parts, chat)
+  // While the run streams, the "working" line and the live steps group are one
+  // thing in two places: opening either closes the other, so collapsing never
+  // means scrolling back up to hunt for the "ran N steps" header.
+  const [liveOpen, setLiveOpen] = useState(true)
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">
@@ -286,15 +304,20 @@ function MessageView({
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
+            {...(tailRunning && block === tail ? { open: liveOpen, onToggle: () => setLiveOpen((value) => !value) } : {})}
           />
         )
       })}
       {documents.length > 0 && <Artifacts sessionId={sessionId} paths={documents} />}
       {message.pending && !tailRunning && (
-        <div className="mt-2 flex items-center gap-2.5 text-[14px] text-dim">
+        <button
+          type="button"
+          onClick={() => setLiveOpen(true)}
+          className="mt-2 flex items-center gap-2.5 text-[14px] text-dim transition-colors hover:text-brand"
+        >
           <span className="h-2.5 w-2.5 animate-breathe rounded-full bg-dim" />
           working
-        </div>
+        </button>
       )}
       {done && (
         <RunSummaryCard

@@ -1772,7 +1772,14 @@ function toolGroupEl(items) {
   chev.textContent = '\u2304';
   summary.append(dot, label, chev);
   details.appendChild(summary);
-  details.addEventListener('toggle', () => { chev.textContent = details.open ? '\u2303' : '\u2304'; });
+  details.addEventListener('toggle', () => {
+    chev.textContent = details.open ? '\u2303' : '\u2304';
+    // While this group is the live run, the working line mirrors it: expanded
+    // hides "working", collapsed shows it — so either line collapses the steps.
+    if (running && workingEl !== null) {
+      workingEl.style.display = details.open ? 'none' : '';
+    }
+  });
 
   const body = document.createElement('div');
   body.className = 'tbody';
@@ -2030,13 +2037,25 @@ function showWorking() {
   if (workingEl === null) {
     workingEl = document.createElement('div');
     workingEl.className = 'working';
+    workingEl.style.cursor = 'pointer';
     const dot = document.createElement('span');
     dot.className = 'dot';
     const label = document.createElement('span');
     workingEl.appendChild(dot);
     workingEl.appendChild(label);
+    // Tapping "working" folds the live steps back up — no scrolling up to find
+    // the "ran N steps" header, and back down again to continue watching.
+    workingEl.addEventListener('click', () => {
+      if (liveGroup?.el !== null && liveGroup?.el !== undefined && document.contains(liveGroup.el)) {
+        const summary = liveGroup.el.querySelector('summary');
+        if (summary !== null) summary.click();
+      }
+    });
     placeLive(workingEl);
   }
+  // The steps are open right now: the working line steps aside instead of
+  // duplicating what the expanded group already says.
+  workingEl.style.display = liveGroup?.el?.open === true ? 'none' : '';
   workingEl.lastChild.textContent = 'working';
   followBottom();
 }
