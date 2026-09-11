@@ -85,11 +85,7 @@ function General({
         </SettingRow>
       </div>
 
-      <h2 className="mb-1 text-[14px] text-text">Custom instructions</h2>
-      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
-        Read by the model in every session, antichat and anticode, after anticode’s own rules and the project’s
-        AGENTS.md. A session can add its own from the usage menu in its tab bar.
-      </p>
+      <h2 className="mb-3 text-[14px] text-text">Custom instructions</h2>
       <div className="mb-8">
         <InstructionsField
           value={preferences?.instructions ?? ''}

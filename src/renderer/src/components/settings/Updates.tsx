@@ -67,11 +67,6 @@ export function Updates(): JSX.Element {
       <div className="glass-surface mb-6 overflow-hidden rounded-xl border border-line">
         <div className="border-b border-line-soft px-5 py-4">
           <div className="text-[13.5px] text-text">Update source</div>
-          <div className="mt-0.5 mb-3 text-[12.5px] leading-relaxed text-faint">
-            A GitHub repository (<span className="font-mono">owner/repo</span>, its latest release), an
-            electron-builder feed URL (a folder URL or its <span className="font-mono">latest-mac.yml</span>), or a
-            local folder of builds such as a project’s <span className="font-mono">release/</span>.
-          </div>
           <div className="flex gap-2">
             <input
               value={source}

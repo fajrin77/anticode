@@ -122,13 +122,7 @@ export function Pricing({ status, providers }: { status: SessionStatus | null; p
 
   return (
     <>
-      <h1 className="mb-2 text-[19px] text-text">Pricing</h1>
-      <p className="mb-6 text-[12.5px] leading-relaxed text-faint">
-        Dollars per million tokens, behind every cost estimate in the run footer and the usage popover. A price you
-        type wins; then the one a gateway publishes with its model list; then the built-in Anthropic rates. Models
-        with no price are left out of estimates rather than guessed. Estimates count input and output tokens only —
-        cache discounts and provider surcharges are not included.
-      </p>
+      <h1 className="mb-6 text-[19px] text-text">Pricing</h1>
 
       <div className="glass-surface mb-6 flex items-baseline justify-between rounded-xl border border-line px-5 py-4">
         <div>

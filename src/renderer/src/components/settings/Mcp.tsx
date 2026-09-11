@@ -293,13 +293,7 @@ export function Mcp(): JSX.Element {
 
   return (
     <>
-      <h1 className="mb-2 text-[19px] text-text">MCP</h1>
-      <p className="mb-6 text-[12.5px] leading-relaxed text-faint">
-        Model Context Protocol servers give anticode sessions more tools — GitHub, databases, search, anything with a
-        server. A server runs as a local command or is reached at a URL. Its tools show in the transcript as{' '}
-        <span className="font-mono">mcp__server__tool</span>; each call asks for approval unless you trust the server,
-        and a tool the server marks destructive always asks. antichat never gets them.
-      </p>
+      <h1 className="mb-6 text-[19px] text-text">MCP</h1>
 
       <div className="glass-surface mb-3 overflow-hidden rounded-xl border border-line">
         {servers.length === 0 && !adding && <div className="px-5 py-4 text-[12.5px] text-faint">No servers yet.</div>}
