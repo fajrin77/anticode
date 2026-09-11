@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { JSX, KeyboardEvent } from 'react'
 import QRCode from 'qrcode'
+import { modelLabel, ROTATE_PROVIDER, VENDOR_BASE_URLS } from '@shared/ipc'
 import type {
   AppInfo,
+  ProviderKind,
   ModelCatalogue,
   ProviderId,
   ProviderInfo,
   RemoteStatus,
+  RotationEntry,
   SessionStatus
 } from '@shared/ipc'
+import { compactTokens } from './ModelPicker'
 
 interface SettingsViewProps {
   appInfo: AppInfo | null
@@ -90,11 +94,16 @@ function General({
         >
           <Toggle on={status?.autoApprove === true} onChange={onToggleAutoApprove} />
         </SettingRow>
-        <SettingRow title="Provider" hint="The gateway anticode talks to">
-          {providers.find((entry) => entry.id === status?.provider)?.label ?? status?.provider ?? '—'}
+        <SettingRow title="Provider" hint="The gateway new sessions talk to">
+          {status?.provider === ROTATE_PROVIDER
+            ? 'Rotate usage'
+            : (providers.find((entry) => entry.id === status?.provider)?.label ?? status?.provider ?? '—')}
         </SettingRow>
-        <SettingRow title="Model" hint="Model used for new turns in every session">
-          <span className="font-mono text-[12.5px]">{status?.model || 'not set'}</span>
+        <SettingRow
+          title="Model"
+          hint="New sessions start on the model picked last. Each session keeps its own — changing it in one tab leaves the others alone."
+        >
+          <span className="font-mono text-[12.5px]">{status === null || status.model !== '' || status.provider === ROTATE_PROVIDER ? modelLabel(status) : 'not set'}</span>
         </SettingRow>
       </div>
     </>
@@ -122,7 +131,15 @@ function hostOf(baseURL: string | undefined): string {
 const inputClass =
   'glass-field w-full rounded-lg border border-line px-3 py-2 text-[13px] text-text outline-none placeholder:text-faint focus:border-hover'
 
-type ProviderKind = 'openai' | 'ollama' | 'clinepass'
+/** The vendors' own APIs: a key is all they need, and they name themselves. */
+const VENDOR_NAMES: Partial<Record<ProviderKind, string>> = { anthropic: 'Anthropic', 'openai-api': 'OpenAI' }
+
+const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
+  { value: 'openai', label: 'OpenAI-compatible' },
+  { value: 'ollama', label: 'Local server' },
+  { value: 'anthropic', label: 'Anthropic API' },
+  { value: 'openai-api', label: 'OpenAI API' }
+]
 
 interface ProviderFormValues {
   label: string
@@ -155,10 +172,12 @@ function ProviderForm({
   const [saving, setSaving] = useState(false)
   const set = (patch: Partial<ProviderFormValues>): void => setValues((current) => ({ ...current, ...patch }))
   const needsKey = values.kind !== 'ollama' && !hasKey
+  const vendor = VENDOR_NAMES[values.kind] !== undefined
+  // A vendor API names itself and knows its own address; a gateway does not.
   const valid =
     editing ||
-    (values.label.trim() !== '' &&
-      values.baseURL.trim() !== '' &&
+    ((vendor || values.label.trim() !== '') &&
+      (vendor || values.baseURL.trim() !== '') &&
       (!needsKey || values.apiKey.trim() !== ''))
 
   function submit(): void {
@@ -185,24 +204,28 @@ function ProviderForm({
           value={values.label}
           autoFocus
           onChange={(event) => set({ label: event.target.value })}
-          placeholder="OpenRouter, LM Studio, …"
+          placeholder={VENDOR_NAMES[values.kind] ?? 'OpenRouter, LM Studio, …'}
           className={inputClass}
         />
       </label>
       {!editing ? (
-        <label className="col-span-2 sm:col-span-1">
+        <label className="col-span-2">
           <span className="mb-1 block text-[12px] text-faint">Type</span>
           <div className="flex rounded-lg border border-line p-0.5">
-            {(
-              [
-                { value: 'openai', label: 'Cloud (OpenAI-compatible)' },
-                { value: 'ollama', label: 'Local server' }
-              ] as const
-            ).map((option) => (
+            {KIND_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                onClick={() => set({ kind: option.value })}
+                data-provider-kind={option.value}
+                onClick={() =>
+                  set({
+                    kind: option.value,
+                    // A name the form filled in follows the type; a typed one stays.
+                    ...(values.label === '' || Object.values(VENDOR_NAMES).includes(values.label)
+                      ? { label: VENDOR_NAMES[option.value] ?? '' }
+                      : {})
+                  })
+                }
                 className={`flex-1 rounded-md px-2 py-1.5 text-[12.5px] transition-colors ${
                   values.kind === option.value ? 'glass-control text-text' : 'text-dim hover:text-brand'
                 }`}
@@ -216,11 +239,14 @@ function ProviderForm({
         <div className="col-span-2 sm:col-span-1" />
       )}
       <label className="col-span-2">
-        <span className="mb-1 block text-[12px] text-faint">Base URL</span>
+        <span className="mb-1 block text-[12px] text-faint">Base URL{vendor ? ' (optional)' : ''}</span>
         <input
           value={values.baseURL}
           onChange={(event) => set({ baseURL: event.target.value })}
-          placeholder={values.kind === 'ollama' ? 'http://127.0.0.1:11434/v1' : 'https://api.example.com/v1'}
+          placeholder={
+            VENDOR_BASE_URLS[values.kind] ??
+            (values.kind === 'ollama' ? 'http://127.0.0.1:11434/v1' : 'https://api.example.com/v1')
+          }
           spellCheck={false}
           className={`${inputClass} font-mono text-[12.5px]`}
         />
@@ -232,7 +258,7 @@ function ProviderForm({
             type="password"
             value={values.apiKey}
             onChange={(event) => set({ apiKey: event.target.value })}
-            placeholder={hasKey ? 'Saved — leave empty to keep it' : 'sk-…'}
+            placeholder={hasKey ? 'Saved — leave empty to keep it' : values.kind === 'anthropic' ? 'sk-ant-…' : 'sk-…'}
             autoComplete="off"
             className={inputClass}
           />
@@ -403,7 +429,9 @@ function Providers({
                       {provider.label}
                     </span>
                     {kind === 'clinepass' && <Tag>built-in</Tag>}
-                    {active && <span className="text-[11.5px] text-brand">active</span>}
+                    {kind === 'anthropic' && <Tag>Anthropic API</Tag>}
+                    {kind === 'openai-api' && <Tag>OpenAI API</Tag>}
+                    {active && <span className="text-[11.5px] text-brand">default</span>}
                     {!provider.credentialAvailable && <Tag>needs key</Tag>}
                   </div>
                   <div className="mt-0.5 truncate font-mono text-[11.5px] text-faint">
@@ -413,7 +441,7 @@ function Providers({
                 {!active && provider.credentialAvailable && !removingThis && (
                   <button
                     type="button"
-                    title={`Use ${provider.label}`}
+                    title={`Start new sessions on ${provider.label}`}
                     onClick={() => onSelectProvider(provider.id, '')}
                     className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
                   >
@@ -507,24 +535,270 @@ function Providers({
           Restore Clinepass
         </button>
       )}
+
+      <RotateUsage status={status} providers={providers} onSelectProvider={onSelectProvider} />
     </>
   )
 }
 
-function Models({
+/**
+ * The Rotate usage pool: models that share the token load of every session
+ * set to Rotate. A session stays on one for 2 prompts, then moves to the one
+ * that has used the fewest tokens; one that fails hands the turn to the next
+ * and rests for a minute. Changes
+ * reach every window through the status broadcast.
+ */
+function RotateUsage({
   status,
+  providers,
   onSelectProvider
 }: {
   status: SessionStatus | null
+  providers: ProviderInfo[]
+  onSelectProvider: (provider: ProviderId, model: string) => void
+}): JSX.Element {
+  const pool = status?.rotation ?? []
+  const usable = providers.filter((entry) => entry.credentialAvailable)
+  const [adding, setAdding] = useState<RotationEntry | null>(null)
+  const [catalogue, setCatalogue] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const rotatingByDefault = status?.provider === ROTATE_PROVIDER
+  const now = Date.now()
+
+  // The ids offered for the provider being added: what it lists, then what
+  // its endpoint reports. Typing any other id works too.
+  useEffect(() => {
+    if (adding === null) return
+    let active = true
+    setCatalogue([])
+    void window.anticode.listModels(adding.provider).then((result) => {
+      if (active) setCatalogue(result.models)
+    })
+    return () => {
+      active = false
+    }
+  }, [adding?.provider])
+
+  function save(next: RotationEntry[]): Promise<void> {
+    return window.anticode
+      .setRotation(next)
+      .then(() => setError(null))
+      .catch((failure) => setError((failure as Error).message))
+  }
+
+  function startAdding(): void {
+    const first = usable[0]
+    if (first === undefined) {
+      setError('Add a provider with a key first.')
+      return
+    }
+    setAdding({ provider: first.id, model: first.defaultModel })
+  }
+
+  function add(): void {
+    if (adding === null || adding.model.trim() === '') return
+    const entry = { provider: adding.provider, model: adding.model.trim() }
+    if (pool.some((item) => item.provider === entry.provider && item.model === entry.model)) {
+      setError('That model is already in the pool.')
+      return
+    }
+    void save([...pool.map(({ provider, model }) => ({ provider, model })), entry]).then(() => setAdding(null))
+  }
+
+  const suggestions = [
+    ...new Set([...(providers.find((entry) => entry.id === adding?.provider)?.models ?? []), ...catalogue])
+  ]
+
+  return (
+    <>
+      <div className="mb-3 mt-10 flex items-center justify-between gap-4">
+        <h2 className="text-[14px] text-text">Rotate usage</h2>
+        {pool.length > 0 &&
+          (rotatingByDefault ? (
+            <span className="text-[11.5px] text-brand">default for new sessions</span>
+          ) : (
+            <button
+              type="button"
+              title="New sessions start on Rotate"
+              onClick={() => onSelectProvider(ROTATE_PROVIDER, '')}
+              className="rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
+            >
+              Use for new sessions
+            </button>
+          ))}
+      </div>
+      <p className="mb-4 text-[12.5px] leading-relaxed text-faint">
+        Shares the token load between the models picked in Settings → Models — the same ones the
+        composer offers. A session set to <span className="text-dim">Rotate</span> in its model menu
+        stays on one model for 2 prompts, then moves to the one here that has used the fewest
+        tokens; one that hits a rate limit, runs out of quota, or fails hands the turn to the next
+        and rests for a minute. Tokens are counted from every session.
+      </p>
+
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
+        {pool.map((entry) => {
+          const resting = entry.coolingUntil !== null && entry.coolingUntil > now
+          return (
+            <div
+              key={`${entry.provider}\n${entry.model}`}
+              className="flex items-center gap-3 border-b border-line-soft px-5 py-3 last:border-b-0"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className={`truncate font-mono text-[12.5px] ${entry.ready ? 'text-text' : 'text-dim'}`}>
+                    {entry.model}
+                  </span>
+                  {!entry.ready && <Tag>needs key</Tag>}
+                  {resting && <Tag>resting</Tag>}
+                </div>
+                <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                  {entry.label} · {compactTokens(entry.inputTokens)} in · {compactTokens(entry.outputTokens)} out
+                </div>
+              </div>
+              <button
+                type="button"
+                title={`Take ${entry.model} out of the rotation`}
+                aria-label={`Take ${entry.model} out of the rotation`}
+                onClick={() =>
+                  void save(
+                    pool
+                      .filter((item) => !(item.provider === entry.provider && item.model === entry.model))
+                      .map(({ provider, model }) => ({ provider, model }))
+                  )
+                }
+                className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
+              >
+                ×
+              </button>
+            </div>
+          )
+        })}
+        {pool.length === 0 && adding === null && (
+          <div className="px-5 py-4 text-[12.5px] text-faint">
+            No models yet. Add two or more to rotate between them.
+          </div>
+        )}
+        {adding !== null && (
+          <div
+            className="flex items-center gap-2 border-t border-line-soft px-5 py-3 first:border-t-0"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setAdding(null)
+              if (event.key === 'Enter') add()
+            }}
+          >
+            <select
+              value={adding.provider}
+              aria-label="Provider"
+              onChange={(event) => {
+                const next = usable.find((entry) => entry.id === event.target.value)
+                setAdding({ provider: event.target.value, model: next?.defaultModel ?? '' })
+              }}
+              className="glass-field w-40 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[12.5px] text-text outline-none"
+            >
+              {usable.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={adding.model}
+              autoFocus
+              list="rotation-models"
+              spellCheck={false}
+              placeholder="Model id"
+              onChange={(event) => setAdding({ ...adding, model: event.target.value })}
+              className="glass-field min-w-0 flex-1 rounded-lg border border-line px-3 py-1.5 font-mono text-[12.5px] text-text outline-none placeholder:text-faint focus:border-hover"
+            />
+            <datalist id="rotation-models">
+              {suggestions.map((id) => (
+                <option key={id} value={id} />
+              ))}
+            </datalist>
+            <button
+              type="button"
+              onClick={() => setAdding(null)}
+              className="shrink-0 rounded-lg px-2 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={add}
+              disabled={adding.model.trim() === ''}
+              className="glass-control shrink-0 rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
+            >
+              Add
+            </button>
+          </div>
+        )}
+      </div>
+
+      {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+
+      <div className="mt-3 flex items-center gap-4">
+        {adding === null && (
+          <button
+            type="button"
+            data-rotation-add
+            onClick={startAdding}
+            className="text-[12px] text-faint transition-colors hover:text-brand"
+          >
+            + Add model
+          </button>
+        )}
+        {pool.length > 0 && (
+          <button
+            type="button"
+            title="Start every model's token count from zero"
+            onClick={() =>
+              void window.anticode
+                .resetRotationUsage()
+                .then(() => setError(null))
+                .catch((failure) => setError((failure as Error).message))
+            }
+            className="text-[12px] text-faint transition-colors hover:text-brand"
+          >
+            Reset counts
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
+/**
+ * The models the composer offers. A provider's catalogue can run to hundreds;
+ * the ones ticked here are all its picker shows, and they are also the pool a
+ * session set to Rotate spreads its prompts over. Ticking nothing leaves the
+ * picker showing everything, as before.
+ */
+function Models({
+  status,
+  providers,
+  onSelectProvider
+}: {
+  status: SessionStatus | null
+  providers: ProviderInfo[]
   onSelectProvider: (provider: ProviderId, model: string) => void
 }): JSX.Element {
   const [catalogue, setCatalogue] = useState<ModelCatalogue | null>(null)
   const [query, setQuery] = useState('')
-
-  const provider = status?.provider ?? 'clinepass'
+  const [pickedOnly, setPickedOnly] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const usable = providers.filter((entry) => entry.credentialAvailable)
+  // Rotation has no catalogue of its own; its models come from a provider's.
+  const [provider, setProvider] = useState<ProviderId>(() =>
+    status?.provider !== undefined && status.provider !== ROTATE_PROVIDER
+      ? status.provider
+      : (usable[0]?.id ?? 'clinepass')
+  )
+  const pool = status?.rotation ?? []
+  const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
 
   useEffect(() => {
     let active = true
+    setCatalogue(null)
     void window.anticode.listModels(provider).then((result) => {
       if (active) setCatalogue(result)
     })
@@ -533,47 +807,163 @@ function Models({
     }
   }, [provider])
 
+  function setPicked(model: string, on: boolean): void {
+    const rest = pool
+      .filter((entry) => !(entry.provider === provider && entry.model === model))
+      .map(({ provider: id, model: name }) => ({ provider: id, model: name }))
+    void window.anticode
+      .setRotation(on ? [...rest, { provider, model }] : rest)
+      .then(() => setError(null))
+      .catch((failure) => setError((failure as Error).message))
+  }
+
   const needle = query.trim().toLowerCase()
-  const matches =
-    catalogue?.models.filter((id) => needle === '' || id.toLowerCase().includes(needle)) ?? []
+  // Ids typed by hand (a subscription model no catalogue lists) stay visible
+  // once picked, ahead of the catalogue.
+  const listed = [
+    ...picked.filter((id) => !(catalogue?.models ?? []).includes(id)),
+    ...(catalogue?.models ?? [])
+  ]
+  const matches = listed.filter(
+    (id) => (!pickedOnly || picked.includes(id)) && (needle === '' || id.toLowerCase().includes(needle))
+  )
+  const typed = query.trim()
+  const canAddTyped = typed !== '' && !listed.includes(typed)
 
   return (
     <>
-      <h1 className="mb-6 text-[19px] text-text">Models</h1>
+      <h1 className="mb-2 text-[19px] text-text">Models</h1>
+      <p className="mb-6 text-[12.5px] leading-relaxed text-faint">
+        Tick the models the composer should offer — its picker then shows only those, not the whole
+        catalogue. Sessions set to <span className="text-dim">Rotate</span> spread their prompts over
+        the same models.
+      </p>
 
-      <input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search models"
-        className="glass-field mb-4 w-full rounded-lg border border-line px-4 py-2.5 text-[13.5px] text-text outline-none placeholder:text-faint focus:border-hover"
-      />
-
-      <div className="glass-surface overflow-hidden rounded-xl border border-line">
-        {matches.map((id) => {
-          const active = id === status?.model
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onSelectProvider(provider, id)}
-              className={`group flex w-full items-center gap-3 border-b border-line-soft px-5 py-3.5 text-left transition-colors last:border-b-0 ${
-                active ? 'glass-control' : 'hover:bg-raised'
-              }`}
-            >
-              <span
-                className={`min-w-0 truncate font-mono text-[13px] transition-colors ${
-                  active ? 'text-text' : 'text-dim group-hover:text-brand'
+      {providers.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-1">
+          {providers.map((entry) => {
+            const count = pool.filter((item) => item.provider === entry.id).length
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                disabled={!entry.credentialAvailable}
+                title={entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}`}
+                onClick={() => setProvider(entry.id)}
+                className={`rounded-lg px-3 py-1.5 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:text-faint ${
+                  entry.id === provider ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
                 }`}
               >
-                {id}
-              </span>
-              {active && <span className="ml-auto shrink-0 text-[11.5px] text-faint">active</span>}
+                {entry.label}
+                {count > 0 && <span className="ml-1.5 text-faint">{count}</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="mb-4 flex items-center gap-2">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && canAddTyped) {
+              setPicked(typed, true)
+              setQuery('')
+            }
+          }}
+          placeholder="Search models, or type an id and press Enter to add it"
+          className="glass-field min-w-0 flex-1 rounded-lg border border-line px-4 py-2.5 text-[13.5px] text-text outline-none placeholder:text-faint focus:border-hover"
+        />
+        <div className="flex shrink-0 rounded-lg border border-line p-0.5">
+          {([false, true] as const).map((only) => (
+            <button
+              key={String(only)}
+              type="button"
+              onClick={() => setPickedOnly(only)}
+              className={`rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
+                pickedOnly === only ? 'glass-control text-text' : 'text-dim hover:text-brand'
+              }`}
+            >
+              {only ? `Picked · ${picked.length}` : 'All'}
             </button>
+          ))}
+        </div>
+      </div>
+
+      {error !== null && <p className="mb-3 text-[12px] text-del">{error}</p>}
+
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
+        {canAddTyped && (
+          <button
+            type="button"
+            onClick={() => {
+              setPicked(typed, true)
+              setQuery('')
+            }}
+            className="flex w-full items-center gap-3 border-b border-line-soft px-5 py-3 text-left font-mono text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand"
+          >
+            + Add {typed}
+          </button>
+        )}
+        {matches.map((id) => {
+          const on = picked.includes(id)
+          const isDefault = id === status?.model && status.provider === provider
+          return (
+            <div key={id} className="group flex items-center border-b border-line-soft transition-colors last:border-b-0 hover:bg-raised">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={on}
+                data-model-pick={id}
+                title={on ? 'Hide from the composer' : 'Show in the composer'}
+                onClick={() => setPicked(id, !on)}
+                className="group/pick flex min-w-0 flex-1 items-center gap-3 px-5 py-3 text-left"
+              >
+                {/* Ticked is lime with a dark mark: lime is what is switched on. */}
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                    on ? 'border-brand bg-brand text-bg' : 'border-line group-hover/pick:border-brand'
+                  }`}
+                >
+                  {on && (
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M2.5 6.2 5 8.6l4.5-5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span
+                  className={`min-w-0 truncate font-mono text-[13px] transition-colors group-hover/pick:text-brand ${
+                    on ? 'text-text' : 'text-dim'
+                  }`}
+                >
+                  {id}
+                </span>
+              </button>
+              {isDefault ? (
+                <span className="shrink-0 px-5 text-[11.5px] text-faint">default</span>
+              ) : (
+                <button
+                  type="button"
+                  title="Start new sessions on this model"
+                  onClick={() => onSelectProvider(provider, id)}
+                  className="mr-3 shrink-0 rounded-md px-2 py-1 text-[12px] text-faint opacity-0 transition-colors hover:bg-raised hover:text-brand focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  Use
+                </button>
+              )}
+            </div>
           )
         })}
-        {matches.length === 0 && (
+        {matches.length === 0 && !canAddTyped && (
           <div className="px-5 py-4 text-[12.5px] text-faint">
-            {catalogue === null ? 'Loading models…' : 'No models match.'}
+            {catalogue === null
+              ? 'Loading models…'
+              : pickedOnly
+                ? 'Nothing picked from this provider yet — the composer shows its whole list.'
+                : catalogue.error !== null
+                  ? `Could not load the model list: ${catalogue.error}. Type an id above and press Enter.`
+                  : 'No models match.'}
           </div>
         )}
       </div>
@@ -774,7 +1164,9 @@ export function SettingsView({
               onProvidersChange={onProvidersChange}
             />
           )}
-          {section === 'models' && <Models status={status} onSelectProvider={onSelectProvider} />}
+          {section === 'models' && (
+            <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
+          )}
           {section === 'remote' && <Remote />}
         </div>
       </div>

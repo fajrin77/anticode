@@ -36,6 +36,8 @@ export const IpcChannel = {
   PROVIDER_ADD: 'provider:add',
   PROVIDER_REMOVE: 'provider:remove',
   PROVIDER_UPDATE: 'provider:update',
+  ROTATION_SET: 'rotation:set',
+  ROTATION_RESET: 'rotation:reset',
   REMOTE_STATUS: 'remote:status',
   REMOTE_SET: 'remote:set',
   REMOTE_REGENERATE: 'remote:regenerate',
@@ -79,10 +81,23 @@ export interface AppInfo {
  */
 export type ProviderId = string
 
+/**
+ * 'openai' is any OpenAI-compatible gateway, 'ollama' a local server,
+ * 'anthropic' and 'openai-api' the vendors' own APIs under an API key, and
+ * 'clinepass' the built-in gateway.
+ */
+export type ProviderKind = 'openai' | 'ollama' | 'anthropic' | 'openai-api' | 'clinepass'
+
+/** Where a vendor API lives when its Base URL is left empty. */
+export const VENDOR_BASE_URLS: Partial<Record<ProviderKind, string>> = {
+  anthropic: 'https://api.anthropic.com',
+  'openai-api': 'https://api.openai.com/v1'
+}
+
 export interface CustomProviderInput {
   label: string
   /** 'clinepass' brings back the built-in gateway after it was removed. */
-  kind: 'openai' | 'ollama' | 'clinepass'
+  kind: ProviderKind
   baseURL: string
   apiKey: string
   /** Model ids typed by the user; the first is the one the provider starts on. */
@@ -100,7 +115,7 @@ export interface ProviderInfo {
   credentialHint: string
   /** The model ids typed for it in Settings (Clinepass: its subscription list). */
   models?: string[]
-  kind?: 'openai' | 'ollama' | 'clinepass'
+  kind?: ProviderKind
   /** Where it is reached. The key is never sent, only whether one is saved. */
   baseURL?: string
   /** A key is saved for it. The key itself never leaves the main process. */
@@ -125,6 +140,38 @@ export interface ModelCatalogue {
 export interface ProviderSelection {
   provider: ProviderId
   model: string
+}
+
+/**
+ * The choice that is not one model: the session takes turns over the Rotate
+ * usage pool, two prompts on each model, moving to the entry that has used
+ * the fewest tokens. Its model is always ''.
+ */
+export const ROTATE_PROVIDER = 'rotate'
+
+/** One model in the Rotate usage pool. */
+export interface RotationEntry {
+  provider: ProviderId
+  model: string
+}
+
+export interface RotationEntryStatus extends RotationEntry {
+  label: string
+  /** Tokens this model has used since the last reset, from every session. */
+  inputTokens: number
+  outputTokens: number
+  /** Its provider is there and has credentials. */
+  ready: boolean
+  /** Set while it rests after a rate limit or failure; others go first. */
+  coolingUntil: number | null
+}
+
+/** A session's own model — each tab keeps the one it was given. */
+export interface ModelChoice extends ProviderSelection {
+  providerReady: boolean
+  blockedReason: string | null
+  /** Rotation only: where the session's latest prompt went. */
+  lastUsed: ProviderSelection | null
 }
 
 /** §8 risk tiers: low runs unattended, medium can be pre-approved, high never can. */
@@ -222,12 +269,42 @@ export const SESSION_COLOURS: [string, string][] = [
 export interface SessionStatus {
   /** The folder last picked in the Projects screen, not a per-session binding. */
   workspaceRoot: string | null
+  /**
+   * The model new sessions start on — the one picked last, anywhere. A
+   * session that exists has its own in `sessions`; statusFor reads it.
+   */
   provider: ProviderId
   model: string
   autoApprove: boolean
   /** Whether the selected provider has credentials and a model name. */
   providerReady: boolean
   blockedReason: string | null
+  /** Every session's own model, by session id. */
+  sessions: Record<string, ModelChoice>
+  /** The Rotate usage pool, with what each entry has used. */
+  rotation: RotationEntryStatus[]
+  /** Always null here: only a session has a latest prompt to point at. */
+  lastUsed: ProviderSelection | null
+}
+
+/**
+ * The status as one session sees it: its own model over the default. A
+ * session not in the map (a draft not yet created) is on the default.
+ */
+export function statusFor(status: SessionStatus, sessionId: string | null | undefined): SessionStatus {
+  const own = sessionId === null || sessionId === undefined ? undefined : status.sessions[sessionId]
+  return own === undefined ? status : { ...status, ...own }
+}
+
+/** What a model chip says: the model, or Rotate and where it went last. */
+export function modelLabel(status: Pick<SessionStatus, 'provider' | 'model' | 'lastUsed'> | null): string {
+  if (status === null) return '…'
+  if (status.provider === ROTATE_PROVIDER) {
+    return status.lastUsed !== null && status.lastUsed.model !== ''
+      ? `rotate · ${status.lastUsed.model}`
+      : 'rotate usage'
+  }
+  return status.model === '' ? 'pick a model' : status.model
 }
 
 /**
@@ -442,8 +519,17 @@ export interface AnticodeApi {
   chooseWorkspace: () => Promise<SessionStatus>
   setWorkspace: (root: string) => Promise<SessionStatus>
   listProviders: () => Promise<ProviderInfo[]>
-  selectProvider: (selection: ProviderSelection) => Promise<SessionStatus>
+  /**
+   * With a session id, that session changes model — no other one does, and a
+   * run it has going keeps its model until it ends. The pick also becomes the
+   * model new sessions start on; without an id that is all it changes.
+   */
+  selectProvider: (selection: ProviderSelection, sessionId?: string | null) => Promise<SessionStatus>
   listModels: (provider: ProviderId, refresh?: boolean) => Promise<ModelCatalogue>
+  /** Replaces the Rotate usage pool. */
+  setRotation: (entries: RotationEntry[]) => Promise<SessionStatus>
+  /** Starts every pool entry's token count from zero. */
+  resetRotationUsage: () => Promise<SessionStatus>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */
   createSession: (spec: SessionSpec) => Promise<SessionSpec>

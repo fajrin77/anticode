@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai'
 import type { ProviderId } from '@shared/ipc'
 import { getCustomProvider } from './custom'
 import { clinepassConfig } from './clinepass'
+import { anthropicBaseURL } from './anthropic'
 
 const TIMEOUT_MS = 15_000
 
@@ -23,11 +24,26 @@ async function listOpenAICompatible(apiKey: string, baseURL?: string): Promise<s
   return ids
 }
 
-async function listAnthropic(apiKey: string): Promise<string[]> {
-  const client = new Anthropic({ apiKey, timeout: TIMEOUT_MS })
+async function listAnthropic(apiKey: string, baseURL?: string): Promise<string[]> {
+  const client = new Anthropic({
+    apiKey,
+    timeout: TIMEOUT_MS,
+    ...(baseURL !== undefined ? { baseURL: anthropicBaseURL(baseURL) } : {})
+  })
   const ids: string[] = []
   for await (const model of client.models.list({ limit: 100 })) ids.push(model.id)
   return ids
+}
+
+/**
+ * OpenAI's own list mixes chat models with embeddings, speech, images, and
+ * moderation. None of those can hold a conversation, so they are left out
+ * of a picker that only ever starts one.
+ */
+const NOT_CHAT = /(embedding|tts|whisper|transcribe|dall-e|gpt-image|image|moderation|realtime|audio|search|babbage|davinci)/i
+
+export function chatModelsOnly(ids: string[]): string[] {
+  return ids.filter((id) => !NOT_CHAT.test(id))
 }
 
 async function listGoogle(apiKey: string): Promise<string[]> {
@@ -71,7 +87,12 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
     // them, and when it cannot be read the typed ones are the catalogue.
     const listed = config.models ?? []
     try {
-      const fetched = await listOpenAICompatible(config.kind === 'ollama' ? 'ollama' : config.apiKey, config.baseURL)
+      const fetched =
+        config.kind === 'anthropic'
+          ? await listAnthropic(config.apiKey, config.baseURL)
+          : config.kind === 'openai-api'
+            ? chatModelsOnly(await listOpenAICompatible(config.apiKey, config.baseURL))
+            : await listOpenAICompatible(config.kind === 'ollama' ? 'ollama' : config.apiKey, config.baseURL)
       return [...listed, ...fetched.filter((model) => !listed.includes(model))]
     } catch (error) {
       if (listed.length > 0) return listed

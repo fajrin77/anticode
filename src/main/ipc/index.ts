@@ -21,9 +21,11 @@ import type {
   ProviderId,
   ProviderInfo,
   ProviderSelection,
+  RotationEntry,
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
+import { resetRotationUsage } from '../rotation'
 import {
   deleteSession,
   createSession,
@@ -32,11 +34,12 @@ import {
   listModels,
   listSessionSpecs,
   forgetCatalogue,
+  forgetProvider,
   providerInUse,
   sessionFileRoot,
   revertLastTurn,
   policy,
-  resetProviderSelection,
+  applyRotation,
   selectProvider,
   setOnSessionClosed,
   setOnSessionCreated,
@@ -129,9 +132,14 @@ export function addProvider(input: CustomProviderInput): ProviderInfo[] {
     })
     forgetCatalogue('clinepass')
   } else {
-    if (input.kind === 'openai' && input.apiKey.trim() === '') throw new Error('API key is required')
+    if (input.kind !== 'ollama' && input.apiKey.trim() === '') throw new Error('API key is required')
+    // Only a gateway or a local server has no address of its own to fall back on.
+    if ((input.kind === 'openai' || input.kind === 'ollama') && input.baseURL.trim() === '') {
+      throw new Error('Base URL is required')
+    }
+    const named = { anthropic: 'Anthropic', 'openai-api': 'OpenAI' }[input.kind as string]
     addCustomProvider({
-      label: input.label.trim() !== '' ? input.label.trim() : 'Provider',
+      label: input.label.trim() !== '' ? input.label.trim() : (named ?? 'Provider'),
       kind: input.kind,
       baseURL: input.baseURL.trim(),
       apiKey: input.apiKey.trim(),
@@ -153,10 +161,11 @@ export async function updateProvider(id: string, edit: ProviderEdit): Promise<Pr
   else if (id.startsWith('custom:')) updateCustomProvider(id, edit)
   else throw new Error('Unknown provider')
   forgetCatalogue(id)
-  if (getStatus().provider === id) {
+  const status = getStatus()
+  if (status.provider === id || Object.values(status.sessions).some((choice) => choice.provider === id)) {
     await listModels(id)
-    announceStatus()
   }
+  announceStatus()
   announceProviders()
   return listProviders()
 }
@@ -167,12 +176,36 @@ export function removeProvider(id: string): ProviderInfo[] {
   else if (id.startsWith('custom:')) removeCustomProvider(id)
   else throw new Error('Unknown provider')
   forgetCatalogue(id)
-  if (getStatus().provider === id) {
-    resetProviderSelection()
-    announceStatus()
-  }
+  // Sessions on it, the default, and its Rotate usage entries let go of it.
+  forgetProvider(id)
+  announceStatus()
   announceProviders()
   return listProviders()
+}
+
+/** The Rotate usage pool, changed from either screen. */
+export function setRotation(entries: unknown): SessionStatus {
+  if (!Array.isArray(entries)) throw new Error('Expected a list of models')
+  const providers = listProviders()
+  for (const entry of entries as RotationEntry[]) {
+    if (!providers.some((provider) => provider.id === entry?.provider)) throw new Error('Unknown provider in Rotate usage')
+  }
+  applyRotation(entries as RotationEntry[])
+  announceStatus()
+  return getStatus()
+}
+
+export function resetRotation(): SessionStatus {
+  resetRotationUsage()
+  announceStatus()
+  return getStatus()
+}
+
+/** A model picked on either screen, for one session or as the default. */
+export function pickModel(selection: ProviderSelection, sessionId?: string | null): SessionStatus {
+  selectProvider(selection, sessionId)
+  announceStatus()
+  return getStatus()
 }
 
 export function registerIpcHandlers(): void {
@@ -263,12 +296,12 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     IpcChannel.PROVIDER_SELECT,
-    (_event, selection: ProviderSelection): SessionStatus => {
-      selectProvider(selection)
-      announceStatus()
-      return getStatus()
-    }
+    (_event, selection: ProviderSelection, sessionId?: string | null): SessionStatus =>
+      pickModel(selection, typeof sessionId === 'string' ? sessionId : null)
   )
+
+  ipcMain.handle(IpcChannel.ROTATION_SET, (_event, entries: unknown): SessionStatus => setRotation(entries))
+  ipcMain.handle(IpcChannel.ROTATION_RESET, (): SessionStatus => resetRotation())
 
   ipcMain.handle(
     IpcChannel.PROVIDER_MODELS,

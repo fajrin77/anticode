@@ -12,7 +12,8 @@ import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { ProviderEdit, RemoteStatus, SessionMode } from '@shared/ipc'
+import type { ProviderEdit, ProviderSelection, RemoteStatus, RotationEntryStatus, SessionMode } from '@shared/ipc'
+import { ROTATE_PROVIDER } from '@shared/ipc'
 import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
 import { listProviders } from '../providers'
@@ -25,15 +26,23 @@ import {
   listSessionSummaries,
   loadSessionMessages,
   revertLastTurn,
-  selectProvider,
   sessionFileRoot,
   sessionWorkspaceRoot
 } from '../runtime'
-import { addProvider, approvals, removeProvider, setApprovalMode, updateProvider } from '../ipc'
+import {
+  addProvider,
+  approvals,
+  pickModel,
+  removeProvider,
+  resetRotation,
+  setApprovalMode,
+  setRotation,
+  updateProvider
+} from '../ipc'
 import {
   registerAttachmentData,
 } from '../attachments/registry'
-import { announceHistory, announceStatus, sessionSnapshot, subscribe } from './bus'
+import { announceHistory, sessionSnapshot, subscribe } from './bus'
 import type { StreamEvent } from './bus'
 import {
   activeWebUrl,
@@ -247,10 +256,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     // Providers, managed from either screen: added, edited, removed, and
     // Clinepass restored (kind 'clinepass') after being removed.
     if (req.method === 'POST' && url.pathname === '/api/providers') {
-      const kind = body.kind === 'ollama' ? 'ollama' : body.kind === 'clinepass' ? 'clinepass' : 'openai'
+      const kinds = ['ollama', 'clinepass', 'anthropic', 'openai-api'] as const
+      const kind = kinds.find((entry) => entry === body.kind) ?? 'openai'
       const text = (value: unknown): string => (typeof value === 'string' ? value : '')
-      if (kind !== 'clinepass' && text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
-      if (kind === 'openai' && text(body.apiKey).trim() === '') return json(res, 400, { error: 'API key is required' })
+      // A vendor API defaults to its own address; a gateway has none to default to.
+      if ((kind === 'openai' || kind === 'ollama') && text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
+      if (kind !== 'ollama' && kind !== 'clinepass' && text(body.apiKey).trim() === '') return json(res, 400, { error: 'API key is required' })
       addProvider({ label: text(body.label), kind, baseURL: text(body.baseURL), apiKey: text(body.apiKey), models: cleanModelIds(body.models) })
       return json(res, 200, await modelsPayload())
     }
@@ -264,17 +275,26 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
 
     if (req.method === 'GET' && url.pathname === '/api/models') {
-      return json(res, 200, await modelsPayload())
+      return json(res, 200, await modelsPayload(url.searchParams.get('sessionId')))
     }
 
+    // With a session id only that session changes model, as on the desktop;
+    // without one (the new-session card) it is the model new sessions start on.
     if (req.method === 'POST' && url.pathname === '/api/model') {
       const provider = typeof body.provider === 'string' ? body.provider : ''
       const model = typeof body.model === 'string' ? body.model : ''
+      const sessionId = typeof body.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : null
       if (provider === '') return json(res, 400, { error: 'provider is required' })
-      if (model === '') await listModels(provider)
-      selectProvider({ provider, model })
-      announceStatus()
+      if (model === '' && provider !== ROTATE_PROVIDER) await listModels(provider)
+      pickModel({ provider, model }, sessionId)
       return json(res, 200, { ok: true, status: getStatus() })
+    }
+
+    // Rotate usage: the pool replaced, or its token counts started over.
+    if (req.method === 'POST' && url.pathname === '/api/rotation') {
+      if (body.reset === true) resetRotation()
+      else setRotation(body.entries)
+      return json(res, 200, await modelsPayload(typeof body.sessionId === 'string' ? body.sessionId : null))
     }
 
     if (req.method === 'POST' && url.pathname === '/api/session') {
@@ -485,30 +505,37 @@ function providerEdit(body: Record<string, unknown>): ProviderEdit {
   return edit
 }
 
-/** Provider list plus the catalogue of the current provider, for the phone picker. */
-async function modelsPayload(): Promise<{
+/**
+ * Provider list plus the catalogue of the provider in use, for the phone
+ * picker — the open session's, or the default when no session is open.
+ */
+async function modelsPayload(sessionId: string | null = null): Promise<{
   provider: string
   model: string
+  lastUsed: ProviderSelection | null
   providers: {
     id: string; label: string; available: boolean; custom: boolean; models: string[]; listed: string[]
-    kind: string; baseURL: string; hasKey: boolean
+    kind: string; baseURL: string; hasKey: boolean; defaultModel: string
   }[]
+  rotation: RotationEntryStatus[]
 }> {
-  const status = getStatus()
-  const catalogue = await listModels(status.provider)
+  const known = sessionId !== null && loadSessionMessages(sessionId) !== null ? sessionId : null
+  const status = getStatus(known)
+  const catalogue = status.provider === ROTATE_PROVIDER ? null : await listModels(status.provider)
   const providers = listProviders().map((entry) => ({
     id: entry.id,
     label: entry.label,
     available: entry.credentialAvailable,
     custom: entry.id.startsWith('custom:'),
-    models: entry.id === status.provider ? catalogue.models : [],
+    models: entry.id === status.provider ? (catalogue?.models ?? []) : [],
     listed: entry.models ?? [],
     kind: entry.kind ?? 'openai',
     baseURL: entry.baseURL ?? '',
-    hasKey: entry.hasKey === true
+    hasKey: entry.hasKey === true,
+    defaultModel: entry.defaultModel
   }))
-  const selected = getStatus()
-  return { provider: selected.provider, model: selected.model, providers }
+  const selected = getStatus(known)
+  return { provider: selected.provider, model: selected.model, lastUsed: selected.lastUsed, providers, rotation: selected.rotation }
 }
 
 /** Creates a session straight from the phone, validating the folder up front. */
@@ -531,10 +558,11 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (prompt === '' || prompt.length > 200_000) throw new Error('Enter a prompt of at most 200,000 characters')
 
-  const status = getStatus()
-  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Provider is not ready')
   let sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
   if (sessionId !== '' && loadSessionMessages(sessionId) === null) throw new Error('Unknown session')
+  // The session's own model decides, or the default for one not made yet.
+  const status = getStatus(sessionId === '' ? null : sessionId)
+  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Provider is not ready')
   if (sessionId === '') sessionId = createPhoneSession(body).sessionId
   const ids = Array.isArray(body.attachmentIds)
     ? body.attachmentIds.filter((id): id is string => typeof id === 'string')

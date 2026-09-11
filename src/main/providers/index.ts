@@ -7,6 +7,8 @@ import { GoogleProvider } from './google'
 import type { LLMProvider } from './types'
 
 const OLLAMA_FALLBACK_URL = 'http://127.0.0.1:11434/v1'
+/** Where an Anthropic provider starts when no model id was typed for it. */
+export const ANTHROPIC_DEFAULT_MODEL = 'claude-opus-5'
 
 function env(name: string): string | null {
   const value = process.env[name]?.trim()
@@ -48,7 +50,10 @@ export function listProviders(): ProviderInfo[] {
   const custom = listCustomProviders().map((config): ProviderInfo => ({
     id: config.id,
     label: config.label,
-    defaultModel: config.models?.[0] ?? '',
+    // Anthropic's list is short enough to be auto-picked from, and sorted it
+    // would start on whichever model is first alphabetically; the current
+    // flagship is the sensible start. Typed ids still come first.
+    defaultModel: config.models?.[0] ?? (config.kind === 'anthropic' ? ANTHROPIC_DEFAULT_MODEL : ''),
     credentialAvailable: config.kind === 'ollama' || config.apiKey !== '',
     configured: config.kind === 'ollama' || config.apiKey !== '',
     credentialHint: config.kind === 'ollama' ? 'Local endpoint' : 'API key',
@@ -64,10 +69,13 @@ export function createProvider(id: ProviderId, model: string): LLMProvider {
   if (id.startsWith('custom:')) {
     const config = getCustomProvider(id)
     if (config === undefined) throw new Error('Unknown provider')
+    if (config.kind === 'anthropic') return new AnthropicProvider(config.apiKey, model, config.baseURL)
     return new OpenAICompatibleProvider(config.label, model, {
       apiKey: config.kind === 'ollama' ? 'ollama' : config.apiKey,
       baseURL: config.baseURL,
-      maxTokensField: 'max_tokens'
+      // OpenAI's own API refuses max_tokens on its current models; gateways
+      // and local servers mostly only know the older name.
+      maxTokensField: config.kind === 'openai-api' ? 'max_completion_tokens' : 'max_tokens'
     })
   }
 

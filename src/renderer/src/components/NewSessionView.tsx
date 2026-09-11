@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { modelLabel } from '@shared/ipc'
 import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 import { useSessionStore } from '../store/session'
 import type { MessagePart, Session } from '../store/session'
@@ -14,7 +15,7 @@ interface NewSessionViewProps {
   session: Session | undefined
   status: SessionStatus | null
   providers: ProviderInfo[]
-  onSelectProvider: (provider: ProviderId, model: string) => void
+  onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   onSelectSession: (id: string) => void
 }
@@ -55,7 +56,7 @@ function DashboardComposer({
 }: {
   status: SessionStatus | null
   providers: ProviderInfo[]
-  onSelectProvider: (provider: ProviderId, model: string) => void
+  onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   extra: JSX.Element
 }): JSX.Element {
@@ -289,7 +290,7 @@ function DashboardComposer({
 
               <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">
-                  {status?.model === '' ? 'pick a model' : (status?.model ?? '…')}
+                  {modelLabel(status)}
                 </span>
               </Chip>
 

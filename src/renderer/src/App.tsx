@@ -22,6 +22,7 @@ import type {
   RoutedAgentEvent,
   SessionStatus
 } from '@shared/ipc'
+import { ROTATE_PROVIDER } from '@shared/ipc'
 
 type View = 'dashboard' | 'session' | 'settings'
 
@@ -98,6 +99,7 @@ export function App(): JSX.Element {
 
       // Discovering the catalogue also fills an empty model, so a fresh key is
       // usable without anyone typing an id.
+      if (sessionStatus.provider === ROTATE_PROVIDER) return
       void window.anticode
         .listModels(sessionStatus.provider)
         .then(() => window.anticode.getStatus())
@@ -434,11 +436,13 @@ export function App(): JSX.Element {
     })
   }, [])
 
-  const selectProvider = useCallback((provider: ProviderId, model: string) => {
+  // With a session id only that session changes model; the pick also becomes
+  // what new sessions start on. Settings and the dashboard pass none.
+  const selectProvider = useCallback((provider: ProviderId, model: string, sessionId?: string | null) => {
     void window.anticode
-      .selectProvider({ provider, model })
+      .selectProvider({ provider, model }, sessionId ?? null)
       .then(setStatus)
-      .then(() => window.anticode.listModels(provider))
+      .then(() => (provider === ROTATE_PROVIDER ? undefined : window.anticode.listModels(provider)))
       .then(() => window.anticode.getStatus())
       .then(setStatus)
       .catch((error: Error) => setAppError(error.message))

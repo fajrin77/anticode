@@ -723,6 +723,7 @@
     </div>
     <div class="ssec" id="secModel">
       <div class="muted">Model</div>
+      <div class="faint" id="modelHint" style="margin-bottom:8px"></div>
       <select class="wide" id="setProvider" aria-label="Provider" onchange="pickProvider(this.value)"></select>
       <select class="wide" id="setModel" aria-label="Model" onchange="pickModel(this.value)"></select>
       <input class="path" id="setCustomModel" placeholder="Custom model ID" autocapitalize="off" autocorrect="off" spellcheck="false"
@@ -740,11 +741,26 @@
       <select class="wide" id="provKind" aria-label="Provider kind">
         <option value="openai">OpenAI-compatible (cloud)</option>
         <option value="ollama">Local server (Ollama, LM Studio)</option>
+        <option value="anthropic">Anthropic API (API key)</option>
+        <option value="openai-api">OpenAI API (API key)</option>
       </select>
       <input class="path" id="provURL" placeholder="Base URL, e.g. https://openrouter.ai/api/v1" autocapitalize="off" autocorrect="off" spellcheck="false" />
       <input class="path" id="provKey" type="password" placeholder="API key (not needed for a local server)" autocomplete="off" />
       <textarea class="models" id="provModels" placeholder="Model ids, one per line (optional)" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
       <div class="actions" style="margin-bottom:0"><button onclick="addPhoneProvider()">Add provider</button></div>
+    </div>
+    <div class="ssec" id="secRotation">
+      <div class="muted">Rotate usage</div>
+      <div class="faint" style="margin-bottom:8px">Shares the token load between several models. A session set to Rotate stays on one model for 2 prompts, then moves to the one here that has used the fewest tokens; one that hits a limit or fails hands the turn to the next.</div>
+      <div id="rotationList"></div>
+      <select class="wide" id="rotProvider" aria-label="Provider" onchange="fillRotationModels()"></select>
+      <input class="path" id="rotModel" list="rotModels" placeholder="Model id" autocapitalize="off" autocorrect="off" spellcheck="false"
+        enterkeyhint="done" onkeydown="if (event.key === 'Enter') addRotationModel()" />
+      <datalist id="rotModels"></datalist>
+      <div class="actions" style="margin-bottom:0">
+        <button onclick="addRotationModel()">Add model</button>
+        <button id="rotReset" class="hidden" onclick="saveRotation([], true)">Reset counts</button>
+      </div>
     </div>
   </div>
 </div>
@@ -791,6 +807,8 @@ let folderReady = false;
 let creatingSession = false;
 let phoneMode = 'code';
 let modelInfo = null;
+/** The model choice that is not one model: the Rotate usage pool (ROTATE_PROVIDER). */
+const ROTATE = 'rotate';
 let overviewTimer = null;
 let lastSessions = [];
 let webList = [];
@@ -820,7 +838,6 @@ async function pollApprovals() {
       gotoSessions();
       return;
     }
-    if (status && (modelInfo?.provider !== status.provider || modelInfo?.model !== status.model)) void loadModels();
     const request = requests[0];
     if (!request) { panel.classList.add('hidden'); approvalRequestId = null; return; }
     if (request.requestId === approvalRequestId) return;
@@ -1074,9 +1091,14 @@ function setMode(mode) {
   document.getElementById('folderInput').classList.toggle('hidden', mode !== 'code');
 }
 
+/* The open session's model, or with none open the one new sessions start on.
+ * Each session keeps its own: picking here never moves another one. */
 async function loadModels() {
+  const id = currentSession;
   try {
-    modelInfo = await jfetch('/api/models');
+    const info = await jfetch('/api/models' + (id ? '?sessionId=' + encodeURIComponent(id) : ''));
+    if (currentSession !== id) return;
+    modelInfo = info;
   } catch { modelInfo = null; }
   fillModelPickers('providerSelect', 'modelSelect');
   fillModelPickers('setProvider', 'setModel');
@@ -1091,15 +1113,24 @@ function fillModelPickers(providerId, modelId) {
   for (const provider of modelInfo?.providers ?? []) {
     const option = document.createElement('option'); option.value = provider.id; option.textContent = provider.label; option.disabled = !provider.available; option.selected = provider.id === modelInfo.provider; providers.append(option);
   }
+  // Rotate, once the pool has something to rotate over.
+  if ((modelInfo?.rotation ?? []).length > 0) {
+    const option = document.createElement('option'); option.value = ROTATE; option.textContent = 'Rotate usage'; option.selected = modelInfo.provider === ROTATE; providers.append(option);
+  }
   const select = document.getElementById(modelId);
   if (modelInfo !== null) {
     select.innerHTML = '';
     const current = document.createElement('option');
     current.value = modelInfo.provider + '|' + modelInfo.model;
-    current.textContent = 'model: ' + (modelInfo.model || modelInfo.provider);
+    current.textContent = modelInfo.provider === ROTATE
+      ? 'rotate: ' + modelInfo.rotation.length + (modelInfo.rotation.length === 1 ? ' model' : ' models')
+      : 'model: ' + (modelInfo.model || modelInfo.provider);
     select.appendChild(current);
     const entry = modelInfo.providers.find((p) => p.id === modelInfo.provider);
-    for (const m of entry?.models ?? []) {
+    // The models picked in desktop Settings → Models, when there are any, are
+    // the whole list — the same short list the desktop composer offers.
+    const picked = (modelInfo.rotation ?? []).filter((item) => item.provider === modelInfo.provider).map((item) => item.model);
+    for (const m of picked.length > 0 ? picked : (entry?.models ?? [])) {
       if (m === modelInfo.model) continue;
       const option = document.createElement('option');
       option.value = modelInfo.provider + '|' + m;
@@ -1121,7 +1152,7 @@ function updateModelIdBtn() {
 async function applySettingsModel() {
   const field = document.getElementById('setCustomModel');
   const model = field.value.trim();
-  if (model && modelInfo) await pickModel(modelInfo.provider + '|' + model);
+  if (model && modelInfo && modelInfo.provider !== ROTATE) await pickModel(modelInfo.provider + '|' + model);
   field.value = '';
   field.blur();
 }
@@ -1129,7 +1160,7 @@ async function applySettingsModel() {
 async function applyCustomModel() {
   const field = document.getElementById('customModelId');
   const model = field.value.trim();
-  if (model && modelInfo) await pickModel(modelInfo.provider + '|' + model);
+  if (model && modelInfo && modelInfo.provider !== ROTATE) await pickModel(modelInfo.provider + '|' + model);
   field.value = '';
   updateModelIdBtn();
 }
@@ -1139,7 +1170,7 @@ async function pickModel(value) {
   try {
     await jfetch('/api/model', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider, model })
+      body: JSON.stringify({ provider, model, sessionId: currentSession })
     });
   } catch (error) { showError('Ganti model gagal: ' + error.message); }
   void loadModels();
@@ -1195,6 +1226,8 @@ async function openSession(id) {
   document.getElementById('chatView').classList.remove('hidden');
   document.getElementById('inputRow').classList.remove('hidden');
   showSessionHeader(id);
+  // Each session has its own model; the chip shows this one's.
+  void loadModels();
   await listen(id);
   await syncSession(id);
 }
@@ -2845,16 +2878,32 @@ async function restoreLastSession() {
 
 /* ---------- Settings, Revert, and the composer chips ---------- */
 
+/** The status as the open session sees it: its own model over the default. */
+function shownStatus(status) {
+  const own = currentSession ? status?.sessions?.[currentSession] : undefined;
+  return own ? { ...status, ...own } : status;
+}
+
 function noteStatus(status) {
-  const modelMoved = modelInfo?.provider !== status.provider || modelInfo?.model !== status.model;
+  const shown = shownStatus(status);
+  const modelMoved = modelInfo?.provider !== shown.provider || modelInfo?.model !== shown.model ||
+    JSON.stringify(modelInfo?.lastUsed ?? null) !== JSON.stringify(shown.lastUsed ?? null) ||
+    JSON.stringify(modelInfo?.rotation ?? []) !== JSON.stringify(shown.rotation ?? []);
   lastStatus = status;
   if (modelMoved) void loadModels();
   updateChips();
 }
 
+/** What the model chip says — the desktop's modelLabel. */
+function modelLabel(info) {
+  if (!info) return '';
+  if (info.provider === ROTATE) return info.lastUsed?.model ? 'rotate · ' + info.lastUsed.model : 'rotate usage';
+  return info.model || '';
+}
+
 /** The model and Default/Auto under the box, as the desktop composer shows them. */
 function updateChips() {
-  const model = modelInfo?.model || lastStatus?.model || '';
+  const model = modelLabel(modelInfo) || modelLabel(lastStatus ? shownStatus(lastStatus) : null);
   const chip = document.getElementById('modelChip');
   const label = chip.querySelector('.modelText');
   label.textContent = model === '' ? 'pick a model' : model;
@@ -2920,6 +2969,9 @@ function renderSettings() {
       grid.append(label, figure);
     }
   }
+  document.getElementById('modelHint').textContent = currentSession
+    ? 'Only this session changes model; other sessions keep theirs. New sessions start on it too.'
+    : 'The model new sessions start on. Each session keeps its own afterwards.';
   renderProviders();
 }
 
@@ -2967,6 +3019,102 @@ function renderProviders() {
     restore.onclick = () => void restorePhoneClinepass();
     list.appendChild(restore);
   }
+  renderRotation();
+}
+
+/* ---------- Rotate usage: the pool that shares the token load ---------- */
+
+function compactTokens(value) {
+  if (value < 1000) return String(value);
+  if (value < 1000000) return (value / 1000).toFixed(value < 10000 ? 1 : 0) + 'k';
+  return (value / 1000000).toFixed(1) + 'M';
+}
+
+function renderRotation() {
+  const list = document.getElementById('rotationList');
+  list.replaceChildren();
+  const pool = modelInfo?.rotation ?? [];
+  const now = Date.now();
+  for (const entry of pool) {
+    const row = document.createElement('div');
+    row.className = 'prow';
+    const text = document.createElement('div');
+    text.className = 'nm';
+    const name = document.createElement('div');
+    name.style.fontFamily = 'ui-monospace, Menlo, monospace';
+    name.style.fontSize = '14px';
+    name.textContent = entry.model;
+    const detail = document.createElement('div');
+    detail.className = 'pdetail';
+    detail.textContent = [
+      entry.label,
+      compactTokens(entry.inputTokens) + ' in · ' + compactTokens(entry.outputTokens) + ' out',
+      entry.ready ? '' : 'no key',
+      entry.coolingUntil && entry.coolingUntil > now ? 'resting' : ''
+    ].filter((part) => part !== '').join(' · ');
+    text.append(name, detail);
+    // Taking a model out of the pool deletes nothing: lime, not red.
+    const remove = document.createElement('button');
+    remove.className = 'pm';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', 'Take ' + entry.model + ' out of the rotation');
+    remove.onclick = () => void saveRotation(pool.filter((item) => !(item.provider === entry.provider && item.model === entry.model)));
+    row.append(text, remove);
+    list.appendChild(row);
+  }
+  if (pool.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'faint';
+    empty.style.padding = '4px 0 8px';
+    empty.textContent = 'No models yet. Add two or more to rotate between them.';
+    list.appendChild(empty);
+  }
+  // The add row offers only providers that can be reached.
+  const select = document.getElementById('rotProvider');
+  const chosen = select.value;
+  select.replaceChildren();
+  for (const provider of (modelInfo?.providers ?? []).filter((entry) => entry.available)) {
+    const option = document.createElement('option'); option.value = provider.id; option.textContent = provider.label;
+    option.selected = provider.id === chosen; select.appendChild(option);
+  }
+  fillRotationModels();
+  document.getElementById('rotReset').classList.toggle('hidden', pool.length === 0);
+}
+
+/** The ids the chosen provider lists, offered while typing one to add. */
+function fillRotationModels() {
+  const provider = (modelInfo?.providers ?? []).find((entry) => entry.id === document.getElementById('rotProvider').value);
+  const list = document.getElementById('rotModels');
+  list.replaceChildren();
+  for (const id of new Set([...(provider?.listed ?? []), ...(provider?.models ?? [])])) {
+    const option = document.createElement('option'); option.value = id; list.appendChild(option);
+  }
+  const field = document.getElementById('rotModel');
+  field.placeholder = provider?.defaultModel ? provider.defaultModel : 'Model id';
+}
+
+async function saveRotation(entries, reset = false) {
+  try {
+    const info = await jfetch('/api/rotation', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(reset ? { reset: true, sessionId: currentSession } : {
+        entries: entries.map(({ provider, model }) => ({ provider, model })), sessionId: currentSession
+      })
+    });
+    providersChanged(info);
+  } catch (error) { showError(error); }
+}
+
+async function addRotationModel() {
+  const provider = document.getElementById('rotProvider').value;
+  const field = document.getElementById('rotModel');
+  const known = (modelInfo?.providers ?? []).find((entry) => entry.id === provider);
+  const model = field.value.trim() || known?.defaultModel || '';
+  if (provider === '' || model === '') { showError('Pick a provider and type a model id first.'); return; }
+  const pool = modelInfo?.rotation ?? [];
+  if (pool.some((entry) => entry.provider === provider && entry.model === model)) { showError('That model is already in the pool.'); return; }
+  field.value = '';
+  await saveRotation([...pool, { provider, model }]);
 }
 
 function hostOf(baseURL) {
@@ -3076,8 +3224,10 @@ async function setPolicy(enabled) {
 async function addPhoneProvider() {
   const value = (id) => document.getElementById(id).value.trim();
   const kind = value('provKind');
-  if (value('provURL') === '' || (kind === 'openai' && value('provKey') === '')) {
-    showError(kind === 'openai' ? 'Fill in the base URL and the API key first.' : 'Fill in the base URL first.');
+  // A vendor API knows its own address; a gateway or a local server does not.
+  const vendor = kind === 'anthropic' || kind === 'openai-api';
+  if ((!vendor && value('provURL') === '') || (kind !== 'ollama' && value('provKey') === '')) {
+    showError(vendor ? 'Fill in the API key first.' : kind === 'openai' ? 'Fill in the base URL and the API key first.' : 'Fill in the base URL first.');
     return;
   }
   try {

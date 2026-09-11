@@ -2,12 +2,19 @@ import { app } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { VENDOR_BASE_URLS } from '@shared/ipc'
+
+/** The kinds a provider added in Settings can be. */
+export const CUSTOM_KINDS = ['openai', 'ollama', 'anthropic', 'openai-api'] as const
 
 export interface CustomProviderConfig {
   id: string
   label: string
-  /** 'openai' = hosted OpenAI-compatible gateway; 'ollama' = local, no key. */
-  kind: 'openai' | 'ollama'
+  /**
+   * 'openai' = hosted OpenAI-compatible gateway; 'ollama' = local, no key;
+   * 'anthropic' / 'openai-api' = the vendor's own API under an API key.
+   */
+  kind: (typeof CUSTOM_KINDS)[number]
   baseURL: string
   apiKey: string
   /** Model ids typed in Settings, for gateways whose /models is missing or short. */
@@ -115,8 +122,9 @@ export function cleanModelIds(input: unknown): string[] {
 }
 
 export function addCustomProvider(input: Omit<CustomProviderConfig, 'id'>): CustomProviderConfig {
-  const baseURL = checkedBaseURL(input.baseURL)
-  if (!['openai', 'ollama'].includes(input.kind)) throw new Error('Unknown provider type')
+  if (!(CUSTOM_KINDS as readonly string[]).includes(input.kind)) throw new Error('Unknown provider type')
+  // A vendor API needs no Base URL typed; the vendor's own is the default.
+  const baseURL = checkedBaseURL(input.baseURL.trim() !== '' ? input.baseURL : (VENDOR_BASE_URLS[input.kind] ?? ''))
   const config: CustomProviderConfig = {
     ...input,
     baseURL,

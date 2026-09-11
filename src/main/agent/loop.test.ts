@@ -367,6 +367,51 @@ describe('AgentSession', () => {
     expect(calls).toBe(1)
     expect(events.at(-1)?.type).toBe('error')
   })
+
+  it('hands a rate-limited turn to the fallback at once and reports the new model', async () => {
+    const limited: LLMProvider = {
+      name: 'first',
+      model: 'first-model',
+      async *chat() {
+        throw Object.assign(new Error('rate limited'), { status: 429 })
+      }
+    }
+    const spare = new FakeProvider([turn([{ type: 'text', text: 'dari cadangan' }], 'end_turn')])
+    const failures: unknown[] = []
+    const session = new AgentSession(limited, allowAll, 'code', root)
+    session.useProvider(limited, (error) => {
+      failures.push(error)
+      return failures.length === 1 ? spare : null
+    })
+
+    const started = Date.now()
+    await session.run({ runId: 'run-1', prompt: 'halo', signal: new AbortController().signal, emit: (event) => events.push(event) })
+
+    // No backoff: the pool exists so a limit is not waited out.
+    expect(Date.now() - started).toBeLessThan(900)
+    expect(failures).toHaveLength(1)
+    expect(events.find((event) => event.type === 'usage')).toMatchObject({ provider: 'fake', model: 'fake-model' })
+    expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
+  })
+
+  it('lets the error stand once the fallback has nothing left', async () => {
+    let calls = 0
+    const broken: LLMProvider = {
+      name: 'broken',
+      model: 'broken-model',
+      async *chat() {
+        calls += 1
+        throw new Error('kunci tidak valid')
+      }
+    }
+    const session = new AgentSession(broken, allowAll, 'code', root)
+    session.useProvider(broken, () => null)
+
+    await session.run({ runId: 'run-1', prompt: 'halo', signal: new AbortController().signal, emit: (event) => events.push(event) })
+
+    expect(calls).toBe(1)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: 'kunci tidak valid' })
+  })
 })
 
 it('retains all prompt turns that still fit the context budget', async () => {

@@ -15,7 +15,7 @@ vi.mock('./runtime', () => ({
 vi.mock('./attachments/registry', () => ({
   attachmentsFor: () => [], blocksOf: mocks.blocks, refsOf: () => [], releaseAttachments: vi.fn()
 }))
-vi.mock('./remote/bus', () => ({ forward: mocks.forward, registerRun: mocks.register }))
+vi.mock('./remote/bus', () => ({ forward: mocks.forward, registerRun: mocks.register, announceStatus: () => undefined }))
 import { submitPrompt } from './prompts'
 import { finishRun, runForSession } from './runs'
 const gate = {} as ApprovalGate

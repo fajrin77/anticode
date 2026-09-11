@@ -40,6 +40,12 @@ interface RunParams {
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
 
 /**
+ * Asked when a request fails: the provider to try the same turn with instead,
+ * or null when there is none left and the failure should stand.
+ */
+export type ProviderFallback = (error: unknown) => LLMProvider | null
+
+/**
  * How a follow-up reads to the model: an addition to the task in hand, not a
  * replacement for it. Without the framing a model tends to drop what it was
  * doing and answer only the newest message.
@@ -129,9 +135,11 @@ export class AgentSession {
   /** Instructions sent while a run was working, waiting for its next step. */
   private followUps: FollowUp[] = []
   private activeSignal: AbortSignal | null = null
+  /** Rotation only: who takes a turn the current provider could not serve. */
+  private fallback: ProviderFallback | null = null
 
   constructor(
-    private readonly provider: LLMProvider,
+    private provider: LLMProvider,
     private readonly gate: ApprovalGate,
     private readonly mode: SessionMode = 'code',
     private readonly workspaceRoot: string | null = null,
@@ -143,6 +151,19 @@ export class AgentSession {
     this.transcript.push(...this.history)
     this.sealPendingToolUses()
   }
+
+  /**
+   * The model the next run talks to. Only between runs: a run keeps the
+   * provider it started with, apart from the hand-overs its fallback makes.
+   */
+  useProvider(provider: LLMProvider, fallback: ProviderFallback | null = null): void {
+    if (this.running) throw new Error('A run is already active in this session')
+    this.provider = provider
+    this.fallback = fallback
+  }
+
+  get providerName(): string { return this.provider.name }
+  get model(): string { return this.provider.model }
 
   async run(params: RunParams): Promise<void> {
     if (this.running) throw new Error('A run is already active in this session')
@@ -279,7 +300,17 @@ export class AgentSession {
       try {
         return await this.streamTurn(params)
       } catch (error) {
-        if (params.signal.aborted || attempt >= MAX_RETRIES || !isTransient(error)) throw error
+        if (params.signal.aborted) throw error
+        // Under rotation a provider that fails — rate limited, out of quota,
+        // down — hands the turn to the next one at once rather than being
+        // waited out. Only once every one has failed do the retries below run.
+        const next = this.fallback?.(error) ?? null
+        if (next !== null) {
+          this.provider = next
+          attempt = -1
+          continue
+        }
+        if (attempt >= MAX_RETRIES || !isTransient(error)) throw error
         await delay(1_000 * 2 ** attempt, params.signal)
       }
     }

@@ -18,6 +18,7 @@ import type {
   ProviderEdit,
   ProviderInfo,
   ProviderSelection,
+  RotationEntry,
   SessionPause,
   SessionSpec,
   SessionStatus,
@@ -65,10 +66,13 @@ const api: AnticodeApi = {
   setWorkspace: (root: string) =>
     ipcRenderer.invoke(IpcChannel.WORKSPACE_SET, root) as Promise<SessionStatus>,
   listProviders: () => ipcRenderer.invoke(IpcChannel.PROVIDER_LIST) as Promise<ProviderInfo[]>,
-  selectProvider: (selection: ProviderSelection) =>
-    ipcRenderer.invoke(IpcChannel.PROVIDER_SELECT, selection) as Promise<SessionStatus>,
+  selectProvider: (selection: ProviderSelection, sessionId?: string | null) =>
+    ipcRenderer.invoke(IpcChannel.PROVIDER_SELECT, selection, sessionId ?? null) as Promise<SessionStatus>,
   listModels: (provider: ProviderId, refresh?: boolean) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_MODELS, provider, refresh) as Promise<ModelCatalogue>,
+  setRotation: (entries: RotationEntry[]) =>
+    ipcRenderer.invoke(IpcChannel.ROTATION_SET, entries) as Promise<SessionStatus>,
+  resetRotationUsage: () => ipcRenderer.invoke(IpcChannel.ROTATION_RESET) as Promise<SessionStatus>,
   setAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
   addProvider: (input: CustomProviderInput) =>

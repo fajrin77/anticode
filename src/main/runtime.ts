@@ -7,19 +7,35 @@ import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import type { ContentBlock, Message } from './providers/types'
 import type { RunSummary, SnapshotMessage } from '@shared/ipc'
-import { SESSION_COLOURS } from '@shared/ipc'
+import { ROTATE_PROVIDER, SESSION_COLOURS } from '@shared/ipc'
 import type {
   ModelCatalogue,
+  ModelChoice,
   ProviderId,
   ProviderSelection,
+  RotationEntry,
+  RotationEntryStatus,
   SessionMode,
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
 import { AgentSession, titleOf } from './agent/loop'
+import type { ProviderFallback } from './agent/loop'
+import type { LLMProvider } from './providers/types'
 import { clearWeb, restoreWeb, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
 import { fetchModels } from './providers/models'
+import {
+  coolDown,
+  coolingUntil,
+  countedProvider,
+  forgetRotationProvider,
+  rankRotation,
+  rotationEntries,
+  rotationKey,
+  rotationUsage,
+  setRotationEntries
+} from './rotation'
 import { ApprovalPolicy } from './approval/policy'
 import type { ApprovalGate } from './approval/types'
 
@@ -28,11 +44,27 @@ export const policy = new ApprovalPolicy()
 /** Above this, a catalogue is a marketplace rather than an account's own list. */
 const AUTO_PICK_LIMIT = 25
 
+/**
+ * A rotating session stays on one model for this many prompts before moving
+ * on: a follow-up usually builds on the answer before it, and answering it
+ * with a different model every time reads like a new conversation.
+ */
+export const PROMPTS_PER_MODEL = 2
+
 interface LiveSession {
   spec: SessionSpec
   agent: AgentSession | null
   messages: Message[]
+  /**
+   * The model this session was given. Unset means it still follows the
+   * default; it is pinned to that default the moment the default changes, so
+   * a pick made in another tab never moves it.
+   */
+  choice?: ProviderSelection
+  /** What the agent is actually talking to — under rotation, this run's entry. */
   selection?: ProviderSelection
+  /** Rotation only: prompts sent to `selection` since the session moved onto it. */
+  promptsOnEntry?: number
   /** One entry per finished assistant turn, oldest first. */
   summaries: RunSummary[]
 }
@@ -78,17 +110,21 @@ export function setWorkspaceRoot(root: string): void {
  */
 export function initPersistedState(): void {
   try {
-    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown }[]
+    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
           !Array.isArray(entry.messages) || !entry.messages.every((message) =>
             ['user', 'assistant'].includes(message.role) && Array.isArray(message.content))) continue
+      const choice = entry.choice as ProviderSelection | undefined
       sessions.set(entry.spec.sessionId, {
         spec: entry.spec,
         messages: entry.messages,
         agent: null,
-        summaries: Array.isArray(entry.summaries) ? entry.summaries : []
+        summaries: Array.isArray(entry.summaries) ? entry.summaries : [],
+        ...(typeof choice?.provider === 'string' && typeof choice.model === 'string'
+          ? { choice: { provider: choice.provider, model: choice.model } }
+          : {})
       })
       // The page this session had open comes back with it, so relaunching the
       // app lands on the same local server the last run was looking at.
@@ -101,18 +137,49 @@ export function initPersistedState(): void {
     policy.setAutoApprove(persisted.autoApprove)
   }
   if (persisted.provider !== null && persisted.provider !== undefined) {
-    const exists = listProviders().some(
-      (p) => p.id === persisted.provider && p.credentialAvailable
-    )
+    const exists = persisted.provider === ROTATE_PROVIDER
+      ? rotationEntries().length > 0
+      : listProviders().some((p) => p.id === persisted.provider && p.credentialAvailable)
     if (exists) {
-      selection = { provider: persisted.provider, model: persisted.model ?? '' }
+      selection = { provider: persisted.provider, model: persisted.provider === ROTATE_PROVIDER ? '' : (persisted.model ?? '') }
     }
   }
 }
 
-/** Drops the active selection so the next current() falls back to built-ins. */
-export function resetProviderSelection(): void {
-  selection = null
+/**
+ * A provider is gone: sessions on it go back to following the default, and
+ * the default itself falls back to built-ins if it was that provider.
+ */
+export function forgetProvider(provider: ProviderId): void {
+  forgetRotationProvider(provider)
+  let changed = false
+  for (const live of sessions.values()) {
+    if (live.choice?.provider === provider) {
+      delete live.choice
+      changed = true
+    }
+  }
+  if (current().provider === provider) selection = null
+  if (changed) persistSessions()
+}
+
+/**
+ * Every session still following the default takes it as its own, so the
+ * default can change without dragging any existing session along with it.
+ */
+function pinSessions(): void {
+  const active = current()
+  let changed = false
+  for (const live of sessions.values()) {
+    if (live.choice !== undefined) continue
+    live.choice = { ...active }
+    changed = true
+  }
+  if (changed) persistSessions()
+}
+
+function choiceOf(live: LiveSession): ProviderSelection {
+  return live.choice ?? current()
 }
 
 /**
@@ -126,23 +193,41 @@ function autoPickFor(provider: ProviderId, models: string[]): string {
 }
 
 /**
- * Allowed at any time, even while other sessions work: a run keeps the model
- * it started with (getSession never swaps a working session's agent), and the
- * new choice applies from each session's next prompt.
+ * A model picked in a session is that session's alone: every other session
+ * keeps the one it has, and a run already going in this one keeps its model
+ * until it ends (getSession never swaps a working session's provider). The
+ * pick also becomes the default new sessions start on — with no session id,
+ * that is all it changes.
  */
-export function selectProvider(next: ProviderSelection): void {
-  if (!listProviders().some((provider) => provider.id === next.provider && provider.credentialAvailable)) {
-    throw new Error('Provider unavailable. Configure its credentials first.')
-  }
-  const model = next.model.trim()
-  selection = {
-    provider: next.provider,
-    // Fall back to whatever the catalogue offers so switching provider never
-    // lands on an empty model box the user has to fill in by hand.
-    model: model !== '' ? model : autoPickFor(next.provider, catalogues.get(next.provider)?.models ?? [])
+export function selectProvider(next: ProviderSelection, sessionId?: string | null): void {
+  const live = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
+  if (sessionId !== null && sessionId !== undefined && live === undefined) throw new Error('Unknown session; reopen this tab')
+  let chosen: ProviderSelection
+  if (next.provider === ROTATE_PROVIDER) {
+    if (rotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
+    chosen = { provider: ROTATE_PROVIDER, model: '' }
+  } else {
+    if (!listProviders().some((provider) => provider.id === next.provider && provider.credentialAvailable)) {
+      throw new Error('Provider unavailable. Configure its credentials first.')
+    }
+    const model = next.model.trim()
+    chosen = {
+      provider: next.provider,
+      // Fall back to whatever the catalogue offers so switching provider never
+      // lands on an empty model box the user has to fill in by hand.
+      model: model !== '' ? model : autoPickFor(next.provider, catalogues.get(next.provider)?.models ?? [])
+    }
   }
 
-  savePersistedSettings({ provider: selection.provider, model: selection.model })
+  pinSessions()
+  if (live !== undefined) {
+    live.choice = chosen
+    // Picking Rotate again starts a fresh turn on the pool.
+    delete live.promptsOnEntry
+    persistSessions()
+  }
+  selection = chosen
+  savePersistedSettings({ provider: chosen.provider, model: chosen.model })
 }
 
 /** True while a working session is talking to this provider. */
@@ -151,6 +236,17 @@ export function providerInUse(provider: ProviderId): boolean {
     if (live.selection?.provider === provider && runForSession(sessionId) !== null) return true
   }
   return false
+}
+
+/** Replaces the Rotate usage pool; sessions set to rotate use it from their next prompt. */
+export function applyRotation(entries: RotationEntry[]): void {
+  setRotationEntries(entries)
+  // An emptied pool leaves nothing to rotate over. Sessions set to rotate say
+  // so in their composer; the default goes back to a plain model.
+  if (rotationEntries().length === 0 && current().provider === ROTATE_PROVIDER) {
+    selection = null
+    savePersistedSettings({ provider: current().provider, model: current().model })
+  }
 }
 
 /** A provider's model list changed in Settings; the next listModels refetches. */
@@ -179,11 +275,20 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
   // alphabetically there lands on an arbitrary paid model, so the user picks.
   const active = current()
   const autoPick = autoPickFor(provider, catalogue.models)
-  if (active.provider === provider && active.model === '' && autoPick !== '') {
+  if (autoPick === '') return catalogue
+  if (active.provider === provider && active.model === '') {
     selection = { provider, model: autoPick }
 
     savePersistedSettings({ provider, model: autoPick })
   }
+  // A session pinned before the catalogue arrived took the empty model too.
+  let filled = false
+  for (const live of sessions.values()) {
+    if (live.choice?.provider !== provider || live.choice.model !== '') continue
+    live.choice = { provider, model: autoPick }
+    filled = true
+  }
+  if (filled) persistSessions()
   return catalogue
 }
 
@@ -252,7 +357,14 @@ export function createSession(spec: SessionSpec): SessionSpec {
     workspaceRoot: spec.workspaceRoot,
     colour
   }
-  const live: LiveSession = { spec: settled, agent: null, messages: [], summaries: [] }
+  const live: LiveSession = {
+    spec: settled,
+    agent: null,
+    messages: [],
+    summaries: [],
+    // A draft rebound to its folder on first send keeps the model it was given.
+    ...(previous?.choice !== undefined ? { choice: previous.choice } : {})
+  }
   sessions.set(spec.sessionId, live)
   persistSessions()
   const announced = specOf(live)
@@ -294,29 +406,95 @@ export function deleteSession(sessionId: string): void {
   sessionClosedSink?.(sessionId)
 }
 
-export function getStatus(): SessionStatus {
-  const active = current()
-  const info = listProviders().find((p) => p.id === active.provider)
+type Providers = ReturnType<typeof listProviders>
 
-  // Every provider's credentials can be set in Settings now, so that is where
-  // the hint points — the env file still works, but it is not the only way.
-  const blockedReason =
-    info === undefined
-      ? 'No provider set up — add one in Settings → Providers'
-      : !info.credentialAvailable
-        ? `${info.label} has no ${info.credentialHint} yet — add it in Settings → Providers`
-        : active.model === ''
-        ? 'No model selected for this provider'
-        : null
+function entryReady(entry: RotationEntry, providers: Providers): boolean {
+  return providers.some((provider) => provider.id === entry.provider && provider.credentialAvailable)
+}
 
+function readiness(
+  choice: ProviderSelection,
+  providers: Providers
+): { providerReady: boolean; blockedReason: string | null } {
+  let blockedReason: string | null
+  if (choice.provider === ROTATE_PROVIDER) {
+    const pool = rotationEntries()
+    blockedReason =
+      pool.length === 0
+        ? 'Rotate usage has no models yet — add them in Settings → Providers'
+        : !pool.some((entry) => entryReady(entry, providers))
+          ? 'No model in Rotate usage is ready — check their providers in Settings → Providers'
+          : null
+  } else {
+    const info = providers.find((p) => p.id === choice.provider)
+    // Every provider's credentials can be set in Settings now, so that is where
+    // the hint points — the env file still works, but it is not the only way.
+    blockedReason =
+      info === undefined
+        ? 'No provider set up — add one in Settings → Providers'
+        : !info.credentialAvailable
+          ? `${info.label} has no ${info.credentialHint} yet — add it in Settings → Providers`
+          : choice.model === ''
+            ? 'No model selected for this provider'
+            : null
+  }
+  return { providerReady: blockedReason === null, blockedReason }
+}
+
+function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
+  const choice = choiceOf(live)
+  return {
+    ...choice,
+    ...readiness(choice, providers),
+    lastUsed: choice.provider === ROTATE_PROVIDER && live.selection !== undefined ? { ...live.selection } : null
+  }
+}
+
+function rotationStatus(providers: Providers): RotationEntryStatus[] {
+  return rotationEntries().map((entry) => ({
+    ...entry,
+    ...rotationUsage(entry),
+    label: providers.find((provider) => provider.id === entry.provider)?.label ?? entry.provider,
+    ready: entryReady(entry, providers),
+    coolingUntil: coolingUntil(entry)
+  }))
+}
+
+/**
+ * The default model at the top — what a new session starts on — and every
+ * session's own model under `sessions`. With a session id, the top half is
+ * that session's model instead, for callers about to prompt it.
+ */
+export function getStatus(sessionId?: string | null): SessionStatus {
+  const providers = listProviders()
+  const own = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
+  const top = own !== undefined ? choiceStatus(own, providers) : { ...current(), ...readiness(current(), providers), lastUsed: null }
   return {
     workspaceRoot,
-    provider: active.provider,
-    model: active.model,
+    provider: top.provider,
+    model: top.model,
     autoApprove: policy.isAutoApprove(),
-    providerReady: blockedReason === null,
-    blockedReason
+    providerReady: top.providerReady,
+    blockedReason: top.blockedReason,
+    lastUsed: top.lastUsed,
+    sessions: Object.fromEntries([...sessions].map(([id, live]) => [id, choiceStatus(live, providers)])),
+    rotation: rotationStatus(providers)
   }
+}
+
+/** Every session talks through this, so pooled models count what they spend. */
+function providerFor(target: ProviderSelection): LLMProvider {
+  return countedProvider(target, createProvider(target.provider, target.model))
+}
+
+/** Sessions working on this pool entry right now. */
+function busyOn(entry: RotationEntry): number {
+  const key = rotationKey(entry)
+  let count = 0
+  for (const [id, live] of sessions) {
+    if (live.selection !== undefined && rotationKey(live.selection) === key && runForSession(id) !== null) count += 1
+  }
+  return count
 }
 
 export function getSession(sessionId: string, gate: ApprovalGate): AgentSession {
@@ -328,23 +506,80 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
   }
 
   // A session that is working keeps the agent it is working with: a follow-up
-  // joins that run, and swapping the agent under it would strand the run. A
-  // model picked meanwhile takes over from this session's next prompt.
+  // joins that run, and swapping its provider would strand the run. A model
+  // picked meanwhile takes over from this session's next prompt.
   if (live.agent !== null && runForSession(sessionId) !== null) return live.agent
 
-  const active = current()
-  if (!live.agent || live.selection?.provider !== active.provider || live.selection?.model !== active.model) {
-    const history = live.agent?.snapshot().messages ?? live.messages
+  const choice = choiceOf(live)
+  let target: ProviderSelection
+  let fallback: ProviderFallback | null = null
+  if (choice.provider === ROTATE_PROVIDER) {
+    // The session stays on its model for PROMPTS_PER_MODEL prompts, then
+    // moves to the pool entry with the least load other than the one it
+    // leaves. One that fails mid-run rests for a while and hands the turn on.
+    const providers = listProviders()
+    const ready = (entry: RotationEntry): boolean => entryReady(entry, providers)
+    const tried = new Set<string>()
+    const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried })[0]
+    const current = live.selection
+    const pool = rotationEntries()
+    const staying =
+      current !== undefined &&
+      (live.promptsOnEntry ?? 0) > 0 &&
+      (live.promptsOnEntry ?? 0) < PROMPTS_PER_MODEL &&
+      pool.some((entry) => rotationKey(entry) === rotationKey(current)) &&
+      ready(current) &&
+      coolingUntil(current) === null
+    let first: RotationEntry | undefined
+    if (staying) {
+      first = current
+      live.promptsOnEntry = (live.promptsOnEntry ?? 0) + 1
+    } else {
+      // Its turn is up: someone else goes next, unless nobody else can.
+      if (current !== undefined && live.promptsOnEntry !== undefined) tried.add(rotationKey(current))
+      first = next()
+      // A model that is resting is no better than the healthy one it would
+      // replace; the session starts another turn where it is instead.
+      const healthy =
+        current !== undefined && pool.some((entry) => rotationKey(entry) === rotationKey(current)) &&
+        ready(current) && coolingUntil(current) === null
+      if (healthy && (first === undefined || coolingUntil(first) !== null)) first = current
+      if (first === undefined) {
+        tried.clear()
+        first = next()
+      }
+      live.promptsOnEntry = 1
+    }
+    if (first === undefined) throw new Error(readiness(choice, providers).blockedReason ?? 'No model in Rotate usage is ready')
+    tried.add(rotationKey(first))
+    target = first
+    fallback = () => {
+      if (live.selection !== undefined) coolDown(live.selection)
+      const following = next()
+      if (following === undefined) return null
+      tried.add(rotationKey(following))
+      live.selection = { ...following }
+      // The model that took over starts its own turn with this prompt.
+      live.promptsOnEntry = 1
+      return providerFor(following)
+    }
+  } else {
+    target = choice
+  }
+
+  const provider = providerFor(target)
+  if (live.agent === null) {
     live.agent = new AgentSession(
-      createProvider(active.provider, active.model),
+      provider,
       gate,
       live.spec.mode,
       sessionFileRoot(sessionId),
-      history,
+      live.messages,
       live.spec.sessionId
     )
-    live.selection = { ...active }
   }
+  live.agent.useProvider(provider, fallback)
+  live.selection = { provider: target.provider, model: target.model }
   return live.agent
 }
 
@@ -519,7 +754,8 @@ export function persistSessions(): void {
     spec: live.spec,
     messages: live.agent?.snapshot().messages ?? live.messages,
     summaries: live.summaries,
-    web: webRecord(live.spec.sessionId)
+    web: webRecord(live.spec.sessionId),
+    ...(live.choice !== undefined ? { choice: live.choice } : {})
   }))
   try {
     mkdirSync(directory, { recursive: true })

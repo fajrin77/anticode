@@ -13,6 +13,13 @@ export interface PersistedSettings {
   provider?: string | null
   model?: string | null
   remote?: RemoteSettings
+  rotation?: PersistedRotation
+}
+
+export interface PersistedRotation {
+  entries: { provider: string; model: string }[]
+  /** Tokens per entry since the last reset, keyed by rotationKey. */
+  usage: Record<string, { inputTokens: number; outputTokens: number }>
 }
 
 let cache: PersistedSettings | null = null

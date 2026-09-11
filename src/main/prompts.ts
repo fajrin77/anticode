@@ -1,9 +1,10 @@
 import type { AgentEvent, AgentRequest } from '@shared/ipc'
+import { ROTATE_PROVIDER } from '@shared/ipc'
 import type { ApprovalGate } from './approval/types'
 import { attachmentsFor, blocksOf, refsOf, releaseAttachments } from './attachments/registry'
 import { announceTitle, getSession, getStatus, persistSessions } from './runtime'
 import { beginRun, finishRun, runForSession } from './runs'
-import { forward, registerRun } from './remote/bus'
+import { announceStatus, forward, registerRun } from './remote/bus'
 
 // Serialize admission, including attachment preparation, across both transports.
 // The queue releases as soon as the run starts, so follow-ups still join it.
@@ -29,8 +30,9 @@ async function admit(req: AgentRequest, gate: ApprovalGate): Promise<{ runId: st
   const sent = await attachmentsFor(req.sessionId, req.attachmentIds)
   const blocks = await blocksOf(req.sessionId, sent)
   // Preparation can outlive a deletion, model change, or a finishing run.
-  // Recheck the current main-process state after that asynchronous work.
-  const status = getStatus()
+  // Recheck the current main-process state after that asynchronous work —
+  // this session's own model, not whichever was picked last elsewhere.
+  const status = getStatus(req.sessionId)
   if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
   const agent = getSession(req.sessionId, gate)
   const existing = runForSession(req.sessionId)
@@ -44,6 +46,8 @@ async function admit(req: AgentRequest, gate: ApprovalGate): Promise<{ runId: st
   const controller = beginRun(req.runId, req.sessionId)
   registerRun(req.runId, req.sessionId)
   forward({ type: 'prompt', runId: req.runId, text: req.prompt, attachments: refsOf(sent) })
+  // A rotating session's chip names the model this prompt went to.
+  if (status.provider === ROTATE_PROVIDER) announceStatus()
   let terminal: AgentEvent | undefined
   void agent.run({
     runId: req.runId, prompt: req.prompt, signal: controller.signal, attachments: blocks,

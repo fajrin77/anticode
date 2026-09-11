@@ -104,9 +104,38 @@ Satu keanehan lain yang perlu diingat kalau nanti menambah jalur non-streaming: 
 dibungkus envelope `{"data": {...}}`, sedangkan chunk streaming-nya justru bentuk OpenAI standar.
 Adapter ini memakai streaming, jadi tidak terpengaruh.
 
+**Anthropic API dan OpenAI API.** Settings → Providers → Add provider punya dua tipe untuk API resmi
+vendor: **Anthropic API** (adapter Messages API bawaan, key `sk-ant-…`) dan **OpenAI API**. Cukup isi
+API key; nama dan Base URL (`https://api.anthropic.com`, `https://api.openai.com/v1`) terisi sendiri.
+Provider Anthropic mulai di `claude-opus-5` bila tidak ada id model yang diketik, dan permintaan 32K
+token output diturunkan otomatis ke batas model yang dilaporkan Models API, supaya model lama tidak
+menolaknya. Katalog OpenAI disaring dari model embedding, suara, gambar, dan moderasi. Keduanya bisa
+dicentang di Settings → Models dan ikut Rotate usage bersama gateway lain. Login memakai langganan
+Claude Pro atau akun ChatGPT sengaja tidak didukung: jalur itu bukan untuk aplikasi pihak ketiga.
+
 Ollama dan Clinepass memakai adapter yang sama dengan OpenAI karena keduanya bicara format
 `/v1/chat/completions`. Pergantian provider/model dilakukan di antara run dan mempertahankan
 percakapan yang sudah selesai. Adapter menerjemahkan blok pesan sesuai format provider tujuan.
+
+**Model milik tiap sesi.** Model yang dipilih di satu tab hanya berlaku untuk sesi itu; sesi lain
+tetap memakai modelnya sendiri, dan run yang sedang berjalan tidak pernah berganti model di tengah
+jalan. Pilihan terakhir juga menjadi model awal untuk sesi baru. Pilihan tiap sesi disimpan di
+`sessions.json`, jadi tetap sama setelah app dibuka ulang.
+
+**Model di composer.** Di Settings → Models, centang model yang ingin ditawarkan composer (per
+provider, termasuk id yang diketik manual). Picker model di composer — desktop maupun HP — lalu hanya
+menampilkan model yang dicentang; katalog lengkap tetap bisa dicari atau dibuka lewat "show all".
+Provider tanpa centang tetap menampilkan seluruh katalognya.
+
+**Rotate usage.** Model yang dicentang itu juga menjadi pool Rotate usage (terlihat beserta hitungan
+tokennya di Settings → Providers → Rotate usage): model-model yang
+berbagi beban token — misalnya beberapa akun di gateway yang sama. Sesi yang memilih **Rotate** di
+chip modelnya memakai satu model selama **2 prompt**, lalu pindah ke model lain di pool yang tokennya
+paling sedikit terpakai; sesi yang mulai bersamaan disebar dulu ke model yang sedang tidak dipakai. Model yang gagal (rate limit,
+kuota habis, error) langsung menyerahkan giliran ke model berikutnya tanpa menunggu backoff, lalu
+diistirahatkan satu menit. Token dihitung dari semua sesi, termasuk sesi yang memakai model pool
+secara tetap; model yang baru masuk pool mulai sejajar dengan yang paling sedikit terpakai, bukan dari
+nol.
 
 ## Tool dan tier risiko
 

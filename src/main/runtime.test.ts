@@ -1,8 +1,9 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ApprovalGate } from './approval/types'
+import type { ProviderFallback } from './agent/loop'
 
 const userData = mkdtempSync(path.join(tmpdir(), 'anticode-runtime-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
@@ -12,51 +13,209 @@ vi.mock('./providers/models', () => ({ fetchModels: async () => [] }))
 vi.mock('./providers', () => ({
   listProviders: () => [
     { id: 'one', label: 'One', defaultModel: 'm1', credentialAvailable: true, configured: true, credentialHint: '' },
-    { id: 'two', label: 'Two', defaultModel: 'm2', credentialAvailable: true, configured: true, credentialHint: '' }
+    { id: 'two', label: 'Two', defaultModel: 'm2', credentialAvailable: true, configured: true, credentialHint: '' },
+    { id: 'three', label: 'Three', defaultModel: 'm3', credentialAvailable: true, configured: true, credentialHint: '' }
   ],
-  createProvider: (id: string, model: string) => ({ id, model })
+  createProvider: (id: string, model: string) => ({
+    name: id,
+    model,
+    async *chat() {
+      yield { type: 'response', response: { content: [], stopReason: 'end_turn', usage: { inputTokens: 40, outputTokens: 2 } } }
+    }
+  })
 }))
 vi.mock('./agent/loop', () => ({
   titleOf: () => '',
   AgentSession: class {
     messageCount = 0
-    constructor(readonly provider: { id: string; model: string }) {}
+    fallback: ProviderFallback | null = null
+    constructor(public provider: { name: string; model: string }) {}
+    useProvider(provider: { name: string; model: string }, fallback: ProviderFallback | null): void {
+      this.provider = provider
+      this.fallback = fallback
+    }
     snapshot(): { messages: never[] } { return { messages: [] } }
+    dispose(): void {}
   }
 }))
 
-import { createSession, getSession, getStatus, providerInUse, selectProvider } from './runtime'
+import {
+  applyRotation,
+  createSession,
+  deleteSession,
+  getSession,
+  getStatus,
+  providerInUse,
+  selectProvider
+} from './runtime'
+import { recordRotationUsage, resetRotationForTests } from './rotation'
 import { beginRun, finishRun } from './runs'
+import { ROTATE_PROVIDER } from '@shared/ipc'
 
 const gate = {} as ApprovalGate
-const modelOf = (sessionId: string): string =>
-  (getSession(sessionId, gate) as unknown as { provider: { model: string } }).provider.model
+type FakeAgent = { provider: { name: string; model: string }; fallback: ProviderFallback | null }
+const agentOf = (sessionId: string): FakeAgent => getSession(sessionId, gate) as unknown as FakeAgent
+const modelOf = (sessionId: string): string => agentOf(sessionId).provider.model
 
-afterEach(() => finishRun('run-a'))
+beforeEach(() => {
+  resetRotationForTests()
+  applyRotation([])
+  selectProvider({ provider: 'one', model: 'm1' })
+  for (const id of ['a', 'b', 'c']) deleteSession(id)
+})
+afterEach(() => {
+  finishRun('run-a')
+  finishRun('run-b')
+})
 
-it('changes the model while another session works, without swapping the working agent', () => {
+it('changes one session’s model without touching another, even while that one runs', () => {
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
-  selectProvider({ provider: 'one', model: 'm1' })
   expect(modelOf('a')).toBe('m1')
   beginRun('run-a', 'a')
 
-  // Picked in another tab while session a is still running.
-  expect(() => selectProvider({ provider: 'two', model: 'm2' })).not.toThrow()
-  expect(getStatus().model).toBe('m2')
+  // Picked in tab b while session a is still running.
+  expect(() => selectProvider({ provider: 'two', model: 'm2' }, 'b')).not.toThrow()
   expect(providerInUse('one')).toBe(true)
   expect(providerInUse('two')).toBe(false)
 
   // a follow-up to the running session reaches the agent that is running…
   expect(modelOf('a')).toBe('m1')
-  // …while the other session starts on the new model straight away,
+  // …b moves to its new model straight away…
   expect(modelOf('b')).toBe('m2')
-  // and the running one takes it from its next prompt.
+  // …and a stays on its own model after its run, too.
   finishRun('run-a')
+  expect(modelOf('a')).toBe('m1')
+  expect(getStatus('a').model).toBe('m1')
+  expect(getStatus('b').model).toBe('m2')
+  expect(getStatus().sessions['a']?.model).toBe('m1')
+})
+
+it('makes the latest pick what new sessions start on', () => {
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: 'two', model: 'm2' }, 'a')
+  expect(getStatus().model).toBe('m2')
+
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  expect(modelOf('b')).toBe('m2')
+
+  // A default set in Settings leaves every existing session where it was.
+  selectProvider({ provider: 'three', model: 'm3' })
+  expect(modelOf('a')).toBe('m2')
+  expect(modelOf('b')).toBe('m2')
+  createSession({ sessionId: 'c', mode: 'chat', workspaceRoot: null })
+  expect(modelOf('c')).toBe('m3')
+})
+
+it('keeps a draft’s model when it is rebound to its folder on first send', () => {
+  createSession({ sessionId: 'a', mode: 'code', workspaceRoot: null })
+  selectProvider({ provider: 'two', model: 'm2' }, 'a')
+  selectProvider({ provider: 'three', model: 'm3' })
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   expect(modelOf('a')).toBe('m2')
 })
 
 it('starts a provider picked without a model on the first model listed for it', () => {
   selectProvider({ provider: 'two', model: '' })
   expect(getStatus().model).toBe('m2')
+})
+
+it('refuses Rotate while the pool is empty', () => {
+  expect(() => selectProvider({ provider: ROTATE_PROVIDER, model: '' })).toThrow(/Rotate usage/)
+})
+
+it('keeps a rotating session on one model for two prompts, then moves to the least-used other', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  expect(getStatus('a').providerReady).toBe(true)
+
+  expect(modelOf('a')).toBe('m1')
+  // Heavier use does not cut a model's two prompts short…
+  recordRotationUsage({ provider: 'one', model: 'm1' }, { inputTokens: 500, outputTokens: 100 })
+  expect(modelOf('a')).toBe('m1')
+  // …and after them the least-used of the others takes over.
+  recordRotationUsage({ provider: 'two', model: 'm2' }, { inputTokens: 900, outputTokens: 0 })
+  expect(modelOf('a')).toBe('m3')
+  expect(getStatus('a').lastUsed).toEqual({ provider: 'three', model: 'm3' })
+  expect(modelOf('a')).toBe('m3')
+  // m1 has used less than m2, and m3 has had its turn.
+  expect(modelOf('a')).toBe('m1')
+
+  const counts = getStatus().rotation.map((entry) => entry.inputTokens + entry.outputTokens)
+  expect(counts).toEqual([600, 900, 0])
+})
+
+it('moves on early when the model it was on starts resting', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  const agent = agentOf('a')
+  expect(agent.provider.model).toBe('m1')
+  // The first prompt failed over: m2 took it, and counts it as its first.
+  expect(agent.fallback?.(Object.assign(new Error('limit'), { status: 429 }))?.model).toBe('m2')
+  expect(modelOf('a')).toBe('m2')
+  // Two on m2; m1 is still resting, so m2 carries on rather than stop.
+  expect(modelOf('a')).toBe('m2')
+})
+
+it('stays on the only model in the pool', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  expect([modelOf('a'), modelOf('a'), modelOf('a')]).toEqual(['m1', 'm1', 'm1'])
+})
+
+it('counts pooled tokens spent by sessions pinned to that model too', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  const provider = agentOf('a').provider as unknown as { chat: (params: unknown) => AsyncIterable<unknown> }
+  for await (const _event of provider.chat({})) { /* drain */ }
+  expect(getStatus().rotation.map((entry) => [entry.inputTokens, entry.outputTokens])).toEqual([[40, 2], [0, 0]])
+})
+
+it('spreads prompts sent together over the pool before any tokens are counted', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'b')
+
+  expect(modelOf('a')).toBe('m1')
+  beginRun('run-a', 'a')
+  expect(modelOf('b')).toBe('m2')
+})
+
+it('hands a failed turn to the next pool entry and rests the one that failed', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+
+  const agent = agentOf('a')
+  expect(agent.provider.model).toBe('m1')
+  const next = agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429 }))
+  expect(next?.model).toBe('m2')
+  // Nothing left to try in this turn.
+  expect(agent.fallback?.(new Error('down'))).toBeNull()
+
+  const pool = getStatus().rotation
+  expect(pool.every((entry) => entry.coolingUntil !== null)).toBe(true)
+  // A fixed model has no fallback: its failures are reported as they are.
+  selectProvider({ provider: 'three', model: 'm3' }, 'a')
+  expect(agentOf('a').fallback).toBeNull()
+})
+
+it('lets an emptied pool stop being the default', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' })
+  expect(getStatus().provider).toBe(ROTATE_PROVIDER)
+  applyRotation([])
+  expect(getStatus().provider).not.toBe(ROTATE_PROVIDER)
+})
+
+it('starts a model joining the pool level with the least-used one, not at zero', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  recordRotationUsage({ provider: 'one', model: 'm1' }, { inputTokens: 300, outputTokens: 0 })
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  expect(getStatus().rotation.map((entry) => entry.inputTokens)).toEqual([300, 300])
 })

@@ -22,6 +22,21 @@ await sharp({ create: { width: 320, height: 200, channels: 3, background: '#d1fa
 const shots = path.join(directory, 'shots'); await mkdir(shots)
 
 const stub = createServer(async (req, res) => {
+  // Anthropic's own API, for a provider added as "Anthropic API".
+  const modelInfo = /\/v1\/models\/([^/?]+)/.exec(req.url)
+  if (modelInfo) { res.setHeader('content-type','application/json'); res.end(JSON.stringify({id:modelInfo[1],type:'model',display_name:modelInfo[1],created_at:'2026-01-01T00:00:00Z',max_input_tokens:200000,max_tokens:4096})); return }
+  if (req.url.split('?')[0].endsWith('/v1/messages')) {
+    for await (const _ of req) { /* drain */ }
+    res.writeHead(200,{'content-type':'text/event-stream'})
+    const send=(event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    send('message_start',{type:'message_start',message:{id:'msg_1',type:'message',role:'assistant',model:'claude-opus-5',content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:20,output_tokens:1}}})
+    send('content_block_start',{type:'content_block_start',index:0,content_block:{type:'text',text:''}})
+    send('content_block_delta',{type:'content_block_delta',index:0,delta:{type:'text_delta',text:'Anthropic fixture reply'}})
+    send('content_block_stop',{type:'content_block_stop',index:0})
+    send('message_delta',{type:'message_delta',delta:{stop_reason:'end_turn',stop_sequence:null},usage:{output_tokens:4}})
+    send('message_stop',{type:'message_stop'})
+    res.end(); return
+  }
   if (req.url.endsWith('/models')) { res.setHeader('content-type','application/json'); res.end(JSON.stringify({data:[{id:'test-model'}]})); return }
   let raw=''; for await (const p of req) raw+=p
   const body=JSON.parse(raw)
@@ -491,13 +506,26 @@ try {
   await limeOnHover('settings: sidebar section', window.getByRole('button',{name:/Providers/}))
   await window.getByRole('button',{name:/Providers/}).click(); await window.waitForTimeout(300)
   await limeOnHover('settings: add provider', window.getByRole('button',{name:'+ Add provider'}))
+  // The vendors' own APIs: pick the type and a key is all that is left to give.
+  await window.getByRole('button',{name:'+ Add provider'}).click(); await window.waitForTimeout(200)
+  const anthropicKind = window.locator('[data-provider-kind="anthropic"]')
+  await limeOnHover('settings: provider type Anthropic API', anthropicKind)
+  await anthropicKind.click(); await window.waitForTimeout(100)
+  check('settings: an Anthropic provider names itself',
+    await window.getByPlaceholder('Anthropic', { exact: true }).inputValue(), 'Anthropic')
+  check('settings: an Anthropic provider waits only for its key',
+    await window.getByRole('button',{name:'Add provider',exact:true}).isDisabled() ? 'waiting' : 'ready', 'waiting')
+  await window.getByPlaceholder('sk-ant-…').fill('sk-ant-fixture')
+  check('settings: an Anthropic provider with a key can be added',
+    await window.getByRole('button',{name:'Add provider',exact:true}).isDisabled() ? 'waiting' : 'ready', 'ready')
+  await window.getByRole('button',{name:'Cancel'}).click(); await window.waitForTimeout(200)
   // A provider added in Settings can be given its model ids by hand.
   await window.evaluate((baseURL) => window.anticode.addProvider({ label: 'Gateway', kind: 'openai', baseURL, apiKey: 'fixture' }),
     `http://127.0.0.1:${stub.address().port}/v1`)
   const editButton = window.getByTitle('Edit Gateway')
   await editButton.waitFor()
   await limeOnHover('settings: provider edit', editButton)
-  await limeOnHover('settings: provider use', window.getByTitle('Use Gateway'))
+  await limeOnHover('settings: provider use', window.getByTitle('Start new sessions on Gateway'))
   await editButton.click(); await window.waitForTimeout(200)
   await window.locator('textarea').first().fill('vendor/model-a\nvendor/model-b')
   await window.getByRole('button',{name:'Save',exact:true}).click(); await window.waitForTimeout(400)
@@ -511,6 +539,71 @@ try {
   await removeClinepass.click(); await window.waitForTimeout(200)
   await limeOnHover('settings: keep instead of removing', window.getByRole('button',{name:'Keep'}))
   await window.getByRole('button',{name:'Keep'}).click(); await window.waitForTimeout(200)
+
+  // Rotate usage: a pool of models sharing the token load. Taking one out of
+  // the pool deletes nothing, so it is lime like every other control.
+  const addRotation = window.locator('[data-rotation-add]')
+  await limeOnHover('settings: rotate usage add model', addRotation)
+  await addRotation.click(); await window.waitForTimeout(200)
+  await window.getByRole('button',{name:'Add',exact:true}).click(); await window.waitForTimeout(400)
+  const takeOut = window.getByTitle('Take test-model out of the rotation')
+  await takeOut.waitFor()
+  await limeOnHover('settings: rotate usage take out', takeOut)
+  await limeOnHover('settings: rotate usage reset counts', window.getByRole('button',{name:'Reset counts'}))
+  await limeOnHover('settings: rotate usage default', window.getByRole('button',{name:'Use for new sessions'}))
+  await shot('18b-rotate-usage')
+
+  // A model picked in one session is that session's alone.
+  const perSession = await window.evaluate(async () => {
+    const ids = (await window.anticode.listSessions()).map((spec) => spec.sessionId)
+    if (ids.length < 2) return 'needs two sessions'
+    const gateway = (await window.anticode.listProviders()).find((entry) => entry.label === 'Gateway')
+    const before = (await window.anticode.getStatus()).sessions[ids[1]]?.model
+    const status = await window.anticode.selectProvider({ provider: gateway.id, model: 'vendor/model-a' }, ids[0])
+    const result = status.sessions[ids[0]]?.model === 'vendor/model-a' && status.sessions[ids[1]]?.model === before
+      ? 'separate' : `shared: ${JSON.stringify(status.sessions)}`
+    // Put things back for the checks that follow.
+    await window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model' }, ids[0])
+    return result
+  })
+  check('sessions: changing one session’s model leaves the others alone', perSession, 'separate')
+
+  // A session on an Anthropic API provider talks through the Anthropic adapter.
+  const anthropicReply = await window.evaluate(async (baseURL) => {
+    const providers = await window.anticode.addProvider({ label: '', kind: 'anthropic', baseURL, apiKey: 'sk-ant-fixture' })
+    const added = providers.find((entry) => entry.kind === 'anthropic')
+    const sessionId = (await window.anticode.listSessions()).at(-1).sessionId
+    await window.anticode.selectProvider({ provider: added.id, model: 'claude-opus-5' }, sessionId)
+    await window.anticode.sendPrompt({ sessionId, runId: crypto.randomUUID(), prompt: 'halo claude', attachmentIds: [] })
+    let text = ''
+    for (let i = 0; i < 50 && !text.includes('Anthropic fixture reply'); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      const snapshot = await window.anticode.getSessionSnapshot(sessionId)
+      text = JSON.stringify(snapshot?.messages ?? [])
+    }
+    await window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model' }, sessionId)
+    await window.anticode.removeProvider(added.id)
+    return `${added.label} · ${text.includes('Anthropic fixture reply') ? 'replied' : 'silent'}`
+  }, `http://127.0.0.1:${stub.address().port}/v1`)
+  check('providers: an Anthropic API provider answers through its adapter', anthropicReply, 'Anthropic · replied')
+
+  // Settings → Models: the ticked models are the composer's whole list, and
+  // the same pool Rotate spreads prompts over.
+  await window.getByRole('button',{name:/Models/}).click(); await window.waitForTimeout(400)
+  const pickRow = window.locator('[data-model-pick]')
+  await pickRow.first().waitFor()
+  await limeOnHover('settings: models pick row', pickRow.locator('span.font-mono'))
+  check('settings: models shows the pooled model ticked',
+    await window.locator('[data-model-pick="test-model"]').getAttribute('aria-checked'), 'true')
+  await shot('18c-models-picked')
+  await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
+  await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
+  check('model picker: shows only the picked models',
+    (await window.locator('.menu-glass button.font-mono span.truncate').allTextContents()).join(','), 'test-model')
+  await limeOnHover('model picker: show all', window.locator('[data-picker-scope]'))
+  await window.keyboard.press('Escape'); await window.waitForTimeout(250)
+  await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
+  await window.evaluate(() => window.anticode.setRotation([])); await window.waitForTimeout(200)
   await limeOnHover('settings: version line', window.locator('button.mt-auto'))
 
   // Inline code reads as plain white text in a box; the old purple was the

@@ -3,6 +3,7 @@ import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { ModelPicker } from './ModelPicker'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
+import { modelLabel, statusFor } from '@shared/ipc'
 import type {
   AttachmentInfo,
   ProviderId,
@@ -12,9 +13,11 @@ import type {
 import type { MessagePart } from '../store/session'
 
 interface ComposerProps {
+  /** The whole status; the composer reads its own session's model from it. */
   status: SessionStatus | null
   providers: ProviderInfo[]
-  onSelectProvider: (provider: ProviderId, model: string) => void
+  /** A pick made here names this session, so no other tab changes model. */
+  onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   /** Fresh-session layout: the picker row for mode and folder sits below. */
   hero?: boolean
@@ -80,7 +83,7 @@ function Chip({
 }
 
 export function Composer({
-  status,
+  status: sharedStatus,
   providers,
   onSelectProvider,
   onToggleAutoApprove,
@@ -88,6 +91,7 @@ export function Composer({
   heroExtra
 }: ComposerProps): JSX.Element {
   const session = useActiveSession()
+  const status = sharedStatus === null ? null : statusFor(sharedStatus, session?.id)
   const savedDraft = useSessionStore((state) => state.drafts[session?.id ?? ''])
   const draft = savedDraft?.text ?? ''
   const attached = savedDraft?.attachments ?? []
@@ -388,7 +392,7 @@ export function Composer({
     }
   }
 
-  const shortModel = status?.model === '' ? 'pick a model' : (status?.model ?? '…')
+  const shortModel = modelLabel(status)
   // Code sessions always name the repo they are bound to, right in the composer.
   const folder =
     session?.mode === 'code' && session.projectRoot !== null
@@ -420,7 +424,7 @@ export function Composer({
               status={status}
               providers={providers}
               onSelect={(provider, model) => {
-                onSelectProvider(provider, model)
+                onSelectProvider(provider, model, session?.id ?? null)
                 if (model !== '') setMenu('none')
               }}
               onClose={() => setMenu('none')}
