@@ -122,6 +122,43 @@ describe('AgentSession', () => {
     await expect(readFile(path.join(root, 'new.txt'))).rejects.toThrow()
   })
 
+  it('takes back what a shell command and an Excel tool did when the turn is reverted', async () => {
+    await writeFile(path.join(root, 'notes.txt'), 'before')
+    const provider = new FakeProvider([
+      turn([
+        { type: 'tool_use', id: 'sh', name: 'run_command', input: { command: 'echo changed > notes.txt && mkdir -p out && echo x > out/made.txt' } },
+        { type: 'tool_use', id: 'xl', name: 'create_excel', input: { path: 'report.xlsx', rows: [['a']] } }
+      ], 'tool_use'),
+      turn([{ type: 'text', text: 'done' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    await session.run({ runId: 'terminal', prompt: 'change things', signal: new AbortController().signal, emit: () => {} })
+
+    expect((await readFile(path.join(root, 'notes.txt'), 'utf8')).trim()).toBe('changed')
+    expect(await readFile(path.join(root, 'report.xlsx'))).toBeInstanceOf(Buffer)
+    expect(session.revertLastTurn()).toBe('change things')
+    expect(await readFile(path.join(root, 'notes.txt'), 'utf8')).toBe('before')
+    await expect(readFile(path.join(root, 'out/made.txt'))).rejects.toThrow()
+    await expect(readFile(path.join(root, 'report.xlsx'))).rejects.toThrow()
+  })
+
+  it('reverts files from a checkpoint written before the app was reopened', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'before')
+    const store = await mkdtemp(path.join(tmpdir(), 'anticode-loop-cp-'))
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'w', name: 'write_file', input: { path: 'a.txt', content: 'after' } }], 'tool_use'),
+      turn([{ type: 'text', text: 'done' }], 'end_turn')
+    ])
+    const first = new AgentSession(provider, allowAll, 'code', root, [], 'scope', { checkpointDir: store })
+    await first.run({ runId: 'w', prompt: 'rewrite', signal: new AbortController().signal, emit: () => {} })
+
+    // A fresh session over the saved transcript — what a restart builds.
+    const reopened = new AgentSession(new FakeProvider([]), allowAll, 'code', root, first.snapshot().messages, 'scope', { checkpointDir: store })
+    expect(reopened.revertLastTurn()).toBe('rewrite')
+    expect(await readFile(path.join(root, 'a.txt'), 'utf8')).toBe('before')
+    await rm(store, { recursive: true, force: true })
+  })
+
   it('returns a tool failure as an error result instead of crashing the loop', async () => {
     const provider = new FakeProvider([
       turn([{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'hilang.txt' } }], 'tool_use'),

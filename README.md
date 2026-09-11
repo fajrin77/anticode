@@ -213,9 +213,17 @@ terjadi di batas prompt pengguna, sehingga pasangan `tool_use`/`tool_result` tid
 Error transien provider (429, 5xx, timeout) diulang otomatis sampai dua kali dengan backoff
 eksponensial berjitter dan menghormati header `Retry-After`.
 
-Sebelum `edit_file`, `write_file`, atau penghapusan file berjalan, agent menyimpan byte awal sekali
-per run. **Revert** kini mengembalikan file lama dan menghapus file yang baru dibuat oleh giliran itu,
-bukan hanya memotong transcript. Folder rekursif sengaja tidak disalin sebagai checkpoint tak terbatas.
+Sebelum sebuah tool mengubah berkas, agent menyimpan before-image-nya sekali per run di
+`userData/checkpoints/<sesi>/`, jadi **Revert** tetap mengembalikan berkas setelah app dibuka ulang.
+Tool yang menyebut targetnya — `edit_file`, `write_file`, `delete_file` (folder ikut, sampai 5000
+berkas), Excel, Word, dan PDF (`path` maupun `output_path`) — disalin tepat sebelum berjalan.
+`run_command` tidak menyebut apa pun, jadi workspace dipindai sebelum dan sesudah perintah: berkas
+yang dibuat, diubah, atau dihapus terminal ikut tercatat, termasuk folder baru. Before-image perintah
+diambil dari mirror yang diperbarui dengan clone copy-on-write (APFS), sehingga project yang tidak
+berubah hanya dibayar satu `stat` per berkas. Folder dependensi/build yang sama dengan daftar abaikan
+`list_directory` (`node_modules`, `.git`, `dist`, …) tidak dipindai, berkas di atas 20 MB dan
+workspace di atas 20.000 berkas dicatat sebagai tidak terlacak. Checkpoint diikat ke prompt yang
+memulainya; 40 prompt terakhir disimpan, dan checkpoint ikut terhapus bersama sesinya.
 
 API key yang dimasukkan lewat Settings disimpan dengan Electron `safeStorage` (Keychain di macOS,
 DPAPI di Windows) dan file plaintext lama dimigrasikan otomatis. Bila secure storage OS tidak

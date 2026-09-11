@@ -20,6 +20,7 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { AgentSession, titleOf } from './agent/loop'
+import { CheckpointStore } from './checkpoints'
 import type { ProviderFallback } from './agent/loop'
 import type { LLMProvider } from './providers/types'
 import { clearWeb, restoreWeb, webRecord } from './web'
@@ -499,6 +500,8 @@ export function deleteSession(sessionId: string): void {
   // this conversation; they go with it. A project folder is never touched.
   const own = live?.spec.mode === 'chat' ? chatFilesRoot(sessionId) : null
   if (own !== null) void rm(own, { recursive: true, force: true }).catch(() => undefined)
+  const kept = checkpointDir(sessionId)
+  if (kept !== null) void rm(kept, { recursive: true, force: true }).catch(() => undefined)
   sessions.delete(sessionId)
   announcedTitles.delete(sessionId)
   clearWeb(sessionId)
@@ -682,13 +685,15 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
 
   const provider = providerFor(target)
   if (live.agent === null) {
+    const kept = checkpointDir(sessionId)
     live.agent = new AgentSession(
       provider,
       gate,
       live.spec.mode,
       sessionFileRoot(sessionId),
       live.messages,
-      live.spec.sessionId
+      live.spec.sessionId,
+      kept !== null ? { checkpointDir: kept } : {}
     )
   }
   live.agent.useProvider(provider, fallback)
@@ -799,6 +804,14 @@ export function revertLastTurn(sessionId: string): string | null {
       )
       if (text === undefined || text.type !== 'text') continue
       live.messages.length = i
+      // Reopened since the turn ran: its files come back from disk all the same.
+      const dir = checkpointDir(sessionId)
+      const root = sessionFileRoot(sessionId)
+      if (dir !== null && root !== null) {
+        try {
+          new CheckpointStore(dir, root).restoreFrom(i)
+        } catch { /* The transcript revert stands even if files cannot be restored. */ }
+      }
       live.summaries.pop()
       persistSessions()
       announceTitle(sessionId)
@@ -835,6 +848,12 @@ export function sessionWorkspaceRoot(sessionId: string): string | null {
 function chatFilesRoot(sessionId: string): string | null {
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(sessionId)) return null
   return path.join(app.getPath('userData'), 'antichat', sessionId)
+}
+
+/** Before-images of what the session's runs changed, kept across restarts. */
+function checkpointDir(sessionId: string): string | null {
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(sessionId)) return null
+  return path.join(app.getPath('userData'), 'checkpoints', sessionId)
 }
 
 /** Where a session's files live: its project folder, or antichat's own. */

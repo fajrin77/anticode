@@ -1,7 +1,10 @@
 import { closeBrowser } from '../browser'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { CheckpointStore } from '../checkpoints'
+import type { WorkspaceScan } from '../checkpoints'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
 import type { ContentBlock, LLMProvider, LLMResponse, Message } from '../providers/types'
@@ -61,6 +64,8 @@ export interface AgentOptions {
   tools?: Tool[]
   /** Answers one question for a parent run, then stops; it has a step ceiling. */
   subagent?: boolean
+  /** Where this session's file checkpoints live, so Revert survives a restart. */
+  checkpointDir?: string
 }
 
 /**
@@ -170,9 +175,8 @@ export class AgentSession {
   private activeSignal: AbortSignal | null = null
   /** Rotation only: who takes a turn the current provider could not serve. */
   private fallback: ProviderFallback | null = null
-  /** One pre-edit snapshot map per user run, newest last. */
-  private readonly checkpoints: Map<string, Buffer | null>[] = []
-  private currentCheckpoint: Map<string, Buffer | null> | null = null
+  /** Before-images of what each run changed; null without a folder to change. */
+  private readonly checkpoints: CheckpointStore | null
 
   constructor(
     private provider: LLMProvider,
@@ -184,6 +188,11 @@ export class AgentSession {
     private readonly options: AgentOptions = {}
   ) {
     this.byName = new Map((options.tools ?? toolsFor(mode)).map((tool) => [tool.name, tool]))
+    // A sub-agent only reads; it has nothing to take back.
+    this.checkpoints =
+      workspaceRoot === null || options.subagent === true
+        ? null
+        : new CheckpointStore(options.checkpointDir ?? path.join(tmpdir(), 'anticode-checkpoints', randomUUID()), workspaceRoot)
     this.history.push(...structuredClone(initialHistory))
     this.transcript.push(...this.history)
     this.sealPendingToolUses()
@@ -266,8 +275,7 @@ export class AgentSession {
     // A cancelled previous run may have left images behind; never leak them
     // into this turn's history.
     this.pendingImages = []
-    this.currentCheckpoint = new Map()
-    this.checkpoints.push(this.currentCheckpoint)
+    this.checkpoints?.begin(this.transcript.length)
     this.record({
       role: 'user',
       content: [...(params.attachments ?? []), { type: 'text', text: prompt }]
@@ -542,8 +550,14 @@ export class AgentSession {
       }
 
       params.signal.throwIfAborted()
-      this.captureCheckpoint(call)
-      const output = await prepared.execute(context)
+      const scan = await this.captureCheckpoint(tool, call)
+      let output: Awaited<ReturnType<typeof prepared.execute>>
+      try {
+        output = await prepared.execute(context)
+      } finally {
+        // A command that failed halfway may still have changed files.
+        if (scan !== null) await this.checkpoints?.afterCommand(scan).catch(() => undefined)
+      }
       this.pendingImages.push(
         ...output.images.map((image) => ({
           type: 'image' as const,
@@ -697,7 +711,7 @@ export class AgentSession {
         this.history.length = replay
         break
       }
-      this.restoreLastCheckpoint()
+      this.checkpoints?.restoreFrom(i)
       return text.text
     }
     return null
@@ -705,37 +719,28 @@ export class AgentSession {
 
   private record(message: Message): void { this.history.push(message); this.transcript.push(message) }
 
-  /** Capture original bytes once, immediately before a file mutation. */
-  private captureCheckpoint(call: ToolUseBlock): void {
-    if (this.currentCheckpoint === null || this.workspaceRoot === null) return
-    if (!['edit_file', 'write_file', 'delete_file'].includes(call.name)) return
-    const input = call.input as { path?: unknown } | null
-    if (typeof input?.path !== 'string') return
-    const target = path.resolve(this.workspaceRoot, input.path)
-    const relative = path.relative(this.workspaceRoot, target)
-    if (relative.startsWith('..') || path.isAbsolute(relative) || this.currentCheckpoint.has(target)) return
+  /**
+   * Keeps what a mutating tool is about to change, once per run: the paths it
+   * names (edit, write, delete, Excel, Word, PDF), or — for a shell command,
+   * which names none — a scan of the workspace to compare against afterwards.
+   */
+  private async captureCheckpoint(tool: Tool, call: ToolUseBlock): Promise<WorkspaceScan | null> {
+    if (this.checkpoints === null || tool.readOnly) return null
     try {
-      this.currentCheckpoint.set(target, existsSync(target) ? readFileSync(target) : null)
+      if (tool.name === 'run_command') return await this.checkpoints.beforeCommand()
+      const input = call.input as { path?: unknown; output_path?: unknown } | null
+      for (const target of [input?.path, input?.output_path]) {
+        if (typeof target === 'string' && target.trim() !== '') this.checkpoints.capture(target)
+      }
     } catch {
-      // Directories and unreadable files are not copied as unbounded archives.
+      // A checkpoint that cannot be written must not stop the work itself.
     }
+    return null
   }
 
-  private restoreLastCheckpoint(): void {
-    const checkpoint = this.checkpoints.pop()
-    this.currentCheckpoint = this.checkpoints.at(-1) ?? null
-    if (checkpoint === undefined) return
-    for (const [target, original] of [...checkpoint].reverse()) {
-      try {
-        if (original === null) rmSync(target, { force: true })
-        else {
-          mkdirSync(path.dirname(target), { recursive: true })
-          writeFileSync(target, original)
-        }
-      } catch {
-        // Transcript revert remains usable if an external process locked a file.
-      }
-    }
+  /** The session is deleted: its checkpoints go with it. */
+  discardCheckpoints(): void {
+    this.checkpoints?.destroy()
   }
 
   dispose(): void { void closeBrowser(this.scope) }
