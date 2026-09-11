@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import ExcelJS from 'exceljs'
 import * as XLSX from 'xlsx'
@@ -30,16 +31,40 @@ function cellText(value: ExcelJS.CellValue): string {
 }
 
 /**
+ * A workbook the tools may load whole. ExcelJS and SheetJS both hold every
+ * cell as an object, so a 75 MB sheet can want gigabytes of RAM — enough to
+ * take the whole app down. Past this bound the file is refused with a clear
+ * message instead: the app survives, the user splits the file.
+ */
+const MAX_WORKBOOK_BYTES = 30 * 1024 * 1024
+
+function workbookTooLarge(size: number): ToolError {
+  return new ToolError(
+    `Workbook too large to open whole (${Math.round(size / 1024 / 1024)} MB, limit ` +
+      `${MAX_WORKBOOK_BYTES / 1024 / 1024} MB). Split it into smaller files, or delete the ` +
+      'sheets and rows you do not need, then try again.'
+  )
+}
+
+function checkedSize(filePath: string): number {
+  const size = statSync(filePath).size
+  if (size > MAX_WORKBOOK_BYTES) throw workbookTooLarge(size)
+  return size
+}
+
+/**
  * Legacy 97-2003 workbooks are converted in memory so merely attaching or
  * reading one never writes beside the user's original. SheetJS only bridges
- * the old bytes; exceljs keeps owning edits and explicit .xlsx output.
+ * the old bytes; exceljs keeps owning edits and explicit .xlsx output. Dense
+ * mode keeps cells as arrays, several times lighter on a big workbook.
  */
 async function convertLegacy(filePath: string): Promise<ArrayBuffer> {
   // The ESM build of SheetJS does not bind Node's filesystem helpers, so its
   // readFile/writeFile shortcuts fail inside Electron. Bytes keep this path
   // identical in tests and the packaged app.
-  const book = XLSX.read(await readFile(filePath), { type: 'buffer' })
+  const book = XLSX.read(await readFile(filePath), { type: 'buffer', dense: true })
   const data = XLSX.write(book, { bookType: 'xlsx', type: 'buffer' }) as Uint8Array
+  if (data.byteLength > MAX_WORKBOOK_BYTES) throw workbookTooLarge(data.byteLength)
   // Copy into a plain ArrayBuffer: ExcelJS's public load signature does not
   // accept Node's wider ArrayBufferLike backing type.
   return Uint8Array.from(data).buffer
@@ -48,11 +73,13 @@ async function convertLegacy(filePath: string): Promise<ArrayBuffer> {
 /** Shared with the in-app viewer, so a legacy .xls opens there the same way. */
 export async function open(filePath: string): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook()
+  checkedSize(filePath)
   if (path.extname(filePath).toLowerCase() === '.xls') {
     try {
       await workbook.xlsx.load(await convertLegacy(filePath))
       return workbook
     } catch (error) {
+      if (error instanceof ToolError) throw error
       throw new ToolError(`Failed to read legacy .xls file: ${(error as Error).message}`)
     }
   }
@@ -172,6 +199,7 @@ function renderSheet(sheet: ExcelJS.Worksheet): string {
 
 /** Used by the attachment handler to preview a workbook without a tool call. */
 export async function summariseExcel(filePath: string): Promise<string> {
+  checkedSize(filePath)
   const workbook = await open(filePath)
   const header = workbook.worksheets
     .map((sheet) => `- ${sheet.name} (${sheet.rowCount} baris × ${sheet.columnCount} kolom)`)
