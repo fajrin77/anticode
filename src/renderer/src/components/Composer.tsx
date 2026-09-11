@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { ModelPicker } from './ModelPicker'
+import { TodoPanel } from './TodoPanel'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import { modelLabel, statusFor } from '@shared/ipc'
 import type {
@@ -485,6 +486,8 @@ export function Composer({
               </p>
             </div>
           )}
+
+          {!hero && session !== undefined && <TodoPanel messages={session.messages} working={isStreaming && !isPaused} />}
 
           {queued.length > 0 && (
             <div className="mb-2 flex flex-col gap-1" data-queue>

@@ -193,6 +193,13 @@ Di HP, swipe ke kanan/kiri berpindah sesi — di judul header maupun di mana saj
 
 Tool read-only dieksekusi paralel dalam satu giliran; tool yang mengubah dijalankan berurutan.
 
+**Panel rencana.** Checklist terakhir dari `todo_write` dipasang di atas kolom input sebagai panel
+**Plan 2/5**: terbuka penuh selama run mengerjakannya, terlipat jadi satu baris (item yang sedang
+dikerjakan) saat tidak ada run, dan hilang sendiri begitu semua item selesai. Klik judulnya untuk
+membuka atau melipat. Item selesai bertanda centang hijau dan dicoret, item aktif berdenyut. Panel
+dibaca ulang dari transcript, jadi tetap ada setelah app dibuka ulang, dan HP menampilkan panel yang
+sama di atas composer-nya.
+
 **Sub-agent.** `task` menjalankan sesi anak dengan model dan folder yang sama, tetapi riwayatnya
 kosong dan tool-nya hanya baca (`read_file`, `list_directory`, `search_files`, `read_excel`,
 `read_docx`, `read_pdf`, `fetch_url`) — tanpa edit, terminal, browser, maupun `task` lagi. Yang

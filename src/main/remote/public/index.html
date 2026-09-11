@@ -342,6 +342,19 @@
     backdrop-filter: blur(28px) saturate(125%);
     z-index: 20;
   }
+  /* The plan todo_write published last, folded to a line until tapped. */
+  #planRow { flex: 0 0 100%; font-size: 12.5px; background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; padding: 6px 10px; }
+  #planRow .phead { display: flex; gap: 8px; align-items: center; }
+  #planRow .phead:active .plabel { color: #d1fa22; }
+  #planRow .plabel { color: #9a9a9a; flex: none; }
+  #planRow .pcount { color: #6d6d6d; flex: none; font-variant-numeric: tabular-nums; }
+  #planRow .pnow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9a9a9a; }
+  #planRow ol { margin: 6px 0 0; padding: 0; list-style: none; max-height: 30vh; overflow-y: auto; }
+  #planRow li { display: flex; gap: 8px; padding: 1px 0; color: #9a9a9a; }
+  #planRow li .pm { flex: none; width: 12px; text-align: center; color: #6d6d6d; }
+  #planRow li.done { color: #6d6d6d; text-decoration: line-through; }
+  #planRow li.done .pm { color: #5ac37f; text-decoration: none; }
+  #planRow li.now { color: #ededed; }
   /* Prompts waiting for the run to finish, oldest first, above everything else. */
   #queueRow { flex: 0 0 100%; display: flex; flex-direction: column; gap: 4px; }
   #queueRow .qitem {
@@ -731,6 +744,7 @@
     <span class="qtext"><span class="qlabel">Membalas</span><span class="qbody" id="quoteText"></span></span>
     <button class="qx" onclick="clearQuote()" aria-label="Remove quote">&times;</button>
   </div>
+  <div id="planRow" class="hidden"></div>
   <div id="queueRow" class="hidden"></div>
   <div id="stagedRow" class="hidden"></div>
   <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
@@ -830,6 +844,10 @@ const jfetch = (path, options) => api(path, options).then(async (r) => {
 });
 let currentSession = null;
 let currentRunId = null;
+/* Declared up here: updateSendBtn reads them, and it can run during start-up. */
+let followMode = (() => { try { return localStorage.getItem('followMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
+let currentPlan = null;
+let planOpen = null;
 let submitting = false;
 let streamReady = null;
 let openedSessionId = null;
@@ -1410,6 +1428,8 @@ async function syncSession(id) {
   if (following) followBottom(); else window.scrollTo(0, readingAt);
   lastUsage = { id, summaries: payload.summaries ?? [], messages: (payload.messages ?? []).length };
   renderQueue(payload.queue ?? []);
+  currentPlan = planOf(payload.messages ?? []);
+  renderPlan();
   for (const event of payload.events ?? []) await applyStreamEvent(id, event);
   appliedRevision = payload.revision ?? 0;
   if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
@@ -2000,6 +2020,7 @@ function hideWorking() {
 let liveGroup = null;
 
 function liveToolStart(toolUseId, name, input) {
+  if (name === 'todo_write' && Array.isArray(input?.items)) { currentPlan = input.items; renderPlan(); }
   const el = document.getElementById('transcript');
   if (liveGroup === null || !el.contains(liveGroup.el)) liveGroup = { el: null, items: [] };
   liveGroup.items.push({ id: toolUseId, name, input, result: undefined });
@@ -2436,6 +2457,7 @@ function updateSendBtn() {
   const reverting = currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null;
   document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
   const working = currentRunId !== null && !pausedSessions.has(currentSession);
+  renderPlan();
   const chip = document.getElementById('followChip');
   chip.classList.toggle('hidden', !working);
   chip.textContent = followMode;
@@ -3530,9 +3552,61 @@ async function removePhoneProvider(provider) {
   } catch (error) { showError(error); }
 }
 
+/* The session's plan: the newest checklist todo_write published that did not
+ * fail. Shown above the box — the whole list while a run works, one line
+ * otherwise, and not at all once everything is done and nothing runs. */
+function planOf(messages) {
+  const failed = new Set();
+  for (const message of messages) for (const block of message.blocks) {
+    if (block.type === 'tool_result' && block.isError) failed.add(block.toolUseId);
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const blocks = messages[i].blocks;
+    for (let j = blocks.length - 1; j >= 0; j--) {
+      const block = blocks[j];
+      if (block.type === 'tool_use' && block.name === 'todo_write' && !failed.has(block.id) && Array.isArray(block.input?.items)) {
+        return block.input.items;
+      }
+    }
+  }
+  return null;
+}
+function renderPlan() {
+  const row = document.getElementById('planRow');
+  row.replaceChildren();
+  const items = (currentPlan ?? []).filter((item) => typeof item?.content === 'string');
+  const working = currentRunId !== null && !pausedSessions.has(currentSession);
+  const done = items.filter((item) => item.status === 'completed').length;
+  const hidden = items.length === 0 || (done === items.length && !working && planOpen !== true);
+  row.classList.toggle('hidden', hidden);
+  if (hidden) return;
+  const open = planOpen ?? working;
+  const head = document.createElement('div');
+  head.className = 'phead';
+  const label = document.createElement('span'); label.className = 'plabel'; label.textContent = 'Plan';
+  const count = document.createElement('span'); count.className = 'pcount'; count.textContent = done + '/' + items.length;
+  const now = document.createElement('span'); now.className = 'pnow';
+  const current = items.find((item) => item.status === 'in_progress') ?? items.find((item) => item.status === 'pending');
+  now.textContent = done === items.length ? 'all done' : !open && current ? current.content : '';
+  head.append(label, count, now);
+  head.onclick = () => { planOpen = !open; renderPlan(); };
+  row.appendChild(head);
+  if (!open) return;
+  const list = document.createElement('ol');
+  for (const item of items) {
+    const li = document.createElement('li');
+    li.className = item.status === 'completed' ? 'done' : item.status === 'in_progress' ? 'now' : '';
+    const mark = document.createElement('span'); mark.className = 'pm';
+    mark.textContent = item.status === 'completed' ? '\u2713' : item.status === 'in_progress' ? '\u25b8' : '\u25cb';
+    const text = document.createElement('span'); text.textContent = item.content;
+    li.append(mark, text);
+    list.appendChild(li);
+  }
+  row.appendChild(list);
+}
+
 /* While a run works, a prompt either joins it (steer) or waits for it to
  * finish and goes out as the next run (queue). The choice is remembered. */
-let followMode = (() => { try { return localStorage.getItem('followMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
 function toggleFollowMode() {
   followMode = followMode === 'queue' ? 'steer' : 'queue';
   try { localStorage.setItem('followMode', followMode); } catch { /* private mode */ }
