@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import { ROTATE_PROVIDER } from '@shared/ipc'
+import { activeRotationEntries, activeRotationGroup, ROTATE_PROVIDER } from '@shared/ipc'
 import type { ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 
 interface ModelPickerProps {
@@ -33,6 +33,9 @@ export function ModelPicker({
   // is always one of these (or none), so nothing else ever shows.
   const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
   const providerLabel = providers.find((entry) => entry.id === provider)?.label ?? provider
+  // Rotating, the list is what sessions rotate over: the group in use, or all.
+  const rotatingOver = activeRotationEntries(status)
+  const group = activeRotationGroup(status)
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -70,12 +73,15 @@ export function ModelPicker({
 
       {rotating ? (
         <>
+          {group !== null && (
+            <div className="truncate border-b border-line-soft px-3 py-1.5 text-[12px] text-text">{group.name}</div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            {pool.map((entry) => (
+            {rotatingOver.map((entry) => (
               <div
                 key={`${entry.provider}\n${entry.model}`}
                 className={`flex items-center gap-2 rounded px-2 py-1 font-mono text-[11.5px] ${
-                  entry.ready ? 'text-dim' : 'text-faint'
+                  entry.ready && entry.outOfUsage === null ? 'text-dim' : 'text-faint'
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate" title={`${entry.label} · ${entry.model}`}>
@@ -84,15 +90,22 @@ export function ModelPicker({
                 {status?.lastUsed?.provider === entry.provider && status.lastUsed.model === entry.model && (
                   <span className="shrink-0 text-text">last</span>
                 )}
-                <span className="shrink-0 text-faint">
-                  {entry.ready ? compactTokens(entry.inputTokens + entry.outputTokens) : 'no key'}
+                <span
+                  className={`shrink-0 ${entry.outOfUsage !== null ? 'text-del' : 'text-faint'}`}
+                  title={entry.outOfUsage?.reason}
+                >
+                  {!entry.ready
+                    ? 'no key'
+                    : entry.outOfUsage !== null
+                      ? 'out of usage'
+                      : compactTokens(entry.inputTokens + entry.outputTokens)}
                 </span>
               </div>
             ))}
           </div>
           <div className="border-t border-line-soft px-3 py-1.5 text-[11px] leading-relaxed text-faint">
             This session stays on a model for 2 prompts, then moves to the one that has used the
-            fewest tokens. Pick the models in Settings → Models.
+            fewest tokens. Pick models and groups in Settings → Providers.
           </div>
         </>
       ) : (

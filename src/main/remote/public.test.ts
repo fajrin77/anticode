@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
-import { ROTATE_LABEL, SESSION_COLOURS } from '@shared/ipc'
+import { modelLabel, ROTATE_LABEL, ROTATE_PROVIDER, SESSION_COLOURS } from '@shared/ipc'
 import { CONTINUE_PROMPT, FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../../renderer/src/labels'
 
 /**
@@ -30,4 +30,28 @@ it("speaks the desktop's words", () => {
   expect(constant('FOLLOW_UP_LABEL')).toBe(FOLLOW_UP_LABEL)
   expect(constant('CONTINUE_PROMPT')).toBe(CONTINUE_PROMPT)
   expect(constant('ROTATE_LABEL')).toBe(ROTATE_LABEL)
+})
+
+/** A top-level function of the phone page, by name, as source. */
+function pageFunction(name: string): string {
+  const start = page.indexOf(`function ${name}(`)
+  if (start < 0) throw new Error(`${name} is missing from the phone page`)
+  const end = page.indexOf('\n}\n', start)
+  return page.slice(start, end + 2)
+}
+
+it('labels the model chip as the desktop does, group included', () => {
+  const phoneLabel = new Function(
+    `const ROTATE = '${ROTATE_PROVIDER}'; const ROTATE_LABEL = '${ROTATE_LABEL}';` +
+      pageFunction('activeRotationGroup') + pageFunction('modelLabel') + 'return modelLabel;'
+  )() as (info: unknown) => string
+  const groups = [{ id: 'g1', name: 'code only', entries: [] }]
+  for (const status of [
+    { provider: ROTATE_PROVIDER, model: '', lastUsed: null, rotationGroups: groups, rotationGroup: null },
+    { provider: ROTATE_PROVIDER, model: '', lastUsed: null, rotationGroups: groups, rotationGroup: 'g1' },
+    { provider: ROTATE_PROVIDER, model: '', lastUsed: { provider: 'one', model: 'glm-5.3' }, rotationGroups: groups, rotationGroup: 'g1' },
+    { provider: 'one', model: 'glm-5.3', lastUsed: null, rotationGroups: groups, rotationGroup: 'g1' }
+  ]) {
+    expect(phoneLabel(status)).toBe(modelLabel(status))
+  }
 })

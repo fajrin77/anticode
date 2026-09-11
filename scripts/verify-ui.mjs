@@ -566,6 +566,34 @@ try {
   check('settings: rotate usage applies to every session',
     String(await window.getByText('active for every session').count()), '1')
   await shot('18b-rotate-usage')
+
+  // Groups: named parts of the pool, one of them in use for every session.
+  const newGroup = window.locator('[data-rotation-new-group]')
+  await limeOnHover('settings: rotate usage new group', newGroup)
+  const allTab = window.locator('[data-rotation-group="All models"]')
+  const allTabBefore = await allTab.boundingBox()
+  await newGroup.click(); await window.waitForTimeout(400)
+  const groupName = window.getByLabel('Group name')
+  await groupName.fill('code only'); await groupName.press('Enter'); await window.waitForTimeout(400)
+  const codeTab = window.locator('[data-rotation-group="code only"]')
+  check('settings: a group is named in place', String(await codeTab.count()), '1')
+  await limeOnHover('settings: rotate usage group tab', allTab)
+  const useGroup = window.locator('[data-rotation-use]')
+  await limeOnHover('settings: rotate usage use this group', useGroup)
+  await useGroup.click(); await window.waitForTimeout(400)
+  check('settings: the group is put in use', await window.evaluate(async () => {
+    const status = await window.anticode.getStatus()
+    return status.rotationGroups.find((group) => group.id === status.rotationGroup)?.name ?? 'none'
+  }), 'code only')
+  const allTabAfter = await allTab.boundingBox()
+  check('settings: putting a group in use moves no tab',
+    allTabBefore?.x === allTabAfter?.x && allTabBefore?.width === allTabAfter?.width ? 'still' : 'moved', 'still')
+  const deleteGroup = window.getByRole('button', { name: 'Delete group' })
+  check('settings: deleting a group is red on hover', await colourOnHover(deleteGroup, 'rgb(224, 108, 108)'), 'rgb(224, 108, 108)')
+  await shot('18b2-rotate-usage-group')
+  await deleteGroup.click(); await window.waitForTimeout(400)
+  check('settings: deleting the group in use goes back to the whole pool',
+    await window.evaluate(async () => String((await window.anticode.getStatus()).rotationGroup)), 'null')
   await rotateSwitch.click(); await window.waitForTimeout(300)
 
   // A model picked in one session is that session's alone.
@@ -659,6 +687,14 @@ try {
   const composerModel = window.locator('button:has(span.font-mono)').first()
   check('model picker: composer is locked while Rotate usage is on', String(await composerModel.isDisabled()), 'true')
   check('model picker: composer shows Rotate globally', (await composerModel.textContent()).trim(), 'rotate')
+  // A group put in use shows in the composer at once, with no reload.
+  await window.evaluate(async () => {
+    const status = await window.anticode.setRotationGroups([{ name: 'code only', entries: [{ provider: 'clinepass', model: 'test-model' }] }])
+    await window.anticode.selectRotationGroup(status.rotationGroups[0].id)
+  }); await window.waitForTimeout(300)
+  check('model picker: composer follows the group in use at once', (await composerModel.textContent()).trim(), 'rotate · code only')
+  await window.evaluate(() => window.anticode.setRotationGroups([])); await window.waitForTimeout(300)
+  check('model picker: composer goes back to the whole pool', (await composerModel.textContent()).trim(), 'rotate')
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
   await window.evaluate(async () => {
     await window.anticode.setRotation([{ provider: 'clinepass', model: 'test-model' }])

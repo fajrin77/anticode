@@ -112,7 +112,9 @@
   /* --composer-height is the composer's content box; its padding, border and
      bottom offset add 26px more. The rest is air between the transcript's
      last line (or the working dot) and the composer's edge. */
-  main { padding: 12px 16px calc(var(--composer-height, 160px) + 26px + 18px); }
+  /* Vertical scrolling and zoom stay the browser's; a sideways drag is left
+     to the page, which uses it to change session. */
+  main { padding: 12px 16px calc(var(--composer-height, 160px) + 26px + 18px); touch-action: pan-y pinch-zoom; }
   .card {
     background: var(--glass-panel); border: 1px solid var(--glass-border); border-radius: 12px;
     padding: 10px 14px; margin-bottom: 8px;
@@ -778,6 +780,8 @@
       </div>
       <!-- Off, nothing rotates and nothing is counted; the pool shows only while on. -->
       <div id="rotationBody" class="hidden">
+        <!-- The group every session rotates over; made and named on the Mac. -->
+        <select class="wide hidden" id="rotGroup" aria-label="Group in use" onchange="useRotationGroup(this.value)"></select>
         <div id="rotationList"></div>
         <select class="wide" id="rotProvider" aria-label="Provider" onchange="fillRotationModels()"></select>
         <input class="path" id="rotModel" list="rotModels" placeholder="Model id" autocapitalize="off" autocorrect="off" spellcheck="false"
@@ -941,22 +945,52 @@ async function switchHeaderSession(step) {
   if (target !== undefined && target.id !== currentSession) await openSession(target.id);
 }
 
-let headerSwipe = null;
-const headerCopy = document.querySelector('header .headcopy');
-headerCopy.addEventListener('pointerdown', (event) => {
-  if (currentSession === null || event.isPrimary === false) return;
-  headerSwipe = { id: currentSession, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-});
-headerCopy.addEventListener('pointercancel', () => { headerSwipe = null; });
-headerCopy.addEventListener('pointerup', (event) => {
-  const start = headerSwipe;
-  headerSwipe = null;
-  if (start === null || start.pointerId !== event.pointerId || start.id !== currentSession) return;
-  const dx = event.clientX - start.x;
-  const dy = event.clientY - start.y;
-  if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
-  void switchHeaderSession(dx > 0 ? 1 : -1).catch(showError);
-});
+/**
+ * A sideways swipe changes session. `canStart` turns away a touch that means
+ * something else where it lands; `canFinish` one that turned out to be
+ * something else — a text selection — by the time the finger lifts.
+ */
+function addSessionSwipe(area, minDistance, canStart = () => true, canFinish = () => true) {
+  let start = null;
+  area.addEventListener('pointerdown', (event) => {
+    if (currentSession === null || event.isPrimary === false || !canStart(event)) return;
+    start = { id: currentSession, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  });
+  // The browser took the touch for scrolling: not a swipe.
+  area.addEventListener('pointercancel', () => { start = null; });
+  area.addEventListener('pointerup', (event) => {
+    const began = start;
+    start = null;
+    if (began === null || began.pointerId !== event.pointerId || began.id !== currentSession) return;
+    const dx = event.clientX - began.x;
+    const dy = event.clientY - began.y;
+    if (Math.abs(dx) < minDistance || Math.abs(dx) < Math.abs(dy) * 1.25 || !canFinish()) return;
+    void switchHeaderSession(dx > 0 ? 1 : -1).catch(showError);
+  });
+}
+
+/** Code, tables, file chips: a sideways drag there scrolls them, not the session. */
+function inSidewaysScroller(target) {
+  for (let node = target instanceof Element ? target : null; node && node.tagName !== 'MAIN'; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowX;
+    if ((overflow === 'auto' || overflow === 'scroll') && node.scrollWidth > node.clientWidth) return true;
+  }
+  return false;
+}
+
+// The title is hard to reach one-handed, so the conversation itself swipes
+// too — the whole chat area, the empty room under a short one included.
+addSessionSwipe(document.querySelector('header .headcopy'), 48);
+addSessionSwipe(
+  document.querySelector('main'),
+  64,
+  (event) =>
+    !document.getElementById('viewChat').classList.contains('hidden') &&
+    !document.getElementById('chatView').classList.contains('hidden') &&
+    !(event.target instanceof Element && event.target.closest('input, textarea, select')) &&
+    !inSidewaysScroller(event.target),
+  () => (window.getSelection()?.toString() ?? '') === ''
+);
 
 function toggleMenu(event) {
   event?.stopPropagation();
@@ -1185,8 +1219,10 @@ function fillModelPickers(providerId, modelId) {
     select.innerHTML = '';
     const current = document.createElement('option');
     current.value = modelInfo.provider + '|' + modelInfo.model;
+    const group = activeRotationGroup(modelInfo);
+    const count = group === null ? modelInfo.rotation.length : group.entries.length;
     current.textContent = modelInfo.provider === ROTATE
-      ? 'rotate: ' + modelInfo.rotation.length + (modelInfo.rotation.length === 1 ? ' model' : ' models')
+      ? 'rotate: ' + (group === null ? '' : group.name + ' · ') + count + (count === 1 ? ' model' : ' models')
       : 'model: ' + (modelInfo.model || modelInfo.provider);
     select.appendChild(current);
     // The models chosen in desktop Settings → Models are the whole list — the
@@ -2976,16 +3012,27 @@ function noteStatus(status) {
   const modelMoved = modelInfo?.provider !== shown.provider || modelInfo?.model !== shown.model ||
     JSON.stringify(modelInfo?.lastUsed ?? null) !== JSON.stringify(shown.lastUsed ?? null) ||
     JSON.stringify(modelInfo?.rotation ?? []) !== JSON.stringify(shown.rotation ?? []) ||
+    JSON.stringify(modelInfo?.rotationGroups ?? []) !== JSON.stringify(shown.rotationGroups ?? []) ||
+    (modelInfo?.rotationGroup ?? null) !== (shown.rotationGroup ?? null) ||
     (modelInfo?.rotationEnabled === true) !== (shown.rotationEnabled === true);
   lastStatus = status;
   if (modelMoved) void loadModels();
   updateChips();
 }
 
+/** The group in use, or null for the whole pool — the desktop's activeRotationGroup. */
+function activeRotationGroup(info) {
+  if (!info || info.rotationGroup === null || info.rotationGroup === undefined) return null;
+  return (info.rotationGroups ?? []).find((group) => group.id === info.rotationGroup) ?? null;
+}
+
 /** What the model chip says — the desktop's modelLabel. */
 function modelLabel(info) {
   if (!info) return '';
-  if (info.provider === ROTATE) return info.lastUsed?.model ? ROTATE_LABEL + ' · ' + info.lastUsed.model : ROTATE_LABEL;
+  if (info.provider === ROTATE) {
+    const group = activeRotationGroup(info);
+    return [ROTATE_LABEL, group?.name, info.lastUsed?.model].filter(Boolean).join(' · ');
+  }
   return info.model || '';
 }
 
@@ -3136,11 +3183,28 @@ function renderRotation() {
   toggle.classList.toggle('on', enabled);
   toggle.setAttribute('aria-checked', String(enabled));
   document.getElementById('rotationBody').classList.toggle('hidden', !enabled);
+  // Groups are made on the Mac; here one is put in use. The list below is
+  // the one in use — the group's models, or the whole pool.
+  const groups = modelInfo?.rotationGroups ?? [];
+  const group = activeRotationGroup(modelInfo);
+  const picker = document.getElementById('rotGroup');
+  picker.classList.toggle('hidden', groups.length === 0);
+  picker.replaceChildren();
+  for (const choice of [{ id: '', name: 'All models' }, ...groups]) {
+    const option = document.createElement('option');
+    option.value = choice.id;
+    option.textContent = choice.id === '' ? 'Group: all models' : 'Group: ' + choice.name;
+    option.selected = choice.id === (group?.id ?? '');
+    picker.appendChild(option);
+  }
   const list = document.getElementById('rotationList');
   list.replaceChildren();
   const pool = modelInfo?.rotation ?? [];
+  const shown = group === null
+    ? pool
+    : group.entries.flatMap((entry) => pool.filter((item) => item.provider === entry.provider && item.model === entry.model));
   const now = Date.now();
-  for (const entry of pool) {
+  for (const entry of shown) {
     const row = document.createElement('div');
     row.className = 'prow';
     const text = document.createElement('div');
@@ -3153,25 +3217,36 @@ function renderRotation() {
     detail.className = 'pdetail';
     detail.textContent = [
       entry.label,
-      compactTokens(entry.inputTokens) + ' in · ' + compactTokens(entry.outputTokens) + ' out',
+      entry.outOfUsage ? '' : compactTokens(entry.inputTokens) + ' in · ' + compactTokens(entry.outputTokens) + ' out',
       entry.ready ? '' : 'no key',
-      entry.coolingUntil && entry.coolingUntil > now ? 'resting' : ''
+      !entry.outOfUsage && entry.coolingUntil && entry.coolingUntil > now ? 'resting' : ''
     ].filter((part) => part !== '').join(' · ');
     text.append(name, detail);
+    // Its quota ran out: said in red, so it can be taken out and replaced.
+    if (entry.outOfUsage) {
+      const spent = document.createElement('div');
+      spent.className = 'pdetail';
+      spent.style.color = '#e06c6c';
+      spent.textContent = 'out of usage — replace it, or it is tried only when nothing else is left';
+      spent.title = entry.outOfUsage.reason;
+      text.appendChild(spent);
+    }
     // Taking a model out of the pool deletes nothing: lime, not red.
     const remove = document.createElement('button');
     remove.className = 'pm';
     remove.textContent = '×';
-    remove.setAttribute('aria-label', 'Take ' + entry.model + ' out of the rotation');
-    remove.onclick = () => void saveRotation(pool.filter((item) => !(item.provider === entry.provider && item.model === entry.model)));
+    remove.setAttribute('aria-label', 'Take ' + entry.model + (group === null ? ' out of the rotation' : ' out of ' + group.name));
+    remove.onclick = () => void saveShown(shown.filter((item) => !(item.provider === entry.provider && item.model === entry.model)));
     row.append(text, remove);
     list.appendChild(row);
   }
-  if (pool.length === 0) {
+  if (shown.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'faint';
     empty.style.padding = '4px 0 8px';
-    empty.textContent = 'No models yet. Add two or more to rotate between them.';
+    empty.textContent = group === null
+      ? 'No models yet. Add two or more to rotate between them.'
+      : 'No models in ' + group.name + ' yet.';
     list.appendChild(empty);
   }
   // The add row offers only providers that can be reached.
@@ -3210,6 +3285,35 @@ async function saveRotation(entries, reset = false) {
   } catch (error) { showError(error); }
 }
 
+/** The list on screen changed: the group in use when there is one, else the pool. */
+async function saveShown(entries) {
+  const group = activeRotationGroup(modelInfo);
+  if (group === null) { await saveRotation(entries); return; }
+  const groups = (modelInfo?.rotationGroups ?? []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    entries: (item.id === group.id ? entries : item.entries).map(({ provider, model }) => ({ provider, model }))
+  }));
+  try {
+    const info = await jfetch('/api/rotation', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ groups, sessionId: currentSession })
+    });
+    providersChanged(info);
+  } catch (error) { showError(error); }
+}
+
+/** Every session rotates over this group from its next prompt; '' is the whole pool. */
+async function useRotationGroup(id) {
+  try {
+    const info = await jfetch('/api/rotation', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ group: id === '' ? null : id, sessionId: currentSession })
+    });
+    providersChanged(info);
+  } catch (error) { showError(error); }
+}
+
 async function setRotationEnabled(enabled) {
   try {
     const info = await jfetch('/api/rotation', {
@@ -3226,10 +3330,14 @@ async function addRotationModel() {
   const known = (modelInfo?.providers ?? []).find((entry) => entry.id === provider);
   const model = field.value.trim() || known?.defaultModel || '';
   if (provider === '' || model === '') { showError('Pick a provider and type a model id first.'); return; }
-  const pool = modelInfo?.rotation ?? [];
-  if (pool.some((entry) => entry.provider === provider && entry.model === model)) { showError('That model is already in the pool.'); return; }
+  const group = activeRotationGroup(modelInfo);
+  const shown = group === null ? (modelInfo?.rotation ?? []) : group.entries;
+  if (shown.some((entry) => entry.provider === provider && entry.model === model)) {
+    showError(group === null ? 'That model is already in the pool.' : 'That model is already in ' + group.name + '.');
+    return;
+  }
   field.value = '';
-  await saveRotation([...pool, { provider, model }]);
+  await saveShown([...shown, { provider, model }]);
 }
 
 function hostOf(baseURL) {

@@ -19,6 +19,7 @@ import type {
   ProviderInfo,
   ProviderSelection,
   RotationEntry,
+  RotationGroupInput,
   SessionPause,
   SessionSpec,
   SessionStatus,
@@ -75,6 +76,10 @@ const api: AnticodeApi = {
   resetRotationUsage: () => ipcRenderer.invoke(IpcChannel.ROTATION_RESET) as Promise<SessionStatus>,
   setRotationEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_ENABLE, enabled) as Promise<SessionStatus>,
+  setRotationGroups: (groups: RotationGroupInput[]) =>
+    ipcRenderer.invoke(IpcChannel.ROTATION_GROUPS_SET, groups) as Promise<SessionStatus>,
+  selectRotationGroup: (id: string | null) =>
+    ipcRenderer.invoke(IpcChannel.ROTATION_GROUP_SELECT, id) as Promise<SessionStatus>,
   setAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
   addProvider: (input: CustomProviderInput) =>

@@ -25,7 +25,7 @@ import type {
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
-import { resetRotationUsage } from '../rotation'
+import { resetRotationUsage, setRotationChangeSink } from '../rotation'
 import {
   deleteSession,
   createSession,
@@ -41,6 +41,8 @@ import {
   policy,
   applyRotation,
   applyRotationEnabled,
+  applyRotationGroup,
+  applyRotationGroups,
   selectProvider,
   setOnSessionClosed,
   setOnSessionCreated,
@@ -235,6 +237,34 @@ export function resetRotation(): SessionStatus {
   return getStatus()
 }
 
+/** The Rotate usage groups, made, renamed, filled or removed from either screen. */
+export function setRotationGroups(groups: unknown): SessionStatus {
+  if (!Array.isArray(groups)) throw new Error('Expected a list of groups')
+  const providers = listProviders()
+  const names = new Set<string>()
+  for (const group of groups as { name?: unknown; entries?: unknown }[]) {
+    const name = typeof group?.name === 'string' ? group.name.trim() : ''
+    if (name === '') throw new Error('Give every group a name')
+    if (names.has(name.toLowerCase())) throw new Error(`There is already a group called “${name}”`)
+    names.add(name.toLowerCase())
+    if (!Array.isArray(group.entries)) throw new Error('Expected a list of models')
+    for (const entry of group.entries as RotationEntry[]) {
+      if (!providers.some((provider) => provider.id === entry?.provider)) throw new Error('Unknown provider in Rotate usage')
+    }
+  }
+  applyRotationGroups(groups)
+  announceStatus()
+  return getStatus()
+}
+
+/** The group every session rotates over, picked on either screen; null is the whole pool. */
+export function selectRotationGroup(id: unknown): SessionStatus {
+  if (id !== null && typeof id !== 'string') throw new Error('Expected a group')
+  applyRotationGroup(id)
+  announceStatus()
+  return getStatus()
+}
+
 /** A model picked on either screen, for one session or as the default. */
 export function pickModel(selection: ProviderSelection, sessionId?: string | null): SessionStatus {
   selectProvider(selection, sessionId)
@@ -337,6 +367,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.ROTATION_SET, (_event, entries: unknown): SessionStatus => setRotation(entries))
   ipcMain.handle(IpcChannel.ROTATION_RESET, (): SessionStatus => resetRotation())
   ipcMain.handle(IpcChannel.ROTATION_ENABLE, (_event, enabled: unknown): SessionStatus => enableRotation(enabled))
+  ipcMain.handle(IpcChannel.ROTATION_GROUPS_SET, (_event, groups: unknown): SessionStatus => setRotationGroups(groups))
+  ipcMain.handle(IpcChannel.ROTATION_GROUP_SELECT, (_event, id: unknown): SessionStatus => selectRotationGroup(id))
+  // A quota that runs out mid-run shows in Settings and on the phone at once.
+  setRotationChangeSink(announceStatus)
 
   ipcMain.handle(
     IpcChannel.PROVIDER_MODELS,

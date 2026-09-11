@@ -10,6 +10,8 @@ import type {
   ProviderInfo,
   RemoteStatus,
   RotationEntry,
+  RotationEntryStatus,
+  RotationGroupInput,
   SessionStatus
 } from '@shared/ipc'
 import { compactTokens } from './ModelPicker'
@@ -568,6 +570,10 @@ function Providers({
  * and rests for a minute. It runs only while switched on here — off, Rotate
  * is not offered and nothing is counted. Changes reach every window through
  * the status broadcast.
+ *
+ * Groups name parts of the pool for one kind of work. The tabs pick which one
+ * is shown here; the one in use — marked lime — is what every session rotates
+ * over, and putting another in use moves every composer with it.
  */
 function RotateUsage({
   status,
@@ -577,12 +583,30 @@ function RotateUsage({
   providers: ProviderInfo[]
 }): JSX.Element {
   const pool = status?.rotation ?? []
+  const groups = status?.rotationGroups ?? []
+  const inUseId = status?.rotationGroup ?? null
   const usable = providers.filter((entry) => entry.credentialAvailable)
-  const [adding, setAdding] = useState<RotationEntry | null>(null)
+  const [viewing, setViewing] = useState<string | null>(inUseId)
+  const [adding, setAdding] = useState<Adding | null>(null)
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [naming, setNaming] = useState(false)
   const enabled = status?.rotationEnabled === true
   const now = Date.now()
+
+  // A group removed elsewhere (the phone, another window) takes its tab with it.
+  const viewed = groups.find((group) => group.id === viewing) ?? null
+  const shown: RotationEntryStatus[] =
+    viewed === null
+      ? pool
+      : viewed.entries.flatMap((entry) => pool.filter((item) => sameEntry(item, entry)))
+  const inUse = inUseId === (viewed?.id ?? null)
+
+  // The name field follows the tab, and whatever the main process settled on.
+  const [name, setName] = useState(viewed?.name ?? '')
+  useEffect(() => {
+    setName(viewed?.name ?? '')
+  }, [viewed?.id, viewed?.name])
 
   // The ids offered for the provider being added: what it lists, then what
   // its endpoint reports. Typing any other id works too.
@@ -598,43 +622,157 @@ function RotateUsage({
     }
   }, [adding?.provider])
 
-  function save(next: RotationEntry[]): Promise<void> {
-    return window.anticode
-      .setRotation(next)
-      .then(() => setError(null))
-      .catch((failure) => setError((failure as Error).message))
+  function settle(work: Promise<unknown>): Promise<boolean> {
+    return work
+      .then(() => {
+        setError(null)
+        return true
+      })
+      .catch((failure) => {
+        setError((failure as Error).message)
+        return false
+      })
+  }
+
+  function savePool(next: RotationEntry[]): Promise<boolean> {
+    return settle(window.anticode.setRotation(next.map(plainEntry)))
+  }
+
+  function saveGroups(next: RotationGroupInput[]): Promise<boolean> {
+    return settle(window.anticode.setRotationGroups(next))
+  }
+
+  function plainGroups(): RotationGroupInput[] {
+    return groups.map((group) => ({ id: group.id, name: group.name, entries: group.entries.map(plainEntry) }))
+  }
+
+  /** Every group as it is, one of them rewritten — or, for null, removed. */
+  function groupsWith(id: string, change: (group: RotationGroupInput) => RotationGroupInput | null): RotationGroupInput[] {
+    return plainGroups().flatMap((group) => {
+      if (group.id !== id) return [group]
+      const changed = change(group)
+      return changed === null ? [] : [changed]
+    })
   }
 
   function setEnabled(on: boolean): void {
     if (!on) setAdding(null)
+    void settle(window.anticode.setRotationEnabled(on))
+  }
+
+  function view(id: string | null): void {
+    setViewing(id)
+    setAdding(null)
+    setNaming(false)
+    setError(null)
+  }
+
+  function useGroup(id: string | null): void {
+    void settle(window.anticode.selectRotationGroup(id))
+  }
+
+  function newGroup(): void {
+    const taken = new Set(groups.map((group) => group.name.toLowerCase()))
+    let count = groups.length + 1
+    while (taken.has(`group ${count}`)) count += 1
+    const before = new Set(groups.map((group) => group.id))
     void window.anticode
-      .setRotationEnabled(on)
-      .then(() => setError(null))
+      .setRotationGroups([...plainGroups(), { name: `Group ${count}`, entries: [] }])
+      .then((next) => {
+        setError(null)
+        const made = next.rotationGroups.find((group) => !before.has(group.id))
+        if (made === undefined) return
+        view(made.id)
+        setNaming(true)
+      })
       .catch((failure) => setError((failure as Error).message))
   }
 
-  function startAdding(): void {
+  function rename(): void {
+    setNaming(false)
+    if (viewed === null) return
+    const next = name.trim()
+    if (next === '' || next === viewed.name) {
+      setName(viewed.name)
+      return
+    }
+    void saveGroups(groupsWith(viewed.id, (group) => ({ ...group, name: next }))).then((saved) => {
+      if (!saved) setName(viewed.name)
+    })
+  }
+
+  function deleteGroup(): void {
+    if (viewed === null) return
+    void saveGroups(groupsWith(viewed.id, () => null)).then((saved) => {
+      if (saved) view(null)
+    })
+  }
+
+  function remove(entry: RotationEntry): void {
+    if (viewed === null) {
+      void savePool(pool.filter((item) => !sameEntry(item, entry)))
+      return
+    }
+    void saveGroups(
+      groupsWith(viewed.id, (group) => ({ ...group, entries: group.entries.filter((item) => !sameEntry(item, entry)) }))
+    )
+  }
+
+  function startAdding(replacing?: RotationEntryStatus): void {
     const first = usable[0]
+    if (replacing !== undefined) {
+      setAdding({ provider: replacing.provider, model: '', replacing: plainEntry(replacing) })
+      return
+    }
     if (first === undefined) {
       setError('Add a provider with a key first.')
       return
     }
-    setAdding({ provider: first.id, model: first.defaultModel })
+    setAdding({ provider: first.id, model: viewed === null ? first.defaultModel : '' })
   }
 
-  function add(): void {
+  async function add(): Promise<void> {
     if (adding === null || adding.model.trim() === '') return
     const entry = { provider: adding.provider, model: adding.model.trim() }
-    if (pool.some((item) => item.provider === entry.provider && item.model === entry.model)) {
-      setError('That model is already in the pool.')
+    const replacing = adding.replacing
+    if (shown.some((item) => sameEntry(item, entry))) {
+      setError(viewed === null ? 'That model is already in the pool.' : 'That model is already in this group.')
       return
     }
-    void save([...pool.map(({ provider, model }) => ({ provider, model })), entry]).then(() => setAdding(null))
+    /** The list with the spent model swapped for its replacement in place, or the new one added. */
+    const swapped = (list: RotationEntry[]): RotationEntry[] =>
+      replacing === undefined
+        ? [...list, entry]
+        : list.map((item) => (sameEntry(item, replacing) ? entry : plainEntry(item)))
+    let saved: boolean
+    if (viewed !== null) {
+      saved = await saveGroups(groupsWith(viewed.id, (group) => ({ ...group, entries: swapped(group.entries) })))
+    } else if (replacing !== undefined) {
+      // Replaced in the whole pool, it is replaced in every group it was in
+      // too — the groups first, so the pool can then let the spent one go.
+      saved =
+        (await saveGroups(plainGroups().map((group) => ({ ...group, entries: swapped(group.entries) })))) &&
+        (await savePool(swapped(pool)))
+    } else {
+      saved = await savePool(swapped(pool))
+    }
+    if (saved) setAdding(null)
   }
 
+  // In a group, the pool's own models for the chosen provider come first:
+  // most of the time a group is filled from models already switched on.
   const suggestions = [
-    ...new Set([...(providers.find((entry) => entry.id === adding?.provider)?.models ?? []), ...catalogue])
+    ...new Set([
+      ...(viewed !== null ? pool.filter((entry) => entry.provider === adding?.provider).map((entry) => entry.model) : []),
+      ...(providers.find((entry) => entry.id === adding?.provider)?.models ?? []),
+      ...catalogue
+    ])
   ]
+
+  const tabClass = (selected: boolean): string =>
+    `flex items-center rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
+      selected ? 'glass-control text-text' : 'border-transparent text-dim hover:bg-raised hover:text-brand'
+    }`
 
   return (
     <>
@@ -652,9 +790,101 @@ function RotateUsage({
 
       {enabled && (
         <>
+          {/* One tab per group, the whole pool first. The lime dot marks the
+              one in use and keeps its room on the others, so putting another
+              group in use never nudges a tab sideways. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1" data-rotation-groups>
+            {[{ id: null, name: 'All models', count: pool.length }, ...groups.map((group) => ({
+              id: group.id as string | null,
+              name: group.name,
+              count: group.entries.length
+            }))].map((tab) => (
+              <button
+                key={tab.id ?? ''}
+                type="button"
+                data-rotation-group={tab.name}
+                title={tab.id === inUseId ? `${tab.name} — in use` : tab.name}
+                onClick={() => view(tab.id)}
+                className={tabClass(tab.id === (viewed?.id ?? null))}
+              >
+                <span
+                  aria-hidden
+                  className={`mr-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand ${tab.id === inUseId ? '' : 'invisible'}`}
+                />
+                <span className="max-w-40 truncate">{tab.name}</span>
+                <span className={`ml-1.5 inline-block min-w-[1ch] tabular-nums text-faint ${tab.count > 0 ? '' : 'invisible'}`}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              data-rotation-new-group
+              onClick={newGroup}
+              className="rounded-lg border border-transparent px-3 py-1.5 text-[12.5px] text-faint transition-colors hover:bg-raised hover:text-brand"
+            >
+              + New group
+            </button>
+          </div>
+
           <div className="glass-surface overflow-hidden rounded-xl border border-line">
-            {pool.map((entry) => {
+            <div className="flex items-center gap-3 border-b border-line-soft px-5 py-2.5">
+              {viewed === null ? (
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-faint">
+                  Every model switched on in Settings → Models
+                </span>
+              ) : (
+                <input
+                  value={name}
+                  autoFocus={naming}
+                  onFocus={(event) => {
+                    if (naming) event.target.select()
+                  }}
+                  aria-label="Group name"
+                  maxLength={40}
+                  spellCheck={false}
+                  onChange={(event) => setName(event.target.value)}
+                  onBlur={rename}
+                  onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                    if (event.key === 'Escape') {
+                      setName(viewed.name)
+                      setNaming(false)
+                      event.currentTarget.blur()
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 -ml-2 text-[13.5px] text-text outline-none transition-colors hover:border-line focus:border-hover"
+                />
+              )}
+              {inUse ? (
+                <span className="shrink-0 px-2 py-1 text-[12px] text-brand">in use</span>
+              ) : (
+                <button
+                  type="button"
+                  data-rotation-use
+                  title="Every session rotates over these from its next prompt"
+                  onClick={() => useGroup(viewed?.id ?? null)}
+                  className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand"
+                >
+                  {viewed === null ? 'Use all models' : 'Use this group'}
+                </button>
+              )}
+              {viewed !== null && (
+                <button
+                  type="button"
+                  title={`Delete the ${viewed.name} group — its models stay in the pool`}
+                  onClick={deleteGroup}
+                  className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-del"
+                >
+                  Delete group
+                </button>
+              )}
+            </div>
+
+            {shown.map((entry) => {
               const resting = entry.coolingUntil !== null && entry.coolingUntil > now
+              const spent = entry.outOfUsage
+              const replacingThis = adding?.replacing !== undefined && sameEntry(adding.replacing, entry)
               return (
                 <div
                   key={`${entry.provider}\n${entry.model}`}
@@ -662,27 +892,50 @@ function RotateUsage({
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className={`truncate font-mono text-[12.5px] ${entry.ready ? 'text-text' : 'text-dim'}`}>
+                      <span
+                        className={`truncate font-mono text-[12.5px] ${entry.ready && spent === null ? 'text-text' : 'text-dim'}`}
+                      >
                         {entry.model}
                       </span>
                       {!entry.ready && <Tag>needs key</Tag>}
-                      {resting && <Tag>resting</Tag>}
+                      {spent !== null && (
+                        <span
+                          data-out-of-usage={entry.model}
+                          className="shrink-0 rounded border border-del/40 px-1.5 py-0.5 text-[10.5px] text-del"
+                        >
+                          out of usage
+                        </span>
+                      )}
+                      {resting && spent === null && <Tag>resting</Tag>}
                     </div>
-                    <div className="mt-0.5 truncate text-[11.5px] text-faint">
-                      {entry.label} · {compactTokens(entry.inputTokens)} in · {compactTokens(entry.outputTokens)} out
+                    <div
+                      className="mt-0.5 truncate text-[11.5px] text-faint"
+                      title={spent !== null ? spent.reason : undefined}
+                    >
+                      {entry.label} ·{' '}
+                      {spent !== null
+                        ? `ran out ${sinceLabel(spent.since)} — replace it, or it is tried only when nothing else is left`
+                        : `${compactTokens(entry.inputTokens)} in · ${compactTokens(entry.outputTokens)} out`}
                     </div>
                   </div>
+                  {spent !== null && (
+                    <button
+                      type="button"
+                      data-rotation-replace={entry.model}
+                      title={`Swap ${entry.model} for another model`}
+                      onClick={() => startAdding(entry)}
+                      className={`shrink-0 rounded-md px-2 py-0.5 text-[12px] transition-colors hover:bg-raised hover:text-brand ${
+                        replacingThis ? 'text-text' : 'text-dim'
+                      }`}
+                    >
+                      Replace
+                    </button>
+                  )}
                   <button
                     type="button"
-                    title={`Take ${entry.model} out of the rotation`}
-                    aria-label={`Take ${entry.model} out of the rotation`}
-                    onClick={() =>
-                      void save(
-                        pool
-                          .filter((item) => !(item.provider === entry.provider && item.model === entry.model))
-                          .map(({ provider, model }) => ({ provider, model }))
-                      )
-                    }
+                    title={viewed === null ? `Take ${entry.model} out of the rotation` : `Take ${entry.model} out of ${viewed.name}`}
+                    aria-label={viewed === null ? `Take ${entry.model} out of the rotation` : `Take ${entry.model} out of ${viewed.name}`}
+                    onClick={() => remove(entry)}
                     className="shrink-0 rounded-md px-2 py-0.5 text-[15px] leading-none text-faint transition-colors hover:bg-raised hover:text-brand"
                   >
                     ×
@@ -690,17 +943,19 @@ function RotateUsage({
                 </div>
               )
             })}
-            {pool.length === 0 && adding === null && (
+            {shown.length === 0 && adding === null && (
               <div className="px-5 py-4 text-[12.5px] text-faint">
-                No models yet. Add two or more to rotate between them.
+                {viewed === null
+                  ? 'No models yet. Add two or more to rotate between them.'
+                  : 'No models in this group yet. Add the ones that suit its work.'}
               </div>
             )}
             {adding !== null && (
               <div
-                className="flex items-center gap-2 border-t border-line-soft px-5 py-3 first:border-t-0"
+                className="flex items-center gap-2 border-t border-line-soft px-5 py-3"
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') setAdding(null)
-                  if (event.key === 'Enter') add()
+                  if (event.key === 'Enter') void add()
                 }}
               >
                 <select
@@ -708,7 +963,7 @@ function RotateUsage({
                   aria-label="Provider"
                   onChange={(event) => {
                     const next = usable.find((entry) => entry.id === event.target.value)
-                    setAdding({ provider: event.target.value, model: next?.defaultModel ?? '' })
+                    setAdding({ ...adding, provider: event.target.value, model: viewed === null && adding.replacing === undefined ? (next?.defaultModel ?? '') : '' })
                   }}
                   className="glass-field w-40 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[12.5px] text-text outline-none"
                 >
@@ -723,7 +978,7 @@ function RotateUsage({
                   autoFocus
                   list="rotation-models"
                   spellCheck={false}
-                  placeholder="Model id"
+                  placeholder={adding.replacing !== undefined ? `Replace ${adding.replacing.model} with…` : 'Model id'}
                   onChange={(event) => setAdding({ ...adding, model: event.target.value })}
                   className="glass-field min-w-0 flex-1 rounded-lg border border-line px-3 py-1.5 font-mono text-[12.5px] text-text outline-none placeholder:text-faint focus:border-hover"
                 />
@@ -741,11 +996,11 @@ function RotateUsage({
                 </button>
                 <button
                   type="button"
-                  onClick={add}
+                  onClick={() => void add()}
                   disabled={adding.model.trim() === ''}
                   className="glass-control shrink-0 rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
                 >
-                  Add
+                  {adding.replacing !== undefined ? 'Replace' : 'Add'}
                 </button>
               </div>
             )}
@@ -758,7 +1013,7 @@ function RotateUsage({
               <button
                 type="button"
                 data-rotation-add
-                onClick={startAdding}
+                onClick={() => startAdding()}
                 className="text-[12px] text-faint transition-colors hover:text-brand"
               >
                 + Add model
@@ -767,13 +1022,8 @@ function RotateUsage({
             {pool.length > 0 && (
               <button
                 type="button"
-                title="Start every model's token count from zero"
-                onClick={() =>
-                  void window.anticode
-                    .resetRotationUsage()
-                    .then(() => setError(null))
-                    .catch((failure) => setError((failure as Error).message))
-                }
+                title="Start every model's token count from zero, and give models that ran out another chance"
+                onClick={() => void settle(window.anticode.resetRotationUsage())}
                 className="text-[12px] text-faint transition-colors hover:text-brand"
               >
                 Reset counts
@@ -784,6 +1034,28 @@ function RotateUsage({
       )}
     </>
   )
+}
+
+/** The model being added — in place of a spent one, when `replacing` is set. */
+interface Adding extends RotationEntry {
+  replacing?: RotationEntry
+}
+
+function sameEntry(a: RotationEntry, b: RotationEntry): boolean {
+  return a.provider === b.provider && a.model === b.model
+}
+
+/** Just the provider and model, as the main process takes them. */
+function plainEntry({ provider, model }: RotationEntry): RotationEntry {
+  return { provider, model }
+}
+
+/** "at 14:02" today, "on 11 Sep" before. */
+function sinceLabel(since: number): string {
+  const at = new Date(since)
+  return at.toDateString() === new Date().toDateString()
+    ? `at ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `on ${at.toLocaleDateString([], { day: 'numeric', month: 'short' })}`
 }
 
 /**

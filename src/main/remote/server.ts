@@ -12,7 +12,14 @@ import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { ProviderEdit, ProviderSelection, RemoteStatus, RotationEntryStatus, SessionMode } from '@shared/ipc'
+import type {
+  ProviderEdit,
+  ProviderSelection,
+  RemoteStatus,
+  RotationEntryStatus,
+  RotationGroup,
+  SessionMode
+} from '@shared/ipc'
 import { ROTATE_PROVIDER } from '@shared/ipc'
 import { isIgnoredEntry } from '../tools/ignore'
 import { resolveInWorkspace } from '../tools/workspace'
@@ -36,8 +43,10 @@ import {
   pickModel,
   removeProvider,
   resetRotation,
+  selectRotationGroup,
   setApprovalMode,
   setRotation,
+  setRotationGroups,
   updateProvider
 } from '../ipc'
 import {
@@ -291,11 +300,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, { ok: true, status: getStatus() })
     }
 
-    // Rotate usage: switched on or off, the pool replaced, or its token counts
-    // started over.
+    // Rotate usage: switched on or off, the pool or its groups replaced, a
+    // group put in use, or its token counts started over.
     if (req.method === 'POST' && url.pathname === '/api/rotation') {
       if (typeof body.enabled === 'boolean') enableRotation(body.enabled)
       else if (body.reset === true) resetRotation()
+      else if ('group' in body) selectRotationGroup(body.group)
+      else if ('groups' in body) setRotationGroups(body.groups)
       else setRotation(body.entries)
       return json(res, 200, await modelsPayload(typeof body.sessionId === 'string' ? body.sessionId : null))
     }
@@ -524,6 +535,8 @@ async function modelsPayload(sessionId: string | null = null): Promise<{
   }[]
   rotation: RotationEntryStatus[]
   rotationEnabled: boolean
+  rotationGroups: RotationGroup[]
+  rotationGroup: string | null
 }> {
   const known = sessionId !== null && loadSessionMessages(sessionId) !== null ? sessionId : null
   const status = getStatus(known)
@@ -549,7 +562,9 @@ async function modelsPayload(sessionId: string | null = null): Promise<{
     lastUsed: selected.lastUsed,
     providers,
     rotation: selected.rotation,
-    rotationEnabled: selected.rotationEnabled
+    rotationEnabled: selected.rotationEnabled,
+    rotationGroups: selected.rotationGroups,
+    rotationGroup: selected.rotationGroup
   }
 }
 

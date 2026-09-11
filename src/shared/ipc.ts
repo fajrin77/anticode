@@ -40,6 +40,8 @@ export const IpcChannel = {
   ROTATION_SET: 'rotation:set',
   ROTATION_RESET: 'rotation:reset',
   ROTATION_ENABLE: 'rotation:enable',
+  ROTATION_GROUPS_SET: 'rotation:groups',
+  ROTATION_GROUP_SELECT: 'rotation:group',
   REMOTE_STATUS: 'remote:status',
   REMOTE_SET: 'remote:set',
   REMOTE_REGENERATE: 'remote:regenerate',
@@ -168,6 +170,36 @@ export interface RotationEntryStatus extends RotationEntry {
   ready: boolean
   /** Set while it rests after a rate limit or failure; others go first. */
   coolingUntil: number | null
+  /**
+   * Set once its provider said the quota or credit behind it is spent. It is
+   * tried only when nothing else can take the prompt, and shows in Settings so
+   * it can be replaced. A reply from it again, or Reset counts, clears it.
+   */
+  outOfUsage: OutOfUsage | null
+}
+
+export interface OutOfUsage {
+  since: number
+  /** What the provider said, shortened. */
+  reason: string
+}
+
+/**
+ * A named part of the Rotate usage pool — "code only", "media only" — for
+ * models that suit one kind of work. Whichever group is in use is what every
+ * session rotates over; none in use means the whole pool.
+ */
+export interface RotationGroup {
+  id: string
+  name: string
+  entries: RotationEntry[]
+}
+
+/** A group as Settings sends it: one made just now has no id yet. */
+export interface RotationGroupInput {
+  id?: string
+  name: string
+  entries: RotationEntry[]
 }
 
 /** A session's own model — each tab keeps the one it was given. */
@@ -295,8 +327,32 @@ export interface SessionStatus {
    * model and no token is counted; the pool is still the composer's list.
    */
   rotationEnabled: boolean
+  /** The named parts of the pool, in the order they were made. */
+  rotationGroups: RotationGroup[]
+  /** The group every session rotates over; null is the whole pool. */
+  rotationGroup: string | null
   /** Always null here: only a session has a latest prompt to point at. */
   lastUsed: ProviderSelection | null
+}
+
+/** The group in use, or null when sessions rotate over the whole pool. */
+export function activeRotationGroup(
+  status: Pick<SessionStatus, 'rotationGroups' | 'rotationGroup'> | null
+): RotationGroup | null {
+  if (status === null || status.rotationGroup === null) return null
+  return (status.rotationGroups ?? []).find((group) => group.id === status.rotationGroup) ?? null
+}
+
+/** The pool entries sessions rotate over right now: the group's, or all of them. */
+export function activeRotationEntries(
+  status: Pick<SessionStatus, 'rotation' | 'rotationGroups' | 'rotationGroup'> | null
+): RotationEntryStatus[] {
+  const pool = status?.rotation ?? []
+  const group = activeRotationGroup(status)
+  if (group === null) return pool
+  return group.entries.flatMap((entry) =>
+    pool.filter((item) => item.provider === entry.provider && item.model === entry.model)
+  )
 }
 
 /**
@@ -308,13 +364,27 @@ export function statusFor(status: SessionStatus, sessionId: string | null | unde
   return own === undefined ? status : { ...status, ...own }
 }
 
-/** What a model chip says: the model, or Rotate and where it went last. */
-export function modelLabel(status: Pick<SessionStatus, 'provider' | 'model' | 'lastUsed'> | null): string {
+/**
+ * What a model chip says: the model, or Rotate, the group in use, and where
+ * it went last.
+ */
+export function modelLabel(
+  status:
+    | (Pick<SessionStatus, 'provider' | 'model' | 'lastUsed'> &
+        Partial<Pick<SessionStatus, 'rotationGroups' | 'rotationGroup'>>)
+    | null
+): string {
   if (status === null) return '…'
   if (status.provider === ROTATE_PROVIDER) {
-    return status.lastUsed !== null && status.lastUsed.model !== ''
-      ? `${ROTATE_LABEL} · ${status.lastUsed.model}`
-      : ROTATE_LABEL
+    const group = activeRotationGroup({
+      rotationGroups: status.rotationGroups ?? [],
+      rotationGroup: status.rotationGroup ?? null
+    })
+    return [
+      ROTATE_LABEL,
+      ...(group !== null ? [group.name] : []),
+      ...(status.lastUsed !== null && status.lastUsed.model !== '' ? [status.lastUsed.model] : [])
+    ].join(' · ')
   }
   return status.model === '' ? 'pick a model' : status.model
 }
@@ -546,6 +616,10 @@ export interface AnticodeApi {
   resetRotationUsage: () => Promise<SessionStatus>
   /** Switches Rotate usage on or off; off moves sessions on Rotate to a plain model. */
   setRotationEnabled: (enabled: boolean) => Promise<SessionStatus>
+  /** Replaces the Rotate usage groups; a model a group names joins the pool. */
+  setRotationGroups: (groups: RotationGroupInput[]) => Promise<SessionStatus>
+  /** The group every session rotates over from its next prompt; null for the whole pool. */
+  selectRotationGroup: (id: string | null) => Promise<SessionStatus>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */
   createSession: (spec: SessionSpec) => Promise<SessionSpec>

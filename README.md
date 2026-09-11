@@ -147,6 +147,19 @@ diistirahatkan satu menit. Token dihitung dari semua sesi, termasuk sesi yang me
 secara tetap; model yang baru masuk pool mulai sejajar dengan yang paling sedikit terpakai, bukan dari
 nol.
 
+Model yang kuotanya habis (HTTP 402, `insufficient_quota`, saldo/kredit habis, *usage limit*) diberi
+tanda **out of usage** di Settings dan di HP, lengkap dengan tombol **Replace** untuk menukarnya di
+tempat. Selama bertanda, model itu hanya dicoba kalau tidak ada model lain yang bisa; tandanya hilang
+begitu model itu menjawab lagi atau saat **Reset counts**. Pool juga bisa dibagi ke **grup** bernama
+(misalnya "code only", "media only", "reasoning"): tab di atas daftar memilih grup yang dilihat, dan
+**Use this group** menjadikannya grup yang dipakai semua sesi. Pergantian grup terjadi di main process,
+jadi setiap composer — desktop dan HP — langsung menampilkan `rotate · <grup>` dan prompt berikutnya
+pergi ke salah satu model grup itu. Grup hanya berisi model pool: model yang disebut grup ikut masuk
+pool, dan model yang keluar dari pool keluar juga dari semua grup. Di HP, grup bisa dipilih dan diisi;
+membuat, mengganti nama, dan menghapus grup dilakukan di desktop.
+
+Di HP, swipe ke kanan/kiri berpindah sesi — di judul header maupun di mana saja di area chat.
+
 ## Tool dan tier risiko
 
 | Tool | Fungsi | Tier |

@@ -42,6 +42,8 @@ vi.mock('./agent/loop', () => ({
 import {
   applyRotation,
   applyRotationEnabled,
+  applyRotationGroup,
+  applyRotationGroups,
   createSession,
   deleteSession,
   getSession,
@@ -49,9 +51,9 @@ import {
   providerInUse,
   selectProvider
 } from './runtime'
-import { recordRotationUsage, resetRotationForTests } from './rotation'
+import { countedProvider, isOutOfUsage, recordRotationUsage, resetRotationForTests, resetRotationUsage } from './rotation'
 import { beginRun, finishRun } from './runs'
-import { ROTATE_PROVIDER } from '@shared/ipc'
+import { modelLabel, ROTATE_PROVIDER } from '@shared/ipc'
 
 const gate = {} as ApprovalGate
 type FakeAgent = { provider: { name: string; model: string }; fallback: ProviderFallback | null }
@@ -302,4 +304,106 @@ it('starts a model joining the pool level with the least-used one, not at zero',
   recordRotationUsage({ provider: 'one', model: 'm1' }, { inputTokens: 300, outputTokens: 0 })
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   expect(getStatus().rotation.map((entry) => entry.inputTokens)).toEqual([300, 300])
+})
+
+const quotaError = (): Error => Object.assign(new Error('You exceeded your current quota, please check your plan and billing details.'), { status: 429, code: 'insufficient_quota' })
+
+/** A provider whose every call fails the way a spent account does. */
+function spentProvider(entry: { provider: string; model: string }): { chat: (params: unknown) => AsyncIterable<unknown> } {
+  return countedProvider(entry, {
+    name: entry.provider,
+    model: entry.model,
+    // eslint-disable-next-line require-yield
+    async *chat() { throw quotaError() }
+  }) as unknown as { chat: (params: unknown) => AsyncIterable<unknown> }
+}
+
+async function drain(provider: { chat: (params: unknown) => AsyncIterable<unknown> }): Promise<void> {
+  try { for await (const _event of provider.chat({})) { /* drain */ } } catch { /* expected */ }
+}
+
+it('tells a spent quota from a passing rate limit', () => {
+  expect(isOutOfUsage(quotaError())).toBe(true)
+  expect(isOutOfUsage(Object.assign(new Error('Insufficient credits'), { status: 402 }))).toBe(true)
+  expect(isOutOfUsage(new Error('Your credit balance is too low to access the Anthropic API.'))).toBe(true)
+  expect(isOutOfUsage(Object.assign(new Error('Rate limit reached for requests'), { status: 429 }))).toBe(false)
+  expect(isOutOfUsage(new Error('socket hang up'))).toBe(false)
+})
+
+it('marks a model out of usage, rotates past it, and clears it once it answers again', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+
+  await drain(spentProvider({ provider: 'one', model: 'm1' }))
+  const marked = getStatus().rotation.find((entry) => entry.model === 'm1')
+  expect(marked?.outOfUsage?.reason).toMatch(/exceeded your current quota/)
+  expect(getStatus().rotation.find((entry) => entry.model === 'm2')?.outOfUsage).toBeNull()
+
+  // m1 has used nothing, yet the spent one goes last.
+  expect([modelOf('a'), modelOf('a'), modelOf('a')]).toEqual(['m2', 'm2', 'm2'])
+
+  // A reply from it means it was topped up.
+  const answering = countedProvider({ provider: 'one', model: 'm1' }, {
+    name: 'one', model: 'm1',
+    async *chat() { yield { type: 'response', response: { content: [], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } } } }
+  }) as unknown as { chat: (params: unknown) => AsyncIterable<unknown> }
+  await drain(answering)
+  expect(getStatus().rotation.find((entry) => entry.model === 'm1')?.outOfUsage).toBeNull()
+})
+
+it('forgets out-of-usage marks when counts are reset', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  await drain(spentProvider({ provider: 'one', model: 'm1' }))
+  expect(getStatus().rotation[0]?.outOfUsage).not.toBeNull()
+  resetRotationUsage()
+  expect(getStatus().rotation[0]?.outOfUsage).toBeNull()
+})
+
+it('rotates only over the group in use, and every session follows a group change at once', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }])
+  applyRotationGroups([
+    { name: 'code only', entries: [{ provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }] },
+    { name: 'media only', entries: [{ provider: 'one', model: 'm1' }] }
+  ])
+  const [code, media] = getStatus().rotationGroups
+  expect(code?.name).toBe('code only')
+  expect(code?.id).toBeTruthy()
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+
+  applyRotationGroup(code!.id)
+  expect(getStatus().rotationGroup).toBe(code!.id)
+  const seen = new Set([modelOf('a'), modelOf('a'), modelOf('a'), modelOf('a')])
+  expect([...seen].sort()).toEqual(['m2', 'm3'])
+  expect(modelLabel(getStatus('a'))).toMatch(/^rotate · code only · m[23]$/)
+
+  // Switching group lets go of the model the session was on: the chip names
+  // the new group straight away, and the next prompt goes to one of its models.
+  applyRotationGroup(media!.id)
+  expect(modelLabel(getStatus('a'))).toBe('rotate · media only')
+  expect(modelOf('a')).toBe('m1')
+
+  // Back to the whole pool.
+  applyRotationGroup(null)
+  expect(modelLabel(getStatus('a'))).toBe('rotate')
+})
+
+it('adds a model a group names to the pool, and drops it from groups when it leaves the pool', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  applyRotationGroups([{ name: 'reasoning', entries: [{ provider: 'two', model: 'm2' }] }])
+  expect(getStatus().rotation.map((entry) => entry.model)).toEqual(['m1', 'm2'])
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  expect(getStatus().rotationGroups[0]?.entries).toEqual([])
+})
+
+it('blocks Rotate while the group in use is empty, and falls back to the pool when it is removed', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  applyRotationGroups([{ name: 'media only', entries: [] }])
+  applyRotationEnabled(true)
+  applyRotationGroup(getStatus().rotationGroups[0]!.id)
+  expect(getStatus()).toMatchObject({ providerReady: false })
+  expect(getStatus().blockedReason).toMatch(/media only/)
+  applyRotationGroups([])
+  expect(getStatus()).toMatchObject({ rotationGroup: null, providerReady: true })
 })

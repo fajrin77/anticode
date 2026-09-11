@@ -26,17 +26,23 @@ import { clearWeb, restoreWeb, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
 import { fetchModels } from './providers/models'
 import {
+  activeRotationEntries,
+  activeRotationGroupId,
   coolDown,
   coolingUntil,
   countedProvider,
   forgetRotationProvider,
+  outOfUsage,
   rankRotation,
   rotationEnabled,
   rotationEntries,
+  rotationGroups,
   rotationKey,
   rotationUsage,
+  setActiveRotationGroup,
   setRotationEnabled,
-  setRotationEntries
+  setRotationEntries,
+  setRotationGroups
 } from './rotation'
 import { ApprovalPolicy } from './approval/policy'
 import type { ApprovalGate } from './approval/types'
@@ -251,7 +257,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   }
   if (next.provider === ROTATE_PROVIDER) {
     if (!rotationEnabled()) throw new Error('Rotate usage is off — turn it on in Settings → Providers')
-    if (rotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
+    if (activeRotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
     chosen = { provider: ROTATE_PROVIDER, model: '' }
   } else {
     const providerInfo = listProviders().find((provider) => provider.id === next.provider && provider.credentialAvailable)
@@ -306,6 +312,37 @@ export function applyRotation(entries: RotationEntry[]): void {
     selection = null
     savePersistedSettings({ provider: current().provider, model: current().model })
   }
+}
+
+/**
+ * A rotating session that is not working lets go of the model it was on, so
+ * its next prompt is placed afresh — and its chip stops naming a model the
+ * rotation may no longer offer. One that is working keeps its model until its
+ * run ends.
+ */
+function releaseRotatingSessions(): void {
+  for (const [sessionId, live] of sessions) {
+    if (runForSession(sessionId) === null) delete live.selection
+    delete live.promptsOnEntry
+  }
+}
+
+/** The groups replaced; sessions follow the group in use from their next prompt. */
+export function applyRotationGroups(next: unknown[]): void {
+  const before = JSON.stringify(activeRotationEntries())
+  setRotationGroups(next)
+  if (JSON.stringify(activeRotationEntries()) !== before) releaseRotatingSessions()
+}
+
+/**
+ * Puts a group in use for every session at once, like Rotate usage itself:
+ * each composer shows it straight away, and each session's next prompt goes
+ * to one of its models.
+ */
+export function applyRotationGroup(id: string | null): void {
+  if (id === activeRotationGroupId()) return
+  setActiveRotationGroup(id)
+  releaseRotatingSessions()
 }
 
 /**
@@ -481,14 +518,16 @@ function readiness(
 ): { providerReady: boolean; blockedReason: string | null } {
   let blockedReason: string | null
   if (choice.provider === ROTATE_PROVIDER) {
-    const pool = rotationEntries()
+    const pool = activeRotationEntries()
+    const group = rotationGroups().find((item) => item.id === activeRotationGroupId())
+    const where = group === undefined ? 'Rotate usage' : `The “${group.name}” group`
     blockedReason =
       !rotationEnabled()
         ? 'Rotate usage is off — turn it on in Settings → Providers, or pick a model'
         : pool.length === 0
-          ? 'Rotate usage has no models yet — add them in Settings → Providers'
+          ? `${where} has no models yet — add them in Settings → Providers`
           : !pool.some((entry) => entryReady(entry, providers))
-            ? 'No model in Rotate usage is ready — check their providers in Settings → Providers'
+            ? `No model in ${group === undefined ? 'Rotate usage' : `“${group.name}”`} is ready — check their providers in Settings → Providers`
             : null
   } else {
     const info = providers.find((p) => p.id === choice.provider)
@@ -521,7 +560,8 @@ function rotationStatus(providers: Providers): RotationEntryStatus[] {
     ...rotationUsage(entry),
     label: providers.find((provider) => provider.id === entry.provider)?.label ?? entry.provider,
     ready: entryReady(entry, providers),
-    coolingUntil: coolingUntil(entry)
+    coolingUntil: coolingUntil(entry),
+    outOfUsage: outOfUsage(entry)
   }))
 }
 
@@ -547,7 +587,9 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     lastUsed: top.lastUsed,
     sessions: Object.fromEntries([...sessions].map(([id, live]) => [id, choiceStatus(live, providers)])),
     rotation: rotationStatus(providers),
-    rotationEnabled: rotationEnabled()
+    rotationEnabled: rotationEnabled(),
+    rotationGroups: rotationGroups(),
+    rotationGroup: activeRotationGroupId()
   }
 }
 
@@ -592,14 +634,17 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     const tried = new Set<string>()
     const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried })[0]
     const current = live.selection
-    const pool = rotationEntries()
+    // The group in use, or the whole pool: a model outside it is never kept.
+    const pool = activeRotationEntries()
+    // Resting or out of quota, it is no model to stay on.
+    const usable = (entry: RotationEntry): boolean =>
+      pool.some((item) => rotationKey(item) === rotationKey(entry)) &&
+      ready(entry) && coolingUntil(entry) === null && outOfUsage(entry) === null
     const staying =
       current !== undefined &&
       (live.promptsOnEntry ?? 0) > 0 &&
       (live.promptsOnEntry ?? 0) < PROMPTS_PER_MODEL &&
-      pool.some((entry) => rotationKey(entry) === rotationKey(current)) &&
-      ready(current) &&
-      coolingUntil(current) === null
+      usable(current)
     let first: RotationEntry | undefined
     if (staying) {
       first = current
@@ -608,12 +653,10 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       // Its turn is up: someone else goes next, unless nobody else can.
       if (current !== undefined && live.promptsOnEntry !== undefined) tried.add(rotationKey(current))
       first = next()
-      // A model that is resting is no better than the healthy one it would
-      // replace; the session starts another turn where it is instead.
-      const healthy =
-        current !== undefined && pool.some((entry) => rotationKey(entry) === rotationKey(current)) &&
-        ready(current) && coolingUntil(current) === null
-      if (healthy && (first === undefined || coolingUntil(first) !== null)) first = current
+      // A model that is resting or spent is no better than the healthy one it
+      // would replace; the session starts another turn where it is instead.
+      const healthy = current !== undefined && usable(current)
+      if (healthy && (first === undefined || coolingUntil(first) !== null || outOfUsage(first) !== null)) first = current
       if (first === undefined) {
         tried.clear()
         first = next()

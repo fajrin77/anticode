@@ -387,6 +387,30 @@ try {
     await screen.waitForFunction((id) => currentSession === id, swipeSession)
     log('swiping the phone header moves right and left through sessions')
 
+    // The conversation swipes too: the title is out of a thumb's reach.
+    await screen.evaluate(() => {
+      const area = document.getElementById('transcript')
+      area.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 73, isPrimary: true, clientX: 60, clientY: 300 }))
+      area.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 73, isPrimary: true, clientX: 200, clientY: 310 }))
+    })
+    await screen.waitForFunction((id) => currentSession === id, swipeTarget)
+    await screen.evaluate(() => {
+      const area = document.querySelector('main')
+      area.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 74, isPrimary: true, clientX: 200, clientY: 500 }))
+      area.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 74, isPrimary: true, clientX: 60, clientY: 505 }))
+    })
+    await screen.waitForFunction((id) => currentSession === id, swipeSession)
+    // A mostly vertical drag is a scroll, not a swipe.
+    const scrolled = await screen.evaluate(async () => {
+      const area = document.getElementById('transcript')
+      area.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 75, isPrimary: true, clientX: 100, clientY: 200 }))
+      area.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 75, isPrimary: true, clientX: 170, clientY: 420 }))
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      return currentSession
+    })
+    assert.equal(scrolled, swipeSession)
+    log('swiping the phone conversation moves through sessions; a vertical drag does not')
+
     await screen.evaluate((id) => openSession(id), sessionId)
     await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
     const quoted = await screen.evaluate(() => {
