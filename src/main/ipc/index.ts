@@ -10,12 +10,13 @@ import {
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { notify } from '../notify'
 import path from 'node:path'
-import { copyFile, readFile, stat, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
   AgentRequest,
   AppInfo,
+  ExportOptions,
   ApprovalResponse,
   FilePreview,
   ModelCatalogue,
@@ -89,13 +90,13 @@ import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updat
 import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
 import { pricedModels, setCustomPrice } from '../pricing'
-import { importMcp, listMcp, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
-import { credentialStatus, moveEnvKeys, restrictEnvFile } from '../credentials'
+import { importMcp, listMcp, mcpSecrets, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
+import { credentialStatus, knownSecrets, moveEnvKeys, restrictEnvFile } from '../credentials'
+import { writeExport } from '../exporter'
 import { hideQuickCapture, sendQuickCapture } from '../tray'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
-import type { SessionSnapshot, SnapshotBlock } from '@shared/ipc'
 
 let lastSender: WebContents | null = null
 
@@ -120,25 +121,6 @@ function artifactPath(sessionId: string, relativePath: string): string {
   const root = sessionFileRoot(sessionId)
   if (root === null) throw new Error('This session has no project folder')
   return resolveInWorkspace(root, relativePath)
-}
-
-function transcriptMarkdown(title: string, snapshot: SessionSnapshot): string {
-  const blockText = (block: SnapshotBlock): string => {
-    if (block.type === 'text') return block.text
-    if (block.type === 'attachment') return `[Attachment: ${block.attachment.name}]`
-    if (block.type === 'tool_use') return `\n\`\`\`json\n${JSON.stringify({ tool: block.name, input: block.input }, null, 2)}\n\`\`\``
-    return `\n\`\`\`text\n${block.content}\n\`\`\``
-  }
-  return [
-    `# ${title}`,
-    '',
-    ...snapshot.messages.flatMap((message) => [
-      `## ${message.role === 'user' ? 'User' : 'Assistant'}`,
-      '',
-      message.blocks.map(blockText).join('\n\n'),
-      ''
-    ])
-  ].join('\n')
 }
 
 /**
@@ -564,26 +546,37 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.SESSION_COMPACT, (_event, sessionId: string) => compactSession(sessionId, approvals))
 
-  ipcMain.handle(IpcChannel.SESSION_EXPORT, async (event, sessionId: string) => {
+  ipcMain.handle(IpcChannel.SESSION_EXPORT, async (event, sessionId: string, raw?: Partial<ExportOptions>) => {
     const snapshot = sessionSnapshot(sessionId)
     const spec = listSessionSpecs().find((entry) => entry.sessionId === sessionId)
     if (snapshot === null || spec === undefined) throw new Error('Session not found')
-    const safeTitle = (spec.title ?? 'anticode-session').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80)
-    const window = BrowserWindow.fromWebContents(event.sender)
-    const options = {
-      defaultPath: `${safeTitle}.md`,
-      filters: [
-        { name: 'Markdown transcript', extensions: ['md'] },
-        { name: 'JSON transcript', extensions: ['json'] }
-      ]
+    const range = raw?.range
+    const options: ExportOptions = {
+      format: raw?.format === 'json' ? 'json' : 'markdown',
+      range:
+        range !== null && range !== undefined && Number.isInteger(range.from) && Number.isInteger(range.to)
+          ? { from: range.from, to: range.to }
+          : null,
+      redact: raw?.redact === true,
+      assets: raw?.assets === true
     }
-    const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    const safeTitle = (spec.title ?? 'anticode-session').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80)
+    const extension = options.format === 'json' ? 'json' : 'md'
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = {
+      defaultPath: `${safeTitle}.${extension}`,
+      filters: [options.format === 'json' ? { name: 'JSON transcript', extensions: ['json'] } : { name: 'Markdown transcript', extensions: ['md'] }]
+    }
+    const result = window ? await dialog.showSaveDialog(window, dialogOptions) : await dialog.showSaveDialog(dialogOptions)
     if (result.canceled || result.filePath === undefined) return null
-    const content = result.filePath.toLowerCase().endsWith('.json')
-      ? JSON.stringify({ session: spec, ...snapshot }, null, 2)
-      : transcriptMarkdown(spec.title ?? 'anticode session', snapshot)
-    await writeFile(result.filePath, content, 'utf8')
-    return result.filePath
+    return writeExport(result.filePath, {
+      spec,
+      messages: snapshot.messages,
+      summaries: snapshot.summaries,
+      fileRoot: sessionFileRoot(sessionId),
+      options,
+      knownSecrets: options.redact ? knownSecrets(mcpSecrets()) : []
+    })
   })
 
   ipcMain.handle(IpcChannel.SESSION_SNAPSHOT, (_event, sessionId: string) => {

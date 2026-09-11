@@ -107,8 +107,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.SESSION_REGENERATE, sessionId, runId, choice) as ReturnType<AnticodeApi['regenerate']>,
   compactSession: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_COMPACT, sessionId) as Promise<{ before: number; after: number }>,
-  exportSession: (sessionId: string) =>
-    ipcRenderer.invoke(IpcChannel.SESSION_EXPORT, sessionId) as Promise<string | null>,
+  exportSession: (sessionId, options) =>
+    ipcRenderer.invoke(IpcChannel.SESSION_EXPORT, sessionId, options) as ReturnType<AnticodeApi['exportSession']>,
   getSessionSnapshot: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_SNAPSHOT, sessionId) as Promise<SessionSnapshot | null>,
   setRemoteEnabled: (enabled: boolean) =>

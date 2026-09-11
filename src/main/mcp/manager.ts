@@ -329,6 +329,11 @@ export function mcpTools(): Tool[] {
   return tools
 }
 
+/** The tokens and keys MCP servers were given, for masking in exports. */
+export function mcpSecrets(): string[] {
+  return load().flatMap((server) => [...Object.values(server.env), ...Object.values(server.headers)])
+}
+
 /** On quit: stop every server this app started. */
 export async function closeMcp(): Promise<void> {
   await Promise.all([...connections.keys()].map((id) => disconnect(id)))

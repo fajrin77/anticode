@@ -31,12 +31,16 @@ import {
   compactSession,
   deleteSession,
   getStatus,
+  listSessionSpecs,
   listSessionSummaries,
   loadSessionMessages,
   revertLastTurn,
   sessionFileRoot,
   sessionWorkspaceRoot
 } from '../runtime'
+import { writeExport } from '../exporter'
+import { knownSecrets } from '../credentials'
+import { mcpSecrets } from '../mcp/manager'
 import {
   addProvider,
   approvals,
@@ -323,6 +327,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, snapshot)
     }
 
+    // Exports the transcript to the Mac's Downloads and streams the file to
+    // the phone — the OS save dialog has no place on a phone screen.
+    const exportMatch = /\/api\/session\/([\w-]+)\/export$/.exec(url.pathname)
+    if (req.method === 'POST' && exportMatch !== null) {
+      return streamPhoneExport(res, exportMatch[1] ?? '', body)
+    }
+
     if (req.method === 'DELETE' && sessionMatch !== null) {
       const id = sessionMatch[1] ?? ''
       cancelSessionRuns(id)
@@ -591,6 +602,51 @@ function createPhoneSession(body: Record<string, unknown>): { sessionId: string 
     throw new Error('Folder not found on the Mac — check the path')
   }
   return { sessionId: createRemoteSession('code', folder) }
+}
+
+/**
+ * Builds the export on the Mac (into Downloads, so it survives the transfer),
+ * then streams the file itself so the phone saves it like any download.
+ */
+function streamPhoneExport(
+  res: http.ServerResponse,
+  sessionId: string,
+  body: Record<string, unknown>
+): void {
+  void (async () => {
+    const snapshot = sessionSnapshot(sessionId)
+    const spec = listSessionSpecs().find((entry) => entry.sessionId === sessionId)
+    if (snapshot === null || spec === undefined) {
+      json(res, 404, { error: 'Unknown session' })
+      return
+    }
+    const format = body.format === 'json' ? 'json' : 'markdown'
+    const redact = body.redact === true
+    const assets = body.assets === true
+    const downloads = path.join(os.homedir(), 'Downloads')
+    const safeTitle = (spec.title ?? 'anticode-session').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80)
+    const target = path.join(downloads, `${safeTitle}.${format === 'json' ? 'json' : 'md'}`)
+    try {
+      const result = await writeExport(target, {
+        spec,
+        messages: snapshot.messages,
+        summaries: snapshot.summaries,
+        fileRoot: sessionFileRoot(sessionId),
+        options: { format, range: null, redact, assets },
+        knownSecrets: redact ? knownSecrets(mcpSecrets()) : []
+      })
+      const data = readFileSync(result.path)
+      res.writeHead(200, {
+        'content-type': format === 'json' ? 'application/json' : 'text/markdown; charset=utf-8',
+        'content-disposition': `attachment; filename="${path.basename(result.path)}"`,
+        'x-export-assets': String(result.assets),
+        'x-export-missing': result.missing.length
+      })
+      res.end(data)
+    } catch (error) {
+      json(res, 400, { error: (error as Error).message })
+    }
+  })()
 }
 
 async function startPrompt(body: Record<string, unknown>): Promise<{

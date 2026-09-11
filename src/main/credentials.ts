@@ -1,7 +1,8 @@
 import { chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import type { CredentialStatus, EnvCredential } from '@shared/ipc'
 import { envFilePath } from './config'
-import { editClinepass } from './providers/clinepass'
+import { clinepassConfig, editClinepass } from './providers/clinepass'
+import { listCustomProviders } from './providers/custom'
 import { secureStorageAvailable } from './secrets'
 
 /*
@@ -54,6 +55,22 @@ function openToOthers(file: string): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Every secret value this app holds — keys typed in Settings, the Clinepass
+ * key, secret-looking environment variables, MCP tokens — so an export can
+ * mask them wherever they turn up in a transcript.
+ */
+export function knownSecrets(extra: string[] = []): string[] {
+  const values = [
+    ...listCustomProviders().map((provider) => provider.apiKey),
+    clinepassConfig().apiKey ?? '',
+    ...Object.entries(process.env).filter(([name]) => SECRET_NAME.test(name)).map(([, value]) => value ?? ''),
+    ...extra
+  ]
+  // Longest first, so a key that contains a shorter one is masked whole.
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length >= 8))].sort((a, b) => b.length - a.length)
 }
 
 export function credentialStatus(): CredentialStatus {

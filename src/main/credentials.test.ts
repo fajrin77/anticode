@@ -5,7 +5,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({ file: '' as string | null, secure: true, moved: [] as string[] }))
 vi.mock('./config', () => ({ envFilePath: () => state.file }))
-vi.mock('./secrets', () => ({ secureStorageAvailable: () => state.secure }))
+vi.mock('./secrets', () => ({
+  SEALED_PREFIX: 'safe:v1:',
+  secureStorageAvailable: () => state.secure,
+  seal: (value: string) => `safe:v1:${Buffer.from(value).toString('base64')}`,
+  unseal: (value: string) => (value.startsWith('safe:v1:') ? Buffer.from(value.slice(8), 'base64').toString('utf8') : value)
+}))
 vi.mock('./providers/clinepass', () => ({ editClinepass: (edit: { apiKey: string }) => state.moved.push(edit.apiKey) }))
 
 import { credentialStatus, mask, moveEnvKeys, parseEnv, restrictEnvFile } from './credentials'

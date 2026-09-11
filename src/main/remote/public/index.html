@@ -647,6 +647,7 @@
     <button class="mrow" onclick="gotoSessions()">Sessions</button>
     <button class="mrow" onclick="gotoWeb()">Web</button>
     <button class="mrow" onclick="gotoFiles()">Files</button>
+    <button class="mrow" id="exportRow" onclick="exportSession()">Export transcript</button>
     <button class="mrow" onclick="openSettings()">Settings</button>
   </div>
 </div>
@@ -1030,7 +1031,36 @@ addSessionSwipe(
 
 function toggleMenu(event) {
   event?.stopPropagation();
+  // Export only makes sense inside an open session.
+  document.getElementById('exportRow').classList.toggle('hidden', currentSession === null);
   document.getElementById('menuDrop').classList.toggle('hidden');
+}
+
+/** Pulls the export the Mac wrote (into its Downloads) as a normal download.
+ * Redaction is on by default — a phone should not carry raw keys. */
+async function exportSession() {
+  closeMenu();
+  if (currentSession === null) return;
+  const redact = confirm('Redact API keys and tokens from the export? (OK = redact, Cancel = raw)');
+  try {
+    const response = await api('/api/session/' + currentSession + '/export', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ format: 'markdown', redact, assets: false })
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || ('Export failed: ' + response.status));
+    }
+    const blob = await response.blob();
+    const name = (response.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1]
+      || 'anticode-transcript.md';
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) { showError(error); }
 }
 
 function closeMenu() {

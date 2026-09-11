@@ -464,6 +464,25 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** What an export writes: which prompts, in which format, masked or not, with files or not. */
+export interface ExportOptions {
+  format: 'markdown' | 'json'
+  /** Typed prompts from..to, 0-based and inclusive; null is the whole session. */
+  range: { from: number; to: number } | null
+  /** Mask API keys, tokens, and passwords — the ones anticode knows and ones that look like them. */
+  redact: boolean
+  /** Copy attachments and produced documents into a folder beside the export. */
+  assets: boolean
+}
+
+export interface ExportResult {
+  path: string
+  /** Files copied into the assets folder. */
+  assets: number
+  /** Files the transcript names that were no longer there. */
+  missing: string[]
+}
+
 /** A secret-looking variable in the .env file, never with its value. */
 export interface EnvCredential {
   name: string
@@ -806,8 +825,8 @@ export interface AnticodeApi {
    * Answers with the replay estimate, in tokens, before and after.
    */
   compactSession: (sessionId: string) => Promise<{ before: number; after: number }>
-  /** Saves the complete transcript as Markdown or JSON through an OS dialog. */
-  exportSession: (sessionId: string) => Promise<string | null>
+  /** Saves the transcript through an OS dialog; null when the dialog was cancelled. */
+  exportSession: (sessionId: string, options?: ExportOptions) => Promise<ExportResult | null>
   getSessionSnapshot: (
     sessionId: string
   ) => Promise<SessionSnapshot | null>
