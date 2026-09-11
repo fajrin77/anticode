@@ -67,7 +67,7 @@ import {
   webHistoryOf
 } from '../web'
 import { capturePhonePage } from '../browser'
-import { submitPrompt } from '../prompts'
+import { queuePrompt, submitPrompt, unqueuePrompt } from '../prompts'
 import { previewFile } from '../preview'
 import sharp from 'sharp'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
@@ -387,6 +387,12 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, { prompt })
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/unqueue') {
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
+      const id = typeof body.id === 'string' ? body.id : ''
+      return json(res, 200, { item: unqueuePrompt(sessionId, id) })
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/compact') {
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
       if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
@@ -604,6 +610,10 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   const ids = Array.isArray(body.attachmentIds)
     ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
     : []
+  if (body.queue === true) {
+    const queued = await queuePrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids }, approvals)
+    return { sessionId, runId: queued.runId, steered: false }
+  }
   const result = await submitPrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids }, approvals)
   return { sessionId, ...result }
 }

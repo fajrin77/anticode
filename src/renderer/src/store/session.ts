@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type {
   AttachmentInfo,
   AttachmentRef,
+  QueuedPrompt,
   RunSummary,
   SessionMode,
   SessionSpec,
@@ -139,6 +140,16 @@ interface SessionState {
   pausedSessions: Record<string, true>
   /** Next badge-colour index; advances on every session creation. */
   nextColour: number
+  /** Prompts waiting for each session's run to finish; a mirror of the main process. */
+  queues: Record<string, QueuedPrompt[]>
+  /**
+   * What Enter does with a prompt typed while a run works: join that run
+   * (steer) or wait for it to finish and go out as the next run (queue).
+   * Cmd/Ctrl+Enter does the other. Remembered across launches.
+   */
+  followUpMode: 'steer' | 'queue'
+  setQueue: (sessionId: string, items: QueuedPrompt[]) => void
+  setFollowUpMode: (mode: 'steer' | 'queue') => void
 
   /** Puts a passage from the transcript above the composer, to be replied to. */
   quoteInDraft: (id: string, quote: string) => void
@@ -304,6 +315,16 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   mirrorRuns: {},
   pausedSessions: {},
   nextColour: 0,
+  queues: {},
+  followUpMode: 'steer',
+  setQueue: (sessionId, items) =>
+    set((state) => {
+      const queues = { ...state.queues }
+      if (items.length === 0) delete queues[sessionId]
+      else queues[sessionId] = items
+      return { queues }
+    }),
+  setFollowUpMode: (followUpMode) => set({ followUpMode }),
 
   addProject: (root) =>
     set((state) =>
@@ -908,7 +929,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     })
 }), {
   name: 'anticode-session-metadata',
-  partialize: (state) => ({ drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
+  partialize: (state) => ({ followUpMode: state.followUpMode, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 

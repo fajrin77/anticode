@@ -2,7 +2,10 @@ import type { AgentEvent, AgentRequest, AttachmentRef, ProviderSelection } from 
 import { ROTATE_PROVIDER } from '@shared/ipc'
 import type { ApprovalGate } from './approval/types'
 import type { ContentBlock } from './providers/types'
-import { attachmentsFor, blocksOf, refsOf, releaseAttachments } from './attachments/registry'
+import { attachmentsFor, blocksOf, refsOf, releaseAttachments, stagedRefs } from './attachments/registry'
+import { randomUUID } from 'node:crypto'
+import { clearQueue, dequeue, enqueue, removeQueued, requeue } from './queue'
+import type { QueuedPrompt } from '@shared/ipc'
 import { announceTitle, getSession, getStatus, persistSessions, selectProvider, takeBackPrompt } from './runtime'
 import { beginRun, finishRun, runForSession } from './runs'
 import { announceHistory, announceStatus, forward, registerRun } from './remote/bus'
@@ -78,8 +81,12 @@ async function admit(
   }).finally(() => {
     releaseAttachments(req.attachmentIds)
     finishRun(req.runId)
-    forward(terminal ?? { type: 'end', runId: req.runId, reason: 'complete' })
+    const ended = terminal ?? { type: 'end', runId: req.runId, reason: 'complete' }
+    forward(ended)
     persistSessions()
+    // A run that finished hands over to the next queued prompt. One that was
+    // paused or failed leaves the queue waiting, for a resume or a fix.
+    if (ended.type === 'end' && ended.reason === 'complete') sendNextQueued(req.sessionId, gate)
   })
   // The run records its prompt before its first await, so the history already
   // holds it here — and an antichat's first prompt is what names it.
@@ -117,4 +124,48 @@ export async function regenerate(
     gate,
     { blocks: taken.blocks, attachments: taken.attachments }
   )
+}
+
+/**
+ * Queues a prompt to run after the session's current run finishes. With
+ * nothing running there is nothing to wait for, and it is sent at once.
+ */
+export async function queuePrompt(req: AgentRequest, gate: ApprovalGate): Promise<{ runId: string; queued: boolean }> {
+  if (typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > 200_000) {
+    throw new Error('Enter a prompt of at most 200,000 characters')
+  }
+  if (!Array.isArray(req.attachmentIds) || req.attachmentIds.some((id) => typeof id !== 'string')) {
+    throw new Error('Invalid attachment IDs')
+  }
+  const running = runForSession(req.sessionId)
+  if (running === null) {
+    const started = await submitPrompt(req, gate)
+    return { runId: started.runId, queued: false }
+  }
+  enqueue(req.sessionId, req.prompt, req.attachmentIds, stagedRefs(req.attachmentIds))
+  return { runId: running, queued: true }
+}
+
+/** Takes a queued prompt out; its files are let go unless the caller keeps the text to edit. */
+export function unqueuePrompt(sessionId: string, id: string): QueuedPrompt | null {
+  const entry = removeQueued(sessionId, id)
+  if (entry === undefined) return null
+  releaseAttachments(entry.attachmentIds)
+  return { id: entry.id, text: entry.text, attachments: entry.attachments }
+}
+
+/** The session was deleted: nothing it queued will ever be sent. */
+export function forgetQueue(sessionId: string): void {
+  for (const entry of clearQueue(sessionId)) releaseAttachments(entry.attachmentIds)
+}
+
+function sendNextQueued(sessionId: string, gate: ApprovalGate): void {
+  const next = dequeue(sessionId)
+  if (next === undefined) return
+  const { attachmentIds, ...shown } = next
+  void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds }, gate).catch(() => {
+    // It could not start — the model is not ready, the files are gone. It
+    // waits at the front of the line rather than vanishing.
+    requeue(sessionId, { ...shown, attachmentIds })
+  })
 }

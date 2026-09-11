@@ -338,6 +338,16 @@
     backdrop-filter: blur(28px) saturate(125%);
     z-index: 20;
   }
+  /* Prompts waiting for the run to finish, oldest first, above everything else. */
+  #queueRow { flex: 0 0 100%; display: flex; flex-direction: column; gap: 4px; }
+  #queueRow .qitem {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+    background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 12px; padding: 6px 10px;
+  }
+  #queueRow .qn { flex: none; color: #6d6d6d; font-variant-numeric: tabular-nums; }
+  #queueRow .qt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9a9a9a; }
+  #queueRow .qt:active, #queueRow .qx:active { color: #d1fa22; }
+  #queueRow .qx { flex: none; background: none; border: none; color: #6d6d6d; font-size: 15px; line-height: 1; padding: 0 2px; }
   /* Staged files sit on their own row above the text box. */
   #stagedRow { flex: 0 0 100%; display: flex; gap: 8px; overflow-x: auto; }
   #stagedRow .chip {
@@ -717,6 +727,7 @@
     <span class="qtext"><span class="qlabel">Membalas</span><span class="qbody" id="quoteText"></span></span>
     <button class="qx" onclick="clearQuote()" aria-label="Remove quote">&times;</button>
   </div>
+  <div id="queueRow" class="hidden"></div>
   <div id="stagedRow" class="hidden"></div>
   <input type="file" id="fileInput" multiple class="hidden" onchange="onFilesPicked(this.files)" />
   <button class="attach" id="attachBtn" title="Attach files" onclick="document.getElementById('fileInput').click()">+</button>
@@ -728,6 +739,7 @@
   <div id="chipRow">
     <button id="modelChip" onclick="openSettings('model')" title="Model"><span class="modelText">…</span></button>
     <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
+    <button id="followChip" class="hidden" onclick="toggleFollowMode()" title="What a prompt sent while the run works does">steer</button>
     <span class="grow"></span>
     <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
   </div>
@@ -1393,6 +1405,7 @@ async function syncSession(id) {
   renderTranscript(payload.messages, payload.summaries);
   if (following) followBottom(); else window.scrollTo(0, readingAt);
   lastUsage = { id, summaries: payload.summaries ?? [], messages: (payload.messages ?? []).length };
+  renderQueue(payload.queue ?? []);
   for (const event of payload.events ?? []) await applyStreamEvent(id, event);
   appliedRevision = payload.revision ?? 0;
   if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
@@ -1916,6 +1929,7 @@ async function applyStreamEvent(id, event) {
     else if (event.type === 'text_delta') { currentRunId = event.runId; liveGroup = null; hideWorking(); appendLive(event.text); }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output); }
+    else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
     else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; appendNotice(event.text); }
     else if (event.type === 'end' || event.type === 'error') {
       steerAnchor = null;
@@ -2404,6 +2418,13 @@ function updateSendBtn() {
   // Revert sits beside Resume, as on the desktop: paused, and nothing running.
   const reverting = currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null;
   document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
+  const working = currentRunId !== null && !pausedSessions.has(currentSession);
+  const chip = document.getElementById('followChip');
+  chip.classList.toggle('hidden', !working);
+  chip.textContent = followMode;
+  document.getElementById('promptHint').textContent = working
+    ? (followMode === 'queue' ? 'Queue the next prompt\u2026' : 'Add to the task\u2026')
+    : 'Message\u2026';
   requestAnimationFrame(updateModelFade);
 }
 
@@ -2561,9 +2582,10 @@ async function submitPrompt(prompt) {
   updateSendBtn();
   try {
     await listen(id);
+    const queue = followMode === 'queue' && currentRunId !== null && prompt !== CONTINUE_PROMPT;
     await jfetch('/api/prompt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: id, prompt, attachmentIds })
+      body: JSON.stringify({ sessionId: id, prompt, attachmentIds, queue })
     });
     for (const item of staged) if (attachmentIds.includes(item.id) && item.localUrl) URL.revokeObjectURL(item.localUrl);
     staged = staged.filter((item) => !attachmentIds.includes(item.id));
@@ -3488,6 +3510,58 @@ async function removePhoneProvider(provider) {
   try {
     if (editingProvider === provider.id) editingProvider = null;
     providersChanged(await jfetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' }));
+  } catch (error) { showError(error); }
+}
+
+/* While a run works, a prompt either joins it (steer) or waits for it to
+ * finish and goes out as the next run (queue). The choice is remembered. */
+let followMode = (() => { try { return localStorage.getItem('followMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
+function toggleFollowMode() {
+  followMode = followMode === 'queue' ? 'steer' : 'queue';
+  try { localStorage.setItem('followMode', followMode); } catch { /* private mode */ }
+  updateSendBtn();
+}
+
+/* The queue is the Mac's: queued here or on the desktop, it shows on both,
+ * and tapping one takes it off the line and back into the box. */
+function renderQueue(items) {
+  const row = document.getElementById('queueRow');
+  row.replaceChildren();
+  row.classList.toggle('hidden', items.length === 0);
+  items.forEach((item, index) => {
+    const el = document.createElement('div');
+    el.className = 'qitem';
+    const n = document.createElement('span');
+    n.className = 'qn';
+    n.textContent = 'queued ' + (index + 1);
+    const text = document.createElement('span');
+    text.className = 'qt';
+    text.textContent = item.text;
+    text.onclick = () => void unqueue(item, true);
+    const x = document.createElement('button');
+    x.className = 'qx';
+    x.textContent = '\u00d7';
+    x.setAttribute('aria-label', 'Remove from queue');
+    x.onclick = () => void unqueue(item, false);
+    el.append(n, text, x);
+    row.appendChild(el);
+  });
+}
+
+async function unqueue(item, edit) {
+  const id = currentSession;
+  if (id === null) return;
+  try {
+    const { item: taken } = await jfetch('/api/unqueue', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: id, id: item.id })
+    });
+    if (edit && taken && currentSession === id) {
+      const input = document.getElementById('prompt');
+      input.value = input.value.trim() === '' ? taken.text : input.value + '\n\n' + taken.text;
+      input.dispatchEvent(new Event('input'));
+      input.focus();
+    }
   } catch (error) { showError(error); }
 }
 

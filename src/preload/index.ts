@@ -18,9 +18,11 @@ import type {
   ProviderEdit,
   ProviderInfo,
   ProviderSelection,
+  QueuedPrompt,
   RotationEntry,
   RotationGroupInput,
   SessionPause,
+  SessionQueue,
   SessionSpec,
   SessionStatus,
   SessionTitle,
@@ -136,6 +138,11 @@ const api: AnticodeApi = {
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   sendPrompt: (req: AgentRequest) =>
     ipcRenderer.invoke(IpcChannel.AGENT_SEND, req) as Promise<{ runId: string; steered: boolean }>,
+  queuePrompt: (req: AgentRequest) =>
+    ipcRenderer.invoke(IpcChannel.QUEUE_ADD, req) as Promise<{ runId: string; queued: boolean }>,
+  unqueuePrompt: (sessionId, id) =>
+    ipcRenderer.invoke(IpcChannel.QUEUE_REMOVE, sessionId, id) as Promise<QueuedPrompt | null>,
+  onSessionQueue: (listener) => subscribe<SessionQueue>(IpcChannel.QUEUE_UPDATED, listener),
   cancelRun: (runId: string) => ipcRenderer.invoke(IpcChannel.AGENT_CANCEL, runId) as Promise<void>,
   pauseSession: (sessionId: string) =>
     ipcRenderer.invoke(IpcChannel.SESSION_PAUSE, sessionId) as Promise<boolean>,

@@ -8,6 +8,7 @@ import type {
   AttachmentInfo,
   ProviderId,
   ProviderInfo,
+  QueuedPrompt,
   SessionStatus
 } from '@shared/ipc'
 import type { MessagePart } from '../store/session'
@@ -49,6 +50,8 @@ async function letGoOfFinishedRun(sessionId: string): Promise<void> {
     useSessionStore.getState().importSnapshot(sessionId, snapshot.messages, snapshot.summaries)
   }
 }
+
+const NO_QUEUE: QueuedPrompt[] = []
 
 /** Spread-based encoding blows the call stack on megabyte images. */
 function toBase64(buffer: ArrayBuffer): string {
@@ -128,6 +131,9 @@ export function Composer({
     (state) => session !== undefined && state.pausedSessions[session.id] === true
   )
   const dropLastTurn = useSessionStore((state) => state.dropLastTurn)
+  const followUpMode = useSessionStore((state) => state.followUpMode)
+  const setFollowUpMode = useSessionStore((state) => state.setFollowUpMode)
+  const queued = useSessionStore((state) => state.queues[session?.id ?? ''] ?? NO_QUEUE)
 
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
@@ -306,7 +312,24 @@ export function Composer({
     }
   }
 
-  async function send(): Promise<void> {
+  /** A queued prompt comes back into the box to be changed; its place in line is given up. */
+  async function pullBack(item: QueuedPrompt): Promise<void> {
+    if (session === undefined) return
+    const taken = await window.anticode.unqueuePrompt(session.id, item.id)
+    if (taken === null) return
+    const current = useSessionStore.getState().drafts[session.id]?.text ?? ''
+    setDraft(current.trim() === '' ? taken.text : `${current}\n\n${taken.text}`)
+    if (taken.attachments.length > 0) {
+      void collect(window.anticode.addAttachments(taken.attachments.map((file) => file.path)))
+    }
+    promptRef.current?.focus()
+  }
+
+  /**
+   * `alternate` is Cmd/Ctrl+Enter: while a run works it does the other of
+   * steer and queue, so neither needs the chip to be flipped first.
+   */
+  async function send(alternate = false): Promise<void> {
     const prompt = draft.trim()
     if (!canSend || session === undefined) {
       if (
@@ -333,13 +356,13 @@ export function Composer({
       setDraft('')
       setAttached([])
       clearQuote()
+      const queue = (followUpMode === 'queue') !== alternate
       try {
-        await window.anticode.sendPrompt({
-          sessionId: session.id,
-          runId: crypto.randomUUID(),
-          prompt: shown,
-          attachmentIds
-        })
+        const request = { sessionId: session.id, runId: crypto.randomUUID(), prompt: shown, attachmentIds }
+        // A queued prompt waits in the main process, shown above the box on
+        // every screen, and goes out as its own run once this one finishes.
+        if (queue) await window.anticode.queuePrompt(request)
+        else await window.anticode.sendPrompt(request)
       } catch (failure) {
         setError((failure as Error).message)
         useSessionStore.getState().updateDraft(session.id, kept)
@@ -463,6 +486,40 @@ export function Composer({
             </div>
           )}
 
+          {queued.length > 0 && (
+            <div className="mb-2 flex flex-col gap-1" data-queue>
+              {queued.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="composer-glass flex items-center gap-2.5 rounded-xl border border-line px-3 py-1.5 text-[12.5px]"
+                >
+                  <span className="shrink-0 tabular-nums text-faint">queued {index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => void pullBack(item)}
+                    title="Take it off the queue and edit it"
+                    className="min-w-0 flex-1 truncate text-left text-dim transition-colors hover:text-brand"
+                  >
+                    {item.text}
+                  </button>
+                  {item.attachments.length > 0 && (
+                    <span className="shrink-0 text-[11px] text-faint">
+                      +{item.attachments.length} {item.attachments.length === 1 ? 'file' : 'files'}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Remove from queue"
+                    onClick={() => void window.anticode.unqueuePrompt(session?.id ?? '', item.id)}
+                    className="shrink-0 text-faint transition-colors hover:text-brand"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div
             className={`composer-glass relative overflow-visible rounded-[22px] border border-line transition-colors ${
               shake ? 'animate-shake' : ''
@@ -540,7 +597,9 @@ export function Composer({
               value={draft}
               placeholder={
                 isStreaming && !isPaused
-                  ? 'Add to the task…'
+                  ? followUpMode === 'queue'
+                    ? 'Queue the next prompt…'
+                    : 'Add to the task…'
                   : "Don't work today, just vibes."
               }
               onChange={(event) => setDraft(event.target.value)}
@@ -548,7 +607,7 @@ export function Composer({
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
-                  void send()
+                  void send(event.metaKey || event.ctrlKey)
                 }
               }}
               data-composer
@@ -613,6 +672,24 @@ export function Composer({
                 {status?.autoApprove === true ? 'Auto' : 'Default'}
               </Chip>
 
+              {/* Only while a run works: what a prompt sent now does. Both words
+                  are laid out at once so flipping never moves the row. */}
+              {isStreaming && !isPaused && (
+                <button
+                  type="button"
+                  onClick={() => setFollowUpMode(followUpMode === 'queue' ? 'steer' : 'queue')}
+                  title={
+                    followUpMode === 'queue'
+                      ? 'Enter queues the prompt for after this run · ⌘/Ctrl+Enter adds it to this run'
+                      : 'Enter adds the prompt to this run · ⌘/Ctrl+Enter queues it for after'
+                  }
+                  className="glass-ghost grid rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
+                >
+                  <span className={`col-start-1 row-start-1 ${followUpMode === 'steer' ? '' : 'invisible'}`}>steer</span>
+                  <span className={`col-start-1 row-start-1 ${followUpMode === 'queue' ? '' : 'invisible'}`}>queue</span>
+                </button>
+              )}
+
               <div className="flex-1" />
 
               {isPaused && !isStreaming && (
@@ -662,7 +739,7 @@ export function Composer({
                     !resuming &&
                     (draft.trim() === '' || (!canSend && !folderMissing)))
                 }
-                aria-label={resuming ? 'Resume' : steering ? 'Send' : isStreaming ? 'Pause' : 'Send'}
+                aria-label={resuming ? 'Resume' : steering ? (followUpMode === 'queue' ? 'Queue' : 'Send') : isStreaming ? 'Pause' : 'Send'}
                 className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                   resuming
                     ? 'bg-brand text-bg hover:bg-brand-strong'

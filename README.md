@@ -262,6 +262,16 @@ atau begitu balasan terakhir selesai) run membaca instruksi itu sebagai tambahan
 mengerjakan keduanya. Satu run, satu baris penutup. Kalau di-pause sebelum sempat dibaca, instruksinya
 tetap tersimpan di riwayat untuk resume.
 
+**Steer atau queue.** Selama run bekerja, chip **steer/queue** muncul di baris composer (desktop
+dan HP). *steer* adalah perilaku di atas: prompt bergabung ke run yang berjalan. *queue* menahan
+prompt sampai run itu **selesai**, lalu mengirimnya sebagai run sendiri — antrean berjalan berurutan.
+Enter mengikuti chip; Cmd/Ctrl+Enter melakukan yang sebaliknya tanpa membalik chip. Antrean dipegang
+main process, jadi prompt yang diantrekan di HP terlihat di desktop dan sebaliknya, tampil di atas
+kolom input sebagai `queued 1`, `queued 2`, …; klik teksnya untuk menariknya kembali ke kolom input,
+atau × untuk membuangnya. Run yang di-pause atau gagal tidak menjalankan antrean — antrean menunggu
+sampai run berikutnya (misalnya resume) selesai. Prompt antrean yang gagal dimulai kembali ke depan
+antrean.
+
 Tombolnya mengikuti isi kolom: kosong saat bekerja berarti **pause** (kotak), ada tulisan berarti
 **kirim** (panah), dan saat jeda dengan kolom kosong berarti **resume** (segitiga play, lime). Kolom
 kosong tidak pernah bisa mengirim. Desktop dan HP memakai ikon dan kata-kata yang sama, dan warna

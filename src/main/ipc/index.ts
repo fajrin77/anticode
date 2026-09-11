@@ -63,7 +63,7 @@ import {
 import { addCustomProvider, cleanModelIds, removeCustomProvider, updateCustomProvider } from '../providers/custom'
 import { editClinepass, removeClinepass, restoreClinepass } from '../providers/clinepass'
 import { savePersistedSettings } from '../settings'
-import { announceHistory, announcePause, announceSessionTitle, announceStatus, sessionSnapshot } from '../remote/bus'
+import { announceHistory, announcePause, announceQueue, announceSessionTitle, announceStatus, sessionSnapshot } from '../remote/bus'
 import { previewFile } from '../preview'
 import {
   addWebTab,
@@ -79,7 +79,8 @@ import {
   setWebVisible
 } from '../web'
 import { closePhonePage } from '../browser'
-import { regenerate, submitPrompt } from '../prompts'
+import { forgetQueue, queuePrompt, regenerate, submitPrompt, unqueuePrompt } from '../prompts'
+import { setQueueSink } from '../queue'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
@@ -590,6 +591,7 @@ export function registerIpcHandlers(): void {
   )
 
   setOnSessionClosed((sessionId) => {
+    forgetQueue(sessionId)
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send(IpcChannel.SESSION_CLOSED, sessionId)
@@ -605,6 +607,14 @@ export function registerIpcHandlers(): void {
     lastSender = event.sender
     return submitPrompt(req, approvals)
   })
+
+  // Queued on either screen, shown and removable on both: the queue lives here.
+  setQueueSink(announceQueue)
+  ipcMain.handle(IpcChannel.QUEUE_ADD, (event, req: AgentRequest) => {
+    lastSender = event.sender
+    return queuePrompt(req, approvals)
+  })
+  ipcMain.handle(IpcChannel.QUEUE_REMOVE, (_event, sessionId: string, id: string) => unqueuePrompt(sessionId, id))
 
   ipcMain.handle(IpcChannel.AGENT_CANCEL, (_event, runId: string): void => {
     cancelRun(runId)

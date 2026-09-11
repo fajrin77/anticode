@@ -95,6 +95,12 @@ export async function attachmentsFor(sessionId: string, ids: string[]): Promise<
   return placed
 }
 
+/** How staged files look to viewers, before anything is copied for a send. */
+export function stagedRefs(ids: string[]): AttachmentRef[] {
+  if (ids.some((id) => !staged.has(id))) throw new AttachmentError('An attachment is no longer available. Attach it again before sending.')
+  return ids.map((id) => toRef(staged.get(id) as AttachmentInfo))
+}
+
 export function refsOf(items: AttachmentInfo[]): AttachmentRef[] {
   return items.map(toRef)
 }

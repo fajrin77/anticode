@@ -31,6 +31,9 @@ export const IpcChannel = {
   SESSION_COMPACT: 'session:compact',
   SESSION_TAKE_BACK: 'session:takeBack',
   SESSION_REGENERATE: 'session:regenerate',
+  QUEUE_ADD: 'queue:add',
+  QUEUE_REMOVE: 'queue:remove',
+  QUEUE_UPDATED: 'queue:updated',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
   APPROVAL_PENDING: 'approval:pending',
@@ -434,6 +437,18 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** A prompt waiting for the session's run to finish, to go out as the next run. */
+export interface QueuedPrompt {
+  id: string
+  text: string
+  attachments: AttachmentRef[]
+}
+
+export interface SessionQueue {
+  sessionId: string
+  items: QueuedPrompt[]
+}
+
 /** A session's pause starting or ending, told to every viewer by the main process. */
 export interface SessionPause {
   sessionId: string
@@ -497,6 +512,8 @@ export interface SessionSnapshot {
   paused: boolean
   revision: number
   events: RoutedAgentEvent[]
+  /** Prompts waiting for this session's run to finish. */
+  queue: QueuedPrompt[]
 }
 
 export interface RemoteStatus {
@@ -692,6 +709,14 @@ export interface AnticodeApi {
    * answers with the run that was already going.
    */
   sendPrompt: (req: AgentRequest) => Promise<{ runId: string; steered: boolean }>
+  /**
+   * Queues a prompt to go out as its own run once the session's run finishes
+   * (it starts at once when nothing is running). `queued` is false then.
+   */
+  queuePrompt: (req: AgentRequest) => Promise<{ runId: string; queued: boolean }>
+  /** Takes a prompt off the queue; answers it, so it can be edited instead. */
+  unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
+  onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
   /** Records the colour a desktop has been showing, for a session that has none. */
   setSessionColour: (sessionId: string, colour: number) => Promise<void>
   cancelRun: (runId: string) => Promise<void>

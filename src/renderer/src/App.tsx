@@ -134,6 +134,7 @@ export function App(): JSX.Element {
           for (const event of snapshot.events) receiveEvent.current(event)
           if (snapshot.paused) store.pauseSession(spec.sessionId)
           else store.resumeSession(spec.sessionId)
+          store.setQueue(spec.sessionId, snapshot.queue ?? [])
         }
       }
       if (!active) return
@@ -190,6 +191,14 @@ export function App(): JSX.Element {
       for (const id of ids) store.pauseSession(id)
     })
     return unsubscribe
+  }, [])
+
+  // The queue is the main process's: a prompt queued on the phone shows here,
+  // and one sent or taken out anywhere leaves every list.
+  useEffect(() => {
+    return window.anticode.onSessionQueue(({ sessionId, items }) => {
+      useSessionStore.getState().setQueue(sessionId, items)
+    })
   }, [])
 
   // A turn reverted from the phone is gone from the real history; the

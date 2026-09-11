@@ -1,6 +1,7 @@
 import { BrowserWindow, Notification } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import type { AgentEvent, SessionPause, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
+import type { AgentEvent, QueuedPrompt, SessionPause, SessionQueue, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
+import { listQueue } from '../queue'
 import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries } from '../runtime'
 import { clearPause, isPaused, runForSession } from '../runs'
 
@@ -13,6 +14,7 @@ export type StreamEvent = (
   | { type: 'pause'; paused: boolean }
   | { type: 'history' }
   | { type: 'title'; title: string }
+  | { type: 'queue'; items: QueuedPrompt[] }
 ) & { revision?: number }
 type Listener = (event: StreamEvent) => void
 
@@ -32,7 +34,8 @@ export function sessionSnapshot(sessionId: string): SessionSnapshot | null {
   return structuredClone({
     messages: journal?.messages ?? messages,
     summaries: journal?.summaries ?? loadSessionSummaries(sessionId),
-    events: journal?.events ?? [], runId, paused: isPaused(sessionId), revision
+    events: journal?.events ?? [], runId, paused: isPaused(sessionId), revision,
+    queue: listQueue(sessionId)
   })
 }
 
@@ -160,6 +163,12 @@ export function announcePause(sessionId: string, paused: boolean): void {
 export function announceHistory(sessionId: string, from: 'desktop' | 'phone'): void {
   if (from === 'phone') toWindows(IpcChannel.SESSION_HISTORY, sessionId)
   toStreams(sessionId, { type: 'history', revision: ++revision })
+}
+
+/** A queued prompt added, sent, or taken out, wherever: every viewer redraws the list. */
+export function announceQueue(sessionId: string, items: QueuedPrompt[]): void {
+  toWindows(IpcChannel.QUEUE_UPDATED, { sessionId, items } satisfies SessionQueue)
+  toStreams(sessionId, { type: 'queue', items })
 }
 
 /** A session got its name; the desktop tab and the phone header both follow. */
