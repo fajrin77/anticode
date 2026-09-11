@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
   AttachmentInfo,
   AttachmentRef,
@@ -37,6 +37,15 @@ export type MessagePart =
     }
 
 export type { RunSummary } from '@shared/ipc'
+
+const sessionStoreMemoryStorage: Storage = {
+  get length() { return 0 },
+  clear: () => {},
+  getItem: () => null,
+  key: () => null,
+  removeItem: () => {},
+  setItem: () => {}
+}
 
 export interface Message {
   id: string
@@ -960,6 +969,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     })
 }), {
   name: 'anticode-session-metadata',
+  storage: createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage)),
+  skipHydration: typeof window === 'undefined',
   partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))

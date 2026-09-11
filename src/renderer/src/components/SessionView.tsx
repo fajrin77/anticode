@@ -271,10 +271,10 @@ function MessageView({
     tail !== undefined && tail.kind === 'tools' && tail.parts.some((part) => part.status === 'running')
   const done = message.summary !== undefined
   const documents = documentsProduced(message.parts, chat)
-  // While the run streams, the "working" line and the live steps group are one
-  // thing in two places: opening either closes the other, so collapsing never
-  // means scrolling back up to hunt for the "ran N steps" header.
-  const [liveOpen, setLiveOpen] = useState(true)
+  // While the run streams, keep live tool details closed unless the user opens
+  // them. Auto-opening the first streamed tool made the transcript flash between
+  // the compact "working" line and an expanded/collapsed steps block.
+  const [liveOpen, setLiveOpen] = useState(false)
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">

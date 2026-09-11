@@ -663,6 +663,6 @@ akan menurunkan exceljs ke 3.x yang breaking, jadi sengaja tidak dilakukan.
 
 ## Fase berikutnya
 
-**Fase 5 — Computer use.** Screenshot layar penuh dan kontrol mouse/keyboard, dijalankan terisolasi.
+**Fase 5 — Computer use.** Screenshot layar penuh dan kontrol mouse/keyboard OS masih belum diaktifkan; fitur ini perlu desain sandbox/approval terpisah sebelum aman dipakai.
 
-Persistence sesi tersedia sejak 0.0.2: transcript tersimpan di direktori data aplikasi dan dipulihkan saat restart. Integrasi MCP masih menjadi pekerjaan berikutnya.
+Persistence sesi tersedia sejak 0.0.2: transcript tersimpan di direktori data aplikasi dan dipulihkan saat restart. MCP sudah memiliki client/registry dan cakupan unit test; pekerjaan berikutnya adalah verifikasi end-to-end dengan server MCP nyata serta dokumentasi konfigurasi UI untuk pengguna.
