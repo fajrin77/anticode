@@ -15,7 +15,7 @@ export const UPLOADS_DIR = path.join('.anticode', 'uploads')
 /** Enough for any sane pile of same-named files; a bound, not a feature. */
 const MAX_NAME_ATTEMPTS = 1000
 
-const MAX_BYTES = 20 * 1024 * 1024
+const MAX_BYTES = 100 * 1024 * 1024
 const MAX_PREVIEW_CHARS = 2000
 /** Anthropic's recommended long edge; larger images cost tokens without helping. */
 const MAX_IMAGE_EDGE = 1568
@@ -135,7 +135,7 @@ export async function placeInWorkspace(
 export async function stageAttachmentData(name: string, data: Buffer): Promise<string> {
   if (data.byteLength > MAX_BYTES) {
     throw new AttachmentError(
-      `File too large (${Math.round(data.byteLength / 1024 / 1024)} MB, limit 20 MB)`
+      `File too large (${Math.round(data.byteLength / 1024 / 1024)} MB, limit 100 MB)`
     )
   }
   const directory = path.join(tmpdir(), 'anticode-attachments', randomUUID())

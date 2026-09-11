@@ -60,6 +60,18 @@ it('lands a chat upload in antichat\'s own folder, ready to edit without choosin
   expect(header).toContain('can read and edit it')
 })
 
+it('accepts screenshot-sized uploads above the old 20 MB cap', async () => {
+  const bytes = Buffer.alloc(21 * 1024 * 1024, 1)
+  const [staged] = await registerAttachmentData('large-screenshot.png', bytes)
+  expect(staged?.size).toBe(bytes.byteLength)
+})
+
+it('refuses uploads above 100 MB', async () => {
+  await expect(registerAttachmentData('huge.bin', Buffer.alloc(101 * 1024 * 1024))).rejects.toThrow(
+    /limit 100 MB/
+  )
+})
+
 it('refuses an id that was already used or dropped', async () => {
   await expect(attachmentsFor('code', ['gone'])).rejects.toThrow(/no longer available/)
 })
