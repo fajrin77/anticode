@@ -8,8 +8,11 @@ import { initPersistedState, persistSessions } from './runtime'
 import { restoreRemoteServer } from './remote/server'
 import { closeBrowser } from './browser'
 import { initUpdates } from './updates'
+import { mainWindow, setMainWindow, showMainWindow } from './windows'
+import { applyTray, configureQuickCapture, QUICK_CAPTURE_SHORTCUT, showQuickCapture } from './tray'
+import { onPreferences, preferences } from './preferences'
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1100,
     height: 800,
@@ -60,6 +63,13 @@ function createWindow(): void {
   } else {
     void window.loadFile(join(import.meta.dirname, '../renderer/index.html'))
   }
+  setMainWindow(window, createWindow)
+  // Without a tray icon to come back through, closing the window on Windows
+  // and Linux means quitting — the hidden capture panel must not keep it alive.
+  window.on('closed', () => {
+    if (process.platform !== 'darwin' && !preferences().tray) app.quit()
+  })
+  return window
 }
 
 /**
@@ -83,11 +93,7 @@ if (!app.requestSingleInstanceLock()) {
 
 void app.whenReady().then(() => {
   app.on('second-instance', () => {
-    const window = BrowserWindow.getAllWindows()[0]
-    if (window !== undefined) {
-      if (window.isMinimized()) window.restore()
-      window.focus()
-    }
+    showMainWindow()
   })
 
   app.setAppUserModelId('com.anticode.app')
@@ -108,22 +114,28 @@ void app.whenReady().then(() => {
   registerIpcHandlers()
   void restoreRemoteServer()
   initUpdates()
-  createWindow()
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
-    let window = BrowserWindow.getAllWindows()[0]
-    if (window === undefined) {
-      createWindow()
-      window = BrowserWindow.getAllWindows()[0]
-    }
-    if (window !== undefined) {
-      if (window.isMinimized()) window.restore()
-      window.show()
-      window.focus()
-    }
+  configureQuickCapture({
+    preload: join(import.meta.dirname, '../preload/index.mjs'),
+    url: !app.isPackaged && process.env['ELECTRON_RENDERER_URL'] ? process.env['ELECTRON_RENDERER_URL'] : null,
+    file: join(import.meta.dirname, '../renderer/index.html')
   })
+  createWindow()
+  applyTray()
+  onPreferences((next, previous) => {
+    if (next.tray !== previous.tray) applyTray()
+  })
+  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    showMainWindow()
+  })
+  // Taken already by another app, it simply is not registered; the tray menu
+  // still opens the panel.
+  globalShortcut.register(QUICK_CAPTURE_SHORTCUT, () => showQuickCapture())
+  // Test harnesses have no menu bar to click; they open the panel through this.
+  if (process.env['ANTICODE_TEST_HOOKS'] === '1') Object.assign(globalThis, { anticodeTest: { showQuickCapture } })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // The capture panel is a window too; only the main one counts here.
+    if (mainWindow() === null) createWindow()
   })
 })
 

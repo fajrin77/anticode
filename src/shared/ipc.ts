@@ -31,6 +31,13 @@ export const IpcChannel = {
   SESSION_COMPACT: 'session:compact',
   SESSION_TAKE_BACK: 'session:takeBack',
   SESSION_REGENERATE: 'session:regenerate',
+  PREFERENCES_GET: 'preferences:get',
+  PREFERENCES_SET: 'preferences:set',
+  PREFERENCES_UPDATED: 'preferences:updated',
+  SESSION_FOCUS: 'session:focus',
+  QUICK_SEND: 'quick:send',
+  QUICK_HIDE: 'quick:hide',
+  QUICK_OPENED: 'quick:opened',
   UPDATE_STATE: 'update:state',
   UPDATE_CONFIGURE: 'update:configure',
   UPDATE_CHECK: 'update:check',
@@ -443,6 +450,21 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** App-wide choices from Settings → General. */
+export interface AppPreferences {
+  /** An icon in the menu bar (the tray elsewhere) with quick capture and recent sessions. */
+  tray: boolean
+}
+
+/** What the quick capture panel sends: a prompt, and where it should go. */
+export interface QuickCapture {
+  text: string
+  /** antichat, or anticode in the folder last picked in the Projects screen. */
+  mode: SessionMode
+  /** Bring the main window up on the new session instead of staying out of the way. */
+  open: boolean
+}
+
 /** Where updates come from, and how much happens without asking. */
 export interface UpdateSettings {
   /** A GitHub repository (owner/repo), a feed URL, or a local folder; empty is none. */
@@ -749,6 +771,16 @@ export interface AnticodeApi {
   /** Takes a prompt off the queue; answers it, so it can be edited instead. */
   unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
   onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
+  getPreferences: () => Promise<AppPreferences>
+  setPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
+  onPreferences: (listener: (preferences: AppPreferences) => void) => () => void
+  /** The main process asks for a session to be shown — tray, quick capture, a notification. */
+  onSessionFocus: (listener: (sessionId: string) => void) => () => void
+  /** Quick capture: starts a new session with the prompt; resolves to its id. */
+  sendQuickCapture: (capture: QuickCapture) => Promise<string>
+  hideQuickCapture: () => Promise<void>
+  /** The quick capture panel was shown again: focus the field. */
+  onQuickOpened: (listener: () => void) => () => void
   getUpdateState: () => Promise<UpdateState>
   configureUpdates: (patch: Partial<UpdateSettings>) => Promise<UpdateState>
   checkForUpdates: () => Promise<UpdateState>

@@ -201,6 +201,23 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  // The tray, a quick capture, or a clicked notification asks for a session:
+  // it comes back if it was archived, and the view goes to it. A session
+  // created a moment ago may not have reached this window yet, so it waits.
+  useEffect(() => {
+    return window.anticode.onSessionFocus((sessionId) => {
+      const open = (attempt: number): void => {
+        const store = useSessionStore.getState()
+        if (store.sessions.some((session) => session.id === sessionId)) {
+          openExistingSession(sessionId)
+        } else if (attempt < 20) {
+          window.setTimeout(() => open(attempt + 1), 100)
+        }
+      }
+      open(0)
+    })
+  }, [openExistingSession])
+
   // A turn reverted from the phone is gone from the real history; the
   // transcript here is redrawn from it rather than keep showing the exchange.
   useEffect(() => {

@@ -82,6 +82,9 @@ import { closePhonePage } from '../browser'
 import { forgetQueue, queuePrompt, regenerate, submitPrompt, unqueuePrompt } from '../prompts'
 import { setQueueSink } from '../queue'
 import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updateState } from '../updates'
+import { mainWindow } from '../windows'
+import { preferences, setPreferences } from '../preferences'
+import { hideQuickCapture, sendQuickCapture } from '../tray'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
@@ -94,7 +97,7 @@ function notifyWhenAway(title: string, body: string): void {
   new Notification({ title, body }).show()
 }
 
-const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSender.isDestroyed() ? lastSender : BrowserWindow.getAllWindows()[0]?.webContents ?? null, (requestId) => {
+const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSender.isDestroyed() ? lastSender : mainWindow()?.webContents ?? null, (requestId) => {
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IpcChannel.APPROVAL_DISMISSED, requestId)
 }, (request) => notifyWhenAway('anticode needs approval', `${request.toolName} is waiting for your decision.`))
 
@@ -608,6 +611,15 @@ export function registerIpcHandlers(): void {
     lastSender = event.sender
     return submitPrompt(req, approvals)
   })
+
+  ipcMain.handle(IpcChannel.PREFERENCES_GET, () => preferences())
+  ipcMain.handle(IpcChannel.PREFERENCES_SET, (_event, patch: unknown) =>
+    setPreferences(typeof patch === 'object' && patch !== null ? (patch as Record<string, unknown>) : {})
+  )
+  // A prompt from the quick capture panel starts its own session; approvals
+  // for it go to the main window, never to the panel that sent it.
+  ipcMain.handle(IpcChannel.QUICK_SEND, (_event, capture: unknown) => sendQuickCapture(capture as never, approvals))
+  ipcMain.handle(IpcChannel.QUICK_HIDE, () => hideQuickCapture())
 
   ipcMain.handle(IpcChannel.UPDATE_STATE, () => updateState())
   ipcMain.handle(IpcChannel.UPDATE_CONFIGURE, (_event, patch: unknown) =>

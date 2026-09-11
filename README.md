@@ -48,7 +48,17 @@ node node_modules/electron/install.js
 Dashboard juga menampilkan diagram batang pemakaian token, dipecah per model beserta provider-nya,
 dengan segmen terpisah untuk token masuk dan keluar.
 
-Tekan **Cmd/Ctrl+Shift+Space** dari aplikasi lain untuk memunculkan anticode. Popover usage tiap sesi
+Tekan **Cmd/Ctrl+Shift+Space** dari aplikasi lain untuk memunculkan anticode.
+
+**Menu bar dan quick capture.** anticode memasang ikon di menu bar (tray di Windows/Linux; bisa
+dimatikan di Settings → General → Menu bar icon). Menunya berisi **Quick capture…**, **Show anticode**,
+enam sesi terakhir (● = sedang bekerja) yang langsung terbuka di jendela utama, dan Quit. Quick capture
+— juga lewat **Cmd/Ctrl+Alt+Space** dari aplikasi mana pun — adalah kotak prompt mengambang ala
+Spotlight di layar tempat kursor berada: Enter memulai sesi baru di belakang layar tanpa memunculkan
+anticode, Cmd/Ctrl+Enter memulai dan membukanya, Tab berpindah antichat/anticode (anticode memakai
+folder terakhir yang dipilih di layar Projects), Escape atau klik di luar menutupnya. Approval sesi itu
+tetap muncul di jendela utama. Dengan ikon menyala, menutup jendela di Windows/Linux membiarkan
+anticode tetap berjalan di tray. Popover usage tiap sesi
 menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap ke Markdown atau JSON.
 
 ## Dua mode sesi

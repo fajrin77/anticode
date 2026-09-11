@@ -15,6 +15,7 @@ export interface PersistedSettings {
   remote?: RemoteSettings
   rotation?: PersistedRotation
   updates?: { source: string; autoCheck: boolean; autoDownload: boolean }
+  preferences?: Partial<import('@shared/ipc').AppPreferences>
 }
 
 export interface PersistedRotation {

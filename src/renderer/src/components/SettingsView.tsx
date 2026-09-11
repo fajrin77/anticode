@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import { modelLabel, ROTATE_PROVIDER, VENDOR_BASE_URLS } from '@shared/ipc'
 import type {
   AppInfo,
+  AppPreferences,
   ProviderKind,
   ModelCatalogue,
   ProviderId,
@@ -47,6 +48,15 @@ function General({
   providers: ProviderInfo[]
   onToggleAutoApprove: (enabled: boolean) => void
 }): JSX.Element {
+  const [preferences, setPreferences] = useState<AppPreferences | null>(null)
+  useEffect(() => {
+    void window.anticode.getPreferences().then(setPreferences)
+    return window.anticode.onPreferences(setPreferences)
+  }, [])
+  const change = (patch: Partial<AppPreferences>): void => {
+    void window.anticode.setPreferences(patch).then(setPreferences)
+  }
+
   return (
     <>
       <h1 className="mb-6 text-[19px] text-text">General</h1>
@@ -68,6 +78,15 @@ function General({
           hint="New sessions start on the model picked last. Each session keeps its own — changing it in one tab leaves the others alone."
         >
           <span className="font-mono text-[12.5px]">{status === null || status.model !== '' || status.provider === ROTATE_PROVIDER ? modelLabel(status) : 'not set'}</span>
+        </SettingRow>
+      </div>
+
+      <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
+        <SettingRow
+          title="Menu bar icon"
+          hint="Quick capture (⌘⌥Space), recent sessions, and Show anticode from the menu bar. With it on, closing the window keeps anticode running there."
+        >
+          <Toggle on={preferences?.tray === true} onChange={(value) => change({ tray: value })} />
         </SettingRow>
       </div>
     </>
