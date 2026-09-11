@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
-import { SESSION_COLOURS } from '@shared/ipc'
+import { ROTATE_LABEL, SESSION_COLOURS } from '@shared/ipc'
 import { CONTINUE_PROMPT, FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../../renderer/src/labels'
 
 /**
@@ -29,4 +29,5 @@ it("speaks the desktop's words", () => {
   expect(constant('RESUME_LABEL')).toBe(RESUME_LABEL)
   expect(constant('FOLLOW_UP_LABEL')).toBe(FOLLOW_UP_LABEL)
   expect(constant('CONTINUE_PROMPT')).toBe(CONTINUE_PROMPT)
+  expect(constant('ROTATE_LABEL')).toBe(ROTATE_LABEL)
 })

@@ -80,7 +80,10 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
   }
   header .roundbtn.placeholder { visibility: hidden; }
-  header .headcopy { min-width: 0; text-align: center; line-height: 1.25; }
+  header .headcopy {
+    min-width: 0; text-align: center; line-height: 1.25;
+    touch-action: pan-y; user-select: none; -webkit-user-select: none;
+  }
   header .title {
     display: block; font-size: 17px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -833,6 +836,8 @@ let phoneMode = 'code';
 let modelInfo = null;
 /** The model choice that is not one model: the Rotate usage pool (ROTATE_PROVIDER). */
 const ROTATE = 'rotate';
+/** Compact composer label; Settings keeps the fuller wording. */
+const ROTATE_LABEL = 'rotate';
 let overviewTimer = null;
 let lastSessions = [];
 let webList = [];
@@ -844,6 +849,8 @@ let webHistory = {};
 let lastStatus = null;
 /** What the open session has used, from its last sync. */
 let lastUsage = null;
+/** Invalidates async work belonging to a session the phone already left. */
+let sessionOpenSeq = 0;
 
 let approvalRequestId = null;
 async function pollApprovals() {
@@ -921,6 +928,35 @@ function titleFor(id) {
     ? s.workspaceRoot.split(/[\\/]/).pop()
     : 'antichat';
 }
+
+/** Swipe right advances through the overview order; swipe left goes back. */
+async function switchHeaderSession(step) {
+  if (currentSession === null || lastSessions.length < 2) return;
+  const from = currentSession;
+  await loadOverview();
+  if (currentSession !== from) return;
+  const index = lastSessions.findIndex((entry) => entry.id === currentSession);
+  if (index < 0) { forgetLastSession(); gotoSessions(); return; }
+  const target = lastSessions[(index + step + lastSessions.length) % lastSessions.length];
+  if (target !== undefined && target.id !== currentSession) await openSession(target.id);
+}
+
+let headerSwipe = null;
+const headerCopy = document.querySelector('header .headcopy');
+headerCopy.addEventListener('pointerdown', (event) => {
+  if (currentSession === null || event.isPrimary === false) return;
+  headerSwipe = { id: currentSession, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+});
+headerCopy.addEventListener('pointercancel', () => { headerSwipe = null; });
+headerCopy.addEventListener('pointerup', (event) => {
+  const start = headerSwipe;
+  headerSwipe = null;
+  if (start === null || start.pointerId !== event.pointerId || start.id !== currentSession) return;
+  const dx = event.clientX - start.x;
+  const dy = event.clientY - start.y;
+  if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+  void switchHeaderSession(dx > 0 ? 1 : -1).catch(showError);
+});
 
 function toggleMenu(event) {
   event?.stopPropagation();
@@ -1244,13 +1280,20 @@ function scheduleRunSync(id) {
 }
 
 async function openSession(id) {
+  const openSeq = ++sessionOpenSeq;
   currentSession = id;
   syncedSession = null;
   appliedRevision = 0; syncEvents = []; syncing = false; ++syncSeq;
   try { sessionStorage.setItem(LAST_SESSION_KEY, id); } catch { /* private mode */ }
   currentRunId = null;
+  lastUsage = null;
   liveEl = null;
   hideWorking();
+  // Never leave the previous conversation painted while this one's snapshot
+  // is in flight. This was the visible flash when switching quickly, and was
+  // especially confusing if the old conversation had just been deleted.
+  document.getElementById('transcript').replaceChildren();
+  following = true;
   stopOverviewPolling();
   closeMenu();
   showChatSection();
@@ -1260,8 +1303,20 @@ async function openSession(id) {
   showSessionHeader(id);
   // Each session has its own model; the chip shows this one's.
   void loadModels();
-  await listen(id);
-  await syncSession(id);
+  try {
+    // Snapshot and live stream start together. The snapshot can paint without
+    // waiting for the stream handshake; events arriving meanwhile are queued.
+    await Promise.all([listen(id), syncSession(id)]);
+  } catch (error) {
+    // A later navigation superseded this one; its closed stream must not put
+    // a stale connection error over the destination session.
+    if (currentSession !== id || sessionOpenSeq !== openSeq) return;
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    forgetLastSession();
+    gotoSessions();
+    void loadOverview().catch(() => undefined);
+    throw error;
+  }
 }
 /** Snapshot events and SSE share a main-process revision. Buffer every event
  * during a fetch, then replay only the events newer than that snapshot. */
@@ -2930,7 +2985,7 @@ function noteStatus(status) {
 /** What the model chip says — the desktop's modelLabel. */
 function modelLabel(info) {
   if (!info) return '';
-  if (info.provider === ROTATE) return info.lastUsed?.model ? 'rotate · ' + info.lastUsed.model : 'rotate usage';
+  if (info.provider === ROTATE) return info.lastUsed?.model ? ROTATE_LABEL + ' · ' + info.lastUsed.model : ROTATE_LABEL;
   return info.model || '';
 }
 

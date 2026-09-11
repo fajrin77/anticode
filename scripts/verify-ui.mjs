@@ -658,7 +658,7 @@ try {
   await window.evaluate(() => window.anticode.setRotationEnabled(true)); await window.waitForTimeout(300)
   const composerModel = window.locator('button:has(span.font-mono)').first()
   check('model picker: composer is locked while Rotate usage is on', String(await composerModel.isDisabled()), 'true')
-  check('model picker: composer shows Rotate usage globally', (await composerModel.textContent()).trim(), 'rotate usage')
+  check('model picker: composer shows Rotate globally', (await composerModel.textContent()).trim(), 'rotate')
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
   await window.evaluate(async () => {
     await window.anticode.setRotation([{ provider: 'clinepass', model: 'test-model' }])

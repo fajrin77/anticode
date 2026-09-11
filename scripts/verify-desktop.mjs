@@ -324,6 +324,7 @@ try {
   // stub. It had no coverage at all until a card that could not be dismissed
   // turned out to be a CSS specificity bug: an id rule setting `display`
   // outranks `.hidden`, pinning the element on screen forever.
+  const swipeSession = (await api('/api/session', { mode: 'chat' })).sessionId
   const phone = await chromium.launch()
   try {
     const screen = await phone.newPage({ viewport: { width: 390, height: 844 } })
@@ -348,6 +349,44 @@ try {
 
     await screen.reload()
     await screen.waitForTimeout(600)
+    await screen.evaluate((id) => openSession(id), sessionId)
+    await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
+
+    // Switching clears the previous transcript synchronously, then fetches
+    // the destination. It must never flash the old (possibly deleted) session.
+    const switched = await screen.evaluate(async (id) => {
+      await loadOverview()
+      const pending = openSession(id)
+      const immediate = {
+        id: currentSession,
+        text: document.getElementById('transcript').textContent
+      }
+      await pending
+      return { immediate, final: currentSession }
+    }, swipeSession)
+    assert.deepEqual(switched, { immediate: { id: swipeSession, text: '' }, final: swipeSession })
+    log('switching phone sessions never flashes the previous transcript')
+
+    // The title itself is a carousel: right advances through overview order,
+    // left returns to the previous session.
+    const swipeTarget = await screen.evaluate(() => {
+      const index = lastSessions.findIndex((entry) => entry.id === currentSession)
+      return lastSessions[(index + 1) % lastSessions.length].id
+    })
+    await screen.evaluate(() => {
+      const title = document.querySelector('header .headcopy')
+      title.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 71, isPrimary: true, clientX: 100, clientY: 30 }))
+      title.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 71, isPrimary: true, clientX: 180, clientY: 32 }))
+    })
+    await screen.waitForFunction((id) => currentSession === id, swipeTarget)
+    await screen.evaluate(() => {
+      const title = document.querySelector('header .headcopy')
+      title.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 72, isPrimary: true, clientX: 180, clientY: 30 }))
+      title.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 72, isPrimary: true, clientX: 100, clientY: 32 }))
+    })
+    await screen.waitForFunction((id) => currentSession === id, swipeSession)
+    log('swiping the phone header moves right and left through sessions')
+
     await screen.evaluate((id) => openSession(id), sessionId)
     await screen.waitForSelector('#transcript .msg', { timeout: 10000 })
     const quoted = await screen.evaluate(() => {
@@ -897,6 +936,7 @@ try {
     assert.deepEqual(phoneErrors, [])
   } finally {
     await phone.close()
+    await fetch(`http://127.0.0.1:18680/api/session/${swipeSession}?token=${remote.token}`, { method: 'DELETE' })
   }
   assert.deepEqual(errors,[])
   log('no renderer exceptions')

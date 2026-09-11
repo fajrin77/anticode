@@ -149,6 +149,8 @@ export interface ProviderSelection {
  * the fewest tokens. Its model is always ''.
  */
 export const ROTATE_PROVIDER = 'rotate'
+/** Compact composer label; Settings keeps the fuller “Rotate usage” wording. */
+export const ROTATE_LABEL = 'rotate'
 
 /** One model in the Rotate usage pool. */
 export interface RotationEntry {
@@ -310,8 +312,8 @@ export function modelLabel(status: Pick<SessionStatus, 'provider' | 'model' | 'l
   if (status === null) return '…'
   if (status.provider === ROTATE_PROVIDER) {
     return status.lastUsed !== null && status.lastUsed.model !== ''
-      ? `rotate · ${status.lastUsed.model}`
-      : 'rotate usage'
+      ? `${ROTATE_LABEL} · ${status.lastUsed.model}`
+      : ROTATE_LABEL
   }
   return status.model === '' ? 'pick a model' : status.model
 }
