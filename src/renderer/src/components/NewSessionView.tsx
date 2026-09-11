@@ -398,7 +398,20 @@ function SessionColumn({
   runningIds: Set<string>
 }): JSX.Element {
   const needle = query.trim().toLowerCase()
-  const visible = sessions.filter((session) => needle === '' || session.title.toLowerCase().includes(needle))
+  const visible = sessions.filter((session) => {
+    if (needle === '') return true
+    const transcript = session.messages
+      .flatMap((message) => message.parts)
+      .map((part) => {
+        if (part.kind === 'text' || part.kind === 'notice') return part.text
+        if (part.kind === 'tool') return `${part.name} ${part.output}`
+        if (part.kind === 'attachments') return part.items.map((item) => item.name).join(' ')
+        return ''
+      })
+      .join(' ')
+      .toLowerCase()
+    return session.title.toLowerCase().includes(needle) || transcript.includes(needle)
+  })
 
   return (
     <div className="min-w-0">
