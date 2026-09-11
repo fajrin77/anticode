@@ -6,7 +6,7 @@ import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import type { ContentBlock, Message } from './providers/types'
-import type { RunSummary, SnapshotMessage } from '@shared/ipc'
+import type { AttachmentRef, RunSummary, SnapshotMessage } from '@shared/ipc'
 import { ROTATE_PROVIDER, SESSION_COLOURS } from '@shared/ipc'
 import type {
   ModelCatalogue,
@@ -20,6 +20,7 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { AgentSession, titleOf } from './agent/loop'
+import { answeredRuns, isTypedPrompt } from './agent/turns'
 import { CheckpointStore } from './checkpoints'
 import type { ProviderFallback } from './agent/loop'
 import type { LLMProvider } from './providers/types'
@@ -824,6 +825,61 @@ export function revertLastTurn(sessionId: string): string | null {
   // Taking back the first prompt takes its name back with it.
   announceTitle(sessionId)
   return reverted
+}
+
+export interface TakenPrompt {
+  prompt: string
+  /** The rest of that turn as the model read it — attachment headers, images. */
+  blocks: ContentBlock[]
+  /** The files it carried, as viewers draw them. */
+  attachments: AttachmentRef[]
+}
+
+/**
+ * Takes back the `count`-th typed prompt from the end and all that followed —
+ * replies, later prompts, their summaries, and the files their runs changed —
+ * and hands that prompt back to be edited or sent again. Works on a session
+ * reopened since, whose agent has not been built yet, the same way.
+ */
+export function takeBackPrompt(sessionId: string, count: number): TakenPrompt | null {
+  const live = sessions.get(sessionId)
+  if (live === undefined) return null
+  if (!Number.isInteger(count) || count < 1) throw new Error('Choose a prompt to take back')
+  if (runForSession(sessionId) !== null) throw new Error('Pause this session before editing its prompts')
+  clearPause(sessionId)
+  let taken: { prompt: string; attachments: ContentBlock[]; removed: Message[] } | null = null
+  if (live.agent !== null) {
+    taken = live.agent.takeBack(count)
+  } else {
+    let seen = 0
+    for (let i = live.messages.length - 1; i >= 0 && taken === null; i--) {
+      const message = live.messages[i]
+      if (message === undefined || !isTypedPrompt(message) || ++seen < count) continue
+      const typed = message.content.find((block) => block.type === 'text' && block.attachment === undefined && block.followUp === undefined)
+      if (typed?.type !== 'text') return null
+      const removed = live.messages.slice(i)
+      live.messages.length = i
+      const dir = checkpointDir(sessionId)
+      const root = sessionFileRoot(sessionId)
+      if (dir !== null && root !== null) {
+        try {
+          new CheckpointStore(dir, root).restoreFrom(i)
+        } catch { /* The transcript still goes back even if files cannot. */ }
+      }
+      taken = { prompt: typed.text, attachments: message.content.filter((block) => block !== typed), removed }
+    }
+  }
+  if (taken === null) return null
+  // One summary per answered run, aligned from the end: the runs that went take theirs along.
+  const runs = answeredRuns(taken.removed)
+  if (runs > 0) live.summaries.splice(Math.max(0, live.summaries.length - runs), runs)
+  persistSessions()
+  announceTitle(sessionId)
+  return {
+    prompt: taken.prompt,
+    blocks: taken.attachments,
+    attachments: taken.attachments.flatMap((block) => (block.type === 'text' && block.attachment !== undefined ? [block.attachment] : []))
+  }
 }
 
 /**

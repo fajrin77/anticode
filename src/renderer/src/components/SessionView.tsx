@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useActiveSession, useSessionStore } from '../store/session'
+import { isTypedPrompt, useActiveSession, useSessionStore } from '../store/session'
 import type { Message, MessagePart } from '../store/session'
+import type { ProviderSelection, RotationEntryStatus } from '@shared/ipc'
 import { ToolBlock } from './ToolBlock'
 import { RichText } from './RichText'
 import { Attachments } from './Attachments'
@@ -101,8 +102,129 @@ function breakdownOf(parts: MessagePart[]): string {
   return bits.length > 0 ? ` · ${bits.join(' · ')}` : ''
 }
 
-function MessageView({ message, sessionId }: { message: Message; sessionId: string }): JSX.Element {
+/** True while a run — this window's or one it mirrors — works in the session. */
+function useSessionBusy(sessionId: string): boolean {
+  return useSessionStore(
+    (state) =>
+      Object.values(state.activeRuns).some((run) => run.sessionId === sessionId) ||
+      Object.values(state.mirrorRuns).some((run) => run.sessionId === sessionId)
+  )
+}
+
+function errorText(failure: unknown): string {
+  return (failure as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+}
+
+/**
+ * Takes a prompt back to be edited: it and everything after it — replies,
+ * later prompts, and the file changes their runs made — come out of the
+ * session, and the prompt goes back in the composer with its files. Two
+ * clicks, because what goes with it cannot be brought back.
+ */
+function EditPrompt({ sessionId, message }: { sessionId: string; message: Message }): JSX.Element {
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function takeBack(): Promise<void> {
+    const store = useSessionStore.getState()
+    const messages = store.sessions.find((session) => session.id === sessionId)?.messages ?? []
+    const index = messages.findIndex((entry) => entry.id === message.id)
+    // Counted from the end, the way the main process counts its prompts.
+    const count = messages.slice(index).filter(isTypedPrompt).length
+    try {
+      const taken = await window.anticode.takeBackPrompt(sessionId, count)
+      setConfirming(false)
+      if (taken === null) return
+      store.dropFrom(sessionId, message.id)
+      store.updateDraft(sessionId, { text: taken.prompt })
+      const paths = taken.attachments.map((item) => item.path)
+      if (paths.length > 0) {
+        void window.anticode
+          .addAttachments(paths)
+          .then((attachments) => useSessionStore.getState().updateDraft(sessionId, { attachments }))
+          .catch(() => undefined)
+      }
+      document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
+    } catch (failure) {
+      setError(errorText(failure))
+    }
+  }
+
+  return (
+    <div
+      className={`flex h-6 items-center gap-3 text-[12px] transition-opacity ${
+        confirming || error !== null ? 'opacity-100' : 'opacity-0 group-hover/prompt:opacity-100 focus-within:opacity-100'
+      }`}
+    >
+      {error !== null ? (
+        <button type="button" onClick={() => setError(null)} className="text-del transition-colors hover:text-brand">
+          {error}
+        </button>
+      ) : confirming ? (
+        <>
+          <span className="text-faint">Later replies and their file changes go too.</span>
+          <button type="button" onClick={() => void takeBack()} className="text-dim transition-colors hover:text-del">
+            Take back
+          </button>
+          <button type="button" onClick={() => setConfirming(false)} className="text-faint transition-colors hover:text-brand">
+            Cancel
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          title="Edit this prompt and send it again"
+          className="flex items-center gap-1 text-faint transition-colors hover:text-brand"
+        >
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+            <path d="M10.5 2.5l3 3L6 13H3v-3z" strokeLinejoin="round" />
+          </svg>
+          Edit
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Answers the last prompt again, drawn as this window's own run: the prompt
+ * stays, the reply goes, and a fresh one streams in its place.
+ */
+async function retryLastPrompt(sessionId: string, choice: ProviderSelection | null): Promise<void> {
+  const store = useSessionStore.getState()
+  const messages = store.sessions.find((session) => session.id === sessionId)?.messages ?? []
+  const prompt = messages.findLast(isTypedPrompt)
+  if (prompt === undefined) return
+  store.dropAfter(sessionId, prompt.id)
+  const runId = crypto.randomUUID()
+  const messageId = crypto.randomUUID()
+  store.addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+  store.setActiveRun({ runId, messageId, sessionId, startedAt: Date.now() })
+  try {
+    await window.anticode.regenerate(sessionId, runId, choice)
+  } catch (failure) {
+    const next = useSessionStore.getState()
+    next.setActiveRun(null, runId)
+    // The main process decides what is left; a refused retry left it all.
+    const snapshot = await window.anticode.getSessionSnapshot(sessionId)
+    if (snapshot !== null) next.importSnapshot(sessionId, snapshot.messages, snapshot.summaries)
+    next.addNotice(sessionId, `Retry failed: ${errorText(failure)}`)
+  }
+}
+
+function MessageView({
+  message,
+  sessionId,
+  lastAnswer
+}: {
+  message: Message
+  sessionId: string
+  /** The session's latest finished reply, which can be answered again. */
+  lastAnswer: boolean
+}): JSX.Element {
   const [stepsOpen, setStepsOpen] = useState(false)
+  const busy = useSessionBusy(sessionId)
   const chat = useSessionStore(
     (state) => state.sessions.find((session) => session.id === sessionId)?.mode === 'chat'
   )
@@ -114,13 +236,15 @@ function MessageView({ message, sessionId }: { message: Message; sessionId: stri
       .join('')
 
     return (
-      <div className="flex flex-col items-end gap-2 py-4">
+      <div className="group/prompt flex flex-col items-end gap-2 pt-4 pb-1">
         {files.length > 0 && <Attachments items={files} />}
         {text.trim() !== '' && (
           <div className="max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
             {text}
           </div>
         )}
+        {/* Always the same height, shown or not: hovering never moves the transcript. */}
+        {isTypedPrompt(message) && !busy ? <EditPrompt sessionId={sessionId} message={message} /> : <div className="h-6" />}
       </div>
     )
   }
@@ -175,6 +299,7 @@ function MessageView({ message, sessionId }: { message: Message; sessionId: stri
           message={message}
           open={stepsOpen}
           onToggle={() => setStepsOpen((value) => !value)}
+          {...(lastAnswer && !busy ? { onRetry: (choice: ProviderSelection | null) => void retryLastPrompt(sessionId, choice) } : {})}
         />
       )}
     </div>
@@ -249,16 +374,102 @@ function summaryText(message: Message): string {
   return [said, stats.join(' · ')].filter((part) => part !== '').join('\n\n')
 }
 
+/**
+ * Retry and its model menu: the same model, or any model switched on in
+ * Settings → Models. Under Rotate usage the pool decides, so only "same".
+ */
+function RetryButton({ onRetry, onOpenChange }: { onRetry: (choice: ProviderSelection | null) => void; onOpenChange: (open: boolean) => void }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [models, setModels] = useState<RotationEntryStatus[] | null>(null)
+  const [rotating, setRotating] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    onOpenChange(open)
+    if (!open) return
+    void window.anticode.getStatus().then((status) => {
+      setRotating(status.rotationEnabled)
+      setModels(status.rotation.filter((entry) => entry.ready))
+    })
+    function onOutside(event: MouseEvent): void {
+      if (!boxRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  function pick(choice: ProviderSelection | null): void {
+    setOpen(false)
+    onRetry(choice)
+  }
+
+  return (
+    <div className="relative" ref={boxRef}>
+      <button
+        type="button"
+        title="Answer this prompt again"
+        onClick={() => setOpen((value) => !value)}
+        className={`flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:text-brand ${open ? 'text-brand' : 'text-faint'}`}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+          <path d="M13 8a5 5 0 1 1-1.5-3.6" strokeLinecap="round" />
+          <path d="M13 2.5V5h-2.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span>retry</span>
+      </button>
+      {open && (
+        <div className="menu-glass absolute bottom-full left-1/2 z-30 mb-1 max-h-72 w-72 -translate-x-1/2 overflow-y-auto rounded-xl border p-1.5">
+          <button
+            type="button"
+            onClick={() => pick(null)}
+            className="w-full rounded px-2 py-1.5 text-left text-[12.5px] text-text transition-colors hover:bg-hover hover:text-brand"
+          >
+            {rotating ? 'Retry · rotate picks the model' : 'Retry with the same model'}
+          </button>
+          {!rotating && (models ?? []).length > 0 && (
+            <div className="mt-1 border-t border-line-soft pt-1">
+              <div className="px-2 py-1 text-[11px] text-faint">Retry with</div>
+              {(models ?? []).map((entry) => (
+                <button
+                  key={`${entry.provider}:${entry.model}`}
+                  type="button"
+                  onClick={() => pick({ provider: entry.provider, model: entry.model })}
+                  className="group flex w-full items-baseline justify-between gap-3 rounded px-2 py-1.5 text-left transition-colors hover:bg-hover"
+                >
+                  <span className="truncate font-mono text-[12px] text-dim transition-colors group-hover:text-brand">{entry.model}</span>
+                  <span className="shrink-0 text-[11px] text-faint transition-colors group-hover:text-brand">{entry.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {models === null && <div className="px-2 py-1.5 text-[11px] text-faint">…</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RunSummaryCard({
   message,
   open,
-  onToggle
+  onToggle,
+  onRetry
 }: {
   message: Message
   open: boolean
   onToggle: () => void
+  /** Only on the latest reply, and only while nothing runs. */
+  onRetry?: (choice: ProviderSelection | null) => void
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const files = fileStats(message.parts)
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
@@ -275,7 +486,7 @@ function RunSummaryCard({
     <div className="group mt-2 flex flex-col items-center">
       <div
         className={`flex items-center gap-2 text-[12.5px] text-faint transition-opacity ${
-          open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          open || menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         }`}
       >
         <button
@@ -307,6 +518,8 @@ function RunSummaryCard({
             </svg>
           )}
         </button>
+
+        {onRetry !== undefined && <RetryButton onRetry={onRetry} onOpenChange={setMenuOpen} />}
 
         <button
           type="button"
@@ -414,6 +627,11 @@ export function SessionView(): JSX.Element {
   const session = useActiveSession()
   const scrollRef = useRef<HTMLDivElement>(null)
   const messages = session?.messages ?? []
+  // The latest finished reply with no prompt after it is the one Retry answers.
+  const lastPrompt = messages.findLastIndex(isTypedPrompt)
+  const lastAnswerId = messages.findLast(
+    (message, index) => index > lastPrompt && message.role === 'assistant' && message.summary !== undefined
+  )?.id
   // The transcript follows new output only while the reader is at its end.
   // Scrolling up to read stops it; scrolling back down, sending a prompt, or
   // opening another session starts it again.
@@ -442,7 +660,12 @@ export function SessionView(): JSX.Element {
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
           {messages.map((message) => (
-            <MessageView key={message.id} message={message} sessionId={session?.id ?? ''} />
+            <MessageView
+              key={message.id}
+              message={message}
+              sessionId={session?.id ?? ''}
+              lastAnswer={message.id === lastAnswerId}
+            />
           ))}
         </div>
       </div>

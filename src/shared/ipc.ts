@@ -29,6 +29,8 @@ export const IpcChannel = {
   SESSION_REVERT: 'session:revert',
   SESSION_EXPORT: 'session:export',
   SESSION_COMPACT: 'session:compact',
+  SESSION_TAKE_BACK: 'session:takeBack',
+  SESSION_REGENERATE: 'session:regenerate',
   AGENT_EVENT: 'agent:event',
   APPROVAL_DISMISSED: 'approval:dismissed',
   APPROVAL_PENDING: 'approval:pending',
@@ -63,6 +65,14 @@ export const IpcChannel = {
   WEB_FORGET: 'web:forget',
   WEB_UPDATED: 'web:updated'
 } as const
+
+/**
+ * The instruction a resume sends. It is the app picking a paused run back up,
+ * not a prompt anyone typed: viewers show a marker instead, and editing or
+ * retrying counts only the prompts that were typed.
+ */
+export const CONTINUE_PROMPT =
+  'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.'
 
 /**
  * Replay budget the agent trims its history against; the UI shows the same
@@ -593,6 +603,24 @@ export interface AnticodeApi {
   onSessionClosed: (listener: (sessionId: string) => void) => () => void
   /** Fires when the main process renames a session — antichat's first prompt. */
   onSessionTitle: (listener: (change: SessionTitle) => void) => () => void
+  /**
+   * Takes back the `count`-th typed prompt from the end and everything after
+   * it — replies, later prompts, and the files their runs changed — and
+   * returns that prompt and its files, to edit and send again.
+   */
+  takeBackPrompt: (
+    sessionId: string,
+    count: number
+  ) => Promise<{ prompt: string; attachments: AttachmentRef[] } | null>
+  /**
+   * Answers the last prompt again as a new run with `runId`, on `choice` when
+   * one is given; the old reply and its file changes are taken back first.
+   */
+  regenerate: (
+    sessionId: string,
+    runId: string,
+    choice: ProviderSelection | null
+  ) => Promise<{ runId: string; steered: boolean }>
   /** Drops the last exchange and returns its prompt, for retyping. */
   revertLastTurn: (sessionId: string) => Promise<string | null>
   /**

@@ -39,6 +39,7 @@ import {
   providerInUse,
   sessionFileRoot,
   revertLastTurn,
+  takeBackPrompt,
   policy,
   applyRotation,
   applyRotationEnabled,
@@ -78,7 +79,7 @@ import {
   setWebVisible
 } from '../web'
 import { closePhonePage } from '../browser'
-import { submitPrompt } from '../prompts'
+import { regenerate, submitPrompt } from '../prompts'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
@@ -526,6 +527,24 @@ export function registerIpcHandlers(): void {
     announceHistory(sessionId, 'desktop')
     return prompt
   })
+
+  ipcMain.handle(IpcChannel.SESSION_TAKE_BACK, (_event, sessionId: string, count: number) => {
+    const taken = takeBackPrompt(sessionId, count)
+    announceHistory(sessionId, 'desktop')
+    return taken === null ? null : { prompt: taken.prompt, attachments: taken.attachments }
+  })
+
+  ipcMain.handle(
+    IpcChannel.SESSION_REGENERATE,
+    (event, sessionId: string, runId: string, choice: ProviderSelection | null) => {
+      lastSender = event.sender
+      const picked =
+        choice !== null && typeof choice?.provider === 'string' && typeof choice.model === 'string'
+          ? { provider: choice.provider, model: choice.model }
+          : null
+      return regenerate(sessionId, runId, picked, approvals, 'desktop')
+    }
+  )
 
   ipcMain.handle(IpcChannel.SESSION_COMPACT, (_event, sessionId: string) => compactSession(sessionId, approvals))
 

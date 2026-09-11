@@ -14,6 +14,6 @@ export const RESUME_LABEL = 'ah sh**, here we go again'
 export const FOLLOW_UP_LABEL = 'wait a minutes, bi***'
 
 /** The instruction a resume actually sends; the phone sends the same words.
- * Both sides show RESUME_LABEL in its place, never this paragraph. */
-export const CONTINUE_PROMPT =
-  'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.'
+ * Both sides show RESUME_LABEL in its place, never this paragraph. It lives
+ * in the shared contract because the main process tells it from a typed one. */
+export { CONTINUE_PROMPT } from '@shared/ipc'

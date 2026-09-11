@@ -110,3 +110,26 @@ it('does not count token usage twice when a live snapshot replays the same event
   expect(useSessionStore.getState().usage).toEqual([{ provider: 'test', model: 'model', inputTokens: 20, outputTokens: 10 }])
   expect(useSessionStore.getState().sessions[0]?.inputTokens).toBe(20)
 })
+
+it('counts only typed prompts: a resume reads as its marker and a follow-up rides along', async () => {
+  const { CONTINUE_PROMPT } = await import('@shared/ipc')
+  const { RESUME_LABEL } = await import('../labels')
+  const { isTypedPrompt } = await import('./session')
+  const store = useSessionStore.getState()
+  const id = store.openSession('chat', null)
+  store.importSnapshot(id, [
+    { role: 'user', blocks: [{ type: 'text', text: 'first' }] },
+    { role: 'assistant', blocks: [{ type: 'text', text: 'one' }] },
+    { role: 'user', blocks: [{ type: 'text', text: 'also this', followUp: 'after' }] },
+    { role: 'user', blocks: [{ type: 'text', text: CONTINUE_PROMPT }] },
+    { role: 'assistant', blocks: [{ type: 'text', text: 'two' }] }
+  ])
+  const messages = useSessionStore.getState().sessions[0]!.messages
+  expect(messages.some((message) => message.parts.some((part) => part.kind === 'notice' && part.text === RESUME_LABEL))).toBe(true)
+  expect(messages.filter(isTypedPrompt).map((message) => message.parts.find((part) => part.kind === 'text'))).toEqual([
+    { kind: 'text', text: 'first' }
+  ])
+
+  store.dropFrom(id, messages[1]!.id)
+  expect(useSessionStore.getState().sessions[0]!.messages).toHaveLength(1)
+})

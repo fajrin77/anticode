@@ -273,6 +273,21 @@ run memang masih berjalan — menekannya setelah run selesai tidak meninggalkan 
 pun. Menutup tab desktop juga menghentikan run lewat pause yang sama. Revert di desktop ikut
 menghapus giliran itu dari layar HP.
 
+## Edit dan retry
+
+Setiap prompt yang diketik punya **Edit** saat kursor mendekat (desktop). Dua klik — **Edit**, lalu
+**Take back** — mengambil prompt itu kembali beserta semua yang datang sesudahnya: balasan, prompt
+berikutnya, ringkasan run, dan perubahan berkas yang dibuat run-run itu (lewat checkpoint, jadi
+tetap bekerja setelah app dibuka ulang). Prompt kembali ke kolom input bersama lampirannya, siap
+diperbaiki dan dikirim. Instruksi susulan dan resume tidak dihitung sebagai prompt tersendiri;
+mereka ikut prompt sebelumnya.
+
+Baris penutup balasan terakhir punya **retry**: jawab ulang prompt yang sama dengan model yang sama,
+atau pilih model lain dari yang dicentang di Settings → Models (saat Rotate usage on, pool yang
+memilih). Balasan lama dan perubahan berkasnya ditarik dulu, lalu prompt yang sama — lampiran dan
+gambar ikut — dikirim sebagai run baru. Retry yang tidak bisa dimulai (provider belum siap) tidak
+menyentuh apa pun.
+
 ## Lampiran
 
 Klik **+**, seret berkas ke mana saja di area sesi (transkrip, ruang kosong, atau kolom input), atau

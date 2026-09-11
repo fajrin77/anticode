@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '@shared/ipc'
+import { CONTINUE_PROMPT } from '@shared/ipc'
 import { AgentSession, titleOf } from './loop'
 import { allowAll } from '../approval/types'
 import { editFileTool } from '../tools/editFile'
@@ -645,6 +646,61 @@ describe('follow-ups sent while a run is working', () => {
     expect(followUpsIn(last?.content ?? [])).toEqual([{ text: 'jangan lupa tes', during: false }])
     // Stopping refuses anything more.
     expect(agent.steer('lagi')).toBe(false)
+  })
+})
+
+describe('taking an earlier prompt back', () => {
+  const write = (id: string, content: string): LLMResponse =>
+    turn([{ type: 'tool_use', id, name: 'write_file', input: { path: 'a.txt', content } }], 'tool_use')
+  const done = turn([{ type: 'text', text: 'done' }], 'end_turn')
+
+  it('removes that prompt and everything after it, files included', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'v0')
+    const provider = new FakeProvider([write('w1', 'v1'), done, write('w2', 'v2'), done, done])
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    for (const prompt of ['first', 'second']) {
+      await session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: () => {} })
+    }
+    expect(await readFile(path.join(root, 'a.txt'), 'utf8')).toBe('v2')
+
+    const taken = session.takeBack(2)
+    expect(taken?.prompt).toBe('first')
+    expect(taken?.removed.filter((message) => message.role === 'user' && message.content.some((block) => block.type === 'text'))).toHaveLength(2)
+    expect(session.snapshot().messages).toHaveLength(0)
+    expect(await readFile(path.join(root, 'a.txt'), 'utf8')).toBe('v0')
+
+    // The replay was cut at the same place: the next run starts clean.
+    await session.run({ runId: 'again', prompt: 'edited', signal: new AbortController().signal, emit: () => {} })
+    expect(provider.sent.at(-1)?.map((message) => message.role)).toEqual(['user'])
+  })
+
+  it('hands back the attachments that rode with the prompt', async () => {
+    const attachment = { name: 'r.pdf', path: '/tmp/r.pdf', workspacePath: null, kind: 'pdf' as const, size: 1, thumbnail: null }
+    const session = new AgentSession(new FakeProvider([done]), allowAll, 'chat')
+    await session.run({
+      runId: 'a', prompt: 'summarise', signal: new AbortController().signal, emit: () => {},
+      attachments: [{ type: 'text', text: 'Attachment: r.pdf', attachment }]
+    })
+    const taken = session.takeBack(1)
+    expect(taken?.prompt).toBe('summarise')
+    expect(taken?.attachments).toEqual([{ type: 'text', text: 'Attachment: r.pdf', attachment }])
+  })
+
+  it('does not count a resume as a prompt of its own', async () => {
+    const session = new AgentSession(new FakeProvider([done, done, done]), allowAll, 'chat')
+    await session.run({ runId: '1', prompt: 'typed one', signal: new AbortController().signal, emit: () => {} })
+    await session.run({ runId: '2', prompt: 'typed two', signal: new AbortController().signal, emit: () => {} })
+    await session.run({ runId: '3', prompt: CONTINUE_PROMPT, signal: new AbortController().signal, emit: () => {} })
+    // One back is "typed two" — the resume after it goes with it.
+    expect(session.takeBack(1)?.prompt).toBe('typed two')
+    expect(session.snapshot().messages).toHaveLength(2)
+  })
+
+  it('answers null when there are not that many prompts', async () => {
+    const session = new AgentSession(new FakeProvider([done]), allowAll, 'chat')
+    await session.run({ runId: '1', prompt: 'only', signal: new AbortController().signal, emit: () => {} })
+    expect(session.takeBack(2)).toBeNull()
+    expect(session.snapshot().messages).toHaveLength(2)
   })
 })
 

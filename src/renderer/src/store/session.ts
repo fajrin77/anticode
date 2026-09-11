@@ -8,8 +8,8 @@ import type {
   SessionSpec,
   SnapshotMessage
 } from '@shared/ipc'
-import { SESSION_COLOURS } from '@shared/ipc'
-import { FOLLOW_UP_LABEL } from '../labels'
+import { CONTINUE_PROMPT, SESSION_COLOURS } from '@shared/ipc'
+import { FOLLOW_UP_LABEL, RESUME_LABEL } from '../labels'
 
 export type Role = 'user' | 'assistant'
 export type ToolStatus = 'running' | 'ok' | 'error'
@@ -42,6 +42,23 @@ export interface Message {
   pending: boolean
   /** Set when the run settles; feeds the closing summary card. */
   summary?: RunSummary
+  /**
+   * A user message that was sent while a run was working. It rides with the
+   * prompt before it, so it is not a prompt of its own to edit or retry.
+   */
+  followUp?: boolean
+}
+
+/**
+ * A prompt somebody typed — the main process counts the same ones, from the
+ * end, when a prompt is taken back to be edited.
+ */
+export function isTypedPrompt(message: Message): boolean {
+  return (
+    message.role === 'user' &&
+    message.followUp !== true &&
+    message.parts.some((part) => part.kind === 'text' && part.text !== CONTINUE_PROMPT)
+  )
 }
 
 export interface Project {
@@ -184,6 +201,10 @@ interface SessionState {
   addNotice: (sessionId: string, text: string) => void
   /** Drops the transcript back to before the last typed prompt. */
   dropLastTurn: (sessionId: string) => void
+  /** Drops a message and everything after it — a prompt taken back to edit. */
+  dropFrom: (sessionId: string, messageId: string) => void
+  /** Keeps a message and drops everything after it — the reply being retried. */
+  dropAfter: (sessionId: string, messageId: string) => void
   appendText: (sessionId: string, messageId: string, text: string) => void
   startTool: (
     sessionId: string,
@@ -423,8 +444,21 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         // end its run, so it carries no closing line; see the summaries below.
         const continued = new Set<Message>()
         for (const message of messages) {
+          // A resume is the app picking a paused run back up: it reads as the
+          // same grey marker the live resume wrote, not as a prompt.
+          if (
+            message.role === 'user' &&
+            message.blocks.length === 1 &&
+            message.blocks[0]?.type === 'text' &&
+            message.blocks[0].text === CONTINUE_PROMPT
+          ) {
+            converted.push({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'notice', text: RESUME_LABEL }], pending: false })
+            continue
+          }
           const parts: MessagePart[] = []
           let followUp: 'during' | 'after' | undefined
+          const texts = message.blocks.filter((block) => block.type === 'text')
+          const onlyFollowUps = texts.length > 0 && texts.every((block) => block.type === 'text' && block.followUp !== undefined)
           for (const block of message.blocks) {
             if (block.type === 'text') {
               if (block.followUp !== undefined) followUp = block.followUp
@@ -459,7 +493,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             id: crypto.randomUUID(),
             role: message.role,
             parts,
-            pending: false
+            pending: false,
+            ...(message.role === 'user' && onlyFollowUps ? { followUp: true } : {})
           })
           // The reaction a live follow-up got is part of the story after a
           // reload too.
@@ -652,7 +687,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           ...session,
           messages: [
             ...session.messages,
-            { id: crypto.randomUUID(), role: 'user' as const, parts, pending: false },
+            { id: crypto.randomUUID(), role: 'user' as const, parts, pending: false, followUp: true },
             {
               id: crypto.randomUUID(),
               role: 'assistant' as const,
@@ -841,6 +876,22 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           return { ...session, messages: session.messages.slice(0, i) }
         }
         return session
+      })
+    })),
+
+  dropFrom: (sessionId, messageId) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => {
+        const index = session.messages.findIndex((message) => message.id === messageId)
+        return index < 0 ? session : { ...session, messages: session.messages.slice(0, index) }
+      })
+    })),
+
+  dropAfter: (sessionId, messageId) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => {
+        const index = session.messages.findIndex((message) => message.id === messageId)
+        return index < 0 ? session : { ...session, messages: session.messages.slice(0, index + 1) }
       })
     })),
 

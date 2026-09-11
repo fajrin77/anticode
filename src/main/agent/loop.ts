@@ -7,6 +7,7 @@ import { CheckpointStore } from '../checkpoints'
 import type { WorkspaceScan } from '../checkpoints'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
+import { isTypedPrompt, MEMORY_HEADER } from './turns'
 import type { ContentBlock, LLMProvider, LLMResponse, Message, ProviderEvent, Usage } from '../providers/types'
 import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
 import type { Tool } from '../tools'
@@ -34,7 +35,6 @@ const COMPACTION_INPUT_CHARS = 160_000
 const COMPACTION_MAX_TOKENS = 4_096
 /** A summary that takes longer than this falls back to the deterministic one. */
 const COMPACTION_TIMEOUT_MS = 120_000
-const MEMORY_HEADER = '[Automatic context compaction — durable memory from earlier turns]'
 const COMPACTION_SYSTEM = [
   'You compact the earlier part of a working session between a user and anticode, a coding agent, so the ' +
     'agent can carry on without the full history.',
@@ -76,6 +76,15 @@ type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
  * or null when there is none left and the failure should stand.
  */
 export type ProviderFallback = (error: unknown) => LLMProvider | null
+
+/** A prompt taken back out of the session, ready to be edited or sent again. */
+export interface TakenBack {
+  prompt: string
+  /** Everything else in that turn — attachment headers, images, folded follow-ups. */
+  attachments: ContentBlock[]
+  /** The part of the record that went, for callers that keep per-turn tallies. */
+  removed: Message[]
+}
 
 export interface AgentOptions {
   /** Replaces the mode's tool set — a sub-agent gets the read-only kit. */
@@ -762,10 +771,6 @@ export class AgentSession {
    * Drops the most recent exchange — the last typed prompt and everything the
    * run made of it — and hands the prompt back so it can be corrected and sent
    * again. Only meaningful between runs; the caller cancels first.
-   *
-   * `history` is the replayed context and `transcript` is the record: they are
-   * condensed and trimmed differently, but only ever from the front, so their
-   * tails stay in step and the same count comes off both.
    */
   revertLastTurn(): string | null {
     for (let i = this.transcript.length - 1; i >= 0; i--) {
@@ -777,21 +782,57 @@ export class AgentSession {
           block.type === 'text' && block.attachment === undefined
       )
       if (text === undefined) continue
-      this.transcript.length = i
-      // Replay may contain a synthetic compaction summary, so its length no
-      // longer mirrors the full transcript. Cut at its own latest plain user
-      // prompt instead of subtracting transcript message counts.
-      for (let replay = this.history.length - 1; replay >= 0; replay--) {
-        const candidate = this.history[replay]
-        if (candidate?.role !== 'user' || candidate.content.some((block) => block.type === 'tool_result')) continue
-        if (!candidate.content.some((block) => block.type === 'text' && block.attachment === undefined)) continue
-        this.history.length = replay
-        break
-      }
-      this.checkpoints?.restoreFrom(i)
+      this.cutAt(i)
       return text.text
     }
     return null
+  }
+
+  /**
+   * Takes back the `count`-th typed prompt from the end and everything after
+   * it — replies, later prompts, and the files their runs changed — and hands
+   * that prompt back whole, attachments included, to edit or send again.
+   * Follow-ups and resumes are not typed prompts: they ride with the prompt
+   * before them. Null when there are not that many prompts.
+   */
+  takeBack(count: number): TakenBack | null {
+    if (this.running) throw new Error('Pause this session before editing its prompts')
+    let seen = 0
+    for (let i = this.transcript.length - 1; i >= 0; i--) {
+      const message = this.transcript[i]
+      if (message === undefined || !isTypedPrompt(message)) continue
+      seen += 1
+      if (seen < count) continue
+      const typed = message.content.find(
+        (block): block is Extract<ContentBlock, { type: 'text' }> =>
+          block.type === 'text' && block.attachment === undefined && block.followUp === undefined
+      )
+      if (typed === undefined) return null
+      const removed = this.transcript.slice(i)
+      this.cutAt(i)
+      return {
+        prompt: typed.text,
+        attachments: message.content.filter((block) => block !== typed),
+        removed
+      }
+    }
+    return null
+  }
+
+  /**
+   * Cuts the record at transcript index `index` and the replay at the same
+   * message. A prompt the replay still holds is the very object the record
+   * holds (prompts are never condensed), so it is found by identity; one that
+   * compaction folded away takes the replay back to the plain record, which
+   * the next run compacts again if it has to. The files go back too.
+   */
+  private cutAt(index: number): void {
+    const target = this.transcript[index]
+    this.transcript.length = index
+    const replayed = target === undefined ? -1 : this.history.indexOf(target)
+    if (replayed >= 0) this.history.length = replayed
+    else this.history.splice(0, this.history.length, ...this.transcript)
+    this.checkpoints?.restoreFrom(index)
   }
 
   private record(message: Message): void { this.history.push(message); this.transcript.push(message) }
