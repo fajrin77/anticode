@@ -68,6 +68,8 @@ export interface ChatParams {
 
 export interface LLMProvider {
   readonly name: string
+  /** The provider id this talks through, when known — the name is only a label. */
+  readonly id?: string
   readonly model: string
   chat(params: ChatParams): AsyncIterable<ProviderEvent>
 }

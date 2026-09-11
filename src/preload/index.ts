@@ -12,6 +12,7 @@ import type {
   CustomProviderInput,
   FilePreview,
   ModelCatalogue,
+  PricedModel,
   RemoteStatus,
   RoutedAgentEvent,
   SessionSnapshot,
@@ -145,6 +146,8 @@ const api: AnticodeApi = {
   unqueuePrompt: (sessionId, id) =>
     ipcRenderer.invoke(IpcChannel.QUEUE_REMOVE, sessionId, id) as Promise<QueuedPrompt | null>,
   onSessionQueue: (listener) => subscribe<SessionQueue>(IpcChannel.QUEUE_UPDATED, listener),
+  listPrices: (models) => ipcRenderer.invoke(IpcChannel.PRICING_LIST, models) as Promise<PricedModel[]>,
+  setPrice: (model, price) => ipcRenderer.invoke(IpcChannel.PRICING_SET, model, price) as Promise<void>,
   getPreferences: () => ipcRenderer.invoke(IpcChannel.PREFERENCES_GET) as Promise<AppPreferences>,
   setPreferences: (patch) => ipcRenderer.invoke(IpcChannel.PREFERENCES_SET, patch) as Promise<AppPreferences>,
   onPreferences: (listener) => subscribe<AppPreferences>(IpcChannel.PREFERENCES_UPDATED, listener),

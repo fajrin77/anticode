@@ -342,7 +342,7 @@ export function App(): JSX.Element {
             store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output, event.diff)
             break
           case 'usage':
-            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent)
+            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent, event.costUsd)
             store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
             break
           case 'error':
@@ -407,7 +407,7 @@ export function App(): JSX.Element {
           store.noticeInRun(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
           break
         case 'usage':
-          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent)
+          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent, event.costUsd)
           store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
           break
         case 'error': {

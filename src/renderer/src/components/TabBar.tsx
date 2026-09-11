@@ -5,6 +5,7 @@ import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
 import { Badge } from './Badge'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
+import { formatUsd } from '../money'
 
 function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
@@ -95,6 +96,16 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
             <div className="flex items-baseline justify-between gap-4 py-1.5">
               <span className="text-[12px] text-faint">Messages</span>
               <span className="text-[12.5px] text-text">{formatNumber(session.messages.length)}</span>
+            </div>
+            <div
+              className="col-span-2 flex items-baseline justify-between gap-4 py-1.5"
+              title={session.costPartial === true ? 'Some requests used a model with no price — set one in Settings → Pricing' : 'From the prices in Settings → Pricing'}
+            >
+              <span className="text-[12px] text-faint">Estimated cost</span>
+              <span className="text-[12.5px] tabular-nums text-text">
+                {session.costPartial === true ? '≥ ' : ''}
+                {formatUsd(session.costUsd ?? 0)}
+              </span>
             </div>
           </div>
           <div className="mt-2 border-t border-line-soft pt-3">

@@ -5,6 +5,7 @@ import type { ProviderId } from '@shared/ipc'
 import { getCustomProvider } from './custom'
 import { clinepassConfig } from './clinepass'
 import { anthropicBaseURL } from './anthropic'
+import { recordPublishedPrices } from '../pricing'
 
 const TIMEOUT_MS = 15_000
 
@@ -13,14 +14,20 @@ function env(name: string): string | null {
   return value !== undefined && value !== '' ? value : null
 }
 
-async function listOpenAICompatible(apiKey: string, baseURL?: string): Promise<string[]> {
+async function listOpenAICompatible(apiKey: string, baseURL?: string, provider?: ProviderId): Promise<string[]> {
   const client = new OpenAI({
     apiKey,
     timeout: TIMEOUT_MS,
     ...(baseURL !== undefined ? { baseURL } : {})
   })
   const ids: string[] = []
-  for await (const model of client.models.list()) ids.push(model.id)
+  const priced: { id: string; pricing?: unknown }[] = []
+  for await (const model of client.models.list()) {
+    ids.push(model.id)
+    // Gateways in OpenRouter's mould say what each model costs; keep that.
+    priced.push({ id: model.id, pricing: (model as unknown as { pricing?: unknown }).pricing })
+  }
+  if (provider !== undefined) recordPublishedPrices(provider, priced)
   return ids
 }
 
@@ -92,7 +99,7 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
           ? await listAnthropic(config.apiKey, config.baseURL)
           : config.kind === 'openai-api'
             ? chatModelsOnly(await listOpenAICompatible(config.apiKey, config.baseURL))
-            : await listOpenAICompatible(config.kind === 'ollama' ? 'ollama' : config.apiKey, config.baseURL)
+            : await listOpenAICompatible(config.kind === 'ollama' ? 'ollama' : config.apiKey, config.baseURL, id)
       return [...listed, ...fetched.filter((model) => !listed.includes(model))]
     } catch (error) {
       if (listed.length > 0) return listed

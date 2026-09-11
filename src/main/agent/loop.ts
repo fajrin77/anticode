@@ -326,6 +326,7 @@ export class AgentSession {
           type: 'usage',
           runId,
           provider: this.provider.name,
+          ...(this.provider.id !== undefined ? { providerId: this.provider.id } : {}),
           model: this.provider.model,
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens
@@ -493,6 +494,7 @@ export class AgentSession {
       type: 'usage',
       runId: params.runId,
       provider: this.provider.name,
+      ...(this.provider.id !== undefined ? { providerId: this.provider.id } : {}),
       model: this.provider.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,

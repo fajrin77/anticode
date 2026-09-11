@@ -31,6 +31,8 @@ export const IpcChannel = {
   SESSION_COMPACT: 'session:compact',
   SESSION_TAKE_BACK: 'session:takeBack',
   SESSION_REGENERATE: 'session:regenerate',
+  PRICING_LIST: 'pricing:list',
+  PRICING_SET: 'pricing:set',
   PREFERENCES_GET: 'preferences:get',
   PREFERENCES_SET: 'preferences:set',
   PREFERENCES_UPDATED: 'preferences:updated',
@@ -450,6 +452,18 @@ export interface AgentRequest {
   attachmentIds: string[]
 }
 
+/** US dollars per million tokens. */
+export interface ModelPrice {
+  input: number
+  output: number
+}
+
+export interface PricedModel extends ProviderSelection {
+  price: ModelPrice | null
+  /** Typed in Settings, published by the gateway, built in, a free tier, or not known. */
+  source: 'custom' | 'gateway' | 'built-in' | 'free' | 'unknown'
+}
+
 /** App-wide choices from Settings → General. */
 export interface AppPreferences {
   /** An icon in the menu bar (the tray elsewhere) with quick capture and recent sessions. */
@@ -541,6 +555,10 @@ export type AgentEvent =
       model: string
       inputTokens: number
       outputTokens: number
+      /** The provider id behind `provider` (which is its display name), for pricing. */
+      providerId?: string
+      /** Estimated dollars, set by the main process; null when the model has no price. */
+      costUsd?: number | null
       /**
        * Spent on a side request — a sub-agent, or the memory written when the
        * context is compacted. It counts toward the run's cost, but that request
@@ -638,6 +656,10 @@ export interface RunSummary {
   durationMs: number
   inputTokens: number
   outputTokens: number
+  /** Estimated dollars for the requests whose model has a price. */
+  costUsd?: number
+  /** Some request's model had no price, so the estimate is short of the truth. */
+  costPartial?: boolean
 }
 
 export interface AnticodeApi {
@@ -771,6 +793,10 @@ export interface AnticodeApi {
   /** Takes a prompt off the queue; answers it, so it can be edited instead. */
   unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
   onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
+  /** Prices for these models, and where each came from. */
+  listPrices: (models: ProviderSelection[]) => Promise<PricedModel[]>
+  /** A price for a model id, typed in Settings; null goes back to the built-in or published one. */
+  setPrice: (model: string, price: ModelPrice | null) => Promise<void>
   getPreferences: () => Promise<AppPreferences>
   setPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
   onPreferences: (listener: (preferences: AppPreferences) => void) => () => void

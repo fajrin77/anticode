@@ -3168,10 +3168,13 @@ function renderSettings() {
     grid.className = 'usage';
     const input = lastUsage.summaries.reduce((sum, entry) => sum + (entry.inputTokens || 0), 0);
     const output = lastUsage.summaries.reduce((sum, entry) => sum + (entry.outputTokens || 0), 0);
+    const cost = lastUsage.summaries.reduce((sum, entry) => sum + (entry.costUsd || 0), 0);
+    const partial = lastUsage.summaries.some((entry) => entry.costPartial === true);
+    const dollars = cost === 0 ? '$0' : cost < 0.01 ? '$' + cost.toFixed(4) : '$' + cost.toFixed(2);
     for (const [name, value] of [['Input tokens', input], ['Output tokens', output],
-      ['Total tokens', input + output], ['Messages', lastUsage.messages]]) {
+      ['Total tokens', input + output], ['Messages', lastUsage.messages], ['Estimated cost', (partial ? '\u2265 ' : '') + dollars]]) {
       const label = document.createElement('span'); label.textContent = name;
-      const figure = document.createElement('span'); figure.textContent = value.toLocaleString('en-US');
+      const figure = document.createElement('span'); figure.textContent = typeof value === 'number' ? value.toLocaleString('en-US') : value;
       grid.append(label, figure);
     }
   }

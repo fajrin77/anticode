@@ -349,6 +349,7 @@ export function rankRotation(options: {
 export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMProvider {
   return {
     name: inner.name,
+    id: entry.provider,
     model: inner.model,
     async *chat(params) {
       try {

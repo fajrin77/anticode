@@ -2,6 +2,7 @@ import { BrowserWindow, Notification } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { AgentEvent, QueuedPrompt, SessionPause, SessionQueue, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
 import { listQueue } from '../queue'
+import { costOf } from '../pricing'
 import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries } from '../runtime'
 import { clearPause, isPaused, runForSession } from '../runs'
 
@@ -46,7 +47,7 @@ export function sessionSnapshot(sessionId: string): SessionSnapshot | null {
  */
 const tallies = new Map<
   string,
-  { startedAt: number; model: string; inputTokens: number; outputTokens: number; turns: number }
+  { startedAt: number; model: string; inputTokens: number; outputTokens: number; turns: number; cost: number; partial: boolean }
 >()
 
 function tally(runId: string): {
@@ -55,10 +56,12 @@ function tally(runId: string): {
   inputTokens: number
   outputTokens: number
   turns: number
+  cost: number
+  partial: boolean
 } {
   const existing = tallies.get(runId)
   if (existing !== undefined) return existing
-  const fresh = { startedAt: Date.now(), model: '', inputTokens: 0, outputTokens: 0, turns: 0 }
+  const fresh = { startedAt: Date.now(), model: '', inputTokens: 0, outputTokens: 0, turns: 0, cost: 0, partial: false }
   tallies.set(runId, fresh)
   return fresh
 }
@@ -72,11 +75,13 @@ function closeTally(runId: string, sessionId: string): RunSummary | undefined {
   const entry = tallies.get(runId)
   tallies.delete(runId)
   if (entry === undefined || entry.turns === 0) return
-  const summary = {
+  const summary: RunSummary = {
     model: entry.model,
     durationMs: Date.now() - entry.startedAt,
     inputTokens: entry.inputTokens,
-    outputTokens: entry.outputTokens
+    outputTokens: entry.outputTokens,
+    costUsd: entry.cost,
+    ...(entry.partial ? { costPartial: true } : {})
   }
   recordRunSummary(sessionId, summary)
   return summary
@@ -101,12 +106,20 @@ export function forward(event: AgentEvent): void {
   const sessionId = runSessions.get(event.runId)
   if (sessionId === undefined) return
   const routed: RoutedAgentEvent = { ...event, sessionId }
+  // Priced here, where every run passes whoever started it, so both screens
+  // show the same estimate.
+  if (routed.type === 'usage') {
+    routed.costUsd = costOf(routed.providerId ?? routed.provider, routed.model, routed.inputTokens, routed.outputTokens)
+  }
 
   if (event.type === 'prompt') tally(event.runId).startedAt = Date.now()
   else if (event.type === 'usage') {
     const entry = tally(event.runId)
     entry.inputTokens += event.inputTokens
     entry.outputTokens += event.outputTokens
+    const cost = routed.type === 'usage' ? routed.costUsd : null
+    if (typeof cost === 'number') entry.cost += cost
+    else entry.partial = true
     // A sub-agent's request is part of the cost, not an assistant turn of
     // this session: it must not shift the one-summary-per-turn alignment.
     if (event.subagent !== true) {

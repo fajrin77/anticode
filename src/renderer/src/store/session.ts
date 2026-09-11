@@ -83,6 +83,10 @@ export interface Session {
   model: string | null
   /** Input tokens of the latest request — the closest measure of context size. */
   lastInputTokens: number
+  /** Estimated dollars so far; requests on a model with no price add nothing. */
+  costUsd?: number
+  /** Some request here had no price, so costUsd is short of the truth. */
+  costPartial?: boolean
   /**
    * Closing a tab only hides it: the session (with its whole transcript)
    * stays in the dashboard until the user reopens or a new app run replaces it.
@@ -97,6 +101,8 @@ export interface UsageEntry {
   model: string
   inputTokens: number
   outputTokens: number
+  /** Estimated dollars, from the requests that had a price. */
+  costUsd?: number
 }
 
 export interface ActiveRun {
@@ -245,7 +251,9 @@ interface SessionState {
     outputTokens: number,
     eventKey?: string,
     /** A sub-agent's request: it costs, but it is not this session's context. */
-    subagent?: boolean
+    subagent?: boolean,
+    /** Estimated dollars from the main process; null when the model has no price. */
+    costUsd?: number | null
   ) => void
   /** A running tool reported a step — a sub-agent reading a file. */
   progressTool: (sessionId: string, toolUseId: string, text: string) => void
@@ -803,7 +811,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       sessions: mapSession(state, sessionId, (session) => ({ ...session, lastInputTokens: tokens }))
     })),
 
-  addUsage: (sessionId, provider, model, inputTokens, outputTokens, eventKey, subagent) =>
+  addUsage: (sessionId, provider, model, inputTokens, outputTokens, eventKey, subagent, costUsd) =>
     set((state) => {
       if (eventKey !== undefined && state.seenUsageEvents.includes(eventKey)) return state
       const existing = state.usage.find(
@@ -815,11 +823,12 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
               ? {
                   ...entry,
                   inputTokens: entry.inputTokens + inputTokens,
-                  outputTokens: entry.outputTokens + outputTokens
+                  outputTokens: entry.outputTokens + outputTokens,
+                  costUsd: (entry.costUsd ?? 0) + (costUsd ?? 0)
                 }
               : entry
           )
-        : [...state.usage, { provider, model, inputTokens, outputTokens }]
+        : [...state.usage, { provider, model, inputTokens, outputTokens, costUsd: costUsd ?? 0 }]
 
       return {
         seenUsageEvents: eventKey === undefined ? state.seenUsageEvents : [...state.seenUsageEvents, eventKey].slice(-2048),
@@ -828,6 +837,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           ...session,
           inputTokens: session.inputTokens + inputTokens,
           outputTokens: session.outputTokens + outputTokens,
+          costUsd: (session.costUsd ?? 0) + (costUsd ?? 0),
+          ...(costUsd === null || costUsd === undefined ? { costPartial: true } : {}),
           ...(subagent === true ? {} : { provider, model, lastInputTokens: inputTokens })
         }))
       }

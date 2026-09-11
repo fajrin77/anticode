@@ -17,6 +17,7 @@ import type {
   ApprovalResponse,
   FilePreview,
   ModelCatalogue,
+  ModelPrice,
   ProviderEdit,
   ProviderId,
   ProviderInfo,
@@ -84,6 +85,7 @@ import { setQueueSink } from '../queue'
 import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updateState } from '../updates'
 import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
+import { pricedModels, setCustomPrice } from '../pricing'
 import { hideQuickCapture, sendQuickCapture } from '../tray'
 import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
@@ -612,6 +614,14 @@ export function registerIpcHandlers(): void {
     return submitPrompt(req, approvals)
   })
 
+  ipcMain.handle(IpcChannel.PRICING_LIST, (_event, models: unknown) =>
+    pricedModels(Array.isArray(models) ? models.filter((entry): entry is ProviderSelection =>
+      typeof entry?.provider === 'string' && typeof entry?.model === 'string') : [])
+  )
+  ipcMain.handle(IpcChannel.PRICING_SET, (_event, model: unknown, price: unknown) => {
+    if (typeof model !== 'string') throw new Error('Name the model')
+    setCustomPrice(model, price === null ? null : (price as ModelPrice))
+  })
   ipcMain.handle(IpcChannel.PREFERENCES_GET, () => preferences())
   ipcMain.handle(IpcChannel.PREFERENCES_SET, (_event, patch: unknown) =>
     setPreferences(typeof patch === 'object' && patch !== null ? (patch as Record<string, unknown>) : {})

@@ -8,6 +8,7 @@ import { RichText } from './RichText'
 import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
 import { DiffView } from './DiffView'
+import { formatUsd } from '../money'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -374,7 +375,8 @@ function summaryText(message: Message): string {
       : [
           summary.model,
           formatDuration(summary.durationMs),
-          `${formatNumber(summary.inputTokens + summary.outputTokens)} tokens`
+          `${formatNumber(summary.inputTokens + summary.outputTokens)} tokens`,
+          ...(summary.costUsd !== undefined && summary.costUsd > 0 ? [`${summary.costPartial === true ? '≥ ' : '~'}${formatUsd(summary.costUsd)}`] : [])
         ]
   return [said, stats.join(' · ')].filter((part) => part !== '').join('\n\n')
 }
@@ -556,6 +558,15 @@ function RunSummaryCard({
             <>
               <span>·</span>
               <span>{formatNumber(tokens)} tokens</span>
+            </>
+          )}
+          {summary.costUsd !== undefined && summary.costUsd > 0 && (
+            <>
+              <span>·</span>
+              <span title={summary.costPartial === true ? 'Part of this run used a model with no price' : 'Estimated from Settings → Pricing'}>
+                {summary.costPartial === true ? '≥ ' : '~'}
+                {formatUsd(summary.costUsd)}
+              </span>
             </>
           )}
         </button>

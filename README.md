@@ -252,6 +252,19 @@ API key yang dimasukkan lewat Settings disimpan dengan Electron `safeStorage` (K
 DPAPI di Windows) dan file plaintext lama dimigrasikan otomatis. Bila secure storage OS tidak
 tersedia, key tidak ditulis ke disk dan perlu dimasukkan kembali setelah app dibuka ulang.
 
+## Estimasi biaya
+
+Setiap request diberi harga di main process, jadi desktop dan HP menampilkan angka yang sama: baris
+penutup run menulis `~$0.04`, popover usage dan Settings HP menampilkan **Estimated cost** sesi, dan
+Settings → **Pricing** menampilkan harga setiap model (per sejuta token input/output) beserta total
+belanja per model. Urutan sumber harga: harga yang diketik pengguna di Settings → Pricing, harga yang
+dipublikasikan gateway di daftar modelnya (format OpenRouter, `pricing.prompt`/`completion`), lalu
+tarif Anthropic bawaan (per 2026-06-24: Fable 5.1/5 $10/$50, Opus 5/4.8/4.7/4.6 $5/$25, Sonnet 5 $2/$10,
+Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5; prefiks vendor `anthropic/` dan akhiran tanggal dikenali). Model
+berakhiran `:free` bernilai $0. Model yang tidak diketahui harganya **tidak ditebak**: ia dihitung $0
+dan estimasinya ditandai `≥`. Estimasi hanya menghitung token input dan output — diskon cache dan
+biaya tambahan provider tidak termasuk.
+
 ## Update otomatis
 
 Settings → **Updates** memeriksa versi baru dari sumber yang diisi pengguna — belum ada sumber bawaan:

@@ -16,6 +16,8 @@ export interface PersistedSettings {
   rotation?: PersistedRotation
   updates?: { source: string; autoCheck: boolean; autoDownload: boolean }
   preferences?: Partial<import('@shared/ipc').AppPreferences>
+  /** Prices typed in Settings → Pricing, dollars per million tokens, by model id. */
+  pricing?: Record<string, import('@shared/ipc').ModelPrice>
 }
 
 export interface PersistedRotation {

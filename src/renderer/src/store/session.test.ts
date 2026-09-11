@@ -105,10 +105,11 @@ it('does not count token usage twice when a live snapshot replays the same event
   useSessionStore.setState({ usage: [], seenUsageEvents: [] })
   const store = useSessionStore.getState()
   const id = store.openSession('chat', null)
-  store.addUsage(id, 'test', 'model', 20, 10, 'run:12')
-  store.addUsage(id, 'test', 'model', 20, 10, 'run:12')
-  expect(useSessionStore.getState().usage).toEqual([{ provider: 'test', model: 'model', inputTokens: 20, outputTokens: 10 }])
+  store.addUsage(id, 'test', 'model', 20, 10, 'run:12', false, 0.5)
+  store.addUsage(id, 'test', 'model', 20, 10, 'run:12', false, 0.5)
+  expect(useSessionStore.getState().usage).toEqual([{ provider: 'test', model: 'model', inputTokens: 20, outputTokens: 10, costUsd: 0.5 }])
   expect(useSessionStore.getState().sessions[0]?.inputTokens).toBe(20)
+  expect(useSessionStore.getState().sessions[0]?.costUsd).toBe(0.5)
 })
 
 it('counts only typed prompts: a resume reads as its marker and a follow-up rides along', async () => {
