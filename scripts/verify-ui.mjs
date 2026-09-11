@@ -60,6 +60,8 @@ const site = createServer((_req, res) => {
 await new Promise(r=>site.listen(0,'127.0.0.1',r))
 const siteOrigin = `http://127.0.0.1:${site.address().port}`
 const bootstrap = path.join(directory,'bootstrap.cjs')
+// Only models switched on in Settings → Models are used; the fixture model is one.
+await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ rotation: { entries: [{ provider: 'clinepass', model: 'test-model' }], usage: {} } }))
 await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); import(${JSON.stringify(path.resolve('out/main/index.js'))});`)
 const env={...process.env,CLINEPASS_API_KEY:'fixture-key',CLINEPASS_BASE_URL:`http://127.0.0.1:${stub.address().port}/v1`,CLINEPASS_MODEL:'test-model',ANTICODE_REMOTE_PORT:'18681'}
 delete env.ELECTRON_RUN_AS_NODE
@@ -600,7 +602,18 @@ try {
 
   // Settings → Models: the ticked models are the composer's whole list, and
   // the same pool Rotate spreads prompts over.
+  // Moving between Settings pages moves nothing but the page: the heading
+  // and the sidebar icons stay put, short page or long.
+  const sidebarIcon = () => window.getByRole('button',{name:/Providers/}).locator('svg').boundingBox()
+  const headingBefore = await window.locator('h1').boundingBox()
+  const iconBefore = await sidebarIcon()
   await window.getByRole('button',{name:/Models/}).click(); await window.waitForTimeout(400)
+  const headingAfter = await window.locator('h1').boundingBox()
+  check('settings: the page heading stays put between pages',
+    headingAfter.x === headingBefore.x ? 'still' : `${headingBefore.x} → ${headingAfter.x}`, 'still')
+  const iconAfter = await sidebarIcon()
+  check('settings: a sidebar item does not shift when it stops being active',
+    iconAfter.x === iconBefore.x && iconAfter.y === iconBefore.y ? 'still' : `${iconBefore.x},${iconBefore.y} → ${iconAfter.x},${iconAfter.y}`, 'still')
   const pickRow = window.locator('[data-model-name]')
   await pickRow.first().waitFor()
   await limeOnHover('settings: models pick row', pickRow.first())
@@ -615,6 +628,28 @@ try {
     await offSwitch.hover(); await window.waitForTimeout(250)
     check('settings: an off switch lights its knob on hover',
       await offSwitch.evaluate((el) => getComputedStyle(el.firstElementChild).backgroundColor), LIME)
+    // Switching a model on puts a count on its provider's tab; the tabs after
+    // it, the list, and the knob's lane stay where they were.
+    const flipped = window.locator(`[data-model-pick="${await offSwitch.getAttribute('data-model-pick')}"]`)
+    const gatewayTab = window.getByRole('button', { name: /^Gateway/ })
+    const tabBefore = await gatewayTab.boundingBox()
+    const listBefore = await pickRow.first().boundingBox()
+    await flipped.click(); await window.waitForTimeout(400)
+    const tabAfter = await gatewayTab.boundingBox()
+    const listAfter = await pickRow.first().boundingBox()
+    check('settings: switching a model on does not push the provider tabs',
+      tabAfter.x === tabBefore.x ? 'still' : `${tabBefore.x} → ${tabAfter.x}`, 'still')
+    check('settings: switching a model on does not move the list',
+      listAfter.x === listBefore.x && listAfter.y === listBefore.y ? 'still' : 'moved', 'still')
+    const knobGap = (el) => {
+      const track = el.getBoundingClientRect(); const knob = el.firstElementChild.getBoundingClientRect()
+      return Math.round(el.getAttribute('aria-checked') === 'true' ? track.right - knob.right : knob.left - track.left)
+    }
+    const gapOn = await flipped.evaluate(knobGap)
+    await flipped.click(); await window.waitForTimeout(400)
+    const gapOff = await flipped.evaluate(knobGap)
+    check('settings: the knob sits the same distance from the edge on and off',
+      gapOn === gapOff ? 'even' : `${gapOn}px on, ${gapOff}px off`, 'even')
   }
   await shot('18c-models-picked')
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
@@ -626,7 +661,7 @@ try {
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
   await window.getByTitle('Settings').click(); await window.waitForTimeout(400)
   await window.evaluate(async () => {
-    await window.anticode.setRotation([])
+    await window.anticode.setRotation([{ provider: 'clinepass', model: 'test-model' }])
     await window.anticode.setRotationEnabled(false)
   }); await window.waitForTimeout(200)
   await limeOnHover('settings: version line', window.locator('button.mt-auto'))

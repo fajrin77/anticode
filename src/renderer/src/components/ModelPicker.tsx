@@ -27,19 +27,17 @@ export function ModelPicker({
   const provider = status?.provider ?? 'anthropic'
   const rotating = provider === ROTATE_PROVIDER
   const pool = status?.rotation ?? []
-  // The models ticked in Settings → Models for this provider are the whole
-  // list: a catalogue of hundreds is chosen from there, not from here. Until
-  // something is ticked the list is empty.
+  // The models switched on in Settings → Models for this provider are the
+  // whole list: a catalogue of hundreds is chosen from there, not from here.
+  // Until something is switched on the list is empty — and the session's model
+  // is always one of these (or none), so nothing else ever shows.
   const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
   const providerLabel = providers.find((entry) => entry.id === provider)?.label ?? provider
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    // The session's own model stays in view even when it was not ticked.
-    const current = status?.model !== undefined && status.model !== '' && !picked.includes(status.model) ? [status.model] : []
-    const models = [...current, ...picked]
-    return needle === '' ? models : models.filter((id) => id.toLowerCase().includes(needle))
-  }, [query, picked.join('\n'), status?.model])
+    return needle === '' ? picked : picked.filter((id) => id.toLowerCase().includes(needle))
+  }, [query, picked.join('\n')])
 
   const typedIsNew = query.trim() !== '' && !matches.includes(query.trim())
   const tabs = [
@@ -120,7 +118,7 @@ export function ModelPicker({
               <div data-picker-empty className="px-2 py-3 text-[12px] leading-relaxed text-faint">
                 {query.trim() === ''
                   ? `No ${providerLabel} models chosen yet. Choose the ones you want in Settings → Models.`
-                  : 'No matches. Press Enter to use the id you typed.'}
+                  : 'No matches. Press Enter to add the id you typed and use it.'}
               </div>
             )}
 
@@ -130,7 +128,7 @@ export function ModelPicker({
                 onClick={() => onSelect(provider, query.trim())}
                 className="flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
               >
-                Use this id: {query.trim()}
+                Add and use: {query.trim()}
               </button>
             )}
 

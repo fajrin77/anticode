@@ -43,9 +43,6 @@ import type { ApprovalGate } from './approval/types'
 
 export const policy = new ApprovalPolicy()
 
-/** Above this, a catalogue is a marketplace rather than an account's own list. */
-const AUTO_PICK_LIMIT = 25
-
 /**
  * A rotating session stays on one model for this many prompts before moving
  * on: a follow-up usually builds on the answer before it, and answering it
@@ -184,14 +181,22 @@ function choiceOf(live: LiveSession): ProviderSelection {
   return live.choice ?? current()
 }
 
+/** The models switched on for a provider in Settings → Models, in order. */
+function chosenFor(provider: ProviderId): string[] {
+  return rotationEntries().filter((entry) => entry.provider === provider).map((entry) => entry.model)
+}
+
 /**
- * The model a provider starts on when none was named: the first id the user
- * listed for it in Settings, else the head of a short catalogue.
+ * What a choice amounts to. Only models switched on in Settings → Models are
+ * offered, so only those are used: a session left on any other model — a
+ * provider's listed default, one switched off since — moves to the first one
+ * chosen for its provider, or to none, which asks for a pick. The stored
+ * choice is kept, so switching its model back on brings it back.
  */
-function autoPickFor(provider: ProviderId, models: string[]): string {
-  const listed = listProviders().find((entry) => entry.id === provider)?.defaultModel ?? ''
-  if (listed !== '') return listed
-  return models.length <= AUTO_PICK_LIMIT ? (models[0] ?? '') : ''
+function effective(choice: ProviderSelection): ProviderSelection {
+  if (choice.provider === ROTATE_PROVIDER) return choice
+  const chosen = chosenFor(choice.provider)
+  return chosen.includes(choice.model) ? choice : { provider: choice.provider, model: chosen[0] ?? '' }
 }
 
 /**
@@ -214,12 +219,13 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
       throw new Error('Provider unavailable. Configure its credentials first.')
     }
     const model = next.model.trim()
-    chosen = {
-      provider: next.provider,
-      // Fall back to whatever the catalogue offers so switching provider never
-      // lands on an empty model box the user has to fill in by hand.
-      model: model !== '' ? model : autoPickFor(next.provider, catalogues.get(next.provider)?.models ?? [])
+    // An id typed by hand is chosen by typing it: it joins the models
+    // switched on in Settings → Models, so the composer offers it from now on.
+    if (model !== '' && !chosenFor(next.provider).includes(model)) {
+      setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
     }
+    // No model named: the first one chosen for that provider, or none yet.
+    chosen = { provider: next.provider, model: model !== '' ? model : (chosenFor(next.provider)[0] ?? '') }
   }
 
   pinSessions()
@@ -294,26 +300,8 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
     catalogue = { provider, models: [], error: (error as Error).message }
   }
   catalogues.set(provider, catalogue)
-
-  // A short catalogue is an account's own model list, so its first entry is a
-  // sane automatic pick. A long one is a marketplace of hundreds — choosing
-  // alphabetically there lands on an arbitrary paid model, so the user picks.
-  const active = current()
-  const autoPick = autoPickFor(provider, catalogue.models)
-  if (autoPick === '') return catalogue
-  if (active.provider === provider && active.model === '') {
-    selection = { provider, model: autoPick }
-
-    savePersistedSettings({ provider, model: autoPick })
-  }
-  // A session pinned before the catalogue arrived took the empty model too.
-  let filled = false
-  for (const live of sessions.values()) {
-    if (live.choice?.provider !== provider || live.choice.model !== '') continue
-    live.choice = { provider, model: autoPick }
-    filled = true
-  }
-  if (filled) persistSessions()
+  // The catalogue is only what can be chosen in Settings → Models; it never
+  // picks a model on its own.
   return catalogue
 }
 
@@ -469,7 +457,7 @@ function readiness(
 }
 
 function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
-  const choice = choiceOf(live)
+  const choice = effective(choiceOf(live))
   return {
     ...choice,
     ...readiness(choice, providers),
@@ -495,7 +483,8 @@ function rotationStatus(providers: Providers): RotationEntryStatus[] {
 export function getStatus(sessionId?: string | null): SessionStatus {
   const providers = listProviders()
   const own = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
-  const top = own !== undefined ? choiceStatus(own, providers) : { ...current(), ...readiness(current(), providers), lastUsed: null }
+  const standard = effective(current())
+  const top = own !== undefined ? choiceStatus(own, providers) : { ...standard, ...readiness(standard, providers), lastUsed: null }
   return {
     workspaceRoot,
     provider: top.provider,
@@ -538,7 +527,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
   // picked meanwhile takes over from this session's next prompt.
   if (live.agent !== null && runForSession(sessionId) !== null) return live.agent
 
-  const choice = choiceOf(live)
+  const choice = effective(choiceOf(live))
   let target: ProviderSelection
   let fallback: ProviderFallback | null = null
   if (choice.provider === ROTATE_PROVIDER) {

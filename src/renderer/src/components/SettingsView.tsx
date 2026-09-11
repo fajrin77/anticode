@@ -52,14 +52,14 @@ function Toggle({
       title={title}
       {...data}
       onClick={() => onChange(!on)}
-      className={`group/switch h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${on ? 'bg-brand' : 'glass-control border'}`}
+      className={`group/switch h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors ${on ? 'border-brand bg-brand' : 'glass-control'}`}
     >
       {/* On the lime track the knob goes dark: white on lime is all but
           invisible, and dark-on-lime is what every other lime control does.
           Off, the knob is what lights up under the cursor. */}
       <span
         className={`block h-4 w-4 rounded-full shadow transition-[transform,background-color] ${
-          on ? 'translate-x-4 bg-bg' : 'translate-x-0 bg-white group-hover/switch:bg-brand'
+          on ? 'translate-x-3.5 bg-bg' : 'translate-x-0 bg-white group-hover/switch:bg-brand'
         }`}
       />
     </button>
@@ -883,12 +883,16 @@ function Models({
                 disabled={!entry.credentialAvailable}
                 title={entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}`}
                 onClick={() => setProvider(entry.id)}
-                className={`rounded-lg px-3 py-1.5 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:text-faint ${
-                  entry.id === provider ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
+                className={`rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:text-faint ${
+                  entry.id === provider ? 'glass-control text-text' : 'border-transparent text-dim hover:bg-raised hover:text-brand'
                 }`}
               >
                 {entry.label}
-                {count > 0 && <span className="ml-1.5 text-faint">{count}</span>}
+                {/* The count keeps its room at zero, so switching a model on
+                    never pushes the tabs after it sideways. */}
+                <span className={`ml-1.5 inline-block min-w-[1ch] tabular-nums text-faint ${count > 0 ? '' : 'invisible'}`}>
+                  {count}
+                </span>
               </button>
             )
           })}
@@ -914,7 +918,7 @@ function Models({
               key={String(only)}
               type="button"
               onClick={() => setPickedOnly(only)}
-              className={`rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
+              className={`rounded-md px-3 py-1.5 text-[12.5px] tabular-nums transition-colors ${
                 pickedOnly === only ? 'glass-control text-text' : 'text-dim hover:text-brand'
               }`}
             >
@@ -1157,7 +1161,9 @@ export function SettingsView({
               type="button"
               onClick={() => setSection(item.id)}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] transition-colors ${
-                section === item.id ? 'glass-control border text-text' : 'text-dim hover:bg-raised hover:text-brand'
+                section === item.id
+                  ? 'glass-control border text-text'
+                  : 'border border-transparent text-dim hover:bg-raised hover:text-brand'
               }`}
             >
               {item.icon}
@@ -1178,7 +1184,9 @@ export function SettingsView({
         </div>
       </aside>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10">
+      {/* The scrollbar's room is kept whether or not a page needs it, so a
+          short page and a long one line up to the pixel. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10 [scrollbar-gutter:stable]">
         <div className="mx-auto max-w-2xl">
           {section === 'general' && (
             <General status={status} providers={providers} onToggleAutoApprove={onToggleAutoApprove} />

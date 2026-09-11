@@ -117,12 +117,39 @@ it('keeps a draft’s model when it is rebound to its folder on first send', () 
   expect(modelOf('a')).toBe('m2')
 })
 
-it('starts a provider picked without a model on the first model listed for it', () => {
+it('starts a provider picked without a model on the first model chosen for it', () => {
+  applyRotation([{ provider: 'two', model: 'm2b' }, { provider: 'two', model: 'm2' }])
   selectProvider({ provider: 'two', model: '' })
-  expect(getStatus().model).toBe('m2')
+  expect(getStatus().model).toBe('m2b')
+})
+
+it('uses no model a provider lists until one is chosen in Settings → Models', () => {
+  applyRotation([])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  // m1 is the provider's listed default, and the session's own pick, but
+  // nothing is switched on: the composer offers nothing and asks for a pick.
+  expect(getStatus('a')).toMatchObject({ provider: 'one', model: '', providerReady: false })
+  expect(getStatus('a').blockedReason).toMatch(/Settings → Models/)
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  expect(getStatus('a')).toMatchObject({ model: 'm1', providerReady: true })
+})
+
+it('moves a session off a model once it is switched off', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'one', model: 'm1b' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: 'one', model: 'm1b' }, 'a')
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  expect(modelOf('a')).toBe('m1')
+})
+
+it('chooses an id typed by hand, so the composer offers it', () => {
+  selectProvider({ provider: 'two', model: 'typed/model' })
+  expect(getStatus().model).toBe('typed/model')
+  expect(getStatus().rotation.some((entry) => entry.provider === 'two' && entry.model === 'typed/model')).toBe(true)
 })
 
 it('refuses Rotate while the pool is empty', () => {
+  applyRotation([])
   expect(() => selectProvider({ provider: ROTATE_PROVIDER, model: '' })).toThrow(/Rotate usage/)
 })
 

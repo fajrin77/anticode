@@ -62,6 +62,8 @@ const stub = createServer(async (req, res) => {
 await new Promise(r=>stub.listen(0,'127.0.0.1',r))
 const stubPort = stub.address().port
 const bootstrap = path.join(directory, 'bootstrap.cjs')
+// Only models switched on in Settings → Models are used; the fixture model is one.
+await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ rotation: { entries: [{ provider: 'clinepass', model: 'test-model' }], usage: {} } }))
 await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); import(${JSON.stringify(path.resolve('out/main/index.js'))});`)
 const env = {...process.env, CLINEPASS_API_KEY:'fixture-key', CLINEPASS_BASE_URL:`http://127.0.0.1:${stubPort}/v1`, CLINEPASS_MODEL:'test-model', ANTICODE_REMOTE_PORT:'18680'}
 delete env.ELECTRON_RUN_AS_NODE
@@ -712,11 +714,13 @@ try {
     await screen.waitForFunction(() => !document.getElementById('transcript').textContent.includes('to be reverted'), null, { timeout: 5000 })
     log('a turn reverted on the desktop disappears from the phone')
 
-    // Model selection follows the main process while the chat remains open.
-    await window.evaluate(() => window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model' }))
+    // A model picked on the desktop for the session open on the phone reaches
+    // the phone while the chat remains open. Each session keeps its own model,
+    // so the pick names the session.
+    await window.evaluate((id) => window.anticode.selectProvider({ provider: 'clinepass', model: 'test-model' }, id), sessionId)
     await screen.waitForFunction(() => modelInfo?.model === 'test-model')
     const longModel = 'claude-opus-thinking-with-a-very-long-context-name'
-    await window.evaluate((model) => window.anticode.selectProvider({ provider: 'clinepass', model }), longModel)
+    await window.evaluate(([model, id]) => window.anticode.selectProvider({ provider: 'clinepass', model }, id), [longModel, sessionId])
     await screen.waitForFunction((model) => modelInfo?.model === model, longModel)
     await screen.waitForFunction(() => document.getElementById('modelChip').classList.contains('clipped'))
     const modelWidth = await screen.$eval('#modelChip', (el) => el.getBoundingClientRect().width)
@@ -866,13 +870,14 @@ try {
     await screen.selectOption('#provKind', 'ollama')
     await screen.fill('#provURL', 'http://127.0.0.1:9/v1')
     await screen.click('#secProviders .actions button')
-    await screen.waitForFunction(() => [...document.querySelectorAll('#providerList .nm')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
+    await screen.waitForFunction(() => [...document.querySelectorAll('#providerList .nm > :first-child')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
     assert.ok((await window.evaluate(() => window.anticode.listProviders())).some((p) => p.label === 'Phone Local'))
     await screen.evaluate(() => document.querySelector('#settingsSheet .sheet').scrollTo(0, 0))
     await screen.screenshot({ path: path.join(directory, 'phone-settings.png') })
     screen.once('dialog', (dialog) => void dialog.accept())
-    await screen.click('#providerList .prow:has(.nm:text-is("Phone Local")) .px')
-    await screen.waitForFunction(() => ![...document.querySelectorAll('#providerList .nm')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
+    // A row shows its name over its address; the name is what is matched.
+    await screen.click('#providerList .prow:has(.nm > :first-child:text-is("Phone Local")) .px')
+    await screen.waitForFunction(() => ![...document.querySelectorAll('#providerList .nm > :first-child')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
     assert.ok(!(await window.evaluate(() => window.anticode.listProviders())).some((p) => p.label === 'Phone Local'))
     await screen.click('#settingsSheet .shead button')
     log('the phone adds and removes a provider, and the desktop list follows')

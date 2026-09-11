@@ -69,6 +69,28 @@ kejadian yang berbeda.
 Setiap kontrol baru yang menonjol sebaiknya ikut diperiksa di sana, supaya
 aturan ini tidak pelan-pelan luntur.
 
+## Aturan tata letak: memilih tidak boleh menggeser apa pun
+
+Mengklik tab, item menu, switch, atau model tidak boleh membuat kotak, tabel,
+atau teks di sekitarnya bergeser walau satu piksel. Keadaan aktif dan tidak
+aktif harus berukuran sama persis:
+
+- **Border sama di kedua keadaan.** Kalau yang aktif memakai `glass-control border`,
+  yang tidak aktif memakai `border border-transparent` (atau `glass-ghost`, yang
+  sudah punya border transparan). Border yang muncul hanya saat aktif menggeser
+  isi 1px — itu yang membuat menu terlihat "goyang" dan tidak lurus.
+- **Area scroll menyimpan tempat scrollbar-nya.** Container `overflow-y-auto`
+  yang isinya bisa pendek atau panjang (halaman Settings, panel) memakai
+  `[scrollbar-gutter:stable]`, supaya halaman pendek dan panjang sejajar.
+- **Angka dan label yang muncul-hilang tetap memakan tempat.** Hitungan seperti
+  "moonshot 1" dirender selalu, `invisible` saat nol, dengan `tabular-nums`;
+  jangan pasang `{count > 0 && …}` di dalam tab yang berderet.
+- **Switch dan knob-nya di tempat yang sama.** On dan off memakai border yang
+  sama, jadi knob tidak melompat 1px saat berganti warna.
+
+Periksa dengan berpindah antar-bagian Settings dan menyalakan/mematikan model:
+tidak ada yang boleh bergerak kecuali yang diklik.
+
 ## Commit
 
 Pengguna biasanya mengumpulkan beberapa perubahan dulu baru commit sekaligus.
