@@ -464,7 +464,7 @@ describe('attachment handler', () => {
 
   it('refuses a file over the size limit', async () => {
     const file = path.join(root, 'besar.bin')
-    await writeFile(file, Buffer.alloc(21 * 1024 * 1024))
+    await writeFile(file, Buffer.alloc(101 * 1024 * 1024))
     await expect(prepareAttachment(file, root)).rejects.toThrow(/too large/)
   })
 })
