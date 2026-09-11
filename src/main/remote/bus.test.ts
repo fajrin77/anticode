@@ -7,7 +7,7 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../runtime', () => ({
   getStatus: () => ({}), recordRunSummary: mocks.record,
-  loadSessionMessages: () => mocks.messages, loadSessionSummaries: () => []
+  loadSessionMessages: () => mocks.messages, loadSessionSummaries: () => [], sessionTitle: () => 'session'
 }))
 import { forward, registerRun, sessionSnapshot, subscribe, forgetRun } from './bus'
 import { beginRun, finishRun } from '../runs'

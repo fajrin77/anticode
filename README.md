@@ -50,6 +50,12 @@ dengan segmen terpisah untuk token masuk dan keluar.
 
 Tekan **Cmd/Ctrl+Shift+Space** dari aplikasi lain untuk memunculkan anticode.
 
+**Notifikasi.** Settings → General → **Notifications** mengatur semua notifikasi sistem di satu tempat:
+saklar induk untuk membisukan semuanya, lalu per jenis — run selesai (nama sesi dan durasinya), run
+gagal (beserta error-nya), tool menunggu approval, dan update tersedia — ditambah suara dan "Only when
+anticode is in the background" (on). Mengklik notifikasi membuka jendela utama tepat di sesinya, sesi
+yang diarsipkan ikut dimunculkan kembali. Pause tidak lagi memicu notifikasi "stopped".
+
 **Menu bar dan quick capture.** anticode memasang ikon di menu bar (tray di Windows/Linux; bisa
 dimatikan di Settings → General → Menu bar icon). Menunya berisi **Quick capture…**, **Show anticode**,
 enam sesi terakhir (● = sedang bekerja) yang langsung terbuka di jendela utama, dan Quit. Quick capture

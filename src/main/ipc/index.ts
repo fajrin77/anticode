@@ -1,12 +1,14 @@
 import {
   cancelRun,
   runForSession,
+  sessionOfRun,
   listActiveRuns,
   listPausedSessions,
   pauseSession,
   setPauseSink
 } from '../runs'
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { notify } from '../notify'
 import path from 'node:path'
 import { copyFile, readFile, stat, writeFile } from 'node:fs/promises'
 import type { WebContents } from 'electron'
@@ -97,14 +99,14 @@ import type { SessionSnapshot, SnapshotBlock } from '@shared/ipc'
 
 let lastSender: WebContents | null = null
 
-function notifyWhenAway(title: string, body: string): void {
-  if (BrowserWindow.getFocusedWindow() !== null || !Notification.isSupported()) return
-  new Notification({ title, body }).show()
-}
 
 const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSender.isDestroyed() ? lastSender : mainWindow()?.webContents ?? null, (requestId) => {
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IpcChannel.APPROVAL_DISMISSED, requestId)
-}, (request) => notifyWhenAway('anticode needs approval', `${request.toolName} is waiting for your decision.`))
+}, (request) => notify('approval', {
+  title: 'anticode needs approval',
+  body: `${request.toolName.replace(/^mcp__(.+?)__(.+)$/, '$2 (MCP $1)')} is waiting for your decision.`,
+  sessionId: sessionOfRun(request.runId)
+}))
 
 /** The remote server reuses the same gate and targets the desktop window. */
 export { approvals }

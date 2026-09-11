@@ -34,6 +34,9 @@ export function beginRun(runId: string, sessionId: string): AbortController {
 }
 export function finishRun(runId: string): void { runs.delete(runId) }
 export function cancelRun(runId: string): void { runs.get(runId)?.controller.abort() }
+export function sessionOfRun(runId: string): string | null {
+  return runs.get(runId)?.sessionId ?? null
+}
 export function runForSession(sessionId: string): string | null {
   for (const [id, run] of runs) if (run.sessionId === sessionId) return id
   return null

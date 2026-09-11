@@ -9,14 +9,18 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
  * module only keeps and announces them.
  */
 
-const DEFAULTS: AppPreferences = { tray: true, instructions: '' }
+const DEFAULTS: AppPreferences = {
+  tray: true,
+  instructions: '',
+  notifications: { enabled: true, complete: true, error: true, approval: true, update: true, sound: true, background: true }
+}
 
 type Listener = (next: AppPreferences, previous: AppPreferences) => void
 const listeners: Listener[] = []
 
 export function preferences(): AppPreferences {
   const saved = loadPersistedSettings().preferences ?? {}
-  return { ...DEFAULTS, ...saved }
+  return { ...DEFAULTS, ...saved, notifications: { ...DEFAULTS.notifications, ...(saved.notifications ?? {}) } }
 }
 
 export function onPreferences(listener: Listener): void {
@@ -29,7 +33,17 @@ export function setPreferences(patch: Record<string, unknown>): AppPreferences {
   const next: AppPreferences = { ...previous }
   for (const key of Object.keys(DEFAULTS) as (keyof AppPreferences)[]) {
     const value = patch[key]
+    if (key === 'notifications') continue
     if (value !== undefined && typeof value === typeof DEFAULTS[key]) (next as unknown as Record<string, unknown>)[key] = value
+  }
+  // Notification switches are merged one by one, so a patch names only what changed.
+  const notifications = patch['notifications']
+  if (notifications !== null && typeof notifications === 'object') {
+    for (const [name, value] of Object.entries(notifications as Record<string, unknown>)) {
+      if (name in DEFAULTS.notifications && typeof value === 'boolean') {
+        next.notifications = { ...next.notifications, [name]: value }
+      }
+    }
   }
   if (next.instructions.length > INSTRUCTIONS_MAX_CHARS) {
     throw new Error(`Keep instructions under ${INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US')} characters`)

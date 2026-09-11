@@ -106,6 +106,38 @@ function General({
           <Toggle on={preferences?.tray === true} onChange={(value) => change({ tray: value })} />
         </SettingRow>
       </div>
+
+      <h2 className="mb-1 text-[14px] text-text">Notifications</h2>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        System notifications for what happens while you look elsewhere. Clicking one opens the session it is about.
+      </p>
+      <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
+        <SettingRow title="Notifications" hint="Off mutes every kind below at once">
+          <Toggle
+            on={preferences?.notifications.enabled === true}
+            onChange={(value) => change({ notifications: { ...preferences!.notifications, enabled: value } })}
+          />
+        </SettingRow>
+        {(
+          [
+            ['complete', 'A run finishes', 'With the session name and how long it took'],
+            ['error', 'A run fails', 'With the error it stopped on'],
+            ['approval', 'A tool waits for approval', 'The session stays paused on it until you decide'],
+            ['update', 'An update is available', 'From the source in Settings → Updates'],
+            ['sound', 'Play a sound', 'The system notification sound'],
+            ['background', 'Only when anticode is in the background', 'Off, they show even while you are looking at anticode']
+          ] as const
+        ).map(([key, title, hint]) => (
+          // A wrapper would break the rows' dividers; each row is its own item.
+          <SettingRow key={key} title={title} hint={hint}>
+            <Toggle
+              on={preferences?.notifications[key] === true}
+              onChange={(value) => change({ notifications: { ...preferences!.notifications, [key]: value } })}
+              label={title}
+            />
+          </SettingRow>
+        ))}
+      </div>
     </>
   )
 }

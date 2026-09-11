@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Notification } from 'electron'
+import { app, BrowserWindow } from 'electron'
+import { notify } from './notify'
 import path from 'node:path'
 import { IpcChannel } from '@shared/ipc'
 import type { UpdateSettings, UpdateState } from '@shared/ipc'
@@ -116,9 +117,9 @@ export async function checkForUpdates(): Promise<UpdateState> {
     asset = found
     if (!same) downloaded = null
     publish({ status: same ? 'ready' : 'available', latest: found.version, notes: found.notes, checkedAt, progress: null })
-    if (announcedVersion !== found.version && Notification.isSupported()) {
+    if (announcedVersion !== found.version) {
       announcedVersion = found.version
-      new Notification({ title: 'anticode', body: `Version ${found.version} is available.` }).show()
+      notify('update', { title: 'anticode', body: `Version ${found.version} is available — Settings → Updates.` })
     }
     if (!same && updateState().autoDownload) return downloadUpdate()
     return updateState()

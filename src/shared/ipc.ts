@@ -531,9 +531,21 @@ export interface PricedModel extends ProviderSelection {
 }
 
 /** App-wide choices from Settings → General. */
+export type NotificationKind = 'complete' | 'error' | 'approval' | 'update'
+
+/** Which system notifications show, and how. Clicking one opens its session. */
+export interface NotificationSettings extends Record<NotificationKind, boolean> {
+  /** Off mutes every kind at once. */
+  enabled: boolean
+  sound: boolean
+  /** Only while anticode is not the focused app. */
+  background: boolean
+}
+
 export interface AppPreferences {
   /** An icon in the menu bar (the tray elsewhere) with quick capture and recent sessions. */
   tray: boolean
+  notifications: NotificationSettings
   /** Added to every session's system prompt, antichat and anticode alike. */
   instructions: string
 }

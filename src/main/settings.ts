@@ -15,7 +15,9 @@ export interface PersistedSettings {
   remote?: RemoteSettings
   rotation?: PersistedRotation
   updates?: { source: string; autoCheck: boolean; autoDownload: boolean }
-  preferences?: Partial<import('@shared/ipc').AppPreferences>
+  preferences?: Partial<Omit<import('@shared/ipc').AppPreferences, 'notifications'>> & {
+    notifications?: Partial<import('@shared/ipc').NotificationSettings>
+  }
   /** Prices typed in Settings → Pricing, dollars per million tokens, by model id. */
   pricing?: Record<string, import('@shared/ipc').ModelPrice>
 }

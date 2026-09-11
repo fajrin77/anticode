@@ -421,6 +421,12 @@ function titleFor(live: LiveSession): string {
   return live.agent?.title ?? titleOf(live.messages)
 }
 
+/** A session's name as every viewer shows it; '' for one that is gone. */
+export function sessionTitle(sessionId: string): string {
+  const live = sessions.get(sessionId)
+  return live === undefined ? '' : titleFor(live)
+}
+
 function specOf(live: LiveSession): SessionSpec {
   return { ...live.spec, title: titleFor(live) }
 }

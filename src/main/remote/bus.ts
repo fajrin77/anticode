@@ -1,9 +1,10 @@
-import { BrowserWindow, Notification } from 'electron'
+import { BrowserWindow } from 'electron'
+import { notify } from '../notify'
 import { IpcChannel } from '@shared/ipc'
 import type { AgentEvent, QueuedPrompt, SessionPause, SessionQueue, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
 import { listQueue } from '../queue'
 import { costOf } from '../pricing'
-import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries } from '../runtime'
+import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries, sessionTitle } from '../runtime'
 import { clearPause, isPaused, runForSession } from '../runs'
 
 /**
@@ -136,15 +137,18 @@ export function forward(event: AgentEvent): void {
     // Paused just as the run was finishing on its own: it finished, so there
     // is nothing left to resume on either screen.
     if (event.type === 'error' || event.reason !== 'cancelled') clearPause(sessionId)
-    const focused = (BrowserWindow as typeof BrowserWindow & { getFocusedWindow?: () => unknown }).getFocusedWindow
-    const supported = (Notification as typeof Notification | undefined)?.isSupported
-    if (focused?.() === null && supported?.()) {
-      const body = event.type === 'error'
-        ? 'A run stopped with an error.'
-        : event.reason === 'complete'
-          ? 'Your run finished.'
-          : `Your run stopped: ${event.reason}.`
-      new Notification({ title: 'anticode', body }).show()
+    // A pause is the user's own doing; nobody needs telling about it.
+    if (!(event.type === 'end' && event.reason === 'cancelled')) {
+      const title = sessionTitle(sessionId)
+      notify(event.type === 'error' ? 'error' : 'complete', {
+        title: title === '' ? 'anticode' : title,
+        body: event.type === 'error'
+          ? `Stopped with an error: ${event.message.slice(0, 160)}`
+          : event.reason === 'complete'
+            ? `Finished${summary !== undefined ? ` in ${Math.max(1, Math.round(summary.durationMs / 1000))}s` : ''}.`
+            : `Stopped: ${event.reason}.`,
+        sessionId
+      })
     }
   }
 
