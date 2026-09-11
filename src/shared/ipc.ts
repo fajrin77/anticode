@@ -444,6 +444,8 @@ export type AgentEvent =
   | { type: 'steer_taken'; runId: string }
   | { type: 'text_delta'; runId: string; text: string }
   | { type: 'tool_start'; runId: string; toolUseId: string; name: string; input: unknown }
+  /** A line of progress from a tool still running — a sub-agent's steps. */
+  | { type: 'tool_progress'; runId: string; toolUseId: string; text: string }
   | {
       type: 'tool_end'
       runId: string
@@ -459,6 +461,11 @@ export type AgentEvent =
       model: string
       inputTokens: number
       outputTokens: number
+      /**
+       * Spent by a sub-agent. It counts toward the run's cost, but its request
+       * is not the session's context, so the context meter ignores it.
+       */
+      subagent?: boolean
     }
   | { type: 'end'; runId: string; reason: AgentEndReason; summary?: RunSummary }
   | { type: 'error'; runId: string; message: string; summary?: RunSummary }

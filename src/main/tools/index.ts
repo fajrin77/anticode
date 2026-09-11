@@ -27,9 +27,11 @@ import {
 } from './browser'
 import type { Tool } from './types'
 import { todoWriteTool } from './todoWrite'
+import { taskTool } from './task'
 
 export const tools: Tool[] = [
   todoWriteTool,
+  taskTool,
   readFileTool,
   writeFileTool,
   editFileTool,
@@ -79,16 +81,38 @@ const CHAT_TOOL_NAMES = new Set([
   'fill_pdf_form'
 ])
 
+/**
+ * A sub-agent's kit: reading only. No editing, no terminal, no browser page
+ * (it is shared with the parent), and no `task` of its own — one level deep.
+ */
+const SUBAGENT_TOOL_NAMES = new Set([
+  'read_file',
+  'list_directory',
+  'search_files',
+  'read_excel',
+  'read_docx',
+  'read_pdf',
+  'fetch_url'
+])
+
 export function toolsFor(mode: SessionMode): Tool[] {
   return mode === 'chat' ? tools.filter((tool) => CHAT_TOOL_NAMES.has(tool.name)) : tools
 }
 
-export function toolDefinitions(mode: SessionMode = 'code'): ToolDefinition[] {
-  return toolsFor(mode).map((tool) => ({
+export function subagentTools(): Tool[] {
+  return tools.filter((tool) => SUBAGENT_TOOL_NAMES.has(tool.name))
+}
+
+export function definitionsOf(list: Tool[]): ToolDefinition[] {
+  return list.map((tool) => ({
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema
   }))
+}
+
+export function toolDefinitions(mode: SessionMode = 'code'): ToolDefinition[] {
+  return definitionsOf(toolsFor(mode))
 }
 
 export { type Tool, ToolError } from './types'

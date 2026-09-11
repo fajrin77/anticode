@@ -5,8 +5,9 @@ import path from 'node:path'
 import type { AgentEvent, SessionMode } from '@shared/ipc'
 import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
 import type { ContentBlock, LLMProvider, LLMResponse, Message } from '../providers/types'
-import { toolDefinitions, toolsFor } from '../tools'
+import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
 import type { Tool } from '../tools'
+import type { DelegatedTask } from '../tools/types'
 import type { ApprovalGate } from '../approval/types'
 
 const MAX_TOKENS = 32_000
@@ -25,6 +26,12 @@ const STUB_MIN_LENGTH = STUB_CHARS + 400
 /** Leave room for the system prompt, tool schemas, and the next response. */
 const COMPACTION_TARGET = Math.floor(MAX_HISTORY_TOKENS * 0.72)
 const MEMORY_MAX_CHARS = 12_000
+/**
+ * A sub-agent answers one question, so unlike a run it has a ceiling: past
+ * this many requests it is told to report, and a little later it is stopped.
+ */
+const SUBAGENT_MAX_STEPS = 30
+const SUBAGENT_GRACE_STEPS = 2
 /*
  * A run has no turn or token ceiling. Long work has to be allowed to finish,
  * and a cap that stops it mid-task costs more than it saves — the work is
@@ -48,6 +55,13 @@ type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
  * or null when there is none left and the failure should stand.
  */
 export type ProviderFallback = (error: unknown) => LLMProvider | null
+
+export interface AgentOptions {
+  /** Replaces the mode's tool set — a sub-agent gets the read-only kit. */
+  tools?: Tool[]
+  /** Answers one question for a parent run, then stops; it has a step ceiling. */
+  subagent?: boolean
+}
 
 /**
  * How a follow-up reads to the model: an addition to the task in hand, not a
@@ -166,9 +180,10 @@ export class AgentSession {
     private readonly mode: SessionMode = 'code',
     private readonly workspaceRoot: string | null = null,
     initialHistory: Message[] = [],
-    private readonly scope: string = randomUUID()
+    private readonly scope: string = randomUUID(),
+    private readonly options: AgentOptions = {}
   ) {
-    this.byName = new Map(toolsFor(mode).map((tool) => [tool.name, tool]))
+    this.byName = new Map((options.tools ?? toolsFor(mode)).map((tool) => [tool.name, tool]))
     this.history.push(...structuredClone(initialHistory))
     this.transcript.push(...this.history)
     this.sealPendingToolUses()
@@ -258,9 +273,15 @@ export class AgentSession {
       content: [...(params.attachments ?? []), { type: 'text', text: prompt }]
     })
 
+    let steps = 0
     try {
       for (;;) {
         if (signal.aborted) break
+        steps += 1
+        if (this.options.subagent === true && steps > SUBAGENT_MAX_STEPS + SUBAGENT_GRACE_STEPS) {
+          emit({ type: 'end', runId, reason: 'max_tokens' })
+          return
+        }
 
         this.condenseHistory()
         this.trimHistory()
@@ -300,7 +321,11 @@ export class AgentSession {
         // Follow-ups ride in the same user turn as the tool results, after
         // them: the model reads what its tools did, then what was added.
         const added = signal.aborted ? [] : takeIn()
-        this.record({ role: 'user', content: [...results, ...this.pendingImages, ...added] })
+        const limit: ContentBlock[] =
+          this.options.subagent === true && steps >= SUBAGENT_MAX_STEPS
+            ? [{ type: 'text', text: '[Step limit reached. Do not call any more tools — write your final report now.]' }]
+            : []
+        this.record({ role: 'user', content: [...results, ...this.pendingImages, ...added, ...limit] })
         this.pendingImages = []
       }
     } catch (error) {
@@ -345,7 +370,7 @@ export class AgentSession {
 
     const iterator = this.provider.chat({
       system: this.systemPrompt(), messages: this.history,
-      tools: toolDefinitions(this.mode),
+      tools: definitionsOf([...this.byName.values()]),
       maxTokens: MAX_TOKENS, signal: params.signal
     })[Symbol.asyncIterator]()
     let rejectAbort: (reason: unknown) => void = () => {}
@@ -487,7 +512,15 @@ export class AgentSession {
     if (this.workspaceRoot === null) {
       return this.finishCall(params, call.id, 'This session has no file access.', true)
     }
-    const context = { workspaceRoot: this.workspaceRoot, signal: params.signal, sessionId: this.scope }
+    const context = {
+      workspaceRoot: this.workspaceRoot,
+      signal: params.signal,
+      sessionId: this.scope,
+      // One level deep: a sub-agent has no `task` tool, and no delegate either.
+      ...(this.options.subagent === true
+        ? {}
+        : { delegate: (task: DelegatedTask) => this.runSubagent(task, call.id, params) })
+    }
 
     try {
       const prepared = tool.prepare(call.input)
@@ -522,6 +555,47 @@ export class AgentSession {
     } catch (error) {
       return this.finishCall(params, call.id, describeError(error), true)
     }
+  }
+
+  /**
+   * Runs one `task` in a child session: same model, same folder, a fresh
+   * history, read-only tools. Its steps are reported as progress on the call
+   * that started it and its tokens count toward this run, but only its final
+   * report comes back — that is what keeps the parent's context small.
+   */
+  private async runSubagent(task: DelegatedTask, toolUseId: string, params: RunParams): Promise<string> {
+    const child = new AgentSession(this.provider, this.gate, 'code', this.workspaceRoot, [], this.scope, {
+      tools: subagentTools(),
+      subagent: true
+    })
+    child.projectInstructions = this.loadProjectInstructions()
+    let calls = 0
+    // Held in an object: assignments inside the emit callback are invisible to
+    // control-flow narrowing, which would otherwise pin it to null.
+    const outcome: { failure: string | null } = { failure: null }
+    await child.run({
+      runId: params.runId,
+      prompt: task.prompt,
+      signal: params.signal,
+      emit: (event) => {
+        if (event.type === 'tool_start') {
+          calls += 1
+          params.emit({ type: 'tool_progress', runId: params.runId, toolUseId, text: `${event.name} ${subjectOf(event.input)}`.trim() })
+        } else if (event.type === 'usage') {
+          params.emit({ ...event, subagent: true })
+        } else if (event.type === 'error') {
+          outcome.failure = event.message
+        } else if (event.type === 'end' && event.reason !== 'complete') {
+          outcome.failure = event.reason === 'max_tokens' ? 'step limit reached' : event.reason
+        }
+      }
+    })
+    params.signal.throwIfAborted()
+    const { failure } = outcome
+    const report = finalText(child.transcript)
+    if (report === '') throw new ToolError(`Sub-agent "${task.description}" returned no report${failure !== null ? `: ${failure}` : ''}`)
+    const note = failure !== null ? ` · stopped early: ${failure}` : ''
+    return `${report}\n\n[sub-agent · ${calls} tool ${calls === 1 ? 'call' : 'calls'}${note}]`
   }
 
   private finishCall(
@@ -674,6 +748,25 @@ export class AgentSession {
   get contextTokens(): number { return replayCost(this.history) }
 
   private systemPrompt(): string {
+    if (this.options.subagent === true) {
+      const lines = [
+        'You are a sub-agent of anticode, sent by the main agent to investigate one question in a project folder.',
+        `Workspace root: ${this.workspaceRoot}`,
+        `Operating system: ${process.platform}`,
+        '',
+        'Rules:',
+        '- You can only read: files, folders, workspace search, Excel/Word/PDF, and URLs. You cannot edit or run anything.',
+        '- Every path is relative to the workspace root. Search before reading; issue independent calls together.',
+        '- Nobody can answer questions from you. Make reasonable assumptions and note them.',
+        '- Stop as soon as you can answer. Your final reply is your report, and it is all the main agent sees: ' +
+          'it cannot see the files you read. Make it self-contained and concise — findings, file paths with line ' +
+          'numbers, relevant snippets, and anything you could not confirm.',
+        '- Do not use emojis or decorative symbols.'
+      ]
+      const instructions = this.loadProjectInstructions()
+      if (instructions !== null) lines.push('', `Rules from the project:\n\n${instructions}`)
+      return lines.join('\n')
+    }
     if (this.mode === 'chat') {
       return [
         'You are antichat, the ask-and-answer mode of anticode.',
@@ -706,6 +799,8 @@ export class AgentSession {
       '- Work in as few steps as possible: issue independent tool calls together in one turn ' +
         'and combine related shell commands into one.',
       '- For work with three or more meaningful steps, use todo_write before editing and keep it current.',
+      '- For broad exploration across many files, delegate to the task tool — several task calls in one turn ' +
+        'run in parallel — and keep your own context for the work itself.',
       '- Check that a tool or dependency already exists before installing or re-running it.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
@@ -732,6 +827,31 @@ export function titleOf(messages: Message[]): string {
   const first = messages.find((message) => message.role === 'user')
   const typed = first?.content.find((block) => block.type === 'text' && block.attachment === undefined)
   return typed?.type === 'text' ? typed.text.slice(0, 60) : 'New session'
+}
+
+/** What a sub-agent step was about, for its one-line progress entry. */
+function subjectOf(input: unknown): string {
+  if (input === null || typeof input !== 'object') return ''
+  const record = input as Record<string, unknown>
+  for (const key of ['path', 'query', 'pattern', 'url']) {
+    const value = record[key]
+    if (typeof value === 'string') return value.slice(0, 160)
+  }
+  return ''
+}
+
+/** The words of the last assistant turn that said anything. */
+function finalText(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== 'assistant') continue
+    const text = message.content
+      .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+      .join('\n')
+      .trim()
+    if (text !== '') return text
+  }
+  return ''
 }
 
 function messageCost(message: Message): number {

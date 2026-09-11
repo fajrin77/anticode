@@ -306,11 +306,14 @@ export function App(): JSX.Element {
           case 'tool_start':
             store.startTool(run.sessionId, run.messageId, event.toolUseId, event.name, event.input)
             break
+          case 'tool_progress':
+            store.progressTool(run.sessionId, event.toolUseId, event.text)
+            break
           case 'tool_end':
             store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output)
             break
           case 'usage':
-            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`)
+            store.addUsage(run.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent)
             store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
             break
           case 'error':
@@ -368,8 +371,11 @@ export function App(): JSX.Element {
           }
           break
         }
+        case 'tool_progress':
+          store.progressTool(event.sessionId, event.toolUseId, event.text)
+          break
         case 'usage':
-          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`)
+          store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent)
           store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
           break
         case 'error': {

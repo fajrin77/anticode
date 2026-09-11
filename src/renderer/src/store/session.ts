@@ -205,8 +205,12 @@ interface SessionState {
     model: string,
     inputTokens: number,
     outputTokens: number,
-    eventKey?: string
+    eventKey?: string,
+    /** A sub-agent's request: it costs, but it is not this session's context. */
+    subagent?: boolean
   ) => void
+  /** A running tool reported a step — a sub-agent reading a file. */
+  progressTool: (sessionId: string, toolUseId: string, text: string) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
   setActiveRun: (run: ActiveRun | null, runId?: string) => void
 }
@@ -691,7 +695,26 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       }))
     })),
 
-  addUsage: (sessionId, provider, model, inputTokens, outputTokens, eventKey) =>
+  progressTool: (sessionId, toolUseId, text) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => ({
+        ...session,
+        messages: session.messages.map((message) =>
+          message.parts.some((part) => part.kind === 'tool' && part.toolUseId === toolUseId && part.status === 'running')
+            ? {
+                ...message,
+                parts: message.parts.map((part) =>
+                  part.kind === 'tool' && part.toolUseId === toolUseId && part.status === 'running'
+                    ? { ...part, output: part.output === '' ? text : `${part.output}\n${text}` }
+                    : part
+                )
+              }
+            : message
+        )
+      }))
+    })),
+
+  addUsage: (sessionId, provider, model, inputTokens, outputTokens, eventKey, subagent) =>
     set((state) => {
       if (eventKey !== undefined && state.seenUsageEvents.includes(eventKey)) return state
       const existing = state.usage.find(
@@ -716,9 +739,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           ...session,
           inputTokens: session.inputTokens + inputTokens,
           outputTokens: session.outputTokens + outputTokens,
-          provider,
-          model,
-          lastInputTokens: inputTokens
+          ...(subagent === true ? {} : { provider, model, lastInputTokens: inputTokens })
         }))
       }
     }),

@@ -85,9 +85,11 @@ function breakdownOf(parts: MessagePart[]): string {
   let explore = 0
   let edit = 0
   let code = 0
+  let agents = 0
   for (const part of parts) {
     if (part.kind !== 'tool') continue
-    if (part.name === 'run_command') code += 1
+    if (part.name === 'task') agents += 1
+    else if (part.name === 'run_command') code += 1
     else if (/^(write|edit|delete|add|fill)_/.test(part.name)) edit += 1
     else explore += 1
   }
@@ -95,6 +97,7 @@ function breakdownOf(parts: MessagePart[]): string {
   if (explore > 0) bits.push(`${explore} explored`)
   if (edit > 0) bits.push(`${edit} edited`)
   if (code > 0) bits.push(`${code} code`)
+  if (agents > 0) bits.push(`${agents} ${agents === 1 ? 'agent' : 'agents'}`)
   return bits.length > 0 ? ` · ${bits.join(' · ')}` : ''
 }
 

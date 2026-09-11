@@ -1404,6 +1404,7 @@ async function syncSession(id) {
 
 /* Tool calls fold into three simple groups, mirroring the desktop. */
 function toolCategory(name) {
+  if (name === 'task') return 'agent';
   if (name === 'run_command') return 'code';
   if (/^(write|edit|delete|add|fill)_/.test(name)) return 'edit';
   return 'explore';
@@ -1411,7 +1412,7 @@ function toolCategory(name) {
 
 function toolSubject(item) {
   const input = item.input || {};
-  for (const key of ['command', 'path', 'url', 'query', 'cell']) {
+  for (const key of ['command', 'path', 'url', 'query', 'cell', 'description']) {
     if (typeof input[key] === 'string' && input[key] !== '') return input[key];
   }
   return item.name;
@@ -1637,7 +1638,7 @@ function appendRichText(parent, text) {
 
 /** Which of the three work types a tool belongs to, as a display label. */
 function toolLabel(name) {
-  return { code: 'Code', edit: 'Edit', explore: 'Explore' }[toolCategory(name)];
+  return { agent: 'Agent', code: 'Code', edit: 'Edit', explore: 'Explore' }[toolCategory(name)];
 }
 
 /** One step inside an open group: its name, subject, and output on tap. */

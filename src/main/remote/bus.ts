@@ -102,10 +102,14 @@ export function forward(event: AgentEvent): void {
   if (event.type === 'prompt') tally(event.runId).startedAt = Date.now()
   else if (event.type === 'usage') {
     const entry = tally(event.runId)
-    entry.model = event.model
     entry.inputTokens += event.inputTokens
     entry.outputTokens += event.outputTokens
-    entry.turns += 1
+    // A sub-agent's request is part of the cost, not an assistant turn of
+    // this session: it must not shift the one-summary-per-turn alignment.
+    if (event.subagent !== true) {
+      entry.model = event.model
+      entry.turns += 1
+    }
   }
 
   if (event.type === 'end' || event.type === 'error') {

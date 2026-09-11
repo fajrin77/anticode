@@ -56,7 +56,7 @@ menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap
 | | antichat | anticode |
 |---|---|---|
 | Folder project | tidak perlu | wajib |
-| Tool | tidak ada sama sekali | kedua puluh empat tool |
+| Tool | tidak ada sama sekali | kedua puluh enam tool |
 | Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
 
 antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider
@@ -165,6 +165,7 @@ Di HP, swipe ke kanan/kiri berpindah sesi — di judul header maupun di mana saj
 | Tool | Fungsi | Tier |
 |---|---|---|
 | `todo_write` | Terbitkan checklist kerja lengkap yang terlihat dan tersimpan di transcript | rendah |
+| `task` | Kirim satu pertanyaan ke sub-agent read-only; hanya laporannya yang kembali | rendah |
 | `read_file` | Baca berkas dengan nomor baris | rendah — jalan tanpa bertanya |
 | `list_directory` | Daftar isi folder | rendah — jalan tanpa bertanya |
 | `search_files` | Cari teks di seluruh workspace, per baris | rendah |
@@ -191,6 +192,15 @@ Di HP, swipe ke kanan/kiri berpindah sesi — di judul header maupun di mana saj
 | `read_network_requests` | Daftar request sejak navigasi terakhir | rendah |
 
 Tool read-only dieksekusi paralel dalam satu giliran; tool yang mengubah dijalankan berurutan.
+
+**Sub-agent.** `task` menjalankan sesi anak dengan model dan folder yang sama, tetapi riwayatnya
+kosong dan tool-nya hanya baca (`read_file`, `list_directory`, `search_files`, `read_excel`,
+`read_docx`, `read_pdf`, `fetch_url`) — tanpa edit, terminal, browser, maupun `task` lagi. Yang
+kembali ke agent utama hanya laporan akhirnya, jadi berkas yang dibaca sub-agent tidak memenuhi
+context utama. Karena `task` terhitung read-only, beberapa `task` dalam satu giliran berjalan
+paralel: itulah "parallel Explore". Langkah sub-agent muncul live di baris **Agent** transkrip,
+tokennya ikut dihitung di baris penutup run tetapi tidak menggeser meter context, dan ia berhenti
+sendiri setelah 30 langkah. antichat tidak ditawari `task`.
 Tool browser (navigate, get_text, screenshot, network) berbagi satu halaman Chromium, jadi mereka
 diperlakukan serial meski tidak mengubah berkas.
 

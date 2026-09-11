@@ -600,6 +600,98 @@ describe('follow-ups sent while a run is working', () => {
   })
 })
 
+describe('sub-agents', () => {
+  /** Answers as the parent or as a sub-agent, depending on whose system prompt it got. */
+  function scripted(): LLMProvider & { childTools: string[][]; active: number; peak: number } {
+    const provider = {
+      name: 'script',
+      model: 'script-model',
+      childTools: [] as string[][],
+      active: 0,
+      peak: 0,
+      async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+        const last = params.messages.at(-1)
+        const answered = last?.content.some((block) => block.type === 'tool_result') === true
+        if (params.system.includes('sub-agent of anticode')) {
+          provider.childTools.push(params.tools.map((tool) => tool.name))
+          provider.active += 1
+          provider.peak = Math.max(provider.peak, provider.active)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          provider.active -= 1
+          const asked = params.messages[0]?.content.find((block) => block.type === 'text')
+          const question = asked?.type === 'text' ? asked.text : ''
+          yield {
+            type: 'response',
+            response: answered
+              ? turn([{ type: 'text', text: `report for ${question}` }], 'end_turn')
+              : turn([{ type: 'tool_use', id: `r-${question}`, name: 'read_file', input: { path: 'a.txt' } }], 'tool_use')
+          }
+          return
+        }
+        yield {
+          type: 'response',
+          response: answered
+            ? turn([{ type: 'text', text: 'merged' }], 'end_turn')
+            : turn([
+                { type: 'tool_use', id: 'task-1', name: 'task', input: { description: 'one', prompt: 'alpha' } },
+                { type: 'tool_use', id: 'task-2', name: 'task', input: { description: 'two', prompt: 'beta' } }
+              ], 'tool_use')
+        }
+      }
+    }
+    return provider
+  }
+
+  it('runs several tasks in parallel and returns only their reports', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'SECRET FILE BODY')
+    const provider = scripted()
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    await session.run({ runId: 'run-1', prompt: 'investigate', signal: new AbortController().signal, emit: (event) => events.push(event) })
+
+    expect(provider.peak).toBe(2)
+    const results = session.snapshot().messages
+      .flatMap((message) => message.content)
+      .filter((block): block is Extract<ContentBlock, { type: 'tool_result' }> => block.type === 'tool_result')
+    expect(results.map((block) => block.content)).toEqual([
+      expect.stringContaining('report for alpha'),
+      expect.stringContaining('report for beta')
+    ])
+    // What the sub-agents read stays in their own context.
+    expect(JSON.stringify(session.snapshot().messages)).not.toContain('SECRET FILE BODY')
+    expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
+  })
+
+  it('gives a sub-agent read-only tools and no task of its own', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'x')
+    const provider = scripted()
+    await new AgentSession(provider, allowAll, 'code', root).run({ runId: 'run-1', prompt: 'go', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    for (const offered of provider.childTools) {
+      expect(offered).toContain('read_file')
+      for (const name of ['task', 'write_file', 'edit_file', 'run_command', 'delete_file', 'browser_navigate']) {
+        expect(offered).not.toContain(name)
+      }
+    }
+  })
+
+  it('reports its steps as progress and its tokens as sub-agent usage', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'x')
+    await new AgentSession(scripted(), allowAll, 'code', root).run({ runId: 'run-1', prompt: 'go', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    const progress = events.filter((event) => event.type === 'tool_progress')
+    expect(progress).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolUseId: 'task-1', text: 'read_file a.txt' }),
+      expect.objectContaining({ toolUseId: 'task-2', text: 'read_file a.txt' })
+    ]))
+    const usage = events.filter((event) => event.type === 'usage')
+    expect(usage.filter((event) => event.type === 'usage' && event.subagent === true)).toHaveLength(4)
+    expect(usage.filter((event) => event.type === 'usage' && event.subagent !== true)).toHaveLength(2)
+  })
+
+  it('is not offered in antichat', () => {
+    const offered = new AgentSession(new FakeProvider([]), allowAll, 'chat', root)
+    expect((offered as unknown as { byName: Map<string, unknown> }).byName.has('task')).toBe(false)
+  })
+})
+
 describe('titleOf', () => {
   it('names a session after the typed prompt, not the file sent with it', () => {
     const attachment = { name: 'Receipt-2844-21.pdf', path: '/tmp/r.pdf', workspacePath: null, kind: 'pdf' as const, size: 1, thumbnail: null }

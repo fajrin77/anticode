@@ -3,10 +3,18 @@ import type { RiskTier, ToolPreview } from '@shared/ipc'
 
 export class ToolError extends Error {}
 
+/** One question handed to a sub-agent by the `task` tool. */
+export interface DelegatedTask {
+  description: string
+  prompt: string
+}
+
 export interface ToolContext {
   sessionId?: string
   workspaceRoot: string
   signal: AbortSignal
+  /** Runs a sub-agent and resolves to its report; absent inside a sub-agent. */
+  delegate?: (task: DelegatedTask) => Promise<string>
 }
 
 export interface ToolImage {

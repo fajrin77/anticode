@@ -8,7 +8,7 @@ type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 function subject(part: ToolPart): string {
   if (part.input === null || typeof part.input !== 'object') return ''
   const record = part.input as Record<string, unknown>
-  for (const key of ['command', 'path', 'cell']) {
+  for (const key of ['command', 'path', 'cell', 'description']) {
     const value = record[key]
     if (typeof value === 'string') return value
   }
@@ -18,9 +18,10 @@ function subject(part: ToolPart): string {
 /**
  * Tools fold into three work types so the transcript reads as a story:
  * reading/searching/browsing is Explore, touching files is Edit, running
- * commands is Code.
+ * commands is Code. A sub-agent sent off with `task` is an Agent.
  */
 function label(name: string): string {
+  if (name === 'task') return 'Agent'
   if (name === 'run_command') return 'Code'
   if (/^(write|edit|delete|add|fill)_/.test(name)) return 'Edit'
   return 'Explore'
