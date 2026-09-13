@@ -276,9 +276,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       const kind = kinds.find((entry) => entry === body.kind) ?? 'openai'
       const text = (value: unknown): string => (typeof value === 'string' ? value : '')
       // A vendor API defaults to its own address; a gateway has none to default to.
-      if ((kind === 'openai' || kind === 'ollama') && text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
+      if (kind === 'openai' && text(body.baseURL).trim() === '') return json(res, 400, { error: 'Base URL is required' })
       if (kind !== 'ollama' && kind !== 'clinepass' && text(body.apiKey).trim() === '') return json(res, 400, { error: 'API key is required' })
-      addProvider({ label: text(body.label), kind, baseURL: text(body.baseURL), apiKey: text(body.apiKey), models: cleanModelIds(body.models) })
+      await addProvider({ label: text(body.label), kind, baseURL: text(body.baseURL), apiKey: text(body.apiKey), models: cleanModelIds(body.models) })
       return json(res, 200, await modelsPayload())
     }
     const providerMatch = /^\/api\/providers\/(.+)$/.exec(url.pathname)

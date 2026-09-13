@@ -64,7 +64,10 @@ async function admit(
 
   const controller = beginRun(req.runId, req.sessionId)
   registerRun(req.runId, req.sessionId)
-  forward({ type: 'prompt', runId: req.runId, text: req.prompt, attachments: refs })
+  forward({
+    type: 'prompt', runId: req.runId, text: req.prompt, attachments: refs,
+    provider: agent.providerName, model: agent.model
+  })
   // A rotating session's chip names the model this prompt went to.
   if (status.provider === ROTATE_PROVIDER) announceStatus()
   let terminal: AgentEvent | undefined

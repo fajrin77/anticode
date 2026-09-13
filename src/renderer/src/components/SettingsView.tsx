@@ -205,6 +205,15 @@ function ProviderForm({
     ((vendor || values.label.trim() !== '') &&
       (vendor || values.baseURL.trim() !== '') &&
       (!needsKey || values.apiKey.trim() !== ''))
+  const missing = editing || valid
+    ? null
+    : !vendor && values.label.trim() === ''
+      ? 'Enter a provider name.'
+      : !vendor && values.baseURL.trim() === ''
+        ? 'Enter the Base URL.'
+        : needsKey && values.apiKey.trim() === ''
+          ? 'Enter the API key.'
+          : null
 
   function submit(): void {
     if (!valid || saving) return
@@ -249,6 +258,9 @@ function ProviderForm({
                     // A name the form filled in follows the type; a typed one stays.
                     ...(values.label === '' || Object.values(VENDOR_NAMES).includes(values.label)
                       ? { label: VENDOR_NAMES[option.value] ?? '' }
+                      : {}),
+                    ...(values.baseURL === '' || Object.values(VENDOR_BASE_URLS).includes(values.baseURL)
+                      ? { baseURL: VENDOR_BASE_URLS[option.value] ?? '' }
                       : {})
                   })
                 }
@@ -310,6 +322,7 @@ function ProviderForm({
       </label>
 
       {error !== null && <p className="col-span-2 text-[12px] text-del">{error}</p>}
+      {missing !== null && <p className="col-span-2 text-right text-[11.5px] text-faint">{missing}</p>}
 
       <div className="col-span-2 flex justify-end gap-2">
         <button

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
-import { cancelSessionRuns, clearPause, runForSession } from './runs'
+import { cancelSessionRuns, clearPause, isPaused, isPausedForRetry, restorePausedSession, runForSession } from './runs'
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
@@ -147,7 +147,7 @@ export function setWorkspaceRoot(root: string): void {
  */
 export function initPersistedState(): void {
   try {
-    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown }[]
+    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; paused?: boolean; pausedForRetry?: boolean }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
@@ -163,6 +163,7 @@ export function initPersistedState(): void {
           ? { choice: { provider: choice.provider, model: choice.model } }
           : {})
       })
+      if (entry.paused === true) restorePausedSession(entry.spec.sessionId, entry.pausedForRetry === true)
       // The page this session had open comes back with it, so relaunching the
       // app lands on the same local server the last run was looking at.
       restoreWeb(entry.spec.sessionId, entry.web)
@@ -268,8 +269,15 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
       throw new Error('Provider unavailable. Configure its credentials first.')
     }
     const model = next.model.trim()
-    // An id typed by hand is chosen by typing it: it joins the models
-    // switched on in Settings → Models, so the composer offers it from now on.
+    const knownModels = providerInfo.models ?? []
+    // A provider that publishes/configures a model list is authoritative.
+    // Search text in the composer must not silently turn a typo into the
+    // permanent default (unknown ids belong in Settings → Models first).
+    if (model !== '' && knownModels.length > 0 &&
+        !knownModels.includes(model) && !chosenFor(next.provider).includes(model)) {
+      throw new Error(`Unknown model “${model}” for ${providerInfo.label}. Choose a listed model or add the id in Settings → Models.`)
+    }
+    // Providers without a catalogue still accept a hand-typed id.
     if (model !== '' && !chosenFor(next.provider).includes(model)) {
       setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
     }
@@ -769,8 +777,8 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
     role: message.role,
     blocks: message.content
       .filter(
-        (block): block is Extract<ContentBlock, { type: 'text' | 'tool_use' | 'tool_result' }> =>
-          block.type === 'text' || block.type === 'tool_use' || block.type === 'tool_result'
+        (block): block is Extract<ContentBlock, { type: 'text' | 'tool_use' | 'tool_result' | 'display' }> =>
+          block.type === 'text' || block.type === 'tool_use' || block.type === 'tool_result' || block.type === 'display'
       )
       .map((block) => {
         if (block.type === 'text') {
@@ -792,6 +800,7 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
         if (block.type === 'tool_use') {
           return { type: 'tool_use' as const, id: block.id, name: block.name, input: block.input }
         }
+        if (block.type === 'display') return block
         return {
           type: 'tool_result' as const,
           toolUseId: block.toolUseId,
@@ -986,6 +995,8 @@ export function persistSessions(): void {
     messages: live.agent?.snapshot().messages ?? live.messages,
     summaries: live.summaries,
     web: webRecord(live.spec.sessionId),
+    ...(isPaused(live.spec.sessionId) ? { paused: true } : {}),
+    ...(isPausedForRetry(live.spec.sessionId) ? { pausedForRetry: true } : {}),
     ...(live.choice !== undefined ? { choice: live.choice } : {})
   }))
   try {

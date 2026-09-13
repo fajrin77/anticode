@@ -220,6 +220,8 @@ interface SessionState {
   ) => void
   /** Adds a run's token usage to whichever live entry owns it. */
   addRunTokens: (runId: string, inputTokens: number, outputTokens: number) => void
+  /** Records the model as soon as a run starts, before usage or errors arrive. */
+  setRunModel: (sessionId: string, provider: string, model: string) => void
   /** Puts the closing summary on the newest assistant message (post-import). */
   stampLastSummary: (sessionId: string, summary: RunSummary) => void
   /** Opens a live mirror placeholder for a phone-initiated run; returns its message id. */
@@ -295,6 +297,7 @@ interface SessionState {
   /** The replay estimate after a compaction, until the next request measures it. */
   setContextTokens: (sessionId: string, tokens: number) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
+  reopenMessage: (messageId: string) => void
   setActiveRun: (run: ActiveRun | null, runId?: string) => void
 }
 
@@ -585,6 +588,11 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       return state
     }),
 
+  setRunModel: (sessionId, provider, model) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) => ({ ...session, provider, model }))
+    })),
+
   importSnapshot: (sessionId, messages, summaries = []) =>
     set((state) => ({
       sessions: state.sessions.map((session) => {
@@ -603,7 +611,9 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             message.blocks[0]?.type === 'text' &&
             message.blocks[0].text === CONTINUE_PROMPT
           ) {
-            converted.push({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'notice', text: RESUME_LABEL }], pending: false })
+            const previous = converted.at(-1)
+            if (previous?.role === 'assistant') previous.parts.push({ kind: 'notice', text: RESUME_LABEL })
+            else converted.push({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'notice', text: RESUME_LABEL }], pending: false })
             continue
           }
           const parts: MessagePart[] = []
@@ -629,6 +639,8 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
                 output: results.get(block.id)?.content ?? 'Interrupted before a result was recorded.',
                 ...diffOf(results.get(block.id))
               })
+            } else if (block.type === 'display') {
+              parts.push({ kind: block.kind, text: block.text })
             }
           }
           if (parts.length === 0) continue
@@ -636,7 +648,9 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           // messages between them. A live run is one message here, so a
           // restored one has to fold the same way or it reads differently.
           const previous = converted.at(-1)
-          if (message.role === 'assistant' && previous?.role === 'assistant' && !previous.parts.some((part) => part.kind === 'notice')) {
+          const resumed = previous?.parts.some((part) => part.kind === 'notice' && part.text === RESUME_LABEL) === true
+          if (message.role === 'assistant' && previous?.role === 'assistant' &&
+              (!previous.parts.some((part) => part.kind === 'notice') || resumed)) {
             previous.parts.push(...parts)
             continue
           }
@@ -982,6 +996,16 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       }))
     })),
 
+  reopenMessage: (messageId) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) => ({
+        ...session,
+        messages: session.messages.map((message) =>
+          message.id === messageId ? { ...message, pending: true } : message
+        )
+      }))
+    })),
+
   setActiveRun: (run, runId) => set((state) => {
     const activeRuns = { ...state.activeRuns }
     if (run) activeRuns[run.runId] = run
@@ -1016,6 +1040,12 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         const last = session.messages.at(-1)
         if (last?.parts.some((part) => part.kind === 'notice' && part.text === text)) {
           return session
+        }
+        if (last?.role === 'assistant' && text === RESUME_LABEL) {
+          return mapMessage(session, last.id, (message) => ({
+            ...message,
+            parts: [...message.parts, { kind: 'notice', text }]
+          }))
         }
         return {
           ...session,

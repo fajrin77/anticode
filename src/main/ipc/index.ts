@@ -66,6 +66,7 @@ import {
   releaseAttachments
 } from '../attachments/registry'
 import { addCustomProvider, cleanModelIds, removeCustomProvider, updateCustomProvider } from '../providers/custom'
+import { probeLocalProvider } from '../providers/models'
 import { editClinepass, removeClinepass, restoreClinepass } from '../providers/clinepass'
 import { savePersistedSettings } from '../settings'
 import { announceHistory, announcePause, announceQueue, announceSessionTitle, announceStatus, sessionSnapshot } from '../remote/bus'
@@ -145,7 +146,7 @@ function announceProviders(): void {
  * A provider added from either screen shows in every window's list at once.
  * Adding Clinepass is how it comes back after being removed.
  */
-export function addProvider(input: CustomProviderInput): ProviderInfo[] {
+export async function addProvider(input: CustomProviderInput): Promise<ProviderInfo[]> {
   const models = cleanModelIds(input.models)
   if (input.kind === 'clinepass') {
     restoreClinepass({
@@ -158,14 +159,16 @@ export function addProvider(input: CustomProviderInput): ProviderInfo[] {
   } else {
     if (input.kind !== 'ollama' && input.apiKey.trim() === '') throw new Error('API key is required')
     // Only a gateway or a local server has no address of its own to fall back on.
-    if ((input.kind === 'openai' || input.kind === 'ollama') && input.baseURL.trim() === '') {
+    if (input.kind === 'openai' && input.baseURL.trim() === '') {
       throw new Error('Base URL is required')
     }
+    const baseURL = input.baseURL.trim() || 'http://127.0.0.1:11434/v1'
+    if (input.kind === 'ollama') await probeLocalProvider(baseURL)
     const named = { anthropic: 'Anthropic', 'openai-api': 'OpenAI' }[input.kind as string]
     addCustomProvider({
       label: input.label.trim() !== '' ? input.label.trim() : (named ?? 'Provider'),
       kind: input.kind,
-      baseURL: input.baseURL.trim(),
+      baseURL,
       apiKey: input.apiKey.trim(),
       models
     })
@@ -384,7 +387,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     IpcChannel.PROVIDER_ADD,
-    (_event, input: CustomProviderInput): ProviderInfo[] => addProvider(input)
+    (_event, input: CustomProviderInput): Promise<ProviderInfo[]> => addProvider(input)
   )
 
   ipcMain.handle(

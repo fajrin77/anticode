@@ -128,8 +128,8 @@
   .row:last-child { border-bottom: none; }
   .row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .delbtn {
-    flex: none; width: 26px; height: 26px; border-radius: 6px; border: none;
-    background: none; color: #6d6d6d; font-size: 18px; line-height: 1; cursor: pointer;
+    flex: none; min-width: 26px; height: 26px; padding: 0 5px; border-radius: 6px; border: none;
+    background: none; color: #6d6d6d; font-size: 11px; line-height: 1; cursor: pointer;
   }
   .delbtn:hover { color: #e06c6c; background: #2a2020; }
   .badge {
@@ -300,7 +300,7 @@
   #imgViewer.zoomed .vbody img { max-width: none; width: 200%; margin: 0; }
   /* A file opens over the conversation too, rendered by the Mac — a workbook
      with its colours, a document as paper — instead of leaving as a download. */
-  #fileViewer { position: fixed; inset: 0; z-index: 60; background: rgba(26,26,26,.98); display: flex; flex-direction: column; }
+  #fileViewer { position: fixed; inset: 0; z-index: 60; background: #1a1a1a; display: flex; flex-direction: column; }
   #fileViewer .vhead {
     flex: none; display: flex; align-items: center; gap: 6px;
     padding: calc(10px + env(safe-area-inset-top)) 10px 8px 16px; color: #9a9a9a; font-size: 13px;
@@ -371,6 +371,7 @@
   #queueRow .qx { flex: none; background: none; border: none; color: #6d6d6d; font-size: 15px; line-height: 1; padding: 0 2px; }
   /* Staged files sit on their own row above the text box. */
   #stagedRow { flex: 0 0 100%; display: flex; gap: 8px; overflow-x: auto; }
+  #stagedRow .vision-warning { flex: none; max-width: 250px; color: #f3aaaa; font-size: 12px; line-height: 1.35; }
   #stagedRow .chip {
     position: relative; display: flex; align-items: center; gap: 8px; flex: none;
     background: rgba(17,17,17,.42); border: 1px solid rgba(255,255,255,.13); border-radius: 14px; padding: 7px 28px 7px 7px;
@@ -735,7 +736,7 @@
 <div id="fileViewer" class="hidden">
   <div class="vhead">
     <span class="vname" id="fileName"></span>
-    <a class="vbtn hidden" id="fileDownload">Download</a>
+    <a class="vbtn hidden" id="fileDownload">Unduh</a>
     <button class="vbtn" onclick="closeFileViewer()">Tutup</button>
   </div>
   <div id="fileTabs"></div>
@@ -799,7 +800,7 @@
       <div class="muted">Providers</div>
       <div id="providerList"></div>
       <input class="path" id="provLabel" placeholder="Name — OpenRouter, LM Studio, …" />
-      <select class="wide" id="provKind" aria-label="Provider kind">
+      <select class="wide" id="provKind" aria-label="Provider kind" onchange="onPhoneProviderKind()">
         <option value="openai">OpenAI-compatible (cloud)</option>
         <option value="ollama">Local server (Ollama, LM Studio)</option>
         <option value="anthropic">Anthropic API (API key)</option>
@@ -1232,7 +1233,7 @@ function renderSessionList() {
     row.onclick = () => openSession(s.id).catch(showError);
     const del = document.createElement('button');
     del.className = 'delbtn';
-    del.textContent = '×';
+    del.textContent = 'Delete';
     del.title = 'Delete session';
     del.onclick = (e) => {
       e.stopPropagation();
@@ -1269,6 +1270,7 @@ async function loadModels() {
   fillModelPickers('setProvider', 'setModel');
   updateChips();
   renderProviders();
+  renderStaged();
 }
 
 /** The same pickers in two places: the new-session card and Settings. */
@@ -1842,6 +1844,12 @@ function foldTurns(messages) {
     const blocks = m.blocks.filter((b) => b.type !== 'tool_result');
     if (blocks.length === 0) continue;
     const last = turns.at(-1);
+    if (m.role === 'user' && blocks.length === 1 && blocks[0].type === 'text' && blocks[0].text === CONTINUE_PROMPT) {
+      if (last !== undefined && last.role === 'assistant') {
+        last.blocks.push({ type: 'display', kind: 'notice', text: RESUME_LABEL });
+      }
+      continue;
+    }
     if (m.role === 'assistant' && last !== undefined && last.role === 'assistant') {
       last.blocks.push(...blocks);
     } else {
@@ -1922,6 +1930,15 @@ function renderTranscript(messages, summaries) {
     };
     for (const b of m.blocks) {
       if (b.type === 'text') { flushGroup(); textBuf.push(b.text); continue; }
+      if (b.type === 'display') {
+        flushGroup(); flushText();
+        const state = document.createElement('div');
+        state.className = 'notice';
+        if (b.kind === 'error') state.style.color = '#f3aaaa';
+        state.textContent = b.text;
+        div.appendChild(state);
+        continue;
+      }
       if (b.type !== 'tool_use') continue;
       if (group === null) { flushText(); group = []; }
       const item = { name: b.name, input: b.input, result: results.get(b.id) };
@@ -2252,10 +2269,20 @@ function tagFor(item) {
   return { image: 'IMG', text: 'TXT', excel: 'XLSX', docx: 'DOCX', pdf: 'PDF', binary: 'BIN' }[item.kind] || 'BIN';
 }
 
+function modelCannotSeeImages(model) {
+  return /deepseek-(?:v[34].*flash|chat|coder)|llama3\.2(?!.*vision)/i.test(model || '');
+}
+
 function renderStaged() {
   const row = document.getElementById('stagedRow');
   row.replaceChildren();
   row.classList.toggle('hidden', staged.length === 0);
+  if (staged.some((item) => item.kind === 'image') && modelCannotSeeImages(modelInfo?.model)) {
+    const warning = document.createElement('div');
+    warning.className = 'vision-warning';
+    warning.textContent = (modelInfo?.model || 'This model') + ' is text-only. Choose a vision model before sending.';
+    row.appendChild(warning);
+  }
   for (const item of staged) {
     const chip = document.createElement('div');
     chip.className = 'chip';
@@ -2442,7 +2469,7 @@ function artifactEl(sessionId, target) {
   name.textContent = target;
   const link = document.createElement('a');
   link.href = downloadUrl(sessionId, target);
-  link.textContent = 'Download';
+  link.textContent = 'Unduh';
   link.setAttribute('download', target.split('/').pop());
   link.onclick = (event) => event.stopPropagation();
   row.append(tag, name, link);
@@ -2613,11 +2640,11 @@ async function pauseSession() {
   } catch (error) { showError(error); }
 }
 /* The words the app leaves in the transcript, matching the desktop's labels. */
-const PAUSE_LABEL = 'Okay, Take a break mate!';
-const RESUME_LABEL = 'ah sh**, here we go again';
-const FOLLOW_UP_LABEL = 'wait a minutes, bi***';
+const PAUSE_LABEL = 'Paused.';
+const RESUME_LABEL = 'Resumed.';
+const FOLLOW_UP_LABEL = 'Follow-up added.';
 /* What a resume actually asks for; the transcript shows RESUME_LABEL instead. */
-const CONTINUE_PROMPT = 'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.';
+const CONTINUE_PROMPT = 'Lanjutkan langsung dari titik terakhir tanpa pembuka seperti “lanjutan”. Jangan ulangi langkah yang sudah selesai. Jika fragmen kata terakhir belum lengkap, tulis hanya sambungan yang hilang lalu teruskan.';
 async function resumeSession() { await submitPrompt(CONTINUE_PROMPT); }
 
 function appendNotice(text) {
@@ -3086,7 +3113,7 @@ async function renderListing() {
       const link = document.createElement('a');
       link.className = 'dl';
       link.textContent = '↓';
-      link.title = 'Download';
+      link.title = 'Unduh';
       link.href = '/api/download?sessionId=' + encodeURIComponent(sessionId) +
         '&path=' + encodeURIComponent(joinPath(currentPath, entry)) +
         '&token=' + encodeURIComponent(token);
@@ -3650,6 +3677,9 @@ async function setPolicy(enabled) {
 async function addPhoneProvider() {
   const value = (id) => document.getElementById(id).value.trim();
   const kind = value('provKind');
+  if (kind === 'ollama' && value('provURL') === '') {
+    document.getElementById('provURL').value = 'http://127.0.0.1:11434/v1';
+  }
   // A vendor API knows its own address; a gateway or a local server does not.
   const vendor = kind === 'anthropic' || kind === 'openai-api';
   if ((!vendor && value('provURL') === '') || (kind !== 'ollama' && value('provKey') === '')) {
@@ -3667,6 +3697,12 @@ async function addPhoneProvider() {
     fillModelPickers('setProvider', 'setModel');
     renderProviders();
   } catch (error) { showError(error); }
+}
+
+function onPhoneProviderKind() {
+  const kind = document.getElementById('provKind').value;
+  const url = document.getElementById('provURL');
+  if (kind === 'ollama' && url.value.trim() === '') url.value = 'http://127.0.0.1:11434/v1';
 }
 
 async function removePhoneProvider(provider) {

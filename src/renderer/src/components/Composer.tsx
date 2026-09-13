@@ -4,7 +4,7 @@ import { useActiveSession, useSessionStore } from '../store/session'
 import { ModelPicker } from './ModelPicker'
 import { TodoPanel } from './TodoPanel'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
-import { modelLabel, statusFor } from '@shared/ipc'
+import { modelCannotSeeImages, modelLabel, statusFor } from '@shared/ipc'
 import type {
   AttachmentInfo,
   ProviderId,
@@ -163,6 +163,7 @@ export function Composer({
    * Paused with something typed, it sends that instead.
    */
   const resuming = isPaused && !isStreaming && draft.trim() === ''
+  const imageWarning = attached.some((item) => item.kind === 'image') && modelCannotSeeImages(status?.model)
 
   // A one-line prompt stays compact; wrapped lines grow the same glass card
   // up to a useful ceiling, after which the field scrolls internally.
@@ -287,9 +288,13 @@ export function Composer({
   async function resume(): Promise<void> {
     if (session === undefined || isStreaming) return
     const runId = crypto.randomUUID()
-    const messageId = crypto.randomUUID()
+    const previous = [...useSessionStore.getState().sessions.find((entry) => entry.id === session.id)?.messages ?? []]
+      .reverse()
+      .find((message) => message.role === 'assistant' && message.parts.some((part) => part.kind !== 'notice'))
+    const messageId = previous?.id ?? crypto.randomUUID()
     addNotice(session.id, RESUME_LABEL)
-    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+    if (previous === undefined) addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+    else useSessionStore.getState().reopenMessage(messageId)
     setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
     try {
       await window.anticode.sendPrompt({
@@ -446,6 +451,11 @@ export function Composer({
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
         )}
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
+        {imageWarning && (
+          <div role="status" className="mb-2 px-1 text-[12.5px] text-del">
+            {status?.model} is a text-only model and cannot inspect the attached image. Choose a vision model before sending.
+          </div>
+        )}
 
         {/* The menus sit beside the glass card, not inside it: an element with a
             backdrop-filter is the backdrop for anything inside it, so a menu in

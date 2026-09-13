@@ -141,6 +141,7 @@ function attachmentKey(attachment: AttachmentRef): string {
 
 function blockMarkdown(block: SnapshotBlock, links: Map<string, string> | null, folder: string): string {
   if (block.type === 'text') return block.text
+  if (block.type === 'display') return block.kind === 'error' ? `**Error:** ${block.text}` : `_${block.text}_`
   if (block.type === 'attachment') {
     const file = links?.get(attachmentKey(block.attachment))
     if (file === undefined) return `[Attachment: ${block.attachment.name}]`

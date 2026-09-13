@@ -100,7 +100,11 @@ export const IpcChannel = {
  * retrying counts only the prompts that were typed.
  */
 export const CONTINUE_PROMPT =
-  'Lanjutkan pekerjaan yang terhenti persis dari titik terakhir. Jangan ulangi langkah yang sudah selesai.'
+  'Lanjutkan langsung dari titik terakhir tanpa pembuka seperti “lanjutan”. Jangan ulangi langkah yang sudah selesai. Jika fragmen kata terakhir belum lengkap, tulis hanya sambungan yang hilang lalu teruskan.'
+
+export const PAUSE_LABEL = 'Paused.'
+export const RESUME_LABEL = 'Resumed.'
+export const FOLLOW_UP_LABEL = 'Follow-up added.'
 
 /**
  * Replay budget the agent trims its history against; the UI shows the same
@@ -133,6 +137,7 @@ export type ProviderKind = 'openai' | 'ollama' | 'anthropic' | 'openai-api' | 'c
 
 /** Where a vendor API lives when its Base URL is left empty. */
 export const VENDOR_BASE_URLS: Partial<Record<ProviderKind, string>> = {
+  ollama: 'http://127.0.0.1:11434/v1',
   anthropic: 'https://api.anthropic.com',
   'openai-api': 'https://api.openai.com/v1'
 }
@@ -444,6 +449,12 @@ export function modelLabel(
   return status.model === '' ? 'pick a model' : status.model
 }
 
+/** Conservative known-text-only check; unknown models avoid a false warning. */
+export function modelCannotSeeImages(model: string | null | undefined): boolean {
+  if (model === undefined || model === null || model === '') return false
+  return /deepseek-(?:v[34].*flash|chat|coder)|llama3\.2(?!.*vision)/i.test(model)
+}
+
 /**
  * The caller supplies runId so it can map incoming events to its own state
  * before the first event arrives.
@@ -642,7 +653,15 @@ export type AgentEndReason = 'complete' | 'cancelled' | 'max_tokens' | 'refusal'
 export type AgentEvent =
   /** Emitted by the routing layer before the run starts, so every viewer sees
    * the prompt the moment it is sent — never only after the turn ends. */
-  | { type: 'prompt'; runId: string; text: string; attachments?: AttachmentRef[] }
+  | {
+      type: 'prompt'
+      runId: string
+      text: string
+      attachments?: AttachmentRef[]
+      /** The actual model selected for this run, before any response arrives. */
+      provider?: string
+      model?: string
+    }
   /** An instruction sent while this run was already working. The run keeps
    * going and takes it in at its next step, instead of a second run starting.
    * Viewers show it at once; what the run is still writing stays above it. */
@@ -681,6 +700,8 @@ export type AgentEvent =
        * is not the session's context, so the context meter ignores it.
        */
       subagent?: boolean
+      /** The stream ended before the provider's final usage chunk. */
+      estimated?: boolean
     }
   /** A line the app writes about the run itself — the context was compacted. */
   | { type: 'notice'; runId: string; text: string }
@@ -771,6 +792,8 @@ export type SnapshotBlock =
   | { type: 'attachment'; attachment: AttachmentRef }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: string }
+  /** UI-only run state persisted with the transcript; providers never receive it. */
+  | { type: 'display'; kind: 'notice' | 'error'; text: string }
 
 export interface SnapshotMessage {
   role: 'user' | 'assistant'

@@ -14,7 +14,8 @@ vi.mock('./providers', () => ({
   listProviders: () => [
     { id: 'one', label: 'One', defaultModel: 'm1', credentialAvailable: true, configured: true, credentialHint: '' },
     { id: 'two', label: 'Two', defaultModel: 'm2', credentialAvailable: true, configured: true, credentialHint: '' },
-    { id: 'three', label: 'Three', defaultModel: 'm3', credentialAvailable: true, configured: true, credentialHint: '' }
+    { id: 'three', label: 'Three', defaultModel: 'm3', credentialAvailable: true, configured: true, credentialHint: '' },
+    { id: 'known', label: 'Known', defaultModel: 'listed', credentialAvailable: true, configured: true, credentialHint: '', models: ['listed'] }
   ],
   createProvider: (id: string, model: string) => ({
     name: id,
@@ -109,6 +110,11 @@ it('makes the latest pick what new sessions start on', () => {
   expect(modelOf('b')).toBe('m2')
   createSession({ sessionId: 'c', mode: 'chat', workspaceRoot: null })
   expect(modelOf('c')).toBe('m3')
+})
+
+it('rejects a mistyped model without making it the default', () => {
+  expect(() => selectProvider({ provider: 'known', model: 'listed-typo' })).toThrow(/Unknown model/)
+  expect(getStatus().model).toBe('m1')
 })
 
 it('keeps a draft’s model when it is rebound to its folder on first send', () => {

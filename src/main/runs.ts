@@ -91,3 +91,9 @@ export function isPaused(sessionId: string): boolean {
 export function listPausedSessions(): string[] {
   return [...paused]
 }
+
+/** Restores a resumable session after relaunch; there is no active run yet. */
+export function restorePausedSession(sessionId: string, forRetry = false): void {
+  paused.add(sessionId)
+  if (forRetry) retryPauses.add(sessionId)
+}

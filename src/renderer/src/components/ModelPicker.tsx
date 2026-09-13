@@ -35,7 +35,11 @@ export function ModelPicker({
   // whole list: a catalogue of hundreds is chosen from there, not from here.
   // Until something is switched on the list is empty — and the session's model
   // is always one of these (or none), so nothing else ever shows.
-  const picked = pool.filter((entry) => entry.provider === viewing).map((entry) => entry.model)
+  const configured = pool.filter((entry) => entry.provider === viewing).map((entry) => entry.model)
+  const activeModel = viewing === provider ? status?.model ?? '' : ''
+  const picked = activeModel !== '' && !configured.includes(activeModel)
+    ? [activeModel, ...configured]
+    : configured
   const providerLabel = providers.find((entry) => entry.id === viewing)?.label ?? viewing
   const current = (id: string): boolean => viewing === provider && id === status?.model
   // Rotating, the list is what sessions rotate over: the group in use, or all.
@@ -49,7 +53,7 @@ export function ModelPicker({
     return needle === '' ? picked : picked.filter((id) => id.toLowerCase().includes(needle))
   }, [query, picked.join('\n')])
 
-  const typedIsNew = query.trim() !== '' && !matches.includes(query.trim())
+  const typedIsNew = query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
   const tabs = status?.rotationEnabled === true
     ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Rotate usage controls every session while it is on' }]
     : providers.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
@@ -159,7 +163,7 @@ export function ModelPicker({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onClose()
-              if (event.key === 'Enter' && query.trim() !== '') onSelect(viewing, query.trim())
+              if (event.key === 'Enter' && typedIsNew) onSelect(viewing, query.trim())
             }}
             className="border-b border-line-soft bg-transparent px-3 py-1.5 text-[12px] text-text outline-none placeholder:text-faint"
           />
@@ -169,7 +173,9 @@ export function ModelPicker({
               <div data-picker-empty className="px-2 py-3 text-[12px] leading-relaxed text-faint">
                 {query.trim() === ''
                   ? `No ${providerLabel} models chosen yet. Choose the ones you want in Settings → Models.`
-                  : 'No matches. Press Enter to add the id you typed and use it.'}
+                  : picked.length === 0
+                    ? 'No matches. Press Enter to use this id; this provider has no configured model list.'
+                    : 'No matching configured model. Add a new id in Settings → Models first.'}
               </div>
             )}
 

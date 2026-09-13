@@ -34,6 +34,8 @@ function toBlockParam(block: ContentBlock): Anthropic.ContentBlockParam | null {
         content: block.content,
         is_error: block.isError
       }
+    case 'display':
+      return null
     case 'opaque':
       return block.provider === PROVIDER_NAME
         ? (block.raw as Anthropic.ContentBlockParam)
@@ -42,12 +44,12 @@ function toBlockParam(block: ContentBlock): Anthropic.ContentBlockParam | null {
 }
 
 function toMessageParams(messages: Message[]): Anthropic.MessageParam[] {
-  return messages.map((message) => ({
-    role: message.role,
-    content: message.content
+  return messages.flatMap((message) => {
+    const content = message.content
       .map(toBlockParam)
       .filter((block): block is Anthropic.ContentBlockParam => block !== null)
-  }))
+    return content.length === 0 ? [] : [{ role: message.role, content }]
+  })
 }
 
 function toToolParams(tools: ToolDefinition[]): Anthropic.Tool[] {

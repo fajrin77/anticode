@@ -30,6 +30,8 @@ export type ContentBlock =
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   /** `diff` is for viewers only, like `attachment`; providers read `content`. */
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: string }
+  /** Persisted for viewers but intentionally omitted from provider requests. */
+  | { type: 'display'; kind: 'notice' | 'error'; text: string }
   | { type: 'opaque'; provider: string; raw: unknown }
 
 export interface Message {

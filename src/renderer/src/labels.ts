@@ -5,13 +5,13 @@
  */
 
 /** Written when the pause button stops a run. */
-export const PAUSE_LABEL = 'Okay, Take a break mate!'
+export { PAUSE_LABEL } from '@shared/ipc'
 
 /** Written in place of the continuation prompt when a paused run resumes. */
-export const RESUME_LABEL = 'ah sh**, here we go again'
+export { RESUME_LABEL } from '@shared/ipc'
 
 /** Written under an instruction sent while a run was already working. */
-export const FOLLOW_UP_LABEL = 'wait a minutes, bi***'
+export { FOLLOW_UP_LABEL } from '@shared/ipc'
 
 /** The instruction a resume actually sends; the phone sends the same words.
  * Both sides show RESUME_LABEL in its place, never this paragraph. It lives

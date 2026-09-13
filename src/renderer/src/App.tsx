@@ -322,6 +322,9 @@ export function App(): JSX.Element {
       if (run !== undefined) {
         switch (event.type) {
           case 'prompt':
+            if (event.model !== undefined) {
+              store.setRunModel(run.sessionId, event.provider ?? '', event.model)
+            }
             break
           case 'steer':
             store.steerRun(event.runId, run.sessionId, event.text, event.attachments)
@@ -378,6 +381,9 @@ export function App(): JSX.Element {
           if (event.text === CONTINUE_PROMPT) store.addNotice(event.sessionId, RESUME_LABEL)
           else store.addUserPrompt(event.sessionId, event.text, event.attachments)
           store.mirrorStart(event.runId, event.sessionId)
+          if (event.model !== undefined) {
+            store.setRunModel(event.sessionId, event.provider ?? '', event.model)
+          }
           break
         case 'steer':
           // A follow-up to a run this window only watches — from the phone,

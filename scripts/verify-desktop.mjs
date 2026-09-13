@@ -68,8 +68,12 @@ const stub = createServer(async (req, res) => {
 await new Promise(r=>stub.listen(0,'127.0.0.1',r))
 const stubPort = stub.address().port
 const bootstrap = path.join(directory, 'bootstrap.cjs')
-// Only models switched on in Settings → Models are used; the fixture model is one.
-await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ rotation: { entries: [{ provider: 'clinepass', model: 'test-model' }], usage: {} } }))
+// Only models switched on in Settings → Models are used; expose both fixture
+// models so the model-switch test follows the same contract as the real picker.
+await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ rotation: { entries: [
+  { provider: 'clinepass', model: 'test-model' },
+  { provider: 'clinepass', model: 'test-model-2' }
+], usage: {} } }))
 await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); import(${JSON.stringify(path.resolve('out/main/index.js'))});`)
 const env = {...process.env, CLINEPASS_API_KEY:'fixture-key', CLINEPASS_BASE_URL:`http://127.0.0.1:${stubPort}/v1`, CLINEPASS_MODEL:'test-model', ANTICODE_REMOTE_PORT:'18680'}
 delete env.ELECTRON_RUN_AS_NODE
@@ -682,11 +686,11 @@ try {
     assert.equal(cleared, '', 'the phone kept the sent prompt in the box')
     await screen.waitForFunction((label) =>
       [...document.querySelectorAll('#transcript .notice')].some((el) => el.textContent === label),
-      'wait a minutes, bi***', { timeout: 5000 })
+      'Follow-up added.', { timeout: 5000 })
     const desktopSaw = await window.evaluate(async ([id, runId]) => {
       for (let i = 0; i < 50; i++) {
         const session = window.__store.getState().sessions.find((s) => s.id === id)
-        const said = session.messages.some((m) => m.parts.some((p) => p.kind === 'notice' && p.text === 'wait a minutes, bi***'))
+        const said = session.messages.some((m) => m.parts.some((p) => p.kind === 'notice' && p.text === 'Follow-up added.'))
         const typed = session.messages.some((m) => m.role === 'user' && m.parts.some((p) => p.kind === 'text' && p.text === 'tambah dari hp'))
         if (said && typed) return runId
         await new Promise((resolve) => setTimeout(resolve, 100))

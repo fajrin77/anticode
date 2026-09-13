@@ -54,12 +54,11 @@ const COMPACTION_SYSTEM = [
  */
 const SUBAGENT_MAX_STEPS = 30
 const SUBAGENT_GRACE_STEPS = 2
-/*
- * A run has no turn or token ceiling. Long work has to be allowed to finish,
- * and a cap that stops it mid-task costs more than it saves — the work is
- * half-done and the next run replays the whole history to catch up. Pause is
- * the stop button, and it reaches this run from either device.
- */
+/** Main runs get a generous ceiling, but may never spend without bound. */
+const AGENT_MAX_STEPS = 50
+const AGENT_GRACE_STEPS = 2
+/** Three identical tool rounds in a row are almost certainly a stuck model. */
+const MAX_IDENTICAL_TOOL_ROUNDS = 3
 
 interface RunParams {
   runId: string
@@ -123,11 +122,12 @@ function isToolUse(block: ContentBlock): block is ToolUseBlock {
   return block.type === 'tool_use'
 }
 
-function describeError(error: unknown): string {
+function describeError(error: unknown, provider?: LLMProvider): string {
   const message = error instanceof Error ? error.message : String(error)
   // Fetch reports a dropped stream in one bare word; say what happened.
-  if (/^(terminated|fetch failed|socket hang up|other side closed)$/i.test(message.trim())) {
-    return `The connection to the provider was lost (${message.trim()}).`
+  if (/^(terminated|fetch failed|connection error|socket hang up|other side closed)$/i.test(message.trim())) {
+    const name = provider?.name === undefined ? 'the provider' : provider.name
+    return `Connection to ${name} failed (${message.trim()}). Check that its server is running and its Base URL is correct in Settings → Providers.`
   }
   // Retrying a spent quota only fails again; name the way out.
   if (isOutOfUsage(error)) {
@@ -213,6 +213,8 @@ function blockCost(block: ContentBlock): number {
       return Math.ceil(block.content.length / 4) + 20
     case 'opaque':
       return 1_000
+    case 'display':
+      return 0
   }
 }
 
@@ -254,8 +256,12 @@ export class AgentSession {
       workspaceRoot === null || options.subagent === true
         ? null
         : new CheckpointStore(options.checkpointDir ?? path.join(tmpdir(), 'anticode-checkpoints', randomUUID()), workspaceRoot)
-    this.history.push(...structuredClone(initialHistory))
-    this.transcript.push(...this.history)
+    const restored = structuredClone(initialHistory)
+    this.transcript.push(...restored)
+    this.history.push(...restored.flatMap((message) => {
+      const content = message.content.filter((block) => block.type !== 'display')
+      return content.length === 0 ? [] : [{ ...message, content }]
+    }))
     this.sealPendingToolUses()
   }
 
@@ -348,11 +354,15 @@ export class AgentSession {
     })
 
     let steps = 0
+    let repeatedToolRounds = 0
+    let previousToolRound = ''
     try {
       for (;;) {
         if (signal.aborted) break
         steps += 1
-        if (this.options.subagent === true && steps > SUBAGENT_MAX_STEPS + SUBAGENT_GRACE_STEPS) {
+        const stepLimit = this.options.subagent === true ? SUBAGENT_MAX_STEPS : AGENT_MAX_STEPS
+        const graceSteps = this.options.subagent === true ? SUBAGENT_GRACE_STEPS : AGENT_GRACE_STEPS
+        if (steps > stepLimit + graceSteps) {
           emit({ type: 'end', runId, reason: 'max_tokens' })
           return
         }
@@ -396,24 +406,56 @@ export class AgentSession {
         // Follow-ups ride in the same user turn as the tool results, after
         // them: the model reads what its tools did, then what was added.
         const added = signal.aborted ? [] : takeIn()
-        const limit: ContentBlock[] =
-          this.options.subagent === true && steps >= SUBAGENT_MAX_STEPS
-            ? [{ type: 'text', text: '[Step limit reached. Do not call any more tools — write your final report now.]' }]
-            : []
+        const limit: ContentBlock[] = steps >= stepLimit
+          ? [{ type: 'text', text: '[Step limit reached. Do not call any more tools — write your final report now.]' }]
+          : []
         this.record({ role: 'user', content: [...results, ...this.pendingImages, ...added, ...limit] })
         this.pendingImages = []
+
+        const toolRound = JSON.stringify(calls.map((call, index) => ({
+          name: call.name,
+          input: call.input,
+          result: results[index]?.type === 'tool_result'
+            ? {
+                content: results[index].content,
+                isError: results[index].isError,
+                diff: results[index].diff
+              }
+            : results[index]
+        })))
+        repeatedToolRounds = toolRound === previousToolRound ? repeatedToolRounds + 1 : 1
+        previousToolRound = toolRound
+        if (calls.length > 0 && repeatedToolRounds >= MAX_IDENTICAL_TOOL_ROUNDS) {
+          throw new Error(
+            `Stopped a repeated tool loop: the same ${calls.length === 1 ? calls[0]?.name ?? 'tool' : 'tool calls'} and result occurred ${MAX_IDENTICAL_TOOL_ROUNDS} times in a row.`
+          )
+        }
       }
     } catch (error) {
       this.pendingImages = []
       this.sealPendingToolUses()
-      const retryable = !signal.aborted && isTransient(error)
-      const kept = (signal.aborted || retryable) && this.keepInterruptedReply()
-      const keptReply = kept ? { keptReplyModel: this.provider.model } : {}
+      const retryable = !signal.aborted && !isOutOfUsage(error) && isTransient(error)
+      const kept = (signal.aborted || retryable) ? this.keepInterruptedReply() : null
+      const keptReply = kept !== null ? { keptReplyModel: this.provider.model } : {}
+      if (kept !== null) {
+        // Streaming APIs normally report usage only in their final chunk. A
+        // pause cuts that chunk off, so retain an honest estimate instead of 0.
+        emit({
+          type: 'usage', runId, provider: this.provider.name,
+          ...(this.provider.id !== undefined ? { providerId: this.provider.id } : {}),
+          model: this.provider.model,
+          inputTokens: Math.max(1, replayCost(this.history) - Math.ceil(kept.length / 4)),
+          outputTokens: Math.max(1, Math.ceil(kept.length / 4)),
+          estimated: true
+        })
+      }
+      const described = describeError(error, this.provider)
+      this.recordDisplay(signal.aborted ? 'notice' : 'error', signal.aborted ? 'Paused.' : described)
       if (signal.aborted) {
         emit({ type: 'end', runId, reason: 'cancelled', ...keptReply })
       } else {
         emit({
-          type: 'error', runId, message: describeError(error),
+          type: 'error', runId, message: described,
           ...(retryable ? { retryable: true } : {}),
           ...keptReply
         })
@@ -423,6 +465,7 @@ export class AgentSession {
 
     this.pendingImages = []
     this.sealPendingToolUses()
+    this.recordDisplay('notice', 'Paused.')
     emit({ type: 'end', runId, reason: 'cancelled' })
   }
 
@@ -691,6 +734,14 @@ export class AgentSession {
           preview: () => prepared.preview(context),
           signal: params.signal
         }))
+      if (params.signal.aborted) {
+        return this.finishCall(
+          params,
+          call.id,
+          'Paused before approval; the user did not reject this tool.',
+          false
+        )
+      }
       if (!approved) {
         return this.finishCall(params, call.id, 'Rejected by the user.', true, true)
       }
@@ -784,12 +835,25 @@ export class AgentSession {
    * it was halfway through spelling out cannot be kept — its arguments are cut
    * off — but the words before it are.
    */
-  private keepInterruptedReply(): boolean {
+  private keepInterruptedReply(): string | null {
     const said = this.streamed.trim()
     this.streamed = ''
-    if (said === '' || this.history.at(-1)?.role !== 'user') return false
+    if (said === '' || this.history.at(-1)?.role !== 'user') return null
     this.record({ role: 'assistant', content: [{ type: 'text', text: said }] })
-    return true
+    return said
+  }
+
+  /** Adds durable UI state without feeding it back to the model. */
+  private recordDisplay(kind: 'notice' | 'error', text: string): void {
+    const last = this.transcript.at(-1)
+    if (last?.role === 'assistant') {
+      this.transcript[this.transcript.length - 1] = {
+        ...last,
+        content: [...last.content, { type: 'display', kind, text }]
+      }
+      return
+    }
+    this.transcript.push({ role: 'assistant', content: [{ type: 'display', kind, text }] })
   }
 
   /**
@@ -1021,7 +1085,8 @@ export class AgentSession {
         'share_file call. Anything else — source files, files copied or built with run_command — is ' +
         'invisible to the user until you call share_file on it. ' +
         'When the user wants to get or open a file, call share_file; never say a file is shown or ' +
-        'downloadable unless one of those calls succeeded in this turn.',
+          'downloadable unless one of those calls succeeded in this turn. Download cards render below your reply, ' +
+          'so refer to “the file card below”, never “above”.',
       '- Reply in the language the user writes in; be concise and to the point.',
       '- Do not use emojis or decorative symbols in your replies.'
     ]

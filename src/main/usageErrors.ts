@@ -9,15 +9,30 @@
  * usage limit. A plain "rate limit reached" is not one: that passes in a minute.
  */
 const SPENT =
-  /insufficient[_ -]?(quota|credits?|balance|funds)|exceeded[_ ](your[_ ])?(current[_ ])?quota|quota[_ ](exceeded|exhausted)|out of (credits?|quota|tokens)|credit balance|no credits? (left|remaining)|usage limit|billing|余额不足|额度/i
+  /insufficient[_ -]?(quota|credits?|balance|funds)|exceeded[_ ](your[_ ])?(current[_ ])?quota|quota[_ ](exceeded|exhausted)|out of (credits?|quota|tokens)|credit balance|no credits? (left|remaining)|(?:reached|exceeded) your (?:monthly )?[^\n.]{0,40}limit|usage limit|spend(?:ing)? limit|payment required|余额不足|额度/i
 
 export function isOutOfUsage(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') return false
-  const record = error as { status?: unknown; code?: unknown; type?: unknown; message?: unknown; error?: unknown }
-  if (record.status === 402) return true
-  const inner = (record.error ?? null) as { code?: unknown; type?: unknown; message?: unknown } | null
-  const said = [record.code, record.type, record.message, inner?.code, inner?.type, inner?.message]
-    .filter((part) => typeof part === 'string' || typeof part === 'number')
-    .join(' ')
-  return SPENT.test(said)
+  let current: unknown = error
+  const said: Array<string | number> = []
+
+  // SDKs wrap the provider response differently (`error`, `cause`, or both),
+  // so inspect a few layers instead of coupling this to one provider/client.
+  for (let depth = 0; depth < 5 && current !== null && typeof current === 'object'; depth += 1) {
+    const record = current as {
+      status?: unknown
+      statusCode?: unknown
+      code?: unknown
+      type?: unknown
+      message?: unknown
+      error?: unknown
+      cause?: unknown
+    }
+    if (record.status === 402 || record.statusCode === 402) return true
+    for (const part of [record.code, record.type, record.message]) {
+      if (typeof part === 'string' || typeof part === 'number') said.push(part)
+    }
+    current = record.error ?? record.cause
+  }
+
+  return SPENT.test(said.join(' '))
 }

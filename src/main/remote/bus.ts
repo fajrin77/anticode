@@ -117,7 +117,11 @@ export function forward(event: AgentEvent): void {
     routed.costUsd = costOf(routed.providerId ?? routed.provider, routed.model, routed.inputTokens, routed.outputTokens)
   }
 
-  if (event.type === 'prompt') tally(event.runId).startedAt = Date.now()
+  if (event.type === 'prompt') {
+    const entry = tally(event.runId)
+    entry.startedAt = Date.now()
+    if (event.model !== undefined) entry.model = event.model
+  }
   else if (event.type === 'usage') {
     const entry = tally(event.runId)
     entry.inputTokens += event.inputTokens
@@ -125,6 +129,7 @@ export function forward(event: AgentEvent): void {
     const cost = routed.type === 'usage' ? routed.costUsd : null
     if (typeof cost === 'number') entry.cost += cost
     else entry.partial = true
+    if (event.estimated === true) entry.partial = true
     // A sub-agent's request is part of the cost, not an assistant turn of
     // this session: it must not shift the one-summary-per-turn alignment.
     if (event.subagent !== true) {

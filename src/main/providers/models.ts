@@ -31,6 +31,15 @@ async function listOpenAICompatible(apiKey: string, baseURL?: string, provider?:
   return ids
 }
 
+/** Verifies a local OpenAI-compatible server before its configuration is saved. */
+export async function probeLocalProvider(baseURL: string): Promise<void> {
+  try {
+    await listOpenAICompatible('ollama', baseURL)
+  } catch (error) {
+    throw new Error(`Could not reach the local provider. ${sanitizeModelFetchError(error)}. Check that the server is running and the Base URL is correct.`)
+  }
+}
+
 async function listAnthropic(apiKey: string, baseURL?: string): Promise<string[]> {
   const client = new Anthropic({
     apiKey,

@@ -27,6 +27,8 @@ function toChatMessages(system: string, messages: Message[]): ChatMessage[] {
         .join('')
       const toolCalls = message.content.filter((block) => block.type === 'tool_use')
 
+      if (text === '' && toolCalls.length === 0) continue
+
       out.push({
         role: 'assistant',
         content: text === '' ? null : text,

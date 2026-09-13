@@ -115,6 +115,37 @@ describe('AgentSession', () => {
     expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
   })
 
+  it('stops after three identical tool calls return the same result', async () => {
+    await writeFile(path.join(root, 'same.txt'), 'unchanged')
+    const provider = new FakeProvider([1, 2, 3, 4].map((index) => turn([
+      { type: 'tool_use', id: `read-${index}`, name: 'read_file', input: { path: 'same.txt' } }
+    ], 'tool_use')))
+
+    await run(provider)
+
+    expect(provider.sent).toHaveLength(3)
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('repeated tool loop')
+    })
+  })
+
+  it('persists a provider error as a display-only transcript block', async () => {
+    const provider: LLMProvider = { name: 'ollama', model: 'llama3.2', async *chat() {
+      throw new Error('Connection error')
+    } }
+    const session = new AgentSession(provider, allowAll, 'chat')
+    await session.run({
+      runId: 'run-1', prompt: 'hello', signal: new AbortController().signal,
+      emit: (event) => events.push(event)
+    })
+    const blocks = session.snapshot().messages.at(-1)?.content
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('ollama') })
+    expect(blocks).toEqual([
+      expect.objectContaining({ type: 'display', kind: 'error', text: expect.stringContaining('ollama') })
+    ])
+  })
+
   it('restores edited and newly-created files when the last turn is reverted', async () => {
     await writeFile(path.join(root, 'existing.txt'), 'before')
     const provider = new FakeProvider([
@@ -375,14 +406,14 @@ describe('AgentSession', () => {
   })
 
   it('stubs old tool outputs and keeps recent turns verbatim', async () => {
-    await writeFile(path.join(root, 'a.txt'), 'x'.repeat(2000))
+    for (const id of ['1', '2', '3', '4']) await writeFile(path.join(root, `a${id}.txt`), 'x'.repeat(2000))
     const toolTurn = (id: string): LLMResponse =>
-      turn([{ type: 'tool_use', id, name: 'read_file', input: { path: 'a.txt' } }], 'tool_use')
+      turn([{ type: 'tool_use', id: `t${id}`, name: 'read_file', input: { path: `a${id}.txt` } }], 'tool_use')
     const provider = new FakeProvider([
-      toolTurn('t1'),
-      toolTurn('t2'),
-      toolTurn('t3'),
-      toolTurn('t4'),
+      toolTurn('1'),
+      toolTurn('2'),
+      toolTurn('3'),
+      toolTurn('4'),
       turn([{ type: 'text', text: 'selesai' }], 'end_turn')
     ])
 
@@ -475,7 +506,7 @@ describe('AgentSession', () => {
     expect(events.filter((event) => event.type === 'text_delta')).toHaveLength(1)
     expect(events.at(-1)).toMatchObject({
       type: 'error', retryable: true, keptReplyModel: 'offline-model',
-      message: 'The connection to the provider was lost (fetch failed).'
+      message: 'Connection to offline failed (fetch failed). Check that its server is running and its Base URL is correct in Settings → Providers.'
     })
 
     const recovered = new FakeProvider([turn([{ type: 'text', text: 'selesai setelah tersambung' }], 'end_turn')])
@@ -557,10 +588,16 @@ it('rejects simultaneous run calls before adding the second user prompt', async 
 })
 it('does not execute a write if cancellation happens during authorization', async () => {
   const controller = new AbortController()
+  const seen: AgentEvent[] = []
   const provider = new FakeProvider([turn([{ type: 'tool_use', id: 't', name: 'write_file', input: {path: 'cancelled.txt', content: 'bad'} }], 'tool_use')])
   const session = new AgentSession(provider, {authorize: async () => { controller.abort(); return true }}, 'code', root)
-  await session.run({ runId: 'cancel', prompt: 'write', signal: controller.signal, emit: () => {} })
+  await session.run({ runId: 'cancel', prompt: 'write', signal: controller.signal, emit: (event) => seen.push(event) })
   await expect(readFile(path.join(root, 'cancelled.txt'))).rejects.toThrow()
+  expect(seen).toContainEqual(expect.objectContaining({
+    type: 'tool_end', toolUseId: 't', ok: true,
+    output: expect.stringContaining('did not reject')
+  }))
+  expect(seen).not.toContainEqual(expect.objectContaining({ rejected: true }))
 })
 
 it('cancels even when a provider ignores its abort signal', async () => {
@@ -619,7 +656,10 @@ it('does not keep a finished reply twice when the pause lands on the tools it as
     .filter((message) => message.role === 'assistant')
     .flatMap((message) => message.content.filter((block) => block.type === 'text').map((block) => block.type === 'text' ? block.text : ''))
   expect(said).toEqual(['Membaca dulu.'])
-  expect(session.snapshot().messages.at(-1)?.role).toBe('user')
+  expect(session.snapshot().messages.at(-2)?.role).toBe('user')
+  expect(session.snapshot().messages.at(-1)?.content).toEqual([
+    { type: 'display', kind: 'notice', text: 'Paused.' }
+  ])
 })
 
 it('keeps the full transcript even when replay history is trimmed', async () => {

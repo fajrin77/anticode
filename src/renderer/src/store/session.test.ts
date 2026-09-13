@@ -1,5 +1,6 @@
 import { beforeEach, expect, it } from 'vitest'
 import { useSessionStore } from './session'
+import { FOLLOW_UP_LABEL } from '../labels'
 beforeEach(() => useSessionStore.setState({ sessions: [], activeRuns: {}, mirrorRuns: {}, activeSessionId: null, planOpenBySession: {} }))
 
 it('keeps the Plan fold state separate for each session', () => {
@@ -50,7 +51,7 @@ it('moves a run on to a fresh reply when a follow-up joins it', () => {
   expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'assistant'])
   expect(messages[1]).toMatchObject({ id: 'a1', pending: false })
   expect(messages[2]!.parts).toEqual([{ kind: 'text', text: 'tambah ini' }])
-  expect(messages[3]!.parts).toEqual([{ kind: 'notice', text: 'wait a minutes, bi***' }])
+  expect(messages[3]!.parts).toEqual([{ kind: 'notice', text: FOLLOW_UP_LABEL }])
   expect(messages[4]!.pending).toBe(true)
   expect(state.activeRuns['r']!.messageId).toBe(messages[4]!.id)
 
@@ -93,7 +94,7 @@ it('restores a follow-up with its marker, and keeps closing lines on the turns t
     'text:kedua',
     'tool',
     'text:tambah ini',
-    'notice:wait a minutes, bi***',
+    `notice:${FOLLOW_UP_LABEL}`,
     'text:dua-duanya beres'
   ])
   // Two runs, two closing lines: the first answer and the reply after the

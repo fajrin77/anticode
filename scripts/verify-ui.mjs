@@ -818,7 +818,7 @@ try {
   await composer().fill('slow please'); await composer().press('Enter')
   await window.waitForTimeout(700)
   await window.getByRole('button',{name:'Pause'}).click(); await window.waitForTimeout(500)
-  const pauseLine = window.getByText('Okay, Take a break mate!')
+  const pauseLine = window.getByText('Paused.')
   check('pause: the marker is in the transcript', await pauseLine.count() > 0 ? 'said' : 'silent', 'said')
   const markerStyle = await pauseLine.evaluate((el) => {
     const s = getComputedStyle(el)
@@ -845,7 +845,7 @@ try {
   await composer().fill('')
   check('pause: an empty box goes back to resume', await resumeButton.count(), 1)
   await resumeButton.click(); await window.waitForTimeout(900)
-  const resumeLine = window.getByText('ah sh**, here we go again')
+  const resumeLine = window.getByText('Resumed.')
   check('resume: the marker is in the transcript', await resumeLine.count() > 0 ? 'said' : 'silent', 'said')
   check('resume: the marker is grey',
     await resumeLine.evaluate((el) => getComputedStyle(el).color), 'rgb(154, 154, 154)')
@@ -882,7 +882,7 @@ try {
   check('follow-up: typing turns pause into send', await window.getByRole('button',{name:'Send',exact:true}).count(), 1)
   await composer().press('Enter'); await window.waitForTimeout(500)
   check('follow-up: the box empties at once', await composer().inputValue(), '')
-  const followMarker = window.getByText('wait a minutes, bi***')
+  const followMarker = window.getByText('Follow-up added.')
   check('follow-up: the marker is written', await followMarker.count() > 0 ? 'said' : 'silent', 'said')
   check('follow-up: the marker is grey', await followMarker.first().evaluate((el) => getComputedStyle(el).color), 'rgb(154, 154, 154)')
   check('follow-up: the instruction shows as sent',
