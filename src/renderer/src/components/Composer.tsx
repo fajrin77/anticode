@@ -487,7 +487,7 @@ export function Composer({
             </div>
           )}
 
-          {!hero && session !== undefined && <TodoPanel messages={session.messages} working={isStreaming && !isPaused} />}
+          {!hero && session !== undefined && <TodoPanel sessionId={session.id} messages={session.messages} working={isStreaming && !isPaused} />}
 
           {queued.length > 0 && (
             <div className="mb-2 flex flex-col gap-1" data-queue>

@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import type { JSX } from 'react'
+import { useSessionStore } from '../store/session'
 import type { Message } from '../store/session'
 
 export interface TodoItem {
@@ -47,8 +47,9 @@ function Mark({ status }: { status: TodoItem['status'] }): JSX.Element {
  * a run works through it, and folded to one line — or gone, once every item is
  * done — when nothing is running. The header always opens and closes it.
  */
-export function TodoPanel({ messages, working }: { messages: Message[]; working: boolean }): JSX.Element | null {
-  const [open, setOpen] = useState<boolean | null>(null)
+export function TodoPanel({ sessionId, messages, working }: { sessionId: string; messages: Message[]; working: boolean }): JSX.Element | null {
+  const open = useSessionStore((state) => state.planOpenBySession[sessionId])
+  const setPlanOpen = useSessionStore((state) => state.setPlanOpen)
   const plan = latestPlan(messages)
   if (plan === null) return null
   const done = plan.filter((item) => item.status === 'completed').length
@@ -61,7 +62,7 @@ export function TodoPanel({ messages, working }: { messages: Message[]; working:
     <div className="composer-glass mb-2 overflow-hidden rounded-xl border border-line" data-todo-panel>
       <button
         type="button"
-        onClick={() => setOpen(!expanded)}
+        onClick={() => setPlanOpen(sessionId, !expanded)}
         aria-expanded={expanded}
         className="group flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[12.5px]"
       >

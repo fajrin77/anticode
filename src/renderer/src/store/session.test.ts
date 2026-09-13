@@ -1,6 +1,13 @@
 import { beforeEach, expect, it } from 'vitest'
 import { useSessionStore } from './session'
-beforeEach(() => useSessionStore.setState({ sessions: [], activeRuns: {}, mirrorRuns: {}, activeSessionId: null }))
+beforeEach(() => useSessionStore.setState({ sessions: [], activeRuns: {}, mirrorRuns: {}, activeSessionId: null, planOpenBySession: {} }))
+
+it('keeps the Plan fold state separate for each session', () => {
+  const store = useSessionStore.getState()
+  store.setPlanOpen('one', false)
+  store.setPlanOpen('two', true)
+  expect(useSessionStore.getState().planOpenBySession).toEqual({ one: false, two: true })
+})
 it('restores tool failures across message boundaries and omits empty user bubbles', () => {
   const store = useSessionStore.getState(); const id = store.openSession('chat', null)
   store.importSnapshot(id, [

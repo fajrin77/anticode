@@ -579,6 +579,100 @@ interface WholeProvider {
 /** Past this many ids the list is a search, not a menu. */
 const MAX_SUGGESTIONS = 200
 
+/** The first step of adding a rotation entry. It opens immediately so the
+ * provider is chosen before the model catalogue is shown. */
+function ProviderDropdown({
+  providers,
+  onPick
+}: {
+  providers: ProviderInfo[]
+  onPick: (provider: ProviderInfo) => void
+}): JSX.Element {
+  const fieldRef = useRef<HTMLButtonElement>(null)
+  const [active, setActive] = useState(0)
+  const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null)
+
+  useLayoutEffect(() => {
+    function measure(): void {
+      const box = fieldRef.current?.getBoundingClientRect()
+      if (box === undefined) return
+      const below = window.innerHeight - box.bottom
+      setPlace(
+        below >= 180 || below >= box.top
+          ? { left: box.left, width: Math.max(box.width, 180), top: box.bottom + 4 }
+          : { left: box.left, width: Math.max(box.width, 180), bottom: window.innerHeight - box.top + 4 }
+      )
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [])
+
+  return (
+    <>
+      <button
+        ref={fieldRef}
+        type="button"
+        autoFocus
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="rotation-provider-options"
+        aria-activedescendant={`rotation-provider-option-${active}`}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            const step = event.key === 'ArrowDown' ? 1 : -1
+            setActive((current) => (current + step + providers.length) % providers.length)
+          }
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            const provider = providers[active]
+            if (provider !== undefined) onPick(provider)
+          }
+        }}
+        className="glass-field flex w-40 shrink-0 items-center justify-between rounded-lg border border-hover px-3 py-1.5 text-left text-[12.5px] text-text outline-none"
+      >
+        <span>Choose provider</span>
+        <span aria-hidden className="text-faint">⌃</span>
+      </button>
+      {place !== null &&
+        createPortal(
+          <div
+            data-provider-combo
+            id="rotation-provider-options"
+            role="listbox"
+            aria-label="Providers"
+            style={{ position: 'fixed', left: place.left, width: place.width, top: place.top, bottom: place.bottom }}
+            className="menu-glass z-50 max-h-64 overflow-y-auto rounded-xl border p-1"
+          >
+            {providers.map((provider, index) => (
+              <button
+                key={provider.id}
+                id={`rotation-provider-option-${index}`}
+                type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === active}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => onPick(provider)}
+                className={`w-full rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-hover hover:text-brand ${
+                  index === active ? 'bg-hover text-brand' : 'text-dim'
+                }`}
+              >
+                {provider.label}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
 /**
  * The model id field, its suggestions in the app's own menu rather than the
  * OS's datalist — that one floats loose over the window in its own bold
@@ -798,6 +892,7 @@ function RotateUsage({
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [naming, setNaming] = useState(false)
+  const [confirming, setConfirming] = useState<'delete-group' | 'reset-counts' | null>(null)
   const enabled = status?.rotationEnabled === true
   const now = Date.now()
 
@@ -807,7 +902,14 @@ function RotateUsage({
     viewed === null
       ? pool
       : viewed.entries.flatMap((entry) => pool.filter((item) => sameEntry(item, entry)))
+  const readyCount = shown.filter((entry) => entry.ready).length
   const inUse = inUseId === (viewed?.id ?? null)
+  const activeGroup = groups.find((group) => group.id === inUseId) ?? null
+  const activeEntries =
+    activeGroup === null
+      ? pool
+      : activeGroup.entries.flatMap((entry) => pool.filter((item) => sameEntry(item, entry)))
+  const activeReadyCount = activeEntries.filter((entry) => entry.ready).length
 
   // The name field follows the tab, and whatever the main process settled on.
   const [name, setName] = useState(viewed?.name ?? '')
@@ -818,7 +920,7 @@ function RotateUsage({
   // The ids offered for the provider being added: what it lists, then what
   // its endpoint reports. Typing any other id works too.
   useEffect(() => {
-    if (adding === null) return
+    if (adding?.provider == null) return
     let active = true
     setCatalogue([])
     void window.anticode.listModels(adding.provider).then((result) => {
@@ -881,10 +983,15 @@ function RotateUsage({
     setViewing(id)
     setAdding(null)
     setNaming(false)
+    setConfirming(null)
     setError(null)
   }
 
   function useGroup(id: string | null): void {
+    if (readyCount === 0) {
+      setError(viewed === null ? 'Add a ready model before using Rotate.' : `Add a ready model to ${viewed.name} before using it.`)
+      return
+    }
     void settle(window.anticode.selectRotationGroup(id))
   }
 
@@ -922,6 +1029,7 @@ function RotateUsage({
     if (viewed === null) return
     void saveGroups(groupsWith(viewed.id, () => null)).then((saved) => {
       if (saved) view(null)
+      else setConfirming(null)
     })
   }
 
@@ -972,11 +1080,18 @@ function RotateUsage({
       setError('Add a provider with a key first.')
       return
     }
-    setAdding({ provider: first.id, model: viewed === null ? first.defaultModel : '' })
+    setAdding({ provider: null, model: '' })
+  }
+
+  function initialModel(provider: ProviderInfo): string {
+    if (viewed !== null || adding?.replacing !== undefined) return ''
+    return shown.some((entry) => entry.provider === provider.id && entry.model === provider.defaultModel)
+      ? ''
+      : provider.defaultModel
   }
 
   async function add(): Promise<void> {
-    if (adding === null || adding.model.trim() === '') return
+    if (adding === null || adding.provider === null || adding.model.trim() === '') return
     const entry = { provider: adding.provider, model: adding.model.trim() }
     const replacing = adding.replacing
     if (shown.some((item) => sameEntry(item, entry))) {
@@ -1008,13 +1123,16 @@ function RotateUsage({
 
   // In a group, the pool's own models for the chosen provider come first:
   // most of the time a group is filled from models already switched on.
+  const alreadyShown = new Set(
+    shown.filter((entry) => entry.provider === adding?.provider).map((entry) => entry.model)
+  )
   const suggestions = [
     ...new Set([
       ...(viewed !== null ? pool.filter((entry) => entry.provider === adding?.provider).map((entry) => entry.model) : []),
       ...(providers.find((entry) => entry.id === adding?.provider)?.models ?? []),
       ...catalogue
     ])
-  ]
+  ].filter((model) => !alreadyShown.has(model))
 
   const tabClass = (selected: boolean): string =>
     `flex items-center rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
@@ -1027,7 +1145,9 @@ function RotateUsage({
         <h2 className="text-[14px] text-text">Rotate usage</h2>
         <div className="flex items-center gap-3">
           {enabled && pool.length > 0 && (
-            <span className="text-[11.5px] text-brand">active for every session</span>
+            <span className={activeReadyCount > 0 ? 'text-[11.5px] text-brand' : 'text-[11.5px] text-del'}>
+              active for every session · {activeReadyCount}/{activeEntries.length} ready
+            </span>
           )}
           <Toggle on={enabled} onChange={setEnabled} label="Rotate usage" />
         </div>
@@ -1041,10 +1161,10 @@ function RotateUsage({
               one in use and keeps its room on the others, so putting another
               group in use never nudges a tab sideways. */}
           <div className="mb-3 flex flex-wrap items-center gap-1" data-rotation-groups>
-            {[{ id: null, name: 'All models', count: pool.length }, ...groups.map((group) => ({
+            {[{ id: null, name: 'All models', entries: pool }, ...groups.map((group) => ({
               id: group.id as string | null,
               name: group.name,
-              count: group.entries.length
+              entries: group.entries.flatMap((entry) => pool.filter((item) => sameEntry(item, entry)))
             }))].map((tab) => (
               <button
                 key={tab.id ?? ''}
@@ -1059,8 +1179,11 @@ function RotateUsage({
                   className={`mr-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand ${tab.id === inUseId ? '' : 'invisible'}`}
                 />
                 <span className="max-w-40 truncate">{tab.name}</span>
-                <span className={`ml-1.5 inline-block min-w-[1ch] tabular-nums text-faint ${tab.count > 0 ? '' : 'invisible'}`}>
-                  {tab.count}
+                <span
+                  className="ml-1.5 inline-block whitespace-nowrap tabular-nums text-faint"
+                  title={`${tab.entries.filter((entry) => entry.ready).length} of ${tab.entries.length} models ready`}
+                >
+                  {tab.entries.filter((entry) => entry.ready).length}/{tab.entries.length} ready
                 </span>
               </button>
             ))}
@@ -1104,27 +1227,50 @@ function RotateUsage({
                 />
               )}
               {inUse ? (
-                <span className="shrink-0 px-2 py-1 text-[12px] text-brand">in use</span>
+                <span className={`shrink-0 px-2 py-1 text-[12px] ${readyCount > 0 ? 'text-brand' : 'text-del'}`}>
+                  in use · {readyCount}/{shown.length} ready
+                </span>
               ) : (
                 <button
                   type="button"
                   data-rotation-use
                   title="Every session rotates over these from its next prompt"
                   onClick={() => useGroup(viewed?.id ?? null)}
-                  className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand"
+                  disabled={readyCount === 0}
+                  className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim transition-colors enabled:hover:bg-raised enabled:hover:text-brand disabled:cursor-not-allowed disabled:text-del"
                 >
-                  {viewed === null ? 'Use all models' : 'Use this group'}
+                  {readyCount === 0 ? 'No ready models' : viewed === null ? 'Use all models' : 'Use this group'}
                 </button>
               )}
               {viewed !== null && (
-                <button
-                  type="button"
-                  title={`Delete the ${viewed.name} group — its models stay in the pool`}
-                  onClick={deleteGroup}
-                  className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-del"
-                >
-                  Delete group
-                </button>
+                confirming === 'delete-group' ? (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(null)}
+                      className="rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-brand"
+                    >
+                      Keep group
+                    </button>
+                    <button
+                      type="button"
+                      data-confirm-delete-group
+                      onClick={deleteGroup}
+                      className="rounded-md px-2 py-1 text-[12px] text-del transition-colors hover:bg-raised"
+                    >
+                      Delete group
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    title={`Delete the ${viewed.name} group — its models stay in the pool`}
+                    onClick={() => setConfirming('delete-group')}
+                    className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-del"
+                  >
+                    Delete group
+                  </button>
+                )
               )}
             </div>
 
@@ -1132,7 +1278,9 @@ function RotateUsage({
                 below with the rest, since they rotate like any other. */}
             {(viewed?.providers ?? []).map((provider) => {
               const label = providers.find((entry) => entry.id === provider)?.label ?? provider
-              const count = pool.filter((entry) => entry.provider === provider).length
+              const providerEntries = pool.filter((entry) => entry.provider === provider)
+              const count = providerEntries.length
+              const providerReady = providerEntries.filter((entry) => entry.ready).length
               return (
                 <div
                   key={`provider\n${provider}`}
@@ -1144,7 +1292,7 @@ function RotateUsage({
                     <div className="mt-0.5 truncate text-[11.5px] text-faint">
                       {count === 0
                         ? 'None switched on yet — switch some on in Settings → Models'
-                        : `${count} switched on in Settings → Models · ones switched on later join too`}
+                        : `${providerReady}/${count} ready in Settings → Models · ones switched on later join too`}
                     </div>
                   </div>
                   <button
@@ -1248,38 +1396,53 @@ function RotateUsage({
                   if (event.key === 'Enter') void add()
                 }}
               >
-                <select
-                  value={adding.provider}
-                  aria-label="Provider"
-                  onChange={(event) => {
-                    const next = usable.find((entry) => entry.id === event.target.value)
-                    setAdding({ ...adding, provider: event.target.value, model: viewed === null && adding.replacing === undefined ? (next?.defaultModel ?? '') : '' })
-                  }}
-                  className="glass-field w-40 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[12.5px] text-text outline-none"
-                >
-                  {usable.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
-                <ModelCombo
-                  key={adding.provider}
-                  value={adding.model}
-                  suggestions={suggestions}
-                  placeholder={adding.replacing !== undefined ? `Replace ${adding.replacing.model} with…` : 'Model id'}
-                  onChange={(model) => setAdding({ ...adding, model })}
-                  whole={
-                    viewed !== null && adding.replacing === undefined
-                      ? {
-                          label: usable.find((entry) => entry.id === adding.provider)?.label ?? adding.provider,
-                          count: pool.filter((entry) => entry.provider === adding.provider).length,
-                          linked: viewed.providers.includes(adding.provider),
-                          onPick: () => link(adding.provider)
-                        }
-                      : null
-                  }
-                />
+                {adding.provider === null ? (
+                  <ProviderDropdown
+                    providers={usable}
+                    onPick={(provider) =>
+                      setAdding({
+                        ...adding,
+                        provider: provider.id,
+                        model: initialModel(provider)
+                      })
+                    }
+                  />
+                ) : (
+                  <>
+                    <select
+                      value={adding.provider}
+                      aria-label="Provider"
+                      onChange={(event) => {
+                        const next = usable.find((entry) => entry.id === event.target.value)
+                        setAdding({ ...adding, provider: event.target.value, model: next === undefined ? '' : initialModel(next) })
+                      }}
+                      className="glass-field w-40 shrink-0 rounded-lg border border-line px-2 py-1.5 text-[12.5px] text-text outline-none"
+                    >
+                      {usable.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ModelCombo
+                      key={adding.provider}
+                      value={adding.model}
+                      suggestions={suggestions}
+                      placeholder={adding.replacing !== undefined ? `Replace ${adding.replacing.model} with…` : 'Model id'}
+                      onChange={(model) => setAdding({ ...adding, model })}
+                      whole={
+                        viewed !== null && adding.replacing === undefined
+                          ? {
+                              label: usable.find((entry) => entry.id === adding.provider)?.label ?? adding.provider,
+                              count: pool.filter((entry) => entry.provider === adding.provider).length,
+                              linked: viewed.providers.includes(adding.provider),
+                              onPick: () => link(adding.provider!)
+                            }
+                          : null
+                      }
+                    />
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setAdding(null)}
@@ -1290,7 +1453,7 @@ function RotateUsage({
                 <button
                   type="button"
                   onClick={() => void add()}
-                  disabled={adding.model.trim() === ''}
+                  disabled={adding.provider === null || adding.model.trim() === ''}
                   className="glass-control shrink-0 rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand disabled:cursor-not-allowed disabled:text-faint"
                 >
                   {adding.replacing !== undefined ? 'Replace' : 'Add'}
@@ -1312,16 +1475,34 @@ function RotateUsage({
                 + Add model
               </button>
             )}
-            {pool.length > 0 && (
+            {pool.length > 0 && (confirming === 'reset-counts' ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirming(null)}
+                  className="text-[12px] text-faint transition-colors hover:text-brand"
+                >
+                  Keep counts
+                </button>
+                <button
+                  type="button"
+                  data-confirm-reset-counts
+                  onClick={() => void settle(window.anticode.resetRotationUsage()).then(() => setConfirming(null))}
+                  className="text-[12px] text-del transition-colors hover:text-del"
+                >
+                  Reset counts
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
                 title="Start every model's token count from zero, and give models that ran out another chance"
-                onClick={() => void settle(window.anticode.resetRotationUsage())}
+                onClick={() => setConfirming('reset-counts')}
                 className="text-[12px] text-faint transition-colors hover:text-brand"
               >
                 Reset counts
               </button>
-            )}
+            ))}
           </div>
         </>
       )}
@@ -1330,7 +1511,9 @@ function RotateUsage({
 }
 
 /** The model being added — in place of a spent one, when `replacing` is set. */
-interface Adding extends RotationEntry {
+interface Adding {
+  provider: ProviderId | null
+  model: string
   replacing?: RotationEntry
 }
 

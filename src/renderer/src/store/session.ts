@@ -172,6 +172,9 @@ interface SessionState {
   nextColour: number
   /** Prompts waiting for each session's run to finish; a mirror of the main process. */
   queues: Record<string, QueuedPrompt[]>
+  /** The user's explicit Plan fold state, kept per session across tabs and launches. */
+  planOpenBySession: Record<string, boolean>
+  setPlanOpen: (sessionId: string, open: boolean) => void
   /**
    * What Enter does with a prompt typed while a run works: join that run
    * (steer) or wait for it to finish and go out as the next run (queue).
@@ -368,6 +371,9 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   pausedSessions: {},
   nextColour: 0,
   queues: {},
+  planOpenBySession: {},
+  setPlanOpen: (sessionId, open) =>
+    set((state) => ({ planOpenBySession: { ...state.planOpenBySession, [sessionId]: open } })),
   followUpMode: 'steer',
   setQueue: (sessionId, items) =>
     set((state) => {
@@ -738,7 +744,10 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         state.activeSessionId === id
           ? (remaining.filter((session) => !session.closed).at(-1)?.id ?? null)
           : state.activeSessionId
+      const planOpenBySession = { ...state.planOpenBySession }
+      delete planOpenBySession[id]
       return { sessions: remaining, activeSessionId,
+        planOpenBySession,
         activeRuns: Object.fromEntries(Object.entries(state.activeRuns).filter(([, run]) => run.sessionId !== id)),
         mirrorRuns: Object.fromEntries(Object.entries(state.mirrorRuns).filter(([, run]) => run.sessionId !== id))
       }
@@ -1055,7 +1064,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   name: 'anticode-session-metadata',
   storage: createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage)),
   skipHydration: typeof window === 'undefined',
-  partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour,
+  partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planOpenBySession: state.planOpenBySession,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 

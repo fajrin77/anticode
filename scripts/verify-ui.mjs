@@ -558,27 +558,51 @@ try {
   const addRotation = window.locator('[data-rotation-add]')
   await limeOnHover('settings: rotate usage add model', addRotation)
   await addRotation.click(); await window.waitForTimeout(200)
-  await window.getByRole('button',{name:'Add',exact:true}).click(); await window.waitForTimeout(400)
+  const firstProviderMenu = window.locator('[data-provider-combo]')
+  check('settings: rotate usage opens providers before models', String(await firstProviderMenu.count()), '1')
+  check('settings: rotate usage keeps models closed until a provider is picked', String(await window.locator('[data-model-combo]').count()), '0')
+  await firstProviderMenu.getByRole('option', { name: 'Clinepass' }).click(); await window.waitForTimeout(200)
+  check('settings: rotate usage hides models already in the pool', String(await window.locator('[data-model-combo]').getByRole('option', { name: 'test-model', exact: true }).count()), '0')
+  check('settings: duplicate model cannot be added', await window.getByRole('button',{name:'Add',exact:true}).isDisabled() ? 'disabled' : 'enabled', 'disabled')
+  await window.getByRole('button',{name:'Cancel',exact:true}).click(); await window.waitForTimeout(200)
   const takeOut = window.getByTitle('Take test-model out of the rotation')
   await takeOut.waitFor()
   await limeOnHover('settings: rotate usage take out', takeOut)
-  await limeOnHover('settings: rotate usage reset counts', window.getByRole('button',{name:'Reset counts'}))
+  const resetCounts = window.getByRole('button',{name:'Reset counts'})
+  await limeOnHover('settings: rotate usage reset counts', resetCounts)
+  await resetCounts.click(); await window.waitForTimeout(200)
+  check('settings: reset counts asks for confirmation', String(await window.locator('[data-confirm-reset-counts]').count()), '1')
+  await window.getByRole('button', { name: 'Keep counts' }).click(); await window.waitForTimeout(200)
   check('settings: rotate usage applies to every session',
-    String(await window.getByText('active for every session').count()), '1')
+    String(await window.getByText(/active for every session · 1\/1 ready/).count()), '1')
   await shot('18b-rotate-usage')
 
   // Groups: named parts of the pool, one of them in use for every session.
   const newGroup = window.locator('[data-rotation-new-group]')
   await limeOnHover('settings: rotate usage new group', newGroup)
   const allTab = window.locator('[data-rotation-group="All models"]')
+  check('settings: rotate usage shows ready versus total', /1\/1 ready/.test(await allTab.innerText()) ? 'shown' : await allTab.innerText(), 'shown')
   const allTabBefore = await allTab.boundingBox()
   await newGroup.click(); await window.waitForTimeout(400)
   const groupName = window.getByLabel('Group name')
   await groupName.fill('code only'); await groupName.press('Enter'); await window.waitForTimeout(400)
   const codeTab = window.locator('[data-rotation-group="code only"]')
   check('settings: a group is named in place', String(await codeTab.count()), '1')
+  let useGroup = window.locator('[data-rotation-use]')
+  check('settings: an empty group cannot be put in use', await useGroup.isDisabled() ? 'blocked' : 'allowed', 'blocked')
+
+  // Put one ready model in the group before activating it. Models already in
+  // this group disappear from later suggestions.
+  await addRotation.click(); await window.waitForTimeout(300)
+  await window.locator('[data-provider-combo]').getByRole('option', { name: 'Clinepass' }).click(); await window.waitForTimeout(300)
+  let combo = window.locator('[data-model-combo]')
+  const option = combo.locator('[role="option"]').first()
+  check('settings: model ids in the list are grey at rest', await colourOf(option), 'rgb(154, 154, 154)')
+  await limeOnHover('settings: rotate usage model id', option)
+  await option.click(); await window.getByRole('button',{name:'Add',exact:true}).click(); await window.waitForTimeout(400)
+  check('settings: group ready count updates', /1\/1 ready/.test(await codeTab.innerText()) ? 'shown' : await codeTab.innerText(), 'shown')
   await limeOnHover('settings: rotate usage group tab', allTab)
-  const useGroup = window.locator('[data-rotation-use]')
+  useGroup = window.locator('[data-rotation-use]')
   await limeOnHover('settings: rotate usage use this group', useGroup)
   await useGroup.click(); await window.waitForTimeout(400)
   check('settings: the group is put in use', await window.evaluate(async () => {
@@ -593,17 +617,17 @@ try {
   // the provider names wear — not the OS datalist, loose over the window in
   // bold white.
   await addRotation.click(); await window.waitForTimeout(300)
-  const combo = window.locator('[data-model-combo]')
+  await window.locator('[data-provider-combo]').getByRole('option', { name: 'Clinepass' }).click(); await window.waitForTimeout(300)
+  combo = window.locator('[data-model-combo]')
   check('settings: rotate usage models open in the app’s own menu', String(await combo.count()), '1')
-  check('settings: the model list hangs under its field', await window.evaluate(() => {
+  check('settings: the model list stays attached to its field', await window.evaluate(() => {
     const field = document.querySelector('[role="combobox"]').getBoundingClientRect()
     const menu = document.querySelector('[data-model-combo]').getBoundingClientRect()
-    return menu.top >= field.bottom && Math.abs(menu.left - field.left) < 1 && Math.abs(menu.width - field.width) < 1
-      ? 'under the field' : `field ${field.left},${field.bottom} menu ${menu.left},${menu.top}`
-  }), 'under the field')
-  const option = combo.locator('[role="option"]').first()
-  check('settings: model ids in the list are grey at rest', await colourOf(option), 'rgb(154, 154, 154)')
-  await limeOnHover('settings: rotate usage model id', option)
+    const beside = menu.top >= field.bottom || menu.bottom <= field.top
+    return beside && Math.abs(menu.left - field.left) < 1 && Math.abs(menu.width - field.width) < 1
+      ? 'attached' : `field ${field.left},${field.top},${field.bottom} menu ${menu.left},${menu.top},${menu.bottom}`
+  }), 'attached')
+  check('settings: a model already in the group is absent from suggestions', String(await combo.getByRole('option', { name: 'test-model', exact: true }).count()), '0')
   await shot('18b2b-rotate-usage-model-list')
   const whole = combo.locator('[data-rotation-whole]')
   check('settings: a group offers every model of a provider', /^All Clinepass models/.test(await whole.innerText()) ? 'offered' : await whole.innerText(), 'offered')
@@ -642,7 +666,9 @@ try {
   const deleteGroup = window.getByRole('button', { name: 'Delete group' })
   check('settings: deleting a group is red on hover', await colourOnHover(deleteGroup, 'rgb(224, 108, 108)'), 'rgb(224, 108, 108)')
   await shot('18b2-rotate-usage-group')
-  await deleteGroup.click(); await window.waitForTimeout(400)
+  await deleteGroup.click(); await window.waitForTimeout(200)
+  check('settings: deleting a group asks for confirmation', String(await window.locator('[data-confirm-delete-group]').count()), '1')
+  await window.locator('[data-confirm-delete-group]').click(); await window.waitForTimeout(400)
   check('settings: deleting the group in use goes back to the whole pool',
     await window.evaluate(async () => String((await window.anticode.getStatus()).rotationGroup)), 'null')
   await rotateSwitch.click(); await window.waitForTimeout(300)
@@ -1047,6 +1073,45 @@ try {
   check('an unticked bullet stays plain',
     ticked.find((r) => r.text.includes('belum dicek'))?.green === false ? 'plain' : 'green', 'plain')
   await shot('26-checklist')
+
+  // An explicit Plan fold belongs to its session, survives another tab being
+  // mounted in its place, and is included in persisted renderer metadata.
+  const planSessions = await window.evaluate(() => {
+    const store = window.__store.getState()
+    const open = store.sessions.filter((session) => !session.closed).slice(0, 2)
+    if (open.length < 2) return null
+    const [first, second] = open
+    window.__store.setState((state) => ({
+      sessions: state.sessions.map((session) => session.id === first.id ? {
+        ...session,
+        title: 'plan regression a',
+        messages: [...session.messages, {
+          id: crypto.randomUUID(), role: 'assistant', pending: false,
+          parts: [{
+            kind: 'tool', toolUseId: crypto.randomUUID(), name: 'todo_write', status: 'ok', output: '',
+            input: { items: [{ content: 'keep this folded', status: 'in_progress' }] }
+          }]
+        }]
+      } : session.id === second.id ? { ...session, title: 'plan regression b' } : session)
+    }))
+    store.setPlanOpen(first.id, true)
+    store.reopenSession(first.id)
+    return { first: first.id, second: second.id }
+  })
+  await window.waitForTimeout(400)
+  if (planSessions !== null) {
+    const planPanel = window.locator('[data-todo-panel]')
+    await planPanel.getByRole('button').click(); await window.waitForTimeout(200)
+    await window.getByTitle('plan regression b').click(); await window.waitForTimeout(300)
+    await window.getByTitle('plan regression a').click(); await window.waitForTimeout(300)
+    check('plan: collapse survives switching to another tab and back', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'false')
+    check('plan: collapse is written to persisted session metadata', await window.evaluate((sessionId) => {
+      const saved = JSON.parse(localStorage.getItem('anticode-session-metadata') ?? '{}')
+      return saved.state?.planOpenBySession?.[sessionId] === false ? 'persisted' : 'missing'
+    }, planSessions.first), 'persisted')
+  } else {
+    check('plan: collapse survives switching to another tab and back', 'needs two sessions', 'false')
+  }
 
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
