@@ -1,5 +1,13 @@
 # anticode
 
+Versi **0.0.25** menambah pencarian isi transkrip sesi, duplikat dan fork sesi, serta preset prompt
+di dashboard; setup Rotate usage lebih mudah dan panel plan tetap tersimpan. Koneksi yang putus di
+tengah balasan kini berhenti dengan pesan jelas dan tombol Continue, tanpa teks dobel. Approval
+mengambang tepat di atas composer dan tidak lagi tertolak oleh Escape saat mengetik. Excel, Word,
+dan PDF bisa ditulis ke folder yang belum ada. Tool yang gagal tetap terlihat, error provider tampil
+merah (kuota habis menyarankan ganti model), dan footer model/token tidak bergeser setelah pause.
+Menambah provider tidak lagi mengganti default, dan `+` dari Settings langsung membuka tab baru.
+
 Versi **0.0.24** menambah tool `share_file` — agent menyerahkan file apa pun (hasil build, keluaran
 command) sebagai kartu Preview/Download, dan tidak lagi boleh mengaku file tampil tanpa kartunya.
 Pause tidak membuang kerja: balasan yang sedang ditulis disimpan, Resume melanjutkannya. Grup Rotate
