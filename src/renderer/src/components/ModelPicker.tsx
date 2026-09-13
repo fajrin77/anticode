@@ -26,13 +26,18 @@ export function ModelPicker({
   const [query, setQuery] = useState('')
   const provider = status?.provider ?? 'anthropic'
   const rotating = provider === ROTATE_PROVIDER
+  // The tab being looked at. Looking is not choosing: the session moves to
+  // another provider only when one of its models is picked, so browsing a tab
+  // with nothing chosen yet never leaves the session without a model.
+  const [viewing, setViewing] = useState<ProviderId>(provider)
   const pool = status?.rotation ?? []
   // The models switched on in Settings → Models for this provider are the
   // whole list: a catalogue of hundreds is chosen from there, not from here.
   // Until something is switched on the list is empty — and the session's model
   // is always one of these (or none), so nothing else ever shows.
-  const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
-  const providerLabel = providers.find((entry) => entry.id === provider)?.label ?? provider
+  const picked = pool.filter((entry) => entry.provider === viewing).map((entry) => entry.model)
+  const providerLabel = providers.find((entry) => entry.id === viewing)?.label ?? viewing
+  const current = (id: string): boolean => viewing === provider && id === status?.model
   // Rotating, the list is what sessions rotate over: the group in use, or all.
   const rotatingOver = activeRotationEntries(status)
   const group = activeRotationGroup(status)
@@ -57,10 +62,16 @@ export function ModelPicker({
             <button
               key={entry.id}
               type="button"
-              onClick={() => onSelect(entry.id, '')}
+              onClick={() => {
+                if (entry.id === ROTATE_PROVIDER) onSelect(entry.id, '')
+                else if (entry.available) {
+                  setViewing(entry.id)
+                  setQuery('')
+                }
+              }}
               title={entry.hint}
               className={`rounded px-2 py-1 text-[12px] transition-colors ${
-                entry.id === provider
+                entry.id === viewing
                   ? 'bg-hover text-text'
                   : entry.available
                     ? 'text-dim hover:bg-hover hover:text-brand'
@@ -148,7 +159,7 @@ export function ModelPicker({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onClose()
-              if (event.key === 'Enter' && query.trim() !== '') onSelect(provider, query.trim())
+              if (event.key === 'Enter' && query.trim() !== '') onSelect(viewing, query.trim())
             }}
             className="border-b border-line-soft bg-transparent px-3 py-1.5 text-[12px] text-text outline-none placeholder:text-faint"
           />
@@ -165,7 +176,7 @@ export function ModelPicker({
             {typedIsNew && matches.length > 0 && (
               <button
                 type="button"
-                onClick={() => onSelect(provider, query.trim())}
+                onClick={() => onSelect(viewing, query.trim())}
                 className="flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
               >
                 Add and use: {query.trim()}
@@ -176,13 +187,13 @@ export function ModelPicker({
               <button
                 key={id}
                 type="button"
-                onClick={() => onSelect(provider, id)}
+                onClick={() => onSelect(viewing, id)}
                 className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover hover:text-brand ${
-                  id === status?.model ? 'text-text' : 'text-dim'
+                  current(id) ? 'text-text' : 'text-dim'
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{id}</span>
-                {id === status?.model && <span className="shrink-0">✓</span>}
+                {current(id) && <span className="shrink-0">✓</span>}
               </button>
             ))}
           </div>

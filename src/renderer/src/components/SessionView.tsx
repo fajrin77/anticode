@@ -16,6 +16,7 @@ type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 type Block =
   | { kind: 'text'; text: string }
   | { kind: 'notice'; text: string }
+  | { kind: 'error'; text: string }
   | { kind: 'tools'; parts: ToolPart[] }
 
 /** Runs of tool calls fold into one group; narration between them stays loose. */
@@ -23,8 +24,8 @@ function groupBlocks(parts: MessagePart[]): Block[] {
   const blocks: Block[] = []
   for (const part of parts) {
     if (part.kind === 'attachments') continue
-    if (part.kind === 'notice') {
-      blocks.push({ kind: 'notice', text: part.text })
+    if (part.kind === 'notice' || part.kind === 'error') {
+      blocks.push({ kind: part.kind, text: part.text })
       continue
     }
     if (part.kind !== 'tool') {
@@ -85,10 +86,10 @@ function ToolGroup({
         )}
         <span className="min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand">
           {running
-            ? `working · ${parts.length} steps`
+            ? `working · ${stepCount(parts.length)}`
             : failed > 0
-              ? `ran ${parts.length} steps · ${failed} failed`
-              : `ran ${parts.length} steps`}
+              ? `ran ${stepCount(parts.length)} · ${failed} failed`
+              : `ran ${stepCount(parts.length)}`}
         </span>
         <span
           className={`shrink-0 text-[11px] text-faint transition-opacity ${
@@ -110,22 +111,30 @@ function ToolGroup({
   )
 }
 
+export function stepCount(count: number): string {
+  return `${count} ${count === 1 ? 'step' : 'steps'}`
+}
+
 /** Counts tool calls by work type, for the finished-run summary line. */
-function breakdownOf(parts: MessagePart[]): string {
+export function breakdownOf(parts: MessagePart[]): string {
   let explore = 0
   let edit = 0
+  let shared = 0
   let code = 0
   let agents = 0
   for (const part of parts) {
     if (part.kind !== 'tool') continue
     if (part.name === 'task') agents += 1
     else if (part.name === 'run_command') code += 1
-    else if (/^(write|edit|delete|add|fill)_/.test(part.name)) edit += 1
+    else if (part.name === 'share_file') shared += 1
+    // Every tool that writes: the same families the produced-files list reads.
+    else if (/^(write|edit|delete|add|fill|create|format)_/.test(part.name)) edit += 1
     else explore += 1
   }
   const bits: string[] = []
   if (explore > 0) bits.push(`${explore} explored`)
   if (edit > 0) bits.push(`${edit} edited`)
+  if (shared > 0) bits.push(`${shared} shared`)
   if (code > 0) bits.push(`${code} code`)
   if (agents > 0) bits.push(`${agents} ${agents === 1 ? 'agent' : 'agents'}`)
   return bits.length > 0 ? ` · ${bits.join(' · ')}` : ''
@@ -329,6 +338,14 @@ function MessageView({
         }
         // The app talking about itself, in the same grey voice a tool group
         // uses — never a bubble, because nobody said it.
+        // A failure in the app's voice, and in red: never mistaken for an answer.
+        if (block.kind === 'error') {
+          return (
+            <div key={`error-${index}`} role="alert" className="my-3 whitespace-pre-wrap text-[14px] text-del">
+              {block.text}
+            </div>
+          )
+        }
         if (block.kind === 'notice') {
           return (
             <div
@@ -340,8 +357,10 @@ function MessageView({
           )
         }
         // A finished run hides its tool groups behind the summary line, so the
-        // closing summary is what stays visible, not a wall of steps.
-        return done && !stepsOpen ? null : (
+        // closing summary is what stays visible, not a wall of steps. A group
+        // with a failure stays: a step that did not happen must not look done.
+        const failedHere = block.parts.some((part) => part.status === 'error')
+        return done && !stepsOpen && !failedHere ? null : (
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
@@ -551,6 +570,7 @@ function RunSummaryCard({
   if (summary === undefined) return <></>
   const { model, durationMs } = summary
   const steps = message.parts.filter((part) => part.kind === 'tool').length
+  const failedSteps = message.parts.filter((part) => part.kind === 'tool' && part.status === 'error').length
   const tokens = summary.inputTokens + summary.outputTokens
 
   // A faint, centred footnote rather than a card — hidden until the cursor
@@ -604,10 +624,9 @@ function RunSummaryCard({
           {steps > 0 && (
             <>
               <span>·</span>
-              <span>
-                {steps} {steps === 1 ? 'step' : 'steps'}
-              </span>
+              <span>{stepCount(steps)}</span>
               <span className="hidden sm:inline">{breakdownOf(message.parts)}</span>
+              {failedSteps > 0 && <span className="text-del">· {failedSteps} failed</span>}
             </>
           )}
           {files.length > 0 && (

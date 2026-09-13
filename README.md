@@ -78,12 +78,14 @@ menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap
 
 | | antichat | anticode |
 |---|---|---|
-| Folder project | tidak perlu | wajib |
-| Tool | tidak ada sama sekali | kedua puluh tujuh tool |
+| Folder project | tidak perlu (folder privat per sesi di data app) | wajib |
+| Tool | tool dokumen saja — file, Excel, Word, PDF, checklist, `share_file` | kedua puluh tujuh tool |
 | Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
 
 antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider
-memang kosong, jadi model tidak punya cara apa pun menyentuh disk. Kartu **anticode** di dashboard
+hanya berisi tool dokumen, dan semuanya terkunci di folder privat sesi itu — tanpa terminal, hapus,
+browser, internet, maupun MCP — jadi model tidak bisa menyentuh project atau berkas lain di disk.
+Karena hanya menyentuh salinannya sendiri, tool itu jalan tanpa approval. Kartu **anticode** di dashboard
 tetap mati sampai sebuah folder dipilih.
 
 Tiap tab punya percakapannya sendiri di main process, terikat pada mode dan folder yang berlaku saat
@@ -423,9 +425,10 @@ diberi nomor (`Template-2.xlsx`), jadi salinan yang sudah diedit agent tidak per
 Sandbox workspace tetap satu-satunya pintu akses berkas: `.anticode` yang ternyata symlink ke luar
 folder ditolak, dan prompt tetap terkirim dengan berkas yang ditandai di luar jangkauan.
 
-Di antichat tidak ada yang disalin. Model diberi tahu bahwa pratinjau adalah satu-satunya yang ia
-lihat dan bahwa ia tidak bisa mengembalikan berkas hasil; bila diminta mengubah berkas, ia mengarahkan
-pengguna ke sesi anticode, bukan menawarkan skrip.
+Di antichat, lampiran disalin ke folder privat sesi itu di data app (bukan ke project mana pun).
+Model mengedit salinan itu dengan tool dokumen, dan berkas yang ditulisnya muncul sebagai Download;
+folder itu ikut terhapus bersama sesinya. Bila salinan gagal dibuat, model diberi tahu bahwa
+pratinjau adalah satu-satunya yang ia lihat.
 
 Pratinjau workbook memuat ringkasan format per range (fill, warna teks, bold) di atas barisnya, supaya
 permintaan seperti "ubah header biru jadi merah" bisa dijawab tanpa menebak sel mana yang biru. Berkas

@@ -5,7 +5,7 @@ import type { AgentEvent, QueuedPrompt, SessionPause, SessionQueue, SessionSnaps
 import { listQueue } from '../queue'
 import { costOf } from '../pricing'
 import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries, sessionTitle } from '../runtime'
-import { clearPause, isPaused, runForSession } from '../runs'
+import { clearPause, isPaused, isPausedForRetry, pauseForRetry, runForSession } from '../runs'
 
 /**
  * What a session's phone stream carries: its runs, whether it is paused, word
@@ -36,7 +36,8 @@ export function sessionSnapshot(sessionId: string): SessionSnapshot | null {
   return structuredClone({
     messages: journal?.messages ?? messages,
     summaries: journal?.summaries ?? loadSessionSummaries(sessionId),
-    events: journal?.events ?? [], runId, paused: isPaused(sessionId), revision,
+    events: journal?.events ?? [], runId, paused: isPaused(sessionId),
+    ...(isPausedForRetry(sessionId) ? { pausedForRetry: true } : {}), revision,
     queue: listQueue(sessionId)
   })
 }
@@ -70,14 +71,17 @@ function tally(runId: string): {
 /**
  * A run that never got a response leaves no assistant turn behind, so it must
  * leave no summary either — that one-to-one is what lets a viewer line the
- * summaries up with the turns without any bookkeeping of its own.
+ * summaries up with the turns without any bookkeeping of its own. A run
+ * stopped mid-reply is the exception: the words it wrote so far stay as a
+ * turn, with no usage ever reported, and that turn needs its summary too or
+ * every later reply would wear the one before it.
  */
-function closeTally(runId: string, sessionId: string): RunSummary | undefined {
-  const entry = tallies.get(runId)
+function closeTally(runId: string, sessionId: string, keptReplyModel?: string): RunSummary | undefined {
+  const entry = tallies.get(runId) ?? (keptReplyModel !== undefined ? tally(runId) : undefined)
   tallies.delete(runId)
-  if (entry === undefined || entry.turns === 0) return
+  if (entry === undefined || (entry.turns === 0 && keptReplyModel === undefined)) return
   const summary: RunSummary = {
-    model: entry.model,
+    model: entry.model !== '' ? entry.model : (keptReplyModel ?? ''),
     durationMs: Date.now() - entry.startedAt,
     inputTokens: entry.inputTokens,
     outputTokens: entry.outputTokens,
@@ -132,18 +136,21 @@ export function forward(event: AgentEvent): void {
   if (event.type === 'end' || event.type === 'error') {
     runSessions.delete(event.runId)
     journals.delete(event.runId)
-    const summary = closeTally(event.runId, sessionId)
+    const summary = closeTally(event.runId, sessionId, event.keptReplyModel)
     if (summary !== undefined && (routed.type === 'end' || routed.type === 'error')) routed.summary = summary
     // Paused just as the run was finishing on its own: it finished, so there
     // is nothing left to resume on either screen.
-    if (event.type === 'error' || event.reason !== 'cancelled') clearPause(sessionId)
+    if (event.type === 'error' && event.retryable === true) pauseForRetry(sessionId)
+    else if (event.type === 'error' || event.reason !== 'cancelled') clearPause(sessionId)
     // A pause is the user's own doing; nobody needs telling about it.
     if (!(event.type === 'end' && event.reason === 'cancelled')) {
       const title = sessionTitle(sessionId)
       notify(event.type === 'error' ? 'error' : 'complete', {
         title: title === '' ? 'anticode' : title,
         body: event.type === 'error'
-          ? `Stopped with an error: ${event.message.slice(0, 160)}`
+          ? event.retryable === true
+            ? `Connection interrupted: ${event.message.slice(0, 130)}. Press Continue to resume.`
+            : `Stopped with an error: ${event.message.slice(0, 160)}`
           : event.reason === 'complete'
             ? `Finished${summary !== undefined ? ` in ${Math.max(1, Math.round(summary.durationMs / 1000))}s` : ''}.`
             : `Stopped: ${event.reason}.`,

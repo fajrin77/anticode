@@ -255,6 +255,26 @@ async function makeTemplate(): Promise<void> {
 }
 
 describe('docx tools', () => {
+  it('creates documents inside folders that do not exist yet', async () => {
+    await createExcelTool
+      .prepare({ path: 'laporan/2026/penjualan.xlsx', rows: [['bulan'], ['jan']] })
+      .execute(context)
+    await writeDocxTool.prepare({ path: 'docs/baru/catatan.docx', content: 'Isi' }).execute(context)
+    await createPdfTool.prepare({ path: 'pdf/baru/laporan.pdf', title: 'T', content: 'Isi' }).execute(context)
+    await makeWorkbook()
+    await formatExcelCellsTool
+      .prepare({ path: 'data.xlsx', range: 'A1:B1', fill: '#C00000', output_path: 'hasil/merah.xlsx' })
+      .execute(context)
+    await makePdf(true)
+    await fillPdfFormTool
+      .prepare({ path: 'form.pdf', fields: { nama: 'Asani' }, output_path: 'terisi/form.pdf' })
+      .execute(context)
+
+    for (const file of ['laporan/2026/penjualan.xlsx', 'docs/baru/catatan.docx', 'pdf/baru/laporan.pdf', 'hasil/merah.xlsx', 'terisi/form.pdf']) {
+      expect((await readFile(path.join(root, file))).byteLength).toBeGreaterThan(0)
+    }
+  })
+
   it('reads a document as markdown', async () => {
     await makeDocx()
     const output = (await readDocxTool.prepare({ path: 'laporan.docx' }).execute(context)).text

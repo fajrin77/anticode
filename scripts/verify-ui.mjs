@@ -69,7 +69,7 @@ const app = await electron.launch({args:[bootstrap],env,cwd:directory})
 const window = await app.firstWindow()
 await window.setViewportSize({width:1280,height:820})
 const shot = async (name) => { await window.screenshot({path:path.join(shots,name+'.png')}); console.log('shot:',name) }
-const composer = () => window.getByPlaceholder(/just vibes|Add to the task/)
+const composer = () => window.getByPlaceholder(/just vibes|what to change|Add to the task/)
 try {
   const colourOf = async (locator) => locator.evaluate((el) => getComputedStyle(el).color)
   const LIME = 'rgb(209, 250, 34)'
@@ -836,7 +836,8 @@ try {
 
   // Paused, the button resumes — with a play mark, not the send arrow, which
   // read as sending an empty prompt. Typing turns it back into a send.
-  const resumeButton = window.getByRole('button',{name:'Resume'})
+  const resumeButton = window.getByRole('button',{name:'Continue'})
+  check('pause: Continue is visibly labelled', await resumeButton.innerText(), 'Continue')
   check('pause: resume wears a play mark, not an arrow',
     await resumeButton.locator('svg path').getAttribute('d').then((d) => d.startsWith('M5 3.2') ? 'play' : 'arrow'), 'play')
   await composer().fill('ganti rencana')

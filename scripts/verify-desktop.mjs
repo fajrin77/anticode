@@ -16,6 +16,7 @@ const workspace = path.join(directory, 'workspace'); await mkdir(workspace)
 await writeFile(path.join(workspace, 'hello.txt'), 'original')
 await writeFile(path.join(workspace, '<b>literal.txt'), 'literal filename')
 let calls = 0
+let disconnectRecovered = false
 /** What the stub was last sent, so a test can read the framing the model saw. */
 let lastSent = ''
 /** A page for the browser pane to point at, standing in for a dev server. */
@@ -36,6 +37,11 @@ const stub = createServer(async (req, res) => {
   const text = typeof prompt === 'string' ? prompt : prompt?.filter(p=>p.type==='text').map(p=>p.text).join(' ') ?? ''
   lastSent = JSON.stringify(body.messages)
   if (text.includes('provider-error')) { res.writeHead(400, {'content-type':'application/json'}); res.end(JSON.stringify({error:{message:'Fixture provider rejected the request'}})); return }
+  if (lastSent.includes('disconnect-fixture') && !disconnectRecovered) {
+    res.writeHead(503, {'content-type':'application/json','retry-after':'0'})
+    res.end(JSON.stringify({error:{message:'Fixture connection temporarily unavailable'}}))
+    return
+  }
   res.writeHead(200, {'content-type':'text/event-stream'})
   const chunk = (delta, finish_reason=null) => res.write(`data: ${JSON.stringify({id:'test',choices:[{index:0,delta,finish_reason}]})}\n\n`)
   // Only the turn that opens the run: once the tool has answered, reply in words.
@@ -94,7 +100,7 @@ try {
   await window.getByPlaceholder("Don't work today, just vibes.").fill('slow cancel')
   await window.getByPlaceholder("Don't work today, just vibes.").press('Enter')
   await window.getByRole('button',{name:'Pause',exact:true}).click()
-  await window.getByRole('button',{name:'Resume',exact:true}).click()
+  await window.getByRole('button',{name:'Continue',exact:true}).click()
   await window.getByText(/Fixture reply: Lanjutkan/).waitFor()
   log('pause and resume retain a usable session')
   await window.getByRole('button',{name:'Settings',exact:true}).click()
@@ -109,6 +115,14 @@ try {
   const {sessionId}=await api('/api/session',{mode:'code',folder:workspace})
   await api('/api/prompt',{sessionId,prompt:'write-fixture'})
   await window.getByRole('button',{name:'Approve',exact:true}).waitFor()
+  // Escape in a text field means "close this", not "reject the pending change".
+  await window.getByRole('button',{name:'Models',exact:true}).click()
+  await window.getByPlaceholder(/Search models/).focus()
+  await window.keyboard.press('Escape')
+  await new Promise(r=>setTimeout(r,200))
+  assert.equal(await window.getByRole('button',{name:'Approve',exact:true}).count(),1)
+  await window.getByRole('button',{name:'Remote',exact:true}).click()
+  log('Escape in a text field leaves a pending approval alone')
   await window.getByRole('button',{name:'Approve',exact:true}).click()
   await new Promise(r=>setTimeout(r,500))
   assert.equal(await readFile(path.join(workspace,'hello.txt'),'utf8'),'written by approved tool')
@@ -727,7 +741,7 @@ try {
     log('simultaneous desktop and phone prompts share one run')
 
     // One pause, owned by the main process: pressed on either screen, both
-    // show Resume, and either one can press it. Each used to keep its own, so
+    // show Continue, and either one can press it. Each used to keep its own, so
     // a pause from the phone could not be resumed on the desktop.
     const desktopPaused = () => window.evaluate((id) => window.__store.getState().pausedSessions[id] === true, sessionId)
     const phonePaused = () => screen.evaluate((id) => pausedSessions.has(id), sessionId)
@@ -741,33 +755,47 @@ try {
     await screen.waitForFunction(() => currentRunId !== null, null, { timeout: 5000 })
     await screen.click('#sendBtn')
     await until(desktopPaused, 'the desktop to hear of the phone pause')
-    await until(async () => (await phoneButton()) === 'Resume', 'the phone Resume button')
-    await window.getByRole('button', { name: 'Resume', exact: true }).waitFor()
-    await window.getByRole('button', { name: 'Resume', exact: true }).click()
+    await until(async () => (await phoneButton()) === 'Continue', 'the phone Continue button')
+    await window.getByRole('button', { name: 'Continue', exact: true }).waitFor()
+    await window.getByRole('button', { name: 'Continue', exact: true }).click()
     await until(async () => !(await phonePaused()), 'the phone to hear of the desktop resume')
     await until(async () => !(await desktopPaused()), 'the desktop resume to end the pause')
     await screen.waitForFunction(() => currentRunId === null, null, { timeout: 15000 })
-    assert.notEqual(await phoneButton(), 'Resume')
+    assert.notEqual(await phoneButton(), 'Continue')
     log('paused on the phone, resumed on the desktop')
 
     await api('/api/prompt', { sessionId, prompt: 'slow phone run' })
     await window.getByRole('button', { name: 'Pause', exact: true }).waitFor()
     await window.getByRole('button', { name: 'Pause', exact: true }).click()
     await until(phonePaused, 'the phone to hear of the desktop pause')
-    await until(async () => (await phoneButton()) === 'Resume', 'the phone Resume button after a desktop pause')
+    await until(async () => (await phoneButton()) === 'Continue', 'the phone Continue button after a desktop pause')
     await screen.click('#sendBtn')
     await until(async () => !(await desktopPaused()), 'the desktop to hear of the phone resume')
     await screen.waitForFunction(() => currentRunId === null && !pausedSessions.has(currentSession), null, { timeout: 15000 })
-    await window.getByRole('button', { name: 'Resume', exact: true }).waitFor({ state: 'detached' })
+    await window.getByRole('button', { name: 'Continue', exact: true }).waitFor({ state: 'detached' })
     log('paused on the desktop, resumed on the phone')
 
     // A run that already finished has nothing to pause: pressing a stale Pause
-    // must not leave a Resume button on either screen.
+    // must not leave a Continue button on either screen.
     assert.deepEqual(await api('/api/pause', { sessionId }), { paused: false })
     assert.equal(await window.evaluate((id) => window.anticode.pauseSession(id), sessionId), false)
     assert.equal((await api('/api/session/' + sessionId)).paused, false)
     assert.equal(await desktopPaused(), false)
     log('pausing a finished run leaves nothing to resume')
+
+    // After automatic connection retries are exhausted, both screens offer a
+    // deliberate Continue action. The recovered turn keeps the same history.
+    await api('/api/prompt', { sessionId, prompt: 'disconnect-fixture' })
+    await until(desktopPaused, 'the desktop Continue button after a connection loss')
+    await until(phonePaused, 'the phone Continue button after a connection loss')
+    await window.getByRole('button', { name: 'Continue', exact: true }).waitFor()
+    assert.equal(await phoneButton(), 'Continue')
+    disconnectRecovered = true
+    await screen.click('#sendBtn')
+    await until(async () => !(await desktopPaused()), 'the recovered desktop session')
+    await screen.waitForFunction(() => currentRunId === null && !pausedSessions.has(currentSession), null, { timeout: 15000 })
+    assert.match(await screen.locator('#transcript').innerText(), /Fixture reply: Lanjutkan pekerjaan/)
+    log('a lost connection can continue on either screen without restarting the session')
 
     // A turn reverted on the desktop is gone from the phone's screen too.
     await api('/api/prompt', { sessionId, prompt: 'to be reverted' })
@@ -893,7 +921,7 @@ try {
     await screen.waitForFunction(() => currentRunId !== null, null, { timeout: 5000 })
     await screen.click('#sendBtn')
     await screen.waitForFunction(() => !document.getElementById('revertBtn').classList.contains('hidden') &&
-      document.getElementById('sendBtn').getAttribute('aria-label') === 'Resume', null, { timeout: 10000 })
+      document.getElementById('sendBtn').getAttribute('aria-label') === 'Continue', null, { timeout: 10000 })
     await screen.click('#revertBtn')
     await screen.waitForFunction(() => document.getElementById('prompt').value === 'slow revert me', null, { timeout: 5000 })
     assert.equal(await screen.$eval('#transcript', (el) => el.textContent.includes('slow revert me')), false)

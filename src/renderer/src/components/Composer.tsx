@@ -182,8 +182,13 @@ export function Composer({
     const layer = layerRef.current
     const zone = layer?.closest<HTMLElement>('[data-drop-zone]')
     if (layer === null || zone === null || zone === undefined) return
+    const root = document.documentElement
     const sync = (): void => {
-      zone.style.setProperty('--desktop-composer-height', `${layer.getBoundingClientRect().height}px`)
+      const height = layer.getBoundingClientRect().height
+      zone.style.setProperty('--desktop-composer-height', `${height}px`)
+      // The approval card floats at window level, just above this composer.
+      if (height > 0) root.style.setProperty('--composer-offset', `${height}px`)
+      else root.style.removeProperty('--composer-offset')
     }
     const observer = new ResizeObserver(sync)
     observer.observe(layer)
@@ -191,6 +196,7 @@ export function Composer({
     return () => {
       observer.disconnect()
       zone.style.removeProperty('--desktop-composer-height')
+      root.style.removeProperty('--composer-offset')
     }
   }, [hero])
 
@@ -382,7 +388,7 @@ export function Composer({
     setDraft('')
     setAttached([])
     clearQuote()
-    // A new prompt ends a pause as surely as Resume does; the main process
+    // A new prompt ends a pause as surely as Continue does; the main process
     // clears it when the run begins, and tells every viewer.
     const userMessageId = crypto.randomUUID()
     addMessage({ id: userMessageId, role: 'user', parts, pending: false })
@@ -603,7 +609,9 @@ export function Composer({
                   ? followUpMode === 'queue'
                     ? 'Queue the next prompt…'
                     : 'Add to the task…'
-                  : "Don't work today, just vibes."
+                  : !hero && session?.mode === 'code'
+                    ? 'Tell anticode what to change…'
+                    : "Don't work today, just vibes."
               }
               onChange={(event) => setDraft(event.target.value)}
               onPaste={onPaste}
@@ -745,17 +753,20 @@ export function Composer({
                     !resuming &&
                     (draft.trim() === '' || (!canSend && !folderMissing)))
                 }
-                aria-label={resuming ? 'Resume' : steering ? (followUpMode === 'queue' ? 'Queue' : 'Send') : isStreaming ? 'Pause' : 'Send'}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
+                aria-label={resuming ? 'Continue' : steering ? (followUpMode === 'queue' ? 'Queue' : 'Send') : isStreaming ? 'Pause' : 'Send'}
+                className={`flex h-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                   resuming
-                    ? 'bg-brand text-bg hover:bg-brand-strong'
-                    : 'glass-ghost text-text hover:text-brand'
+                    ? 'gap-1.5 bg-brand px-3 text-bg hover:bg-brand-strong'
+                    : 'glass-ghost w-8 text-text hover:text-brand'
                 }`}
               >
                 {resuming ? (
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-                    <path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" />
-                  </svg>
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+                      <path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" />
+                    </svg>
+                    <span className="text-[12.5px]">Continue</span>
+                  </>
                 ) : isStreaming && !isPaused && !steering ? (
                   <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
                 ) : (

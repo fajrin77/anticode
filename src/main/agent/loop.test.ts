@@ -437,6 +437,57 @@ describe('AgentSession', () => {
     expect(events.at(-1)?.type).toBe('error')
   })
 
+  it('says what to do when the model is out of usage', async () => {
+    const spent: LLMProvider = {
+      name: 'spent',
+      model: 'spent-model',
+      async *chat() {
+        throw Object.assign(new Error('402 insufficient_quota'), { status: 402 })
+      }
+    }
+    await run(spent)
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      message: '402 insufficient_quota\nThis model is out of usage. Pick another model from the model chip, or top up the account.'
+    })
+    expect(events.at(-1)).not.toHaveProperty('retryable')
+  })
+
+  it('makes an exhausted connection failure resumable and keeps its last partial reply', async () => {
+    let calls = 0
+    const disconnected: LLMProvider = {
+      name: 'offline',
+      model: 'offline-model',
+      async *chat() {
+        calls += 1
+        yield { type: 'text_delta', text: 'bagian yang sudah diterima' }
+        throw Object.assign(new Error('fetch failed'), { cause: { code: 'ENETUNREACH' }, retryAfter: 0 })
+      }
+    }
+    const session = new AgentSession(disconnected, allowAll, 'chat')
+    await session.run({
+      runId: 'offline', prompt: 'kerjakan panjang', signal: new AbortController().signal,
+      emit: (event) => events.push(event)
+    })
+
+    // Retrying after words were shown would write the reply twice on screen.
+    expect(calls).toBe(1)
+    expect(events.filter((event) => event.type === 'text_delta')).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({
+      type: 'error', retryable: true, keptReplyModel: 'offline-model',
+      message: 'The connection to the provider was lost (fetch failed).'
+    })
+
+    const recovered = new FakeProvider([turn([{ type: 'text', text: 'selesai setelah tersambung' }], 'end_turn')])
+    session.useProvider(recovered)
+    await session.run({
+      runId: 'continued', prompt: CONTINUE_PROMPT, signal: new AbortController().signal,
+      emit: () => undefined
+    })
+    expect(recovered.sent[0]?.map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
+    expect(recovered.sent[0]?.[1]?.content).toEqual([{ type: 'text', text: 'bagian yang sudah diterima' }])
+  })
+
   it('hands a rate-limited turn to the fallback at once and reports the new model', async () => {
     const limited: LLMProvider = {
       name: 'first',
@@ -542,9 +593,13 @@ it('keeps a reply cut off by a pause, so the resume continues it instead of writ
   } }
   const session = new AgentSession(provider, allowAll, 'chat')
   let deltas = 0
+  const ended: AgentEvent[] = []
   await session.run({ runId: 'paused', prompt: 'tulis panjang', signal: controller.signal, emit: (event) => {
+    if (event.type === 'end') ended.push(event)
     if (event.type === 'text_delta' && ++deltas === 2) controller.abort()
   } })
+  // The kept words are a turn, and a turn is owed a summary for its model.
+  expect(ended).toEqual([{ type: 'end', runId: 'paused', reason: 'cancelled', keptReplyModel: 'slow' }])
   await session.run({ runId: 'resumed', prompt: CONTINUE_PROMPT, signal: new AbortController().signal, emit: () => {} })
   expect(sent[1]?.map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
   expect(sent[1]?.[1]?.content).toEqual([{ type: 'text', text: 'Bagian satu, bagian dua' }])

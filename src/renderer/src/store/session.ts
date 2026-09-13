@@ -25,6 +25,8 @@ export type MessagePart =
    * left, grey, no bubble.
    */
   | { kind: 'notice'; text: string }
+  /** Why a run stopped short — a provider or connection failure. Drawn in red. */
+  | { kind: 'error'; text: string }
   | {
       kind: 'tool'
       toolUseId: string
@@ -288,6 +290,8 @@ interface SessionState {
   progressTool: (sessionId: string, toolUseId: string, text: string) => void
   /** The app noted something about a run in progress — its context was compacted. */
   noticeInRun: (sessionId: string, messageId: string, text: string) => void
+  /** The run failed; the reason stays under the reply, apart from what the model said. */
+  errorInRun: (sessionId: string, messageId: string, text: string) => void
   /** The replay estimate after a compaction, until the next request measures it. */
   setContextTokens: (sessionId: string, tokens: number) => void
   settleMessage: (messageId: string, summary?: RunSummary) => void
@@ -910,6 +914,16 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         mapMessage(session, messageId, (message) => ({
           ...message,
           parts: [...message.parts, { kind: 'notice', text }]
+        }))
+      )
+    })),
+
+  errorInRun: (sessionId, messageId, text) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) =>
+        mapMessage(session, messageId, (message) => ({
+          ...message,
+          parts: [...message.parts, { kind: 'error', text }]
         }))
       )
     })),

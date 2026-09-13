@@ -450,6 +450,7 @@
   .composer textarea:focus { outline: none; }
   /* The send and pause glyphs are the desktop's own, drawn, not typed. */
   #sendBtn { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; min-width: 48px; border-radius: 16px; }
+  #sendBtn.lime { width: auto; gap: 8px; padding: 0 16px; }
   #sendBtn .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
   .composer button {
     background: var(--glass-control); color: #ededed; border: 1px solid rgba(255,255,255,.1); border-radius: 10px;
@@ -1466,7 +1467,8 @@ async function syncSession(id) {
   renderPlan();
   for (const event of payload.events ?? []) await applyStreamEvent(id, event);
   appliedRevision = payload.revision ?? 0;
-  if (pausedSessions.has(id)) appendNotice(PAUSE_LABEL);
+  // A dropped connection pauses too, but nobody took a break: its error says why.
+  if (pausedSessions.has(id) && payload.pausedForRetry !== true) appendNotice(PAUSE_LABEL);
   if (currentRunId && !tailRunning) showWorking();
   for (const entry of pending) {
     if (entry.id === id && (entry.event.revision ?? Infinity) > appliedRevision) await applyStreamEvent(id, entry.event);
@@ -1754,6 +1756,10 @@ function toolRowEl(item) {
   return row;
 }
 
+function stepCount(count) {
+  return count + (count === 1 ? ' step' : ' steps');
+}
+
 /* A run of tool calls folds into one line — the desktop's ToolGroup, verbatim:
  * "ran 5 steps" while it is history, "working · 5 steps" while it runs. */
 function toolGroupEl(items, live = false) {
@@ -1769,10 +1775,10 @@ function toolGroupEl(items, live = false) {
   const label = document.createElement('span');
   label.className = 'tlabel';
   label.textContent = running
-    ? 'working \u00b7 ' + items.length + ' steps'
+    ? 'working \u00b7 ' + stepCount(items.length)
     : failed > 0
-      ? 'ran ' + items.length + ' steps \u00b7 ' + failed + ' failed'
-      : 'ran ' + items.length + ' steps';
+      ? 'ran ' + stepCount(items.length) + ' \u00b7 ' + failed + ' failed'
+      : 'ran ' + stepCount(items.length);
   const chev = document.createElement('span');
   chev.className = 'tchev';
   chev.textContent = '\u2304';
@@ -2020,6 +2026,7 @@ async function applyStreamEvent(id, event) {
     else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
     else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; liveRun = null; appendNotice(event.text); }
     else if (event.type === 'end' || event.type === 'error') {
+      if (event.type === 'error' && event.retryable === true) pausedSessions.add(id);
       steerAnchor = null;
       liveGroup = null;
       currentRunId = null;
@@ -2564,12 +2571,12 @@ function updateSendBtn() {
   btn.classList.toggle('lime', state === 'resume');
   // Same glyphs as the desktop: an arrow to send, a square to pause, a play
   // mark to resume — never the send arrow, which read as sending nothing.
-  const glyph = state === 'running' ? PAUSE_GLYPH : state === 'resume' ? RESUME_GLYPH : SEND_GLYPH;
+  const glyph = state === 'running' ? PAUSE_GLYPH : state === 'resume' ? RESUME_GLYPH + '<span>Continue</span>' : SEND_GLYPH;
   if (btn.dataset.glyph !== state) { btn.innerHTML = glyph; btn.dataset.glyph = state; }
-  const label = state === 'resume' ? 'Resume' : state === 'running' ? 'Pause' : 'Send';
+  const label = state === 'resume' ? 'Continue' : state === 'running' ? 'Pause' : 'Send';
   btn.title = label;
   btn.setAttribute('aria-label', label);
-  // Revert sits beside Resume, as on the desktop: paused, and nothing running.
+  // Revert sits beside Continue, as on the desktop: paused, and nothing running.
   const reverting = currentSession !== null && pausedSessions.has(currentSession) && currentRunId === null;
   document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
   const working = currentRunId !== null && !pausedSessions.has(currentSession);
@@ -2594,7 +2601,7 @@ function onSendBtn() {
  * the desktop — and tells both screens; the marker arrives on the stream. When
  * nothing was running, the run had already finished without this screen
  * hearing of it: there is nothing to resume, so it catches up instead of
- * offering a Resume that would start the work over. */
+ * offering a Continue that would start the work over. */
 async function pauseSession() {
   if (currentRunId === null || currentSession === null) return;
   const id = currentSession;

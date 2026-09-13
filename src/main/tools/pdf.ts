@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { PDFParse } from 'pdf-parse'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { z } from 'zod'
@@ -109,6 +110,7 @@ export const fillPdfFormTool = defineTool({
     }
 
     const destination = resolveInWorkspace(context.workspaceRoot, input.output_path ?? input.path)
+    await mkdir(path.dirname(destination), { recursive: true })
     await writeFile(destination, await document.save())
     return `Filled in ${input.output_path ?? input.path}:\n${filled.join('\n')}`
   }
@@ -224,6 +226,7 @@ export const createPdfTool = defineTool({
     }
 
     try {
+      await mkdir(path.dirname(target), { recursive: true })
       await writeFile(target, await document.save())
     } catch (error) {
       throw new ToolError(`Failed to write PDF: ${(error as Error).message}`)

@@ -292,19 +292,6 @@ function DashboardComposer({
             />
 
             <div className="flex items-center gap-1 px-2.5 pb-2.5">
-              {draft.trim() !== '' && (
-                <button
-                  type="button"
-                  title="Save this prompt as a reusable preset"
-                  onClick={() => {
-                    const name = draft.trim().split('\n')[0]!.slice(0, 24) || 'Preset'
-                    useSessionStore.getState().savePreset(name, draft.trim())
-                  }}
-                  className="glass-ghost flex h-7 items-center justify-center rounded-md px-2 text-[11.5px] text-dim transition-colors hover:text-brand"
-                >
-                  Save preset
-                </button>
-              )}
               <button
                 type="button"
                 title="Attach files"
@@ -328,6 +315,22 @@ function DashboardComposer({
               </Chip>
 
               <div className="flex-1" />
+
+              {/* Right of the spacer: appearing as words are typed, it pushes
+                  nothing but itself — the chips on the left stay put. */}
+              {draft.trim() !== '' && (
+                <button
+                  type="button"
+                  title="Save this prompt as a reusable preset"
+                  onClick={() => {
+                    const name = draft.trim().split('\n')[0]!.slice(0, 24) || 'Preset'
+                    useSessionStore.getState().savePreset(name, draft.trim())
+                  }}
+                  className="glass-ghost flex h-7 items-center justify-center rounded-md px-2 text-[11.5px] text-dim transition-colors hover:text-brand"
+                >
+                  Save preset
+                </button>
+              )}
 
               <button
                 type="button"

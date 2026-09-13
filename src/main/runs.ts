@@ -8,6 +8,8 @@ const runs = new Map<string, { sessionId: string; controller: AbortController; s
  * round — each viewer used to keep its own and never heard of the other's.
  */
 const paused = new Set<string>()
+/** The paused sessions no one paused: their run lost its connection. */
+const retryPauses = new Set<string>()
 let pauseSink: ((sessionId: string, paused: boolean) => void) | null = null
 
 /** Called once by ipc registration; tells every viewer when a pause starts or ends. */
@@ -16,10 +18,22 @@ export function setPauseSink(sink: (sessionId: string, paused: boolean) => void)
 }
 
 function setPaused(sessionId: string, value: boolean): void {
+  retryPauses.delete(sessionId)
   if (paused.has(sessionId) === value) return
   if (value) paused.add(sessionId)
   else paused.delete(sessionId)
   pauseSink?.(sessionId, value)
+}
+
+/** Keeps a failed run resumable without emitting a user-initiated pause marker.
+ * The retryable error event itself tells every viewer why work stopped. */
+export function pauseForRetry(sessionId: string): void {
+  paused.add(sessionId)
+  retryPauses.add(sessionId)
+}
+
+export function isPausedForRetry(sessionId: string): boolean {
+  return retryPauses.has(sessionId)
 }
 
 export function beginRun(runId: string, sessionId: string): AbortController {
@@ -54,7 +68,7 @@ export function listActiveRuns(): { runId: string; sessionId: string; startedAt:
 /**
  * Stops the session's run and remembers it was a pause, so either viewer can
  * resume it. False when nothing is running: a run that already finished has
- * nothing to pause, and must not leave a Resume button behind on any screen.
+ * nothing to pause, and must not leave a Continue button behind on any screen.
  * Viewers are told before the run is stopped, so its end reads as a pause.
  */
 export function pauseSession(sessionId: string): boolean {

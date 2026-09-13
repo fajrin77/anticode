@@ -199,7 +199,7 @@ body {
 }
 
 .session-transcript {
-  padding-bottom: calc(var(--desktop-composer-height, 112px) + 24px);
+  padding-bottom: calc(var(--desktop-composer-height, 112px) + var(--approval-height, 0px) + 24px);
 }
 
 /* A scroll area that starts under the 48px header, so what scrolls up passes

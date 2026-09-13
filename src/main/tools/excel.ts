@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { statSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import ExcelJS from 'exceljs'
 import * as XLSX from 'xlsx'
 import { z } from 'zod'
@@ -349,6 +349,8 @@ export const createExcelTool = defineTool({
     widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width })
 
     try {
+      // A new file may name a folder that does not exist yet.
+      await mkdir(path.dirname(target), { recursive: true })
       await workbook.xlsx.writeFile(target)
     } catch (error) {
       throw new ToolError(`Failed to write workbook: ${(error as Error).message}`)
@@ -494,6 +496,8 @@ export const formatExcelCellsTool = defineTool({
     }
 
     try {
+      // A new file may name a folder that does not exist yet.
+      await mkdir(path.dirname(target), { recursive: true })
       await workbook.xlsx.writeFile(target)
     } catch (error) {
       throw new ToolError(`Failed to write workbook: ${(error as Error).message}`)

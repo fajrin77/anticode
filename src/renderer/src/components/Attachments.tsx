@@ -61,7 +61,9 @@ export function Attachments({
   const open = (item: AttachmentRef): void => openAttachment(item, setViewing)
 
   return (
-    <div className={`flex flex-wrap gap-2 ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
+    // items-end: a file card keeps its own height beside a tall picture instead
+    // of stretching to match it, and sits on the line the prompt starts from.
+    <div className={`flex flex-wrap items-end gap-2 ${align === 'end' ? 'justify-end' : 'justify-start'}`}>
       {viewing !== null && (
         <ImageViewer
           name={viewing.name}

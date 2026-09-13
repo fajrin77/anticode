@@ -48,6 +48,9 @@ export function App(): JSX.Element {
   // the dashboard and only bound to the main-process session on first send.
   const startSession = useCallback(() => {
     const sessionId = openSession('code', null)
+    // Asked for here, so shown here — even from Settings, which a session
+    // made elsewhere (the phone) is not allowed to leave on its own.
+    setView('session')
     // The colour this window just painted is offered to the main process,
     // which owns colours so the phone paints the session the same; whatever it
     // settles on is what both show.
@@ -346,7 +349,8 @@ export function App(): JSX.Element {
             store.addRunTokens(event.runId, event.inputTokens, event.outputTokens)
             break
           case 'error':
-            store.appendText(run.sessionId, run.messageId, `\n${event.message}`)
+            if (event.retryable === true) store.pauseSession(run.sessionId)
+            store.errorInRun(run.sessionId, run.messageId, event.message)
             store.settleMessage(run.messageId, event.summary ?? summaryOf(run.sessionId, run.startedAt, useSessionStore.getState().activeRuns[event.runId]))
             store.setActiveRun(null, event.runId)
             break
@@ -414,11 +418,8 @@ export function App(): JSX.Element {
           const entry = useSessionStore.getState().mirrorRuns[event.runId]
           const summary =
             event.summary ?? (entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined)
-          store.appendText(
-            event.sessionId,
-            store.mirrorStart(event.runId, event.sessionId),
-            `\n${event.message}`
-          )
+          if (event.retryable === true) store.pauseSession(event.sessionId)
+          store.errorInRun(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.message)
           store.mirrorSettle(event.runId, summary)
 
           break
@@ -516,7 +517,6 @@ export function App(): JSX.Element {
         </div>
       )}
       <FileViewer />
-      {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
       <TabBar
         dashboardActive={view === 'dashboard'}
         settingsActive={view === 'settings'}
@@ -597,6 +597,7 @@ export function App(): JSX.Element {
           )}
         </div>
       )}
+      {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
     </div>
   )
 }

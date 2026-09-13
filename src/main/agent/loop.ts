@@ -13,6 +13,7 @@ import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
 import type { Tool } from '../tools'
 import type { DelegatedTask } from '../tools/types'
 import type { ApprovalGate } from '../approval/types'
+import { isOutOfUsage } from '../usageErrors'
 
 const MAX_TOKENS = 32_000
 const MAX_TOOL_OUTPUT = 10_000
@@ -123,7 +124,16 @@ function isToolUse(block: ContentBlock): block is ToolUseBlock {
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  const message = error instanceof Error ? error.message : String(error)
+  // Fetch reports a dropped stream in one bare word; say what happened.
+  if (/^(terminated|fetch failed|socket hang up|other side closed)$/i.test(message.trim())) {
+    return `The connection to the provider was lost (${message.trim()}).`
+  }
+  // Retrying a spent quota only fails again; name the way out.
+  if (isOutOfUsage(error)) {
+    return `${message}\nThis model is out of usage. Pick another model from the model chip, or top up the account.`
+  }
+  return message
 }
 
 function truncate(output: string): string {
@@ -141,10 +151,23 @@ function stubOutput(content: string): string {
 }
 
 /** Providers mark rate limits and outages with an HTTP-ish status property. */
-function isTransient(error: unknown): boolean {
-  const status = (error as { status?: unknown } | null)?.status
-  if (typeof status !== 'number') return false
-  return status === 408 || status === 429 || (status >= 500 && status <= 599)
+const RETRYABLE_CODES = new Set([
+  'ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETDOWN',
+  'ENETUNREACH', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET'
+])
+
+export function isTransient(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current !== null && typeof current === 'object'; depth++) {
+    const record = current as { status?: unknown; code?: unknown; message?: unknown; cause?: unknown; error?: unknown }
+    if (typeof record.status === 'number' &&
+      (record.status === 408 || record.status === 429 || (record.status >= 500 && record.status <= 599))) return true
+    if (typeof record.code === 'string' && RETRYABLE_CODES.has(record.code.toUpperCase())) return true
+    if (typeof record.message === 'string' &&
+      /fetch failed|network|connection (?:lost|reset|refused)|socket|timed? ?out|timeout|temporarily unavailable/i.test(record.message)) return true
+    current = record.cause ?? record.error
+  }
+  return false
 }
 
 /** Provider SDKs expose Retry-After either as seconds or an HTTP date. */
@@ -383,11 +406,17 @@ export class AgentSession {
     } catch (error) {
       this.pendingImages = []
       this.sealPendingToolUses()
-      if (signal.aborted) this.keepInterruptedReply()
+      const retryable = !signal.aborted && isTransient(error)
+      const kept = (signal.aborted || retryable) && this.keepInterruptedReply()
+      const keptReply = kept ? { keptReplyModel: this.provider.model } : {}
       if (signal.aborted) {
-        emit({ type: 'end', runId, reason: 'cancelled' })
+        emit({ type: 'end', runId, reason: 'cancelled', ...keptReply })
       } else {
-        emit({ type: 'error', runId, message: describeError(error) })
+        emit({
+          type: 'error', runId, message: describeError(error),
+          ...(retryable ? { retryable: true } : {}),
+          ...keptReply
+        })
       }
       return
     }
@@ -403,6 +432,10 @@ export class AgentSession {
         return await this.streamTurn(params)
       } catch (error) {
         if (params.signal.aborted) throw error
+        // Words already shown cannot be taken back: another attempt — or
+        // another model — would write its whole reply after them. The run
+        // stops instead; the words are kept and Continue carries on from them.
+        if (this.streamed !== '') throw error
         // Under rotation a provider that fails — rate limited, out of quota,
         // down — hands the turn to the next one at once rather than being
         // waited out. Only once every one has failed do the retries below run.
@@ -751,11 +784,12 @@ export class AgentSession {
    * it was halfway through spelling out cannot be kept — its arguments are cut
    * off — but the words before it are.
    */
-  private keepInterruptedReply(): void {
+  private keepInterruptedReply(): boolean {
     const said = this.streamed.trim()
     this.streamed = ''
-    if (said === '' || this.history.at(-1)?.role !== 'user') return
+    if (said === '' || this.history.at(-1)?.role !== 'user') return false
     this.record({ role: 'assistant', content: [{ type: 'text', text: said }] })
+    return true
   }
 
   /**

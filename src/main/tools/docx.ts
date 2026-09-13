@@ -1,4 +1,5 @@
-import { writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
 import mammoth from 'mammoth'
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import { z } from 'zod'
@@ -86,6 +87,7 @@ export const writeDocxTool = defineTool({
     const document = new Document({ sections: [{ children: toParagraphs(input.content) }] })
 
     try {
+      await mkdir(path.dirname(target), { recursive: true })
       await writeFile(target, await Packer.toBuffer(document))
     } catch (error) {
       throw new ToolError(`Failed to write docx: ${(error as Error).message}`)

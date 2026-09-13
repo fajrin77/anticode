@@ -684,8 +684,24 @@ export type AgentEvent =
     }
   /** A line the app writes about the run itself — the context was compacted. */
   | { type: 'notice'; runId: string; text: string }
-  | { type: 'end'; runId: string; reason: AgentEndReason; summary?: RunSummary }
-  | { type: 'error'; runId: string; message: string; summary?: RunSummary }
+  | {
+      type: 'end'
+      runId: string
+      reason: AgentEndReason
+      summary?: RunSummary
+      /** The model whose half-written reply was kept as a turn when the run stopped. */
+      keptReplyModel?: string
+    }
+  | {
+      type: 'error'
+      runId: string
+      message: string
+      /** As on `end`: a kept partial reply is a turn, and every turn has a summary. */
+      keptReplyModel?: string
+      /** A temporary provider/network failure: the session can continue from its saved partial state. */
+      retryable?: boolean
+      summary?: RunSummary
+    }
 
 /**
  * The loop does not know its session id; the IPC and remote layers attach it
@@ -698,6 +714,8 @@ export interface SessionSnapshot {
   summaries: RunSummary[]
   runId: string | null
   paused: boolean
+  /** Paused because the connection dropped, not by anyone: no "take a break" marker. */
+  pausedForRetry?: boolean
   revision: number
   events: RoutedAgentEvent[]
   /** Prompts waiting for this session's run to finish. */

@@ -360,10 +360,18 @@ function Providers({
       models: modelIds(values.models)
     })
     onProvidersChange(next)
-    // Switch straight to the freshly added provider and prefetch its model
-    // catalogue, so its models are immediately usable.
     const added = next.find((entry) => !providers.some((old) => old.id === entry.id))
-    if (added !== undefined && added.credentialAvailable && status?.rotationEnabled !== true) onSelectProvider(added.id, '')
+    if (added !== undefined && added.credentialAvailable) {
+      // A default that already works stays the default: a provider just added
+      // has no models chosen yet, and new sessions would start on nothing.
+      // Its catalogue is still fetched, ready for Settings → Models.
+      const defaultWorks =
+        status !== null &&
+        status.defaultModel !== '' &&
+        providers.some((entry) => entry.id === status.defaultProvider && entry.credentialAvailable)
+      if (!defaultWorks && status?.rotationEnabled !== true) onSelectProvider(added.id, '')
+      else void window.anticode.listModels(added.id).catch(() => undefined)
+    }
     setAdding(false)
   }
 
