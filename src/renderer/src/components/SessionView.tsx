@@ -768,9 +768,13 @@ export function SessionView(): JSX.Element {
     const id = session?.id
     if (!box || !id) return
     const saved = useSessionStore.getState().readPositions[id]
-    following.current = saved?.following ?? true
+    const busy = useSessionBusy(id)
+    // A working session has no "where I stopped": its end moves every second.
+    // Coming back to the tab lands on the live tail — the saved top belongs
+    // to an idle session only.
+    following.current = busy || (saved?.following ?? true)
     seenPrompts.current = saved?.prompts ?? promptCount
-    box.scrollTop = following.current ? box.scrollHeight : (saved?.top ?? 0)
+    box.scrollTop = box.scrollHeight
     const savePosition = () => {
       if (!useSessionStore.getState().sessions.some(s => s.id === id)) return
       const position = { top: box.scrollTop, following: following.current, prompts: seenPrompts.current }
@@ -778,6 +782,8 @@ export function SessionView(): JSX.Element {
     }
     window.addEventListener('beforeunload', savePosition)
     return () => { window.removeEventListener('beforeunload', savePosition); savePosition() }
+    // useSessionBusy is read once per tab switch, which is all it decides for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id])
 
   useLayoutEffect(() => {
