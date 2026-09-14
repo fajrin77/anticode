@@ -17,6 +17,7 @@ export const IpcChannel = {
   ATTACH_DATA: 'attachment:data',
   ARTIFACT_OPEN: 'artifact:open',
   ARTIFACT_SAVE: 'artifact:save',
+  ARTIFACT_REVEAL: 'artifact:reveal',
   RUN_LIST: 'agent:runs',
   AGENT_SEND: 'agent:send',
   AGENT_CANCEL: 'agent:cancel',
@@ -932,6 +933,7 @@ export interface AnticodeApi {
   openArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   /** Save-a-copy dialog for a produced file; resolves to the chosen path. */
   saveArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
+  revealArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   /**
    * Renders a file for the in-app viewer: a produced one by its path inside
    * the session's folder, or an attachment (sessionId null) by absolute path.

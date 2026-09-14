@@ -108,7 +108,7 @@ const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSende
   title: 'anticode needs approval',
   body: `${request.toolName.replace(/^mcp__(.+?)__(.+)$/, '$2 (MCP $1)')} is waiting for your decision.`,
   sessionId: sessionOfRun(request.runId)
-}))
+}), (grants) => savePersistedSettings({ alwaysAllowed: grants }))
 
 /** The remote server reuses the same gate and targets the desktop window. */
 export { approvals }
@@ -130,7 +130,7 @@ function artifactPath(sessionId: string, relativePath: string): string {
  */
 export function setApprovalMode(enabled: boolean): SessionStatus {
   policy.setAutoApprove(enabled)
-  savePersistedSettings({ autoApprove: enabled })
+  savePersistedSettings({ autoApprove: enabled, alwaysAllowed: policy.allowedAlways() })
   announceStatus()
   return getStatus()
 }
@@ -477,6 +477,21 @@ export function registerIpcHandlers(): void {
     const failure = await shell.openPath(target)
     return failure === '' ? null : failure
   })
+
+  // Reveal in Finder — the middle ground between "open the file" (which hands
+  // it to another app) and "Save a copy" (which asks for a destination).
+  ipcMain.handle(
+    IpcChannel.ARTIFACT_REVEAL,
+    async (_event, sessionId: string, relativePath: string): Promise<string | null> => {
+      const absolute = artifactPath(sessionId, relativePath)
+      try {
+        shell.showItemInFolder(absolute)
+        return null
+      } catch (error) {
+        return error instanceof Error ? error.message : 'Could not reveal the file'
+      }
+    }
+  )
 
   ipcMain.handle(
     IpcChannel.ARTIFACT_OPEN,

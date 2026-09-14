@@ -174,6 +174,9 @@ export function initPersistedState(): void {
   if (persisted.autoApprove !== undefined) {
     policy.setAutoApprove(persisted.autoApprove)
   }
+  if (persisted.alwaysAllowed !== undefined) {
+    policy.restoreAlways(persisted.alwaysAllowed)
+  }
   fallback()
   selection = rotationEnabled()
     ? { provider: ROTATE_PROVIDER, model: '' }

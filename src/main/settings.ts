@@ -10,6 +10,8 @@ export interface RemoteSettings {
 
 export interface PersistedSettings {
   autoApprove?: boolean
+  /** `${sessionId}:${toolName}` grants from "Always allow", kept across restarts. */
+  alwaysAllowed?: string[]
   provider?: string | null
   model?: string | null
   remote?: RemoteSettings

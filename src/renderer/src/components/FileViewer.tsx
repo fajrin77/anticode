@@ -120,13 +120,26 @@ export function FileViewer(): JSX.Element {
           Open in app
         </button>
         {target.kind === 'artifact' && (
-          <button
-            type="button"
-            onClick={download}
-            className="glass-ghost shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
-          >
-            Download
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                void window.anticode.revealArtifact(target.sessionId, target.path).then((failure) => {
+                  if (failure !== null) setFailure(failure)
+                })
+              }}
+              className="glass-ghost shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
+            >
+              Reveal
+            </button>
+            <button
+              type="button"
+              onClick={download}
+              className="glass-ghost shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
+            >
+              Download
+            </button>
+          </>
         )}
         <button
           type="button"

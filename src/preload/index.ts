@@ -139,6 +139,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ARTIFACT_OPEN, sessionId, relativePath) as Promise<string | null>,
   saveArtifact: (sessionId: string, relativePath: string) =>
     ipcRenderer.invoke(IpcChannel.ARTIFACT_SAVE, sessionId, relativePath) as Promise<string | null>,
+  revealArtifact: (sessionId: string, relativePath: string) =>
+    ipcRenderer.invoke(IpcChannel.ARTIFACT_REVEAL, sessionId, relativePath) as Promise<string | null>,
   previewFile: (sessionId: string | null, target: string) =>
     ipcRenderer.invoke(IpcChannel.FILE_PREVIEW, sessionId, target) as Promise<FilePreview>,
   // Electron removed File.path; a dropped file's location comes from here.

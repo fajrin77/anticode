@@ -14,7 +14,9 @@ export class ApprovalCoordinator implements ApprovalGate {
     private readonly policy: ApprovalPolicy,
     private readonly sender: () => WebContents | null,
     private readonly onDismissed?: (requestId: string) => void,
-    private readonly onRequested?: (request: ApprovalRequest) => void
+    private readonly onRequested?: (request: ApprovalRequest) => void,
+    /** Fires when "Always allow" adds a grant, so the caller can persist it. */
+    private readonly onAlways?: (grants: string[]) => void
   ) {}
 
   resolve(requestId: string, decision: ApprovalDecision): void {
@@ -41,7 +43,10 @@ export class ApprovalCoordinator implements ApprovalGate {
     this.onRequested?.(payload)
 
     const decision = await this.awaitDecision(payload, target, request.signal)
-    if (decision === 'always' && allowAlways) this.policy.allowAlways(request.toolName, request.sessionId)
+    if (decision === 'always' && allowAlways) {
+      this.policy.allowAlways(request.toolName, request.sessionId)
+      this.onAlways?.(this.policy.allowedAlways())
+    }
     return decision !== 'reject'
   }
 

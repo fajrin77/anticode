@@ -79,12 +79,12 @@ describe('ApprovalPolicy', () => {
     expect(policy.needsApproval('run_command', 'medium')).toBe(false)
   })
 
-  it('auto-approve covers every tier, including high risk', () => {
+  it('auto covers medium but destructive commands still ask — Auto means fewer clicks, not a free rm', () => {
     const policy = new ApprovalPolicy()
     policy.setAutoApprove(true)
-    expect(policy.needsApproval('run_command', 'high')).toBe(false)
-    expect(policy.needsApproval('delete_file', 'high')).toBe(false)
-    expect(policy.needsApproval('edit_file', 'medium')).toBe(false)
+    expect(policy.needsApproval('run_command', 'medium')).toBe(false)
+    expect(policy.needsApproval('run_command', 'high')).toBe(true)
+    expect(policy.needsApproval('delete_file', 'high')).toBe(true)
   })
 
   it('always-allow still lifts a single tool without auto-approve', () => {
@@ -92,5 +92,17 @@ describe('ApprovalPolicy', () => {
     policy.allowAlways('edit_file')
     expect(policy.needsApproval('edit_file', 'medium')).toBe(false)
     expect(policy.needsApproval('delete_file', 'high')).toBe(true)
+  })
+
+  it('grants can be saved and restored across restarts', () => {
+    const first = new ApprovalPolicy()
+    first.allowAlways('run_command', 'abc')
+    const stored = first.allowedAlways()
+    expect(stored).toEqual(['abc:run_command'])
+
+    const second = new ApprovalPolicy()
+    second.restoreAlways(stored)
+    expect(second.needsApproval('run_command', 'high', 'abc')).toBe(false)
+    expect(second.needsApproval('run_command', 'high', 'other')).toBe(true)
   })
 })

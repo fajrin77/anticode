@@ -46,15 +46,25 @@ export class ApprovalPolicy {
     this.alwaysAllowed.add(`${sessionId}:${toolName}`)
   }
 
+  /** The remembered grants, for persistence across restarts. */
+  allowedAlways(): string[] {
+    return [...this.alwaysAllowed]
+  }
+
+  restoreAlways(entries: string[]): void {
+    for (const entry of entries) this.alwaysAllowed.add(entry)
+  }
+
   /**
-   * Auto mode covers every tier: the user who flips it owns the blast radius.
-   * Without it, low runs free, high always asks, and "always allow" lifts a
-   * single tool to low.
+   * Auto mode covers every tier except high: destructive commands still ask,
+   * because the point of Auto is fewer clicks, not silent `rm -rf`. Without
+   * auto, low runs free, high always asks, and "always allow" lifts a single
+   * tool to low — high included, since the grant was given knowingly.
    */
   needsApproval(toolName: string, risk: RiskTier, sessionId = 'default'): boolean {
-    if (this.autoApprove) return false
     if (risk === 'low') return false
-    if (risk === 'high') return true
+    if (this.autoApprove) return risk === 'high'
+    if (risk === 'high') return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
     return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
   }
 }
