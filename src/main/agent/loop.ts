@@ -39,7 +39,10 @@ const COMPACTION_TIMEOUT_MS = 120_000
 const COMPACTION_SYSTEM = [
   'You compact the earlier part of a working session between a user and anticode, a coding agent, so the ' +
     'agent can carry on without the full history.',
-  'Write a dense memory of it in the language the user writes in, under short headings:',
+  'Write the memory in one language only — the language the user mostly writes in. Never mix languages in ' +
+    'one sentence, never insert words from another language for terms that have an everyday word in the ' +
+    "user's language. Keep code identifiers, file paths, commands, and model names exactly as they appear.",
+  'Structure it under short headings:',
   '- Goal and requirements: what the user wants, constraints, preferences, and corrections they gave.',
   '- Decisions: what was chosen and why.',
   '- Files: paths created, changed, or inspected, with the specifics that matter (functions, settings, lines).',
