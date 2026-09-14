@@ -58,7 +58,7 @@ const COMPACTION_SYSTEM = [
 const SUBAGENT_MAX_STEPS = 30
 const SUBAGENT_GRACE_STEPS = 2
 /** Main runs get a generous ceiling, but may never spend without bound. */
-const AGENT_MAX_STEPS = 50
+const AGENT_MAX_STEPS = 200
 const AGENT_GRACE_STEPS = 2
 /** Three identical tool rounds in a row are almost certainly a stuck model. */
 const MAX_IDENTICAL_TOOL_ROUNDS = 3
@@ -432,7 +432,9 @@ export class AgentSession {
         const added = signal.aborted ? [] : takeIn()
         const limit: ContentBlock[] = steps >= stepLimit
           ? [{ type: 'text', text: '[Step limit reached. Do not call any more tools — write your final report now.]' }]
-          : []
+          : steps >= stepLimit - 4
+            ? [{ type: 'text', text: '[Approaching the step limit. Finish the remaining plan items without detours.]' }]
+            : []
         this.record({ role: 'user', content: [...results, ...this.pendingImages, ...added, ...limit] })
         this.pendingImages = []
 

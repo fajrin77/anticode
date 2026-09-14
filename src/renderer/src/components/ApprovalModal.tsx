@@ -72,10 +72,19 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
     <div
       ref={cardRef}
       data-approval
-      className="pointer-events-none fixed inset-x-0 z-10 px-10"
-      style={{ bottom: 'calc(var(--composer-offset, 16px) + 8px)' }}
+      className="pointer-events-none fixed bottom-0 left-0 z-10"
+      style={{
+        // One session column wide, anchored to its left edge: when the web
+        // panel opens, shrinks, or fills the window, the card follows the
+        // composer instead of spanning the whole window.
+        width: 'var(--session-width, 100vw)',
+        maxWidth: 'calc(100vw - 80px)',
+        paddingLeft: 40,
+        paddingRight: 40,
+        bottom: 'calc(var(--composer-offset, 16px) + 8px)'
+      }}
     >
-      <div className="glass-surface pointer-events-auto mx-auto max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl">
+      <div className="glass-surface pointer-events-auto overflow-hidden rounded-xl border border-line shadow-2xl">
         <header className="flex items-baseline gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">
             {/^mcp__(.+?)__(.+)$/.test(request.toolName)

@@ -43,18 +43,23 @@ function Mark({ status }: { status: TodoItem['status'] }): JSX.Element {
 }
 
 /**
- * The plan, pinned above the composer while it matters: the whole list while
- * a run works through it, and folded to one line — or gone, once every item is
- * done — when nothing is running. The header always opens and closes it.
+ * The plan, pinned above the composer while it matters: shown only for work
+ * broken into stages (two items or more — a single todo is a note, not a
+ * plan), while its run is alive, or while pinned open by hand; folded to one
+ * line when idle. The header always opens and closes it.
  */
 export function TodoPanel({ sessionId, messages, working }: { sessionId: string; messages: Message[]; working: boolean }): JSX.Element | null {
   const open = useSessionStore((state) => state.planOpenBySession[sessionId])
   const setPlanOpen = useSessionStore((state) => state.setPlanOpen)
   const plan = latestPlan(messages)
-  if (plan === null) return null
+  // A plan is worth a panel only when a task was broken into stages; a single
+  // todo is just a note and stays in the transcript alone.
+  if (plan === null || plan.length < 2) return null
   const done = plan.filter((item) => item.status === 'completed').length
   const finished = done === plan.length
-  if (finished && !working && open !== true) return null
+  // Nothing is running and nobody pinned it open: the panel goes with the run,
+  // finished or not — it never lingers above an idle composer.
+  if (!working && open !== true) return null
   const current = plan.find((item) => item.status === 'in_progress') ?? plan.find((item) => item.status === 'pending')
   const expanded = open ?? working
 

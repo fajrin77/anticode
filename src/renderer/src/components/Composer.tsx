@@ -199,10 +199,15 @@ export function Composer({
     const root = document.documentElement
     const sync = (): void => {
       const height = layer.getBoundingClientRect().height
+      const width = zone.getBoundingClientRect().width
       zone.style.setProperty('--desktop-composer-height', `${height}px`)
-      // The approval card floats at window level, just above this composer.
+      // The approval card floats at window level, just above this composer,
+      // and keeps to the session's column: when the web panel opens, shrinks,
+      // or fills, the card follows instead of spanning the whole window.
       if (height > 0) root.style.setProperty('--composer-offset', `${height}px`)
       else root.style.removeProperty('--composer-offset')
+      if (width > 0) root.style.setProperty('--session-width', `${width}px`)
+      else root.style.removeProperty('--session-width')
     }
     const observer = new ResizeObserver(sync)
     observer.observe(layer)
@@ -211,6 +216,7 @@ export function Composer({
       observer.disconnect()
       zone.style.removeProperty('--desktop-composer-height')
       root.style.removeProperty('--composer-offset')
+      root.style.removeProperty('--session-width')
     }
   }, [hero])
 

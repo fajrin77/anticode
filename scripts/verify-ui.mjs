@@ -1094,7 +1094,10 @@ try {
           id: crypto.randomUUID(), role: 'assistant', pending: false,
           parts: [{
             kind: 'tool', toolUseId: crypto.randomUUID(), name: 'todo_write', status: 'ok', output: '',
-            input: { items: [{ content: 'keep this folded', status: 'in_progress' }] }
+            input: { items: [
+              { content: 'keep this folded', status: 'in_progress' },
+              { content: 'second stage of the plan', status: 'pending' }
+            ] }
           }]
         }]
       } : session.id === second.id ? { ...session, title: 'plan regression b' } : session)
@@ -1105,11 +1108,23 @@ try {
   })
   await window.waitForTimeout(400)
   if (planSessions !== null) {
+    // The panel shows while its run streams or when pinned open; nothing is
+    // streaming here, so pin it — that pinned state is what the test checks.
+    await window.evaluate((sessionId) => {
+      ;(window).__store.getState().setPlanOpen(sessionId, true)
+    }, planSessions.first)
+    await window.waitForTimeout(200)
+  }
+  if (planSessions !== null) {
     const planPanel = window.locator('[data-todo-panel]')
-    await planPanel.getByRole('button').click(); await window.waitForTimeout(200)
+    // Pinned open before this (setPlanOpen above): switching tabs and back
+    // must not lose the pin, so the panel is still expanded here.
     await window.getByTitle('plan regression b').click(); await window.waitForTimeout(300)
     await window.getByTitle('plan regression a').click(); await window.waitForTimeout(300)
-    check('plan: collapse survives switching to another tab and back', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'false')
+    check('plan: pin survives switching to another tab and back', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'true')
+    // Collapse while idle: the panel goes with the run — pinned state persists.
+    await planPanel.getByRole('button').click(); await window.waitForTimeout(200)
+    check('plan: collapse while idle removes the panel', await planPanel.count(), 0)
     check('plan: collapse is written to persisted session metadata', await window.evaluate((sessionId) => {
       const saved = JSON.parse(localStorage.getItem('anticode-session-metadata') ?? '{}')
       return saved.state?.planOpenBySession?.[sessionId] === false ? 'persisted' : 'missing'
