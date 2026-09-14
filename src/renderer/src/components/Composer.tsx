@@ -305,13 +305,14 @@ export function Composer({
   async function resume(): Promise<void> {
     if (session === undefined || isStreaming) return
     const runId = crypto.randomUUID()
-    const previous = [...useSessionStore.getState().sessions.find((entry) => entry.id === session.id)?.messages ?? []]
-      .reverse()
-      .find((message) => message.role === 'assistant' && message.parts.some((part) => part.kind !== 'notice'))
-    const messageId = previous?.id ?? crypto.randomUUID()
+    const messageId = crypto.randomUUID()
     addNotice(session.id, RESUME_LABEL)
-    if (previous === undefined) addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
-    else useSessionStore.getState().reopenMessage(messageId)
+    // The resumed turn streams into a fresh pending reply at the bottom, where
+    // the eye already is — the same shape a resume from the phone takes. The
+    // old approach re-opened the previous assistant message, which lit the
+    // working dot far up the transcript (or nowhere, once the view had been
+    // scrolled past it), reading as "nothing is happening".
+    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
     setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
     try {
       await window.anticode.sendPrompt({

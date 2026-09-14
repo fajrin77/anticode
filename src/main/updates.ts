@@ -2,6 +2,7 @@ import { APP_VERSION } from './version'
 import { app, BrowserWindow } from 'electron'
 import { notify } from './notify'
 import path from 'node:path'
+import { readdir, rm } from 'node:fs/promises'
 import { IpcChannel } from '@shared/ipc'
 import type { UpdateSettings, UpdateState } from '@shared/ipc'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
@@ -27,6 +28,21 @@ function platform(): Platform {
 
 function workDirectory(): string {
   return path.join(app.getPath('userData'), 'updates')
+}
+
+/**
+ * Old builds pile up here — one download per version the app ever pulled.
+ * Keeping only what the current state needs, the rest goes: a staging copy
+ * is tens or hundreds of megabytes the user never asked to keep.
+ */
+export async function pruneOldDownloads(keep?: string): Promise<void> {
+  const dir = workDirectory()
+  const entries = await readdir(dir).catch(() => [])
+  await Promise.all(
+    entries
+      .filter((name) => name !== keep)
+      .map((name) => rm(path.join(dir, name), { recursive: true, force: true }))
+  )
 }
 
 function settings(): UpdateSettings {
@@ -72,6 +88,10 @@ function schedule(): void {
 
 /** Called once at start-up: nothing is asked until the first check is due. */
 export function initUpdates(): void {
+  // What earlier versions staged and never cleaned up goes now: the app is
+  // running from its installed copy, so every file in the work directory is
+  // an old download until proven otherwise.
+  void pruneOldDownloads()
   updateState()
   schedule()
 }
@@ -142,6 +162,9 @@ export async function downloadUpdate(): Promise<UpdateState> {
         publish({ progress: fraction })
       }
     })
+    // The previous build, if one was staged earlier, has no job left once a
+    // newer one is in hand.
+    await pruneOldDownloads(path.basename(downloaded))
     return publish({ status: 'ready', progress: 1 })
   } catch (error) {
     downloaded = null

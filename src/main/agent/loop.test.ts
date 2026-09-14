@@ -506,7 +506,7 @@ describe('AgentSession', () => {
     expect(events.filter((event) => event.type === 'text_delta')).toHaveLength(1)
     expect(events.at(-1)).toMatchObject({
       type: 'error', retryable: true, keptReplyModel: 'offline-model',
-      message: 'Connection to offline failed (fetch failed). Check that its server is running and its Base URL is correct in Settings → Providers.'
+      message: 'Connection to offline dropped (fetch failed). The run was stopped; press Continue to pick it up — if it keeps failing, check your internet connection, not the provider settings.'
     })
 
     const recovered = new FakeProvider([turn([{ type: 'text', text: 'selesai setelah tersambung' }], 'end_turn')])

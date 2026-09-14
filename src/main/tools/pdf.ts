@@ -1,6 +1,5 @@
 import path from 'node:path'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { PDFParse } from 'pdf-parse'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
@@ -8,7 +7,36 @@ import { resolveInWorkspace } from './workspace'
 
 const MAX_TEXT_CHARS = 20_000
 
+/**
+ * pdf-parse → pdfjs-dist probes browser-only globals (DOMMatrix, DOMPoint,
+ * DOMRect) while the module is being evaluated, before any function runs. In
+ * the Electron main process those globals do not exist, and the polyfill
+ * pdfjs would install only loads when the optional per-platform binary of
+ * @napi-rs/canvas is present. Missing there, startup died with
+ * "ReferenceError: DOMMatrix is not defined" on Windows. The geometry part
+ * of that package is plain JavaScript, so we install the three classes
+ * ourselves before the PDF stack is imported — and the import itself is lazy
+ * so a future failure degrades to a failed PDF read, not a dead app.
+ */
+type PdfParseModule = typeof import('pdf-parse')
+
+/** Plain-JS geometry classes; the package ships no declaration for them. */
+type Geometry = { DOMMatrix: unknown; DOMPoint: unknown; DOMRect: unknown }
+
+async function loadPdfParse(): Promise<PdfParseModule['PDFParse']> {
+  const globals = globalThis as unknown as Record<string, unknown>
+  if (globals.DOMMatrix === undefined || globals.DOMPoint === undefined || globals.DOMRect === undefined) {
+    const geometry = (await import('@napi-rs/canvas/geometry.js')) as unknown as Geometry
+    globals.DOMMatrix ??= geometry.DOMMatrix
+    globals.DOMPoint ??= geometry.DOMPoint
+    globals.DOMRect ??= geometry.DOMRect
+  }
+  const pdfParse = (await import('pdf-parse')) as unknown as { PDFParse: PdfParseModule['PDFParse'] }
+  return pdfParse.PDFParse
+}
+
 async function extractText(filePath: string): Promise<{ text: string; pages: number }> {
+  const PDFParse = await loadPdfParse()
   const parser = new PDFParse({ data: await readFile(filePath) })
   try {
     const result = await parser.getText()

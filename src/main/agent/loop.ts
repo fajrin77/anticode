@@ -146,10 +146,12 @@ const isToolUse = (block: ContentBlock): block is ToolUseBlock => block.type ===
 
 function describeError(error: unknown, provider?: LLMProvider): string {
   const message = error instanceof Error ? error.message : String(error)
-  // Fetch reports a dropped stream in one bare word; say what happened.
+  // Fetch reports a dropped stream in one bare word; say what happened. The
+  // word also marks a transient network cut, not a wrong configuration, so
+  // the wording asks for a retry rather than sending the user to settings.
   if (/^(terminated|fetch failed|connection error|socket hang up|other side closed)$/i.test(message.trim())) {
     const name = provider?.name === undefined ? 'the provider' : provider.name
-    return `Connection to ${name} failed (${message.trim()}). Check that its server is running and its Base URL is correct in Settings → Providers.`
+    return `Connection to ${name} dropped (${message.trim()}). The run was stopped; press Continue to pick it up — if it keeps failing, check your internet connection, not the provider settings.`
   }
   // Retrying a spent quota only fails again; name the way out.
   if (isOutOfUsage(error)) {
@@ -186,7 +188,7 @@ export function isTransient(error: unknown): boolean {
       (record.status === 408 || record.status === 429 || (record.status >= 500 && record.status <= 599))) return true
     if (typeof record.code === 'string' && RETRYABLE_CODES.has(record.code.toUpperCase())) return true
     if (typeof record.message === 'string' &&
-      /fetch failed|network|connection (?:lost|reset|refused)|socket|timed? ?out|timeout|temporarily unavailable/i.test(record.message)) return true
+      /fetch failed|terminated|other side closed|network|connection (?:lost|reset|refused)|socket|timed? ?out|timeout|temporarily unavailable/i.test(record.message)) return true
     current = record.cause ?? record.error
   }
   return false
