@@ -100,6 +100,13 @@ function DashboardComposer({
     status?.providerReady === true && (mode === 'chat' || folder !== null)
   const canSend = draft.trim() !== '' && !sending && ready && pending === 0 && attachmentErrors.length === 0
 
+  // The dashboard composer stands by as well: caret in place from mount, so
+  // typing starts with zero clicks even before a session exists.
+  useEffect(() => {
+    if (window.document.activeElement?.tagName === 'INPUT') return
+    promptRef.current?.focus()
+  }, [])
+
   useLayoutEffect(() => {
     const field = promptRef.current
     if (field === null) return

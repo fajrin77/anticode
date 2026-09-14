@@ -126,6 +126,15 @@ export function Composer({
   const layerRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
 
+  // Standing by: the composer takes the caret as soon as it appears — a new
+  // tab, a slide to another tab, a fresh session — so typing starts without
+  // a click first. The search field steals focus when it opens; the textarea
+  // does not fight it, because that field re-renders on top afterwards.
+  useEffect(() => {
+    if (window.document.activeElement?.tagName === 'INPUT') return
+    promptRef.current?.focus()
+  }, [session?.id])
+
   const activeRun = useSessionStore((state) => Object.values(state.activeRuns).find((run) => run.sessionId === session?.id) ?? null)
   const mirrorRunId = useSessionStore((state) => Object.entries(state.mirrorRuns).find(([, run]) => run.sessionId === session?.id)?.[0] ?? null)
   const addMessage = useSessionStore((state) => state.addMessage)
