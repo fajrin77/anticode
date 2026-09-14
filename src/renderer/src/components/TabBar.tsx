@@ -238,6 +238,7 @@ export function TabBar({
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const closeSession = useSessionStore((state) => state.closeSession)
   const deleteSession = useSessionStore((state) => state.deleteSession)
+  const moveSession = useSessionStore((state) => state.moveSession)
   const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const activeSession = useSessionStore((state) =>
@@ -291,7 +292,19 @@ export function TabBar({
         <GridIcon />
       </button>
 
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+      <div
+        className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+        onWheel={(event) => {
+          // Two-finger slide on the trackpad arrives as a wheel event with a
+          // dominant deltaX; one notch per gesture steps to the neighbouring tab.
+          if (Math.abs(event.deltaX) < 12 || Math.abs(event.deltaX) < Math.abs(event.deltaY)) return
+          event.preventDefault()
+          const open = sessions.filter((session) => !session.closed)
+          const index = open.findIndex((session) => session.id === activeSessionId)
+          const next = open[index + (event.deltaX > 0 ? 1 : -1)]
+          if (next !== undefined) onSelectSession(next.id)
+        }}
+      >
         {sessions.filter((session) => !session.closed).map((session) => {
           const isActive = session.id === activeSessionId
           const running =
@@ -300,10 +313,19 @@ export function TabBar({
           return (
             <div
               key={session.id}
-              // No box at rest, the selected tab included: it is told apart by
-              // its brighter title, and the box shows only under the cursor.
-              className="region-no-drag group glass-ghost flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3"
+              // The active tab carries a glass box and a lime underline so it
+              // reads at a glance even among many dark tabs; inactive tabs stay
+              // bare and gain the box only under the cursor.
+              className={`region-no-drag group relative flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3 transition-colors ${
+                isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
+              }`}
             >
+              {isActive && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-brand"
+                />
+              )}
               <Badge
                 label={badgeName(session)}
                 colour={session.colour}
@@ -327,6 +349,26 @@ export function TabBar({
               >
                 ×
               </button>
+              {/* Reorder: right-click menu keeps the strip clean while making
+                  left/right moves one click away. */}
+              <div
+                role="navigation"
+                aria-label="Reorder tab"
+                className="absolute inset-y-0 left-0 w-1.5"
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  moveSession(session.id, 'left')
+                }}
+              />
+              <div
+                role="navigation"
+                aria-label="Reorder tab"
+                className="absolute inset-y-0 right-0 w-1.5"
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  moveSession(session.id, 'right')
+                }}
+              />
             </div>
           )
         })}

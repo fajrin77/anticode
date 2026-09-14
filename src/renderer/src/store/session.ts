@@ -194,6 +194,8 @@ interface SessionState {
   addProject: (root: string) => void
   openSession: (mode: SessionMode, projectRoot: string | null) => string
   selectSession: (id: string) => void
+  /** Slides a tab one position within the open-tab order. */
+  moveSession: (id: string, direction: 'left' | 'right') => void
   /** Reopens a closed session's tab and makes it active. */
   reopenSession: (id: string) => void
   /** Clones a session into a fresh editable copy; the original stays untouched. */
@@ -416,6 +418,24 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   },
 
   selectSession: (id) => set({ activeSessionId: id }),
+
+  /** Moves a tab one slot left or right in the open-tab order. */
+  moveSession: (id, direction) =>
+    set((state) => {
+      const open = state.sessions.filter((session) => !session.closed)
+      const index = open.findIndex((session) => session.id === id)
+      const targetIndex = direction === 'left' ? index - 1 : index + 1
+      if (index < 0 || targetIndex < 0 || targetIndex >= open.length) return state
+      // Rebuild the whole list: open tabs in their new order, closed ones
+      // appended where they were, so the array itself carries the new order.
+      const reordered = [...open]
+      const moved = reordered[index]!
+      const neighbour = reordered[targetIndex]!
+      reordered[index] = neighbour
+      reordered[targetIndex] = moved
+      const closed = state.sessions.filter((session) => session.closed)
+      return { sessions: [...reordered, ...closed] }
+    }),
 
   reopenSession: (id) =>
     set((state) => ({
