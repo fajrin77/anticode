@@ -1,0 +1,11 @@
+PASS: dashboard blocks early send and retains draft/files when opening Settings
+PASS: pause remains available while typing and preserves draft
+PASS: Enter cannot outrun attachment preparation; the final request contains the file
+PASS: mixed drop keeps valid file, surfaces failure, and stores pasted bytes durably
+PASS: restart restores draft attachment with a usable new ID
+PASS: missing files after restart remain actionable; text survives
+PASS: returning to a long chat restores the reading position
+PASS: concurrent downloads share one save dialog and produce intact bytes
+PASS: artifact UI displays Saving, disables repeat clicks and reports destination
+PASS: settings explains real tool capabilities and reports OS permission status
+{"directory":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-workflow-fixes-8fqOJN","requests":4}

@@ -1,3 +1,5 @@
+import { APP_VERSION } from '../version'
+import { setAttachmentStorage } from '../attachments'
 import {
   cancelRun,
   runForSession,
@@ -7,7 +9,7 @@ import {
   pauseSession,
   setPauseSink
 } from '../runs'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, systemPreferences } from 'electron'
 import { notify } from '../notify'
 import path from 'node:path'
 import { copyFile, readFile, stat } from 'node:fs/promises'
@@ -276,6 +278,7 @@ export function pickModel(selection: ProviderSelection, sessionId?: string | nul
 }
 
 export function registerIpcHandlers(): void {
+  setAttachmentStorage(path.join(app.getPath('userData'), 'draft-attachments'))
   // The pane's state is owned by the main process — the agent is what opens
   // pages — so every window is told about a change rather than asked for one.
   setWebSink((sessions) => {
@@ -348,12 +351,14 @@ export function registerIpcHandlers(): void {
     IpcChannel.APP_INFO,
     (): AppInfo => ({
       name: app.getName(),
-      version: app.getVersion(),
+      version: APP_VERSION,
       electron: process.versions.electron ?? 'unknown',
       chrome: process.versions.chrome ?? 'unknown',
       node: process.versions.node,
       platform: process.platform,
-      isPackaged: app.isPackaged
+      isPackaged: app.isPackaged,
+      screenRecording: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'unsupported',
+      accessibility: process.platform === 'darwin' ? systemPreferences.isTrustedAccessibilityClient(false) : false
     })
   )
 
@@ -501,20 +506,28 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  const savingArtifacts = new Map<string, Promise<string | null>>()
+
   // Save-a-copy: the produced file already lives in the project folder, this
   // just puts it somewhere the user actually keeps things.
   ipcMain.handle(
     IpcChannel.ARTIFACT_SAVE,
     async (event, sessionId: string, relativePath: string): Promise<string | null> => {
       const source = artifactPath(sessionId, relativePath)
-      const window = BrowserWindow.fromWebContents(event.sender)
-      const options = { defaultPath: path.basename(source) }
-      const result = window
-        ? await dialog.showSaveDialog(window, options)
-        : await dialog.showSaveDialog(options)
-      if (result.canceled || result.filePath === undefined) return null
-      await copyFile(source, result.filePath)
-      return result.filePath
+      const key = `${event.sender.id}:${source}`
+      const current = savingArtifacts.get(key)
+      if (current) return current
+      const pending = (async () => {
+        const window = BrowserWindow.fromWebContents(event.sender)
+        const options = { defaultPath: path.basename(source) }
+        const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+        if (result.canceled || result.filePath === undefined) return null
+        if (path.resolve(source) !== path.resolve(result.filePath)) await copyFile(source, result.filePath)
+        return result.filePath
+      })()
+      savingArtifacts.set(key, pending)
+      try { return await pending }
+      finally { savingArtifacts.delete(key) }
     }
   )
 

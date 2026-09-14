@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
+import { stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
 import { ModelPicker } from './ModelPicker'
 import { TodoPanel } from './TodoPanel'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
@@ -103,6 +104,9 @@ export function Composer({
   const draft = savedDraft?.text ?? ''
   const attached = savedDraft?.attachments ?? []
   const quote = savedDraft?.quote ?? ''
+  const attachmentPending = useAttachmentJobs(state => state.pending[session?.id ?? ''] ?? 0)
+  const attachmentErrors = savedDraft?.attachmentErrors ?? []
+  const attachmentsBlocked = attachmentPending > 0 || attachmentErrors.length > 0
   const clearQuote = (): void => {
     if (session) useSessionStore.getState().quoteInDraft(session.id, '')
   }
@@ -154,7 +158,7 @@ export function Composer({
       : 'This code session is not connected to a project folder'
   // A prompt typed while the session is working is sent too: it joins the run
   // in progress as a follow-up rather than waiting for it to end.
-  const canSend = draft.trim() !== '' && blocked === null
+  const canSend = draft.trim() !== '' && blocked === null && !attachmentsBlocked
   /** Working, with something typed: the button sends it rather than pausing. */
   const steering = isStreaming && !isPaused && draft.trim() !== ''
   /**
@@ -219,14 +223,18 @@ export function Composer({
     }
   }, [])
 
-  async function collect(promise: Promise<AttachmentInfo[]>): Promise<void> {
-    setError(null)
+  async function collect(job: () => Promise<AttachmentInfo[]>): Promise<void> {
+    if (session) await stageDraftAttachments(session.id, [job])
+  }
+
+  const [pausing, setPausing] = useState(false)
+  async function pause(): Promise<void> {
+    if (!session || pausing) return
+    setPausing(true)
     try {
-      const added = await promise
-      setAttached((current) => [...current, ...added])
-    } catch (failure) {
-      setError((failure as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
-    }
+      if (!await window.anticode.pauseSession(session.id)) await letGoOfFinishedRun(session.id)
+    } catch (failure) { setError((failure as Error).message) }
+    finally { setPausing(false) }
   }
 
   /** A screenshot on the clipboard has no file on disk, so its bytes travel. */
@@ -235,7 +243,7 @@ export function Composer({
     if (files.length === 0) return
     event.preventDefault()
     for (const file of files) {
-      void collect(
+      void collect(() =>
         file
           .arrayBuffer()
           .then((buffer) =>
@@ -327,14 +335,16 @@ export function Composer({
   /** A queued prompt comes back into the box to be changed; its place in line is given up. */
   async function pullBack(item: QueuedPrompt): Promise<void> {
     if (session === undefined) return
-    const taken = await window.anticode.unqueuePrompt(session.id, item.id)
-    if (taken === null) return
-    const current = useSessionStore.getState().drafts[session.id]?.text ?? ''
-    setDraft(current.trim() === '' ? taken.text : `${current}\n\n${taken.text}`)
-    if (taken.attachments.length > 0) {
-      void collect(window.anticode.addAttachments(taken.attachments.map((file) => file.path)))
-    }
-    promptRef.current?.focus()
+    try {
+      const taken = await window.anticode.unqueuePrompt(session.id, item.id)
+      if (taken === null) return
+      const current = useSessionStore.getState().drafts[session.id]?.text ?? ''
+      setDraft(current.trim() === '' ? taken.text : `${current}\n\n${taken.text}`)
+      if (taken.attachments.length > 0) {
+        void collect(() => window.anticode.addAttachments(taken.attachments.map((file) => file.path)))
+      }
+      promptRef.current?.focus()
+    } catch (failure) { setError((failure as Error).message) }
   }
 
   /**
@@ -343,6 +353,7 @@ export function Composer({
    */
   async function send(alternate = false): Promise<void> {
     const prompt = draft.trim()
+    if (session && ((useAttachmentJobs.getState().pending[session.id] ?? 0) > 0 || (useSessionStore.getState().drafts[session.id]?.attachmentErrors?.length ?? 0) > 0)) return
     if (!canSend || session === undefined) {
       if (
         status?.providerReady === true &&
@@ -451,6 +462,14 @@ export function Composer({
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
         )}
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
+        {attachmentPending > 0 && <div role="status" className="mb-2 px-1 text-[12.5px] text-dim">Preparing attachments… ({attachmentPending})</div>}
+        {attachmentErrors.length > 0 && (
+          <div role="alert" className="mb-2 px-1 text-[12.5px] text-del">
+            {attachmentErrors.map((message, index) => <div key={index}>{message}</div>)}
+            <button type="button" onClick={() => session && useSessionStore.getState().updateDraft(session.id, { attachmentErrors: [] })}
+              className="mt-1 text-dim transition-colors hover:text-brand">Dismiss attachment errors</button>
+          </div>
+        )}
         {imageWarning && (
           <div role="status" className="mb-2 px-1 text-[12.5px] text-del">
             {status?.model} is a text-only model and cannot inspect the attached image. Choose a vision model before sending.
@@ -478,7 +497,7 @@ export function Composer({
             <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
-                { value: true, name: 'Auto', hint: 'Run everything without asking' }
+                { value: true, name: 'Auto', hint: 'Skip prompts for medium risk' }
               ].map((option) => (
                 <button
                   key={option.name}
@@ -498,7 +517,7 @@ export function Composer({
                 </button>
               ))}
               <p className="px-2 py-1.5 text-[11px] text-faint">
-                Turn Auto off to be asked again.
+                Auto still asks before high-risk actions. Saved permissions apply in Default.
               </p>
             </div>
           )}
@@ -639,7 +658,7 @@ export function Composer({
               <button
                 type="button"
                 title="Attach files"
-                onClick={() => void collect(window.anticode.chooseAttachments())}
+                onClick={() => void collect(() => window.anticode.chooseAttachments())}
                 className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
               >
                 +
@@ -716,6 +735,12 @@ export function Composer({
 
               <div className="flex-1" />
 
+              {steering && (
+                <button type="button" aria-label="Pause" title="Pause this task and keep your draft" disabled={pausing}
+                  onClick={() => void pause()} className="glass-ghost mr-1 flex h-8 w-8 items-center justify-center rounded-lg text-dim transition-colors hover:text-brand disabled:opacity-50">
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+                </button>
+              )}
               {isPaused && !isStreaming && (
                 <button
                   type="button"
@@ -739,13 +764,7 @@ export function Composer({
                     return
                   }
                   if (isStreaming && !isPaused) {
-                    // The main process pauses whichever run is working in this
-                    // session — started here or on the phone — and tells every
-                    // viewer, this one included, which draws the marker.
-                    const id = session?.id ?? ''
-                    void window.anticode.pauseSession(id).then((paused) => {
-                      if (!paused) void letGoOfFinishedRun(id)
-                    })
+                    void pause()
                     return
                   }
                   if (resuming) {
@@ -758,11 +777,13 @@ export function Composer({
                 // Typed but blocked stays live only when a folder is what is
                 // missing, so pressing it points at the folder button.
                 disabled={
+                  pausing || (attachmentsBlocked && (!isStreaming || steering)) ||
                   (isPaused && isStreaming) ||
                   (!isStreaming &&
                     !resuming &&
                     (draft.trim() === '' || (!canSend && !folderMissing)))
                 }
+                title={resuming ? 'Continue from the conversation history with a new request' : undefined}
                 aria-label={resuming ? 'Continue' : steering ? (followUpMode === 'queue' ? 'Queue' : 'Send') : isStreaming ? 'Pause' : 'Send'}
                 className={`flex h-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                   resuming
@@ -796,6 +817,7 @@ export function Composer({
               {(['chat', 'code'] as const).map((mode) => (
                 <button
                   key={mode}
+                  title={mode === 'chat' ? 'Documents and downloads; use anticode for terminal and browser tasks' : 'Files, terminal and session browser tools'}
                   type="button"
                   onClick={() =>
                     updateSessionConfig(session.id, {

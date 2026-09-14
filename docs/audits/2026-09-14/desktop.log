@@ -1,0 +1,53 @@
+PASS: desktop chat streams and completes
+PASS: two desktop sessions finish independently
+PASS: pause and resume retain a usable session
+PASS: Escape in a text field leaves a pending approval alone
+PASS: remote tool approval appears in Settings and writes the fixture file
+PASS: desktop and phone share ownership and cancellation of the same run
+PASS: attachments resolve relative to the receiving session workspace
+PASS: a file uploaded from the phone reaches the transcript as a drawable attachment
+PASS: a phone upload lands in .anticode/uploads, is recoloured by format_excel_cells, and downloads back
+PASS: antichat edits an attached workbook with no folder chosen or approval asked; it opens in place and downloads back
+PASS: produced files download from the phone, and only from inside the folder
+PASS: a phone prompt brings an archived desktop tab back, without stealing focus
+PASS: a session deleted on the desktop stops reporting itself to the phone
+PASS: a finished run records what it cost, for both viewers
+PASS: reverting drops the last exchange from the real history
+PASS: desktop reload restores main-process conversations
+PASS: drafts survive tab switches
+PASS: changing model preserves completed conversation history
+PASS: full app restart restores sessions and conversation history
+PASS: a restart reopens the page the session had open
+PASS: a restart brings the closing line back with the transcript
+PASS: every element the phone hides actually hides
+PASS: switching phone sessions never flashes the previous transcript
+PASS: swiping the phone header moves right and left through sessions
+PASS: swiping the phone conversation moves through sessions; a vertical drag does not
+PASS: the phone quotes a selected passage, and the card can be dismissed
+PASS: an attached picture opens on the phone, and only its own files are served
+PASS: a produced file and an attached one open in place on the phone
+PASS: the phone renders the session page at phone width, edge to edge
+PASS: the phone opens and closes tabs
+PASS: the phone can hide and show the session page
+PASS: the phone steps Back and Forward, and the desktop pane follows
+PASS: the phone paints each session in the desktop colour
+PASS: a staged picture opens full size on the phone before it is sent
+PASS: the phone prompt stays neutral while typed in
+PASS: a phone prompt sent mid-run joins the run, on both screens
+PASS: live phone sync and desktop reload recover streaming text exactly once
+PASS: simultaneous desktop and phone prompts share one run
+PASS: paused on the phone, resumed on the desktop
+PASS: paused on the desktop, resumed on the phone
+PASS: pausing a finished run leaves nothing to resume
+PASS: a lost connection can continue on either screen without restarting the session
+PASS: a turn reverted on the desktop disappears from the phone
+PASS: desktop model changes reach the open phone chat
+PASS: phone editor selects the current project, saves, and refuses stale writes
+PASS: phone chat fits narrow, wide, and landscape viewports
+PASS: the phone reverts a paused turn, on both screens
+PASS: the phone switches Default and Auto, and the desktop follows
+PASS: the phone shows what the open session has used
+PASS: the phone adds and removes a provider, and the desktop list follows
+PASS: the phone searches its sessions
+PASS: no renderer exceptions
+{"directory":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-verification-yKVHly","workspace":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-verification-yKVHly/workspace","remoteUrl":"http://127.0.0.1:18680/?token=REDACTED","calls":37}

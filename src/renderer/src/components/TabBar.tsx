@@ -294,16 +294,8 @@ export function TabBar({
 
       <div
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
-        onWheel={(event) => {
-          // Two-finger slide on the trackpad arrives as a wheel event with a
-          // dominant deltaX; one notch per gesture steps to the neighbouring tab.
-          if (Math.abs(event.deltaX) < 12 || Math.abs(event.deltaX) < Math.abs(event.deltaY)) return
-          event.preventDefault()
-          const open = sessions.filter((session) => !session.closed)
-          const index = open.findIndex((session) => session.id === activeSessionId)
-          const next = open[index + (event.deltaX > 0 ? 1 : -1)]
-          if (next !== undefined) onSelectSession(next.id)
-        }}
+        data-session-tabs
+        aria-label="Session tabs — swipe with two fingers to switch"
       >
         {sessions.filter((session) => !session.closed).map((session) => {
           const isActive = session.id === activeSessionId

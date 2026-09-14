@@ -1,17 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { DragEvent, JSX, ReactNode } from 'react'
-import type { AttachmentInfo } from '@shared/ipc'
-import { useSessionStore } from '../store/session'
-
-/** Spread-based encoding blows the call stack on megabyte images. */
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += 8192) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
-  }
-  return btoa(binary)
-}
+import { stageDraftAttachments, fileAttachmentJob } from '../draftAttachments'
 
 function carriesFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes('Files')
@@ -27,38 +16,8 @@ export function DropZone({ sessionId, children }: { sessionId: string; children:
   // keeps the sheet from flickering as the cursor moves over the transcript.
   const depth = useRef(0)
   const [over, setOver] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (error === null) return
-    const timer = window.setTimeout(() => setError(null), 4000)
-    return () => window.clearTimeout(timer)
-  }, [error])
-
   async function stage(files: File[]): Promise<void> {
-    // A file from Finder has a path; one dragged out of a browser or another
-    // app may not, and then its bytes travel instead.
-    const withPath = files.map((file) => ({ file, path: window.anticode.pathForFile(file) }))
-    const byPath = withPath.filter((entry) => entry.path !== '').map((entry) => entry.path)
-    const byBytes = withPath.filter((entry) => entry.path === '').map((entry) => entry.file)
-    const batches: Promise<AttachmentInfo[]>[] = []
-    if (byPath.length > 0) batches.push(window.anticode.addAttachments(byPath))
-    for (const file of byBytes) {
-      batches.push(
-        file.arrayBuffer().then((buffer) =>
-          window.anticode.addAttachmentData(file.name === '' ? `dropped-${Date.now()}` : file.name, toBase64(buffer))
-        )
-      )
-    }
-    try {
-      const added = (await Promise.all(batches)).flat()
-      const store = useSessionStore.getState()
-      const previous = store.drafts[sessionId]?.attachments ?? []
-      store.updateDraft(sessionId, { attachments: [...previous, ...added] })
-      document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
-    } catch (failure) {
-      setError((failure as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
-    }
+    await stageDraftAttachments(sessionId, files.map(fileAttachmentJob))
   }
 
   return (
@@ -96,11 +55,7 @@ export function DropZone({ sessionId, children }: { sessionId: string; children:
           <span className="text-[14px] text-brand">Drop to attach</span>
         </div>
       )}
-      {error !== null && (
-        <div className="absolute inset-x-0 bottom-2 z-30 mx-auto w-fit rounded-lg bg-raised px-3 py-1.5 text-[12.5px] text-del">
-          {error}
-        </div>
-      )}
+
     </div>
   )
 }

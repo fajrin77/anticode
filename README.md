@@ -1,5 +1,16 @@
 # anticode
 
+Versi **0.0.27** memperhalus swipe antar sesi dari isi chat dan bar tab, menjaga
+lampiran serta draft setelah restart, menyediakan Pause saat mengetik, menyimpan
+posisi baca, dan mencegah download ganda. Dashboard memakai draft persisten;
+status izin computer use, nomor versi, dan penjelasan mode Auto diperjelas.
+
+Versi **0.0.26** merangkum seluruh perubahan setelah 0.0.25: indikator tab aktif,
+perpindahan tab dengan swipe dua jari dan pengaturan ulang urutan tab, penyederhanaan
+Settings dengan menyembunyikan Credentials dan Pricing, tool screenshot layar penuh,
+unduhan lampiran dari HP, izin approval yang tersimpan, perbaikan mode Auto, serta
+Reveal in Finder. Alur agent dan penanganan provider juga diperbaiki.
+
 Versi **0.0.25** menambah pencarian isi transkrip sesi, duplikat dan fork sesi, serta preset prompt
 di dashboard; setup Rotate usage lebih mudah dan panel plan tetap tersimpan. Koneksi yang putus di
 tengah balasan kini berhenti dengan pesan jelas dan tombol Continue, tanpa teks dobel. Approval

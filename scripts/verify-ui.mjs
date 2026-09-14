@@ -122,15 +122,16 @@ try {
   check('grid icon is faint inside a session, unhovered', await colourOf(grid), 'rgb(109, 109, 109)')
   await shot('03-in-session')
 
-  // Tabs and icon tools are bare glyphs at rest — the selected tab included —
-  // and their glass box appears only under the cursor.
+  // The active tab keeps its glass selection box and underline. Icon tools
+  // and inactive tabs gain a glass box only under the cursor.
   const boxOf = (locator) => locator.first().evaluate((el) => {
     const style = getComputedStyle(el)
     return `${style.backgroundColor} ${style.borderTopColor}`
   })
   const BARE = 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)'
   const activeTab = window.locator('header .group').first()
-  check('tab bar: the selected tab has no box at rest', await boxOf(activeTab), BARE)
+  check('tab bar: the selected tab keeps a visible selection box', await boxOf(activeTab) === BARE ? 'bare' : 'boxed', 'boxed')
+  check('tab bar: the selected tab has a lime underline', await activeTab.locator('span.bg-brand').count(), 1)
   check('tab bar: the settings icon has no box at rest', await boxOf(window.getByTitle('Settings')), BARE)
   check('composer: the attach + has no box at rest', await boxOf(window.getByTitle('Attach files')), BARE)
   const boxOnHover = async (locator) => {
@@ -368,6 +369,9 @@ try {
   await limeOnHover('dashboard: attach +', window.getByTitle('Attach files'))
   await limeOnHover('dashboard: model chip', window.locator('button:has(span.font-mono)'))
   await limeOnHover('dashboard: approval chip', window.getByText('Default',{exact:true}))
+  // Dashboard now remembers its mode. Exercise hover on the inactive mode;
+  // an active lime-filled control deliberately keeps dark text.
+  await window.getByRole('button',{name:'anticode',exact:true}).click()
   await limeOnHover('dashboard: antichat label', window.getByRole('button',{name:'antichat',exact:true}))
   // A dead arrow does not light up; with words in the box it is live, and lime.
   await composer().fill('draft')

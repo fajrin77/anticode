@@ -1,0 +1,6 @@
+PASS: chat surface follows gesture, springs back, commits only one neighbour
+PASS: tab strip works; vertical scroll, composer and wide code keep their gestures
+PASS: no boundary wrapping; draft survives leaving and returning
+PASS: slow trackpad deltas accumulate; direct selection cancels a pending slide
+PASS: reduced motion works; settings does not accidentally switch sessions
+{"directory":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-swipe-jQFLru"}

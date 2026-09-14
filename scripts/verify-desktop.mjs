@@ -68,11 +68,12 @@ const stub = createServer(async (req, res) => {
 await new Promise(r=>stub.listen(0,'127.0.0.1',r))
 const stubPort = stub.address().port
 const bootstrap = path.join(directory, 'bootstrap.cjs')
-// Only models switched on in Settings → Models are used; expose both fixture
+// Only models switched on in Settings → Models are used; expose all fixture
 // models so the model-switch test follows the same contract as the real picker.
 await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ rotation: { entries: [
   { provider: 'clinepass', model: 'test-model' },
-  { provider: 'clinepass', model: 'test-model-2' }
+  { provider: 'clinepass', model: 'test-model-2' },
+  { provider: 'clinepass', model: 'claude-opus-thinking-with-a-very-long-context-name' }
 ], usage: {} } }))
 await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); import(${JSON.stringify(path.resolve('out/main/index.js'))});`)
 const env = {...process.env, CLINEPASS_API_KEY:'fixture-key', CLINEPASS_BASE_URL:`http://127.0.0.1:${stubPort}/v1`, CLINEPASS_MODEL:'test-model', ANTICODE_REMOTE_PORT:'18680'}
@@ -515,12 +516,20 @@ try {
     assert.match(await screen.$eval('#fileDownload', (el) => el.getAttribute('href')), /^\/api\/download\?/)
     await screen.screenshot({ path: path.join(directory, 'phone-file-viewer.png') })
     await screen.evaluate(() => closeFileViewer())
-    // The workbook that was attached opens the same way; it has nothing to download.
+    // Attached workbooks open in place and can also be downloaded from the phone.
     await screen.evaluate(() => [...document.querySelectorAll('#transcript .att.file')].find((el) => el.textContent.includes('Template_Import'))?.click())
     await screen.waitForSelector('#fileBody iframe', { timeout: 10000 })
     const attachedCell = screen.frameLocator('#fileBody iframe').locator('td').first()
     assert.equal(await attachedCell.evaluate((el) => getComputedStyle(el).backgroundColor), 'rgb(31, 78, 120)')
-    assert.equal(await screen.$eval('#fileDownload', (el) => getComputedStyle(el).display), 'none')
+    assert.notEqual(await screen.$eval('#fileDownload', (el) => getComputedStyle(el).display), 'none')
+    const attachmentDownloadUrl = await screen.$eval('#fileDownload', (el) => el.href)
+    assert.equal(new URL(attachmentDownloadUrl).pathname, '/api/attachment/download')
+    const attachmentDownload = await fetch(attachmentDownloadUrl)
+    assert.equal(attachmentDownload.status, 200)
+    assert.match(attachmentDownload.headers.get('content-disposition'), /attachment/)
+    const downloadedAttachment = new ExcelJS.Workbook()
+    await downloadedAttachment.xlsx.load(Buffer.from(await attachmentDownload.arrayBuffer()))
+    assert.equal(downloadedAttachment.worksheets[0].getCell('A1').fill.fgColor.argb, 'FF1F4E78')
     await screen.evaluate(() => closeFileViewer())
     assert.equal(await screen.$eval('#fileViewer', (el) => getComputedStyle(el).display), 'none')
     assert.deepEqual(phoneErrors, [])
@@ -798,7 +807,7 @@ try {
     await screen.click('#sendBtn')
     await until(async () => !(await desktopPaused()), 'the recovered desktop session')
     await screen.waitForFunction(() => currentRunId === null && !pausedSessions.has(currentSession), null, { timeout: 15000 })
-    assert.match(await screen.locator('#transcript').innerText(), /Fixture reply: Lanjutkan pekerjaan/)
+    assert.match(await screen.locator('#transcript').innerText(), /Fixture reply: Lanjutkan langsung dari titik terakhir/)
     log('a lost connection can continue on either screen without restarting the session')
 
     // A turn reverted on the desktop is gone from the phone's screen too.
@@ -963,7 +972,7 @@ try {
     // A provider added on the phone appears in the desktop's list; removed, it goes.
     await screen.fill('#provLabel', 'Phone Local')
     await screen.selectOption('#provKind', 'ollama')
-    await screen.fill('#provURL', 'http://127.0.0.1:9/v1')
+    await screen.fill('#provURL', `http://127.0.0.1:${stubPort}/v1`)
     await screen.click('#secProviders .actions button')
     await screen.waitForFunction(() => [...document.querySelectorAll('#providerList .nm > :first-child')].some((el) => el.textContent === 'Phone Local'), null, { timeout: 5000 })
     assert.ok((await window.evaluate(() => window.anticode.listProviders())).some((p) => p.label === 'Phone Local'))

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { MessagePart } from '../store/session'
 import { usePreviewStore } from '../store/preview'
@@ -43,6 +43,8 @@ export function Artifacts({
   paths: string[]
 }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
+  const savingRef = useRef(new Set<string>())
+  const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState<Record<string, string>>({})
   const preview = usePreviewStore((state) => state.open)
 
@@ -74,7 +76,13 @@ export function Artifacts({
           </button>
           <button
             type="button"
+            disabled={saving[target] === true}
+            aria-busy={saving[target] === true}
             onClick={() => {
+              if (savingRef.current.has(target)) return
+              savingRef.current.add(target)
+              setSaving(current => ({ ...current, [target]: true }))
+              setError(null)
               void window.anticode
                 .saveArtifact(sessionId, target)
                 .then((destination) => {
@@ -82,14 +90,15 @@ export function Artifacts({
                   if (destination !== null) setSaved((current) => ({ ...current, [target]: destination }))
                 })
                 .catch((failure: Error) => setError(failure.message))
+                .finally(() => { savingRef.current.delete(target); setSaving(current => ({ ...current, [target]: false })) })
             }}
-            className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
+            className="w-24 shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand disabled:opacity-50"
           >
-            Download
+            {saving[target] ? 'Saving…' : 'Download'}
           </button>
         </div>
       ))}
-      {error !== null && <div className="px-1 text-[12px] text-del">{error}</div>}
+      {error !== null && <div role="alert" className="px-1 text-[12px] text-del">{error}</div>}
     </div>
   )
 }

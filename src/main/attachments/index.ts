@@ -143,15 +143,18 @@ export async function placeInWorkspace(
 
 /**
  * Pasted bytes have no file of their own, so one is made for them. It lives in
- * the OS temp folder: the transcript keeps the picture, not this copy.
+ * the configured application-data folder so an unsent draft survives reboot.
  */
+let attachmentStorage = path.join(tmpdir(), 'anticode-attachments')
+export function setAttachmentStorage(directory: string): void { attachmentStorage = directory }
+
 export async function stageAttachmentData(name: string, data: Buffer): Promise<string> {
   if (data.byteLength > MAX_BYTES) {
     throw new AttachmentError(
       `File too large (${Math.round(data.byteLength / 1024 / 1024)} MB, limit 100 MB)`
     )
   }
-  const directory = path.join(tmpdir(), 'anticode-attachments', randomUUID())
+  const directory = path.join(attachmentStorage, randomUUID())
   await mkdir(directory, { recursive: true })
   // Only the basename, and never a dotfile: the name comes from a phone upload.
   const safe = path.basename(name).replace(/^\.+/, '') || 'attachment'

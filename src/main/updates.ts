@@ -1,3 +1,4 @@
+import { APP_VERSION } from './version'
 import { app, BrowserWindow } from 'electron'
 import { notify } from './notify'
 import path from 'node:path'
@@ -37,7 +38,7 @@ export function updateState(): UpdateState {
     state = {
       ...settings(),
       status: 'idle',
-      current: app.getVersion(),
+      current: APP_VERSION,
       latest: null,
       notes: null,
       progress: null,

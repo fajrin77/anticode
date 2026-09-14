@@ -15,7 +15,7 @@ export const screenshotTool = defineTool({
   name: 'screenshot',
   description:
     'Capture the full macOS screen and send it as an image to look at. ' +
-    'Requires Screen Recording permission for the terminal that launched anticode; ' +
+    'Requires Screen Recording permission for anticode (or the terminal launching a development build); ' +
     'macOS shows a prompt the first time.',
   /**
    * A screenshot copies private pixels — mail, messages, passwords — off the
@@ -46,7 +46,7 @@ export const screenshotTool = defineTool({
           { timeout: SCREENSHOT_TIMEOUT_MS },
           (error) => {
             if (error !== null) {
-              reject(new ToolError(`screencapture failed: ${error.message ?? String(error)}`))
+              reject(new ToolError(`screencapture failed: ${error.message ?? String(error)}. Check Screen Recording in System Settings → Privacy & Security, then retry. Screen capture reads the display; controlling other apps requires desktop-control tools.`))
               return
             }
             resolve()

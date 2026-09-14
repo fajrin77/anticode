@@ -1,0 +1,15 @@
+
+> anticode@0.0.26 test
+> vitest run
+
+
+ RUN  v5.0.0 /Users/asani/Documents/PROJECT APPS/AI AGENT TOOLS
+
+
+ Test Files  34 passed (34)
+      Tests  352 passed (352)
+   Start at  10:22:34
+   Duration  9.00s (import 64%, tests 30%, transform 6%)
+
+    Isolate  34 workers spawned · ~139ms startup each (spawn + environment, per file)
+             at least ~537ms faster with isolate: false — reuses workers across files instead of one per file

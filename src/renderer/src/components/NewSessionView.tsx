@@ -1,3 +1,4 @@
+import { DASHBOARD_DRAFT, stageDraftAttachments, useAttachmentJobs, fileAttachmentJob } from '../draftAttachments'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { modelLabel } from '@shared/ipc'
@@ -66,10 +67,21 @@ function DashboardComposer({
   /** { text, pulse } — a pulse bump re-applies the same preset text. */
   fill: { text: string; pulse: number }
 }): JSX.Element {
-  const [mode, setMode] = useState<'chat' | 'code'>('code')
-  const [folder, setFolder] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
-  const [attached, setAttached] = useState<AttachmentInfo[]>([])
+  const savedDraft = useSessionStore(state => state.drafts[DASHBOARD_DRAFT])
+  const mode = savedDraft?.mode ?? 'code'
+  const folder = savedDraft?.folder ?? null
+  const draft = savedDraft?.text ?? ''
+  const attached = savedDraft?.attachments ?? []
+  const pending = useAttachmentJobs(state => state.pending[DASHBOARD_DRAFT] ?? 0)
+  const attachmentErrors = savedDraft?.attachmentErrors ?? []
+  const update = useSessionStore.getState().updateDraft
+  const setMode = (mode: 'chat' | 'code') => update(DASHBOARD_DRAFT, { mode })
+  const setFolder = (folder: string | null) => update(DASHBOARD_DRAFT, { folder })
+  const setDraft = (text: string) => update(DASHBOARD_DRAFT, { text })
+  const setAttached = (next: AttachmentInfo[] | ((items: AttachmentInfo[]) => AttachmentInfo[])) => {
+    const current = useSessionStore.getState().drafts[DASHBOARD_DRAFT]?.attachments ?? []
+    update(DASHBOARD_DRAFT, { attachments: typeof next === 'function' ? next(current) : next })
+  }
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<'none' | 'model' | 'mode'>('none')
   const [shake, setShake] = useState(false)
@@ -86,7 +98,7 @@ function DashboardComposer({
   const [sending, setSending] = useState(false)
   const ready =
     status?.providerReady === true && (mode === 'chat' || folder !== null)
-  const canSend = draft.trim() !== '' && !sending && ready
+  const canSend = draft.trim() !== '' && !sending && ready && pending === 0 && attachmentErrors.length === 0
 
   useLayoutEffect(() => {
     const field = promptRef.current
@@ -132,16 +144,13 @@ function DashboardComposer({
     }
   }, [])
 
-  function collect(promise: Promise<AttachmentInfo[]>): void {
-    setError(null)
-    void promise
-      .then((added) => setAttached((current) => [...current, ...added]))
-      .catch((failure) => setError((failure as Error).message))
+  function collect(job: () => Promise<AttachmentInfo[]>): void {
+    void stageDraftAttachments(DASHBOARD_DRAFT, [job])
   }
 
   async function send(): Promise<void> {
     const prompt = draft.trim()
-    if (sending) return
+    if (sending || (useAttachmentJobs.getState().pending[DASHBOARD_DRAFT] ?? 0) > 0 || (useSessionStore.getState().drafts[DASHBOARD_DRAFT]?.attachmentErrors?.length ?? 0) > 0) return
     if (!canSend) {
       if (status?.providerReady === true && mode === 'code' && folder === null) {
         flagMissingFolder()
@@ -182,6 +191,7 @@ function DashboardComposer({
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the hero.
       setError((failure as Error).message)
+      useSessionStore.getState().updateDraft(sessionId, { text: prompt, attachments: attached })
       useSessionStore.getState().appendText(sessionId, messageId, (failure as Error).message)
       useSessionStore.getState().settleMessage(messageId)
       setActiveRun(null, runId)
@@ -194,6 +204,12 @@ function DashboardComposer({
     <div className="shrink-0 px-10">
       <div className="mx-auto max-w-3xl" ref={boxRef}>
         {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
+        {pending > 0 && <div role="status" className="mb-2 px-1 text-[12.5px] text-dim">Preparing attachments… ({pending})</div>}
+        {attachmentErrors.length > 0 && <div role="alert" className="mb-2 px-1 text-[12.5px] text-del">
+          {attachmentErrors.map((message, index) => <div key={index}>{message}</div>)}
+          <button type="button" onClick={() => update(DASHBOARD_DRAFT, { attachmentErrors: [] })} className="mt-1 text-dim transition-colors hover:text-brand">Dismiss attachment errors</button>
+        </div>}
+
 
         {/* Menus beside the glass card, not inside it, so their blur reaches
             the page behind (see Composer). */}
@@ -234,7 +250,7 @@ function DashboardComposer({
                 </button>
               ))}
               <p className="px-2 py-1.5 text-[11px] text-faint">
-                High risk always asks, whatever the mode.
+                Auto still asks before high-risk actions. Saved permissions apply in Default.
               </p>
             </div>
           )}
@@ -282,6 +298,13 @@ function DashboardComposer({
               value={draft}
               placeholder="Don't work today, just vibes."
               onChange={(event) => setDraft(event.target.value)}
+              onPaste={event => {
+                const files = Array.from(event.clipboardData.files)
+                if (files.length) {
+                  event.preventDefault()
+                  void stageDraftAttachments(DASHBOARD_DRAFT, files.map(fileAttachmentJob))
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
@@ -295,7 +318,7 @@ function DashboardComposer({
               <button
                 type="button"
                 title="Attach files"
-                onClick={() => collect(window.anticode.chooseAttachments())}
+                onClick={() => collect(() => window.anticode.chooseAttachments())}
                 className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
               >
                 +
@@ -339,7 +362,7 @@ function DashboardComposer({
                 // than pressable-and-silent. With words typed it stays live even
                 // without a folder, so pressing it shows what is missing.
                 disabled={
-                  sending ||
+                  sending || pending > 0 || attachmentErrors.length > 0 ||
                   draft.trim() === '' ||
                   (!ready && !(status?.providerReady === true && mode === 'code' && folder === null))
                 }
@@ -365,6 +388,7 @@ function DashboardComposer({
               <button
                 key={value}
                 type="button"
+                title={value === 'chat' ? 'Documents and downloads; use anticode for terminal and browser tasks' : 'Files, terminal and session browser tools'}
                 onClick={() => setMode(value)}
                 className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
                   mode === value

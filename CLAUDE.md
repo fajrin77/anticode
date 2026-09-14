@@ -38,6 +38,9 @@ Tab dan tombol ikon di header, composer, dan panel web memakai `glass-ghost`:
 saat diam hanya font/ikonnya yang terlihat, kotak glass-nya muncul saat hover.
 Jangan kembalikan `glass-control` permanen ke kontrol seperti itu; `glass-control`
 hanya untuk keadaan terbuka (misalnya chip yang menunya sedang tampil).
+Tab sesi aktif juga memakai `glass-control` dan garis lime sebagai penanda pilihan
+yang tetap terlihat; tab sesi tidak aktif tetap `glass-ghost`. Kedua keadaan harus
+memiliki border dengan ketebalan sama agar pergantian tab tidak menggeser layout.
 
 Kesalahan yang paling sering: menaruh `hover:text-brand` di tombol padahal isinya
 punya `text-text`/`text-dim`/`text-faint` sendiri — hover-nya tidak akan terlihat.

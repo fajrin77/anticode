@@ -121,6 +121,8 @@ export interface AppInfo {
   node: string
   platform: string
   isPackaged: boolean
+  screenRecording?: string
+  accessibility?: boolean
 }
 
 /**

@@ -1,0 +1,5 @@
+PASS: packaged app boots with an empty profile (title: anticode)
+PASS: new chat session opens and the composer is reachable
+PASS: Settings and the Remote pane render
+PASS: no startup errors on a first run
+{"profile":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-packaged-uaq56K","binary":"/Applications/anticode.app/Contents/MacOS/anticode"}

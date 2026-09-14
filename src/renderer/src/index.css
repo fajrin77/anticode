@@ -301,3 +301,26 @@ body {
   mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
   animation: spin 1.2s linear infinite;
 }
+
+/* The transcript follows the fingers; edge hints also work with reduced motion. */
+.session-swipe-hint {
+  pointer-events: none;
+  position: absolute;
+  top: 45%;
+  z-index: 20;
+  width: 28px;
+  text-align: center;
+  font-size: 30px;
+  color: var(--color-brand);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.session-swipe-previous { left: 8px; }
+.session-swipe-next { right: 8px; }
+[data-swipe-direction="previous"] .session-swipe-previous,
+[data-swipe-direction="next"] .session-swipe-next { opacity: .35; }
+[data-swipe-ready="true"][data-swipe-direction="previous"] .session-swipe-previous,
+[data-swipe-ready="true"][data-swipe-direction="next"] .session-swipe-next { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .session-swipe-hint { transition: none; }
+}

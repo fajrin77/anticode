@@ -1,0 +1,37 @@
+
+> anticode@0.0.26 build
+> npm run typecheck && electron-vite build
+
+
+> anticode@0.0.26 typecheck
+> npm run typecheck:node && npm run typecheck:web
+
+
+> anticode@0.0.26 typecheck:node
+> tsc --noEmit -p tsconfig.json
+
+
+> anticode@0.0.26 typecheck:web
+> tsc --noEmit -p src/renderer/tsconfig.json
+
+vite v7.3.6 building ssr environment for production...
+transforming...
+✓ 63 modules transformed.
+rendering chunks...
+out/main/index.js  356.03 kB
+✓ built in 680ms
+vite v7.3.6 building ssr environment for production...
+transforming...
+✓ 2 modules transformed.
+rendering chunks...
+out/preload/index.mjs  11.79 kB
+✓ built in 20ms
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 116 modules transformed.
+rendering chunks...
+../../out/renderer/index.html                            0.67 kB
+../../out/renderer/assets/open-chat-logo-CbiNAKaj.svg    6.34 kB
+../../out/renderer/assets/index-DB_smqOA.css            48.15 kB
+../../out/renderer/assets/index-DTkxNJoh.js            989.03 kB
+✓ built in 960ms

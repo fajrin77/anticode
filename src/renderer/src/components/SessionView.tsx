@@ -781,20 +781,33 @@ export function SessionView(): JSX.Element {
     (message, index) =>
       index > lastPrompt && message.role === 'assistant' && message.summary !== undefined && !pausedIds.has(message.id)
   )?.id
-  // The transcript follows new output only while the reader is at its end.
-  // Scrolling up to read stops it; scrolling back down, sending a prompt, or
-  // opening another session starts it again.
   const following = useRef(true)
-  const seen = useRef<{ sessionId: string | undefined; prompts: number }>({ sessionId: undefined, prompts: 0 })
+  const promptCount = messages.filter(message => message.role === 'user').length
+  const seenPrompts = useRef(promptCount)
+  useLayoutEffect(() => {
+    const box = scrollRef.current
+    const id = session?.id
+    if (!box || !id) return
+    const saved = useSessionStore.getState().readPositions[id]
+    following.current = saved?.following ?? true
+    seenPrompts.current = saved?.prompts ?? promptCount
+    box.scrollTop = following.current ? box.scrollHeight : (saved?.top ?? 0)
+    const savePosition = () => {
+      if (!useSessionStore.getState().sessions.some(s => s.id === id)) return
+      const position = { top: box.scrollTop, following: following.current, prompts: seenPrompts.current }
+      useSessionStore.setState(state => ({ readPositions: { ...state.readPositions, [id]: position } }))
+    }
+    window.addEventListener('beforeunload', savePosition)
+    return () => { window.removeEventListener('beforeunload', savePosition); savePosition() }
+  }, [session?.id])
 
   useLayoutEffect(() => {
     const box = scrollRef.current
-    if (box === null) return
-    const prompts = messages.filter((message) => message.role === 'user').length
-    if (seen.current.sessionId !== session?.id || prompts > seen.current.prompts) following.current = true
-    seen.current = { sessionId: session?.id, prompts }
+    if (!box) return
+    if (promptCount > seenPrompts.current) following.current = true
+    seenPrompts.current = promptCount
     if (following.current) box.scrollTop = box.scrollHeight
-  }, [messages, session?.id])
+  }, [messages, promptCount])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

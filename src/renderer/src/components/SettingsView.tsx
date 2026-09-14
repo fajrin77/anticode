@@ -20,6 +20,7 @@ import { compactTokens } from './ModelPicker'
 import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
 import { Mcp } from './settings/Mcp'
+import { Capabilities } from './settings/Capabilities'
 import { InstructionsField } from './InstructionsField'
 
 interface SettingsViewProps {
@@ -67,7 +68,7 @@ function General({
       <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
         <SettingRow
           title="Auto-accept permissions"
-          hint="All tool calls run without asking — file edits, shell, everything"
+          hint="Skip medium-risk approvals; high-risk actions still ask in Auto"
         >
           <Toggle on={status?.autoApprove === true} onChange={onToggleAutoApprove} />
         </SettingRow>
@@ -83,6 +84,8 @@ function General({
           <span className="font-mono text-[12.5px]">{status === null || status.model !== '' || status.provider === ROTATE_PROVIDER ? modelLabel(status) : 'not set'}</span>
         </SettingRow>
       </div>
+
+      <Capabilities />
 
       <h2 className="mb-3 text-[14px] text-text">Custom instructions</h2>
       <div className="mb-8">

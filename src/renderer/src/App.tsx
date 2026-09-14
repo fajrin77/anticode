@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react'
 import type { JSX } from 'react'
+import { restoreDraftAttachments, DASHBOARD_DRAFT } from './draftAttachments'
+import { useSessionSwipe } from './hooks/useSessionSwipe'
 import { TabBar } from './components/TabBar'
 import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
@@ -27,6 +29,7 @@ import { ROTATE_PROVIDER } from '@shared/ipc'
 type View = 'dashboard' | 'session' | 'settings'
 
 export function App(): JSX.Element {
+  useEffect(() => { void restoreDraftAttachments() }, [])
   const hydrating = useRef(true)
   const bufferedEvents = useRef<RoutedAgentEvent[]>([])
   const receiveEvent = useRef<(event: RoutedAgentEvent) => void>(() => undefined)
@@ -504,9 +507,10 @@ export function App(): JSX.Element {
   const isFreshSession =
     activeSession !== undefined && activeSession.messages.length === 0
   const web = useWebSession(activeSessionId)
+  const swipeRoot = useSessionSwipe(view === 'session' && approvals.length === 0, openExistingSession)
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={swipeRoot} className="session-swipe-root flex h-full flex-col overflow-hidden">
       {appError && (
         <div
           role="alert"
@@ -545,25 +549,29 @@ export function App(): JSX.Element {
       )}
 
       {view === 'dashboard' && (
-        <NewSessionView
+        <DropZone sessionId={DASHBOARD_DRAFT}><NewSessionView
           session={undefined}
           status={status}
           providers={providers}
           onSelectProvider={selectProvider}
           onToggleAutoApprove={toggleAutoApprove}
           onSelectSession={openExistingSession}
-        />
+        /></DropZone>
       )}
 
       {view === 'session' && (
         // The transcript gives up the right-hand side to the browser pane
         // rather than being covered by it: both stay usable at once, which is
         // the point of watching a page the agent is working on.
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <div className="session-swipe-hint session-swipe-previous" aria-hidden>‹</div>
+          <div className="session-swipe-hint session-swipe-next" aria-hidden>›</div>
           {/* Full size hands the whole window to the page. The transcript is
               only set aside, not unmounted — its scroll and draft are where
               they were when the pane shrinks back. */}
           <div
+            data-session-swipe
+            data-session-slide
             className={`flex min-w-0 flex-1 flex-col ${
               web !== undefined && web.full && !web.hidden ? 'hidden' : ''
             }`}

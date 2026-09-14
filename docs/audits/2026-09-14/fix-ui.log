@@ -1,0 +1,254 @@
+shot: 01-dashboard
+PASS: grid icon stays lime on hover while dashboard is open -> rgb(209, 250, 34)
+shot: 02-dashboard-icon-hover-while-on-dashboard
+PASS: antichat: the tab is named after its first prompt -> halo dunia
+PASS: session composer floats without an opaque footer -> absolute rgba(0, 0, 0, 0)
+PASS: grid icon is faint inside a session, unhovered -> rgb(109, 109, 109)
+shot: 03-in-session
+PASS: tab bar: the selected tab keeps a visible selection box -> boxed
+PASS: tab bar: the selected tab has a lime underline -> 1
+PASS: tab bar: the settings icon has no box at rest -> rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)
+PASS: composer: the attach + has no box at rest -> rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)
+PASS: tab bar: a tab shows its box on hover -> boxed
+PASS: tab bar: the settings icon shows its box on hover -> boxed
+PASS: tab bar: selected tab title turns lime on hover -> rgb(209, 250, 34)
+PASS: header: no bottom edge -> 0px none
+PASS: header: four progressive blur layers -> 4
+PASS: header: the blur fades out downward -> fades
+PASS: header: the transcript scrolls beneath it -> under
+PASS: grid icon turns lime on hover inside a session -> rgb(209, 250, 34)
+shot: 04-dashboard-icon-hover-inside-session
+shot: 05-usage-popover
+PASS: Escape closes the usage popover -> closed
+shot: 06-after-escape-on-popover
+PASS: gear lights lime while Settings is open -> rgb(209, 250, 34)
+shot: 07-settings
+PASS: closing Settings returns to the session it was opened from -> session
+shot: 08-settings-toggled-off
+PASS: closing Settings returns to the dashboard it was opened from -> dashboard
+shot: 09-settings-closed-back-to-dashboard
+shot: 10-mode-menu-open
+shot: 11-mode-menu-after-escape
+shot: 12-new-session-no-folder-after-enter
+PASS: folderless code session does not reach the provider -> refused
+PASS: Choose folder glows after a blocked send -> glowing
+PASS: the blocked draft is kept, not swallowed -> cek folder
+PASS: an attached image carries a thumbnail -> data:image/jpeg;base64,
+PASS: the attachment lives inside the glass composer -> inside
+PASS: an attachment grows the glass composer -> grown
+shot: 13-composer-with-attachment
+PASS: a staged picture opens full size before sending -> 1
+shot: 13b-staged-picture-open
+PASS: the staged picture closes on Escape -> 0
+PASS: composer: staged file name turns lime on hover -> rgb(209, 250, 34)
+PASS: the sent image is drawn in the transcript -> drawn
+PASS: no bracketed filename is left in the prompt -> clean
+shot: 14-attachment-in-transcript
+PASS: drop: the whole session offers to take the file -> 1
+shot: 14b-drop-over-transcript
+PASS: drop: a file dropped on the transcript is staged -> 1
+PASS: drop: the sheet goes once the file lands -> 0
+PASS: a produced document is offered for download -> offered
+shot: 15-produced-document
+PASS: produced document: file name turns lime on hover -> rgb(209, 250, 34)
+PASS: preview: the workbook keeps its header fill -> rgb(0, 176, 80)
+PASS: preview: and its white bold header text -> rgb(255, 255, 255) 700
+shot: 15b-preview-workbook
+PASS: preview: close turns lime on hover -> rgb(209, 250, 34)
+PASS: preview: open in app turns lime on hover -> rgb(209, 250, 34)
+PASS: preview: download turns lime on hover -> rgb(209, 250, 34)
+PASS: preview: Escape goes back to the conversation -> 0
+PASS: preview: a PDF is drawn inside the app -> 1
+shot: 15c-preview-pdf
+PASS: preview: the cross closes it -> 0
+PASS: dashboard: search icon turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: attach + turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: model chip turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: approval chip turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: antichat label turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: send arrow turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: session row title turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: approval menu hint turns lime on hover -> rgb(209, 250, 34)
+PASS: dashboard: delete stays red -> rgb(224, 108, 108)
+shot: 16-lime-dashboard
+PASS: tab bar: usage icon turns lime on hover -> rgb(209, 250, 34)
+PASS: tab bar: browser icon turns lime on hover -> rgb(209, 250, 34)
+PASS: tab bar: new tab + turns lime on hover -> rgb(209, 250, 34)
+PASS: tab bar: close x turns lime on hover -> rgb(209, 250, 34)
+PASS: session: attach + turns lime on hover -> rgb(209, 250, 34)
+PASS: session: send arrow turns lime on hover -> rgb(209, 250, 34)
+PASS: session: an empty box leaves the send arrow dead -> dead
+PASS: session: Enter on an empty box sends nothing -> 2
+PASS: transcript: run summary turns lime on hover -> rgb(209, 250, 34)
+PASS: transcript: copy button turns lime on hover -> rgb(209, 250, 34)
+shot: 17-lime-session
+PASS: browser: the pane opens beside the transcript -> 1
+PASS: browser: the pane has real width -> wide
+PASS: browser: the transcript shifts left -> shifted
+PASS: browser: the icon lights while the pane is open -> rgb(209, 250, 34)
+PASS: browser: address bar reload turns lime on hover -> rgb(209, 250, 34)
+PASS: browser: hide button turns lime on hover -> rgb(209, 250, 34)
+PASS: browser: an address typed in the pane loads -> 1
+PASS: browser: the guest points where it was told -> there
+PASS: browser: the address bar follows the page -> http://127.0.0.1:62110/
+shot: 17b-browser-pane
+PASS: browser: the tab-bar icon carries no dot -> 0
+PASS: browser: a new tab opens -> 2
+PASS: browser: each tab keeps its own page -> 2
+PASS: browser: only the active tab is painted -> 1
+PASS: browser: tab label turns lime on hover -> rgb(209, 250, 34)
+PASS: browser: new tab + turns lime on hover -> rgb(209, 250, 34)
+shot: 17c-browser-tabs
+PASS: browser: a background title update keeps the selected tab -> tab-mu0oeght-2
+PASS: browser: full size takes the whole window -> whole
+PASS: browser: the transcript steps aside at full size -> aside
+PASS: browser: the full-size toggle lights while on -> rgb(209, 250, 34)
+shot: 17d-browser-full
+PASS: browser: shrinking brings the transcript back -> visible
+PASS: browser: full-size toggle turns lime on hover -> rgb(209, 250, 34)
+PASS: browser: hiding hands the width back -> restored
+PASS: browser: the icon goes quiet again -> rgb(154, 154, 154)
+PASS: model picker: its blur reaches the transcript -> outside
+PASS: model picker: model row turns lime on hover -> rgb(209, 250, 34)
+PASS: model picker: no Rotate while Rotate usage is off -> 0
+PASS: settings: sidebar section turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: add provider turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: provider type Anthropic API turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: an Anthropic provider names itself -> Anthropic
+PASS: settings: an Anthropic provider waits only for its key -> waiting
+PASS: settings: an Anthropic provider with a key can be added -> ready
+PASS: settings: provider edit turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: provider default turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: saved models are counted on the provider -> counted
+PASS: settings: removing a provider is red on hover -> rgb(224, 108, 108)
+PASS: settings: clinepass edit turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: keep instead of removing turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: rotate usage starts off -> false
+PASS: settings: rotate usage hides its pool while off -> 0
+PASS: settings: rotate usage has no long description -> 0
+PASS: settings: rotate usage switches on -> true
+PASS: settings: rotate usage add model turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: rotate usage opens providers before models -> 1
+PASS: settings: rotate usage keeps models closed until a provider is picked -> 0
+PASS: settings: rotate usage hides models already in the pool -> 0
+PASS: settings: duplicate model cannot be added -> disabled
+PASS: settings: rotate usage take out turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: rotate usage reset counts turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: reset counts asks for confirmation -> 1
+PASS: settings: rotate usage applies to every session -> 1
+shot: 18b-rotate-usage
+PASS: settings: rotate usage new group turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: rotate usage shows ready versus total -> shown
+PASS: settings: a group is named in place -> 1
+PASS: settings: an empty group cannot be put in use -> blocked
+PASS: settings: model ids in the list are grey at rest -> rgb(154, 154, 154)
+PASS: settings: rotate usage model id turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: group ready count updates -> shown
+PASS: settings: rotate usage group tab turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: rotate usage use this group turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: the group is put in use -> code only
+PASS: settings: putting a group in use moves no tab -> still
+PASS: settings: rotate usage models open in the app’s own menu -> 1
+PASS: settings: the model list stays attached to its field -> attached
+PASS: settings: a model already in the group is absent from suggestions -> 0
+shot: 18b2b-rotate-usage-model-list
+PASS: settings: a group offers every model of a provider -> offered
+PASS: settings: rotate usage every model of a provider turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: the group takes the provider whole -> clinepass · test-model
+PASS: settings: the linked provider reads as one line -> 1
+PASS: settings: taking the provider out of the group turns lime on hover -> rgb(209, 250, 34)
+shot: 18b3-rotate-usage-provider-group
+PASS: model picker: offers the rotate groups -> 2
+PASS: model picker: a rotate group turns lime on hover -> rgb(209, 250, 34)
+PASS: model picker: switching the group reaches the main process -> null
+PASS: model picker: and back again -> code only
+shot: 18b4-model-picker-groups
+PASS: settings: deleting a group is red on hover -> rgb(224, 108, 108)
+shot: 18b2-rotate-usage-group
+PASS: settings: deleting a group asks for confirmation -> 1
+PASS: settings: deleting the group in use goes back to the whole pool -> null
+PASS: sessions: changing one session’s model leaves the others alone -> separate
+PASS: providers: an Anthropic API provider answers through its adapter -> Anthropic · replied
+PASS: settings: the page heading stays put between pages -> still
+PASS: settings: a sidebar item does not shift when it stops being active -> still
+PASS: settings: models pick row turns lime on hover -> rgb(209, 250, 34)
+PASS: settings: models uses the switch -> switch
+PASS: settings: models shows the pooled model switched on -> true
+PASS: settings: a model switched on is lime -> rgb(209, 250, 34)
+PASS: settings: an off switch lights its knob on hover -> rgb(209, 250, 34)
+PASS: settings: switching a model on does not push the provider tabs -> still
+PASS: settings: switching a model on does not move the list -> still
+PASS: settings: the knob sits the same distance from the edge on and off -> even
+shot: 18c-models-picked
+PASS: model picker: composer is locked while Rotate usage is on -> true
+PASS: model picker: composer shows Rotate globally -> rotate
+PASS: model picker: composer follows the group in use at once -> rotate · code only
+PASS: model picker: composer goes back to the whole pool -> rotate
+PASS: settings: version line turns lime on hover -> rgb(209, 250, 34)
+PASS: transcript: inline code is white -> rgb(237, 237, 237)
+PASS: transcript: inline code keeps its box -> rgb(39, 39, 39)
+PASS: transcript: inline code keeps its padding -> 6px
+shot: 19-inline-code
+PASS: settings: a switch that is on is lime -> rgb(209, 250, 34)
+shot: 18-lime-settings
+PASS: settings: an off switch uses translucent neutral glass -> rgba(46, 46, 46, 0.48)
+PASS: pause: the marker is in the transcript -> said
+PASS: pause: the marker is grey -> rgb(154, 154, 154)
+PASS: pause: the marker has no bubble -> rgba(0, 0, 0, 0) 0px
+PASS: pause: the marker sits left of the user bubble -> left
+PASS: pause: the marker turns lime on hover -> rgb(209, 250, 34)
+shot: 20-pause-marker
+PASS: pause: Continue is visibly labelled -> Continue
+PASS: pause: resume wears a play mark, not an arrow -> play
+PASS: pause: typing turns resume into send -> 1
+PASS: pause: an empty box goes back to resume -> 1
+PASS: resume: the marker is in the transcript -> said
+PASS: resume: the marker is grey -> rgb(154, 154, 154)
+PASS: resume: the continuation paragraph stays out of the transcript -> hidden
+shot: 21-resume-marker
+PASS: dashboard: an empty box leaves the send arrow dead -> dead
+PASS: dashboard: an empty box sends nothing -> 4/11
+PASS: follow-up: an empty box offers pause -> 1
+PASS: follow-up: typing turns pause into send -> 1
+PASS: follow-up: the box empties at once ->
+PASS: follow-up: the marker is written -> said
+PASS: follow-up: the marker is grey -> rgb(154, 154, 154)
+PASS: follow-up: the instruction shows as sent -> sent
+PASS: follow-up: the run answers both, and closes once -> 1
+PASS: follow-up: instruction, reaction, then the reply -> user reply user notice reply
+PASS: follow-up: the reply in progress finishes above it -> Fixture reply: slow first
+shot: 21b-follow-up
+PASS: closing line names the model first -> model
+PASS: closing line reports tokens -> reported
+PASS: closing line has no status dot -> 0
+PASS: closing line offers a copy button -> 1
+PASS: the copy button sits between the model and the timing -> between
+PASS: copying yields the reply and its cost -> both
+shot: 22-closing-line
+PASS: selecting a reply offers Balas -> 1
+PASS: the quote lands above the composer -> shown
+PASS: the quoted passage is clamped -> 3
+shot: 23-reply-to-selection
+PASS: clicking away drops the quote -> dropped
+PASS: Escape drops the quote -> dropped
+PASS: the quote is sent with the prompt -> sent
+PASS: the quote chip clears after sending -> cleared
+PASS: pausing offers Revert -> 1
+PASS: reverting puts the prompt back in the box -> slow please
+PASS: reverting removes the turn from the transcript -> gone
+shot: 24-reverted
+PASS: a drafted prompt gets its own panel -> 1
+PASS: the panel wears the model-name face -> same
+PASS: the quotes are stripped from the panel -> stripped
+PASS: a copy control sits above and below the panel -> 2
+PASS: the prose around it stays prose -> 1
+PASS: copying yields the prompt without its quotes -> clean
+shot: 25-prompt-panel
+PASS: a trailing check becomes the green mark -> green
+PASS: the bare glyph is gone -> replaced
+PASS: a markdown task box becomes the green mark -> green
+PASS: an unticked bullet stays plain -> plain
+shot: 26-checklist
+PASS: plan: collapse survives switching to another tab and back -> false
+PASS: plan: collapse is written to persisted session metadata -> persisted
+{"shots":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-ui-1Trwmp/shots","directory":"/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-ui-1Trwmp"}

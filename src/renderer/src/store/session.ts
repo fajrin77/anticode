@@ -137,11 +137,12 @@ interface SessionPreset {
 }
 
 interface SessionState {
+  readPositions: Record<string, { top: number; following: boolean; prompts: number }>
   /** `quote` is a passage from the transcript the next prompt answers. */
-  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string }>
+  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null }>
   updateDraft: (
     id: string,
-    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string }>
+    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null }>
   ) => void
   /** Named prompt starters, saved by the user and listed on the dashboard. */
   presets: SessionPreset[]
@@ -357,6 +358,7 @@ function mapMessage(
 }
 
 export const useSessionStore = create<SessionState>()(persist((set, get) => ({
+  readPositions: {},
   drafts: {},
   presets: [],
   savePreset: (name, prompt) =>
@@ -784,7 +786,9 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
           : state.activeSessionId
       const planOpenBySession = { ...state.planOpenBySession }
       delete planOpenBySession[id]
-      return { sessions: remaining, activeSessionId,
+      const drafts = { ...state.drafts }; delete drafts[id]
+      const readPositions = { ...state.readPositions }; delete readPositions[id]
+      return { sessions: remaining, activeSessionId, drafts, readPositions,
         planOpenBySession,
         activeRuns: Object.fromEntries(Object.entries(state.activeRuns).filter(([, run]) => run.sessionId !== id)),
         mirrorRuns: Object.fromEntries(Object.entries(state.mirrorRuns).filter(([, run]) => run.sessionId !== id))
@@ -1128,7 +1132,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   name: 'anticode-session-metadata',
   storage: createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage)),
   skipHydration: typeof window === 'undefined',
-  partialize: (state) => ({ followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { text: draft.text, attachments: [] }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planOpenBySession: state.planOpenBySession,
+  partialize: (state) => ({ readPositions: state.readPositions, followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planOpenBySession: state.planOpenBySession,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 
