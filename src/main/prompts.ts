@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { clearQueue, dequeue, enqueue, removeQueued, requeue } from './queue'
 import type { QueuedPrompt } from '@shared/ipc'
 import { announceTitle, getSession, getStatus, persistSessions, selectProvider, takeBackPrompt } from './runtime'
-import { beginRun, finishRun, runForSession } from './runs'
+import { beginRun, finishRun, isPaused, runForSession } from './runs'
 import { announceHistory, announceStatus, forward, registerRun } from './remote/bus'
 
 /** A turn that is sent again as it was: its blocks are already built. */
@@ -56,6 +56,13 @@ async function admit(
   const agent = getSession(req.sessionId, gate)
   const existing = runForSession(req.sessionId)
   if (existing !== null) {
+    // A session the user paused is not really working: a prompt typed now is
+    // next in line, not a mid-flight instruction — steer would refuse it with
+    // "finish stopping". Line it up so the send never dead-ends.
+    if (isPaused(req.sessionId)) {
+      const queued = await queuePrompt(req, gate)
+      return { runId: queued.runId, steered: false }
+    }
     if (!agent.steer(req.prompt, blocks)) throw new Error('Wait for this session to finish stopping')
     forward({ type: 'steer', runId: existing, text: req.prompt, attachments: refs })
     releaseAttachments(req.attachmentIds)

@@ -5,7 +5,7 @@ import type { AgentSession } from './agent/loop'
 type RunParams = Parameters<AgentSession['run']>[0]
 const mocks = vi.hoisted(() => ({
   run: vi.fn(), steer: vi.fn(() => true), blocks: vi.fn(async () => []),
-  forward: vi.fn(), persist: vi.fn(), register: vi.fn(), ready: true
+  forward: vi.fn(), persist: vi.fn(), register: vi.fn(), ready: true, pause: vi.fn()
 }))
 vi.mock('./runtime', () => ({
   getStatus: () => ({ providerReady: mocks.ready }),
@@ -20,11 +20,11 @@ vi.mock('./remote/bus', () => ({
 }))
 import { forgetQueue, queuePrompt, submitPrompt, unqueuePrompt } from './prompts'
 import { listQueue } from './queue'
-import { finishRun, runForSession } from './runs'
+import { clearPause, finishRun, pauseSession, runForSession } from './runs'
 const gate = {} as ApprovalGate
 const request = (runId: string) => ({ runId, sessionId: 'session', prompt: runId, attachmentIds: [] })
 afterEach(() => {
-  finishRun('desktop'); finishRun('phone'); forgetQueue('session')
+  finishRun('desktop'); finishRun('phone'); forgetQueue('session'); clearPause('session')
   vi.clearAllMocks(); mocks.ready = true
 })
 it('admits simultaneous desktop and phone sends into one run after attachments finish', async () => {
@@ -42,6 +42,26 @@ it('admits simultaneous desktop and phone sends into one run after attachments f
   expect(mocks.run).toHaveBeenCalledTimes(1)
   expect(mocks.steer).toHaveBeenCalledWith('phone', [])
   complete()
+  await vi.waitFor(() => expect(runForSession('session')).toBeNull())
+})
+it('lines a prompt up when the session was paused mid-run instead of erroring', async () => {
+  // Both runs hold: the paused one and the queued one that starts after it.
+  const held: Array<() => void> = []
+  mocks.run.mockImplementation(() => new Promise<void>((resolve) => { held.push(resolve) }))
+  const first = submitPrompt(request('desktop'), gate)
+  await vi.waitFor(() => expect(runForSession('session')).toBe('desktop'))
+  pauseSession('session')
+  const followup = await submitPrompt(request('phone'), gate)
+  expect(followup.steered).toBe(false)
+  expect(mocks.steer).not.toHaveBeenCalledWith('phone', [])
+  expect(listQueue('session').map((entry) => entry.text)).toContain('phone')
+  expect(listQueue('session').length).toBeGreaterThan(0)
+  // Ending the paused run hands the line to the queued prompt, which also
+  // completes — the session must end free of both.
+  held[0]?.()
+  await vi.waitFor(() => expect(held.length).toBe(2))
+  held[1]?.()
+  await first
   await vi.waitFor(() => expect(runForSession('session')).toBeNull())
 })
 it('publishes completion only after agent cleanup and releasing run ownership', async () => {
