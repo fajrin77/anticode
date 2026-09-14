@@ -29,7 +29,7 @@ const STUB_CHARS = 300
 /** Stubbing only pays off once there is real bulk to remove. */
 const STUB_MIN_LENGTH = STUB_CHARS + 400
 /** Leave room for the system prompt, tool schemas, and the next response. */
-const COMPACTION_TARGET = Math.floor(MAX_HISTORY_TOKENS * 0.72)
+const DEFAULT_COMPACTION_TARGET = Math.floor(MAX_HISTORY_TOKENS * 0.72)
 const MEMORY_MAX_CHARS = 12_000
 /** How much of the dropped turns the model is shown when it writes the memory. */
 const COMPACTION_INPUT_CHARS = 160_000
@@ -121,9 +121,28 @@ interface FollowUp {
   attachments: ContentBlock[]
 }
 
-function isToolUse(block: ContentBlock): block is ToolUseBlock {
-  return block.type === 'tool_use'
+/** The default context budget stays put for models whose real window is
+ * unknown; a known bigger window (Gemini 1M, GLM 200k) lets the history run
+ * longer before compaction replaces old turns with a memory. */
+const KNOWN_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
+  ['gemini-2.5-pro', 1_000_000],
+  ['gemini-2.5-flash', 1_000_000],
+  ['gemini-2.0-flash', 1_000_000],
+  ['glm-4.6', 200_000],
+  ['glm-4.5', 128_000],
+  ['glm-5.3-flash', 200_000]
+])
+
+/** Headroom for the model's own reply and the next tool results. */
+const REPLY_HEADROOM = 24_000
+
+export function historyBudgetFor(model: string): number {
+  const base = KNOWN_CONTEXT_WINDOWS.get(model)
+  if (base === undefined) return HISTORY_TOKEN_BUDGET
+  return Math.max(HISTORY_TOKEN_BUDGET, base - REPLY_HEADROOM)
 }
+
+const isToolUse = (block: ContentBlock): block is ToolUseBlock => block.type === 'tool_use'
 
 function describeError(error: unknown, provider?: LLMProvider): string {
   const message = error instanceof Error ? error.message : String(error)
@@ -574,8 +593,13 @@ export class AgentSession {
    * reject; and it leaves headroom, so the next steps do not compact again.
    */
   private async compactHistory(params: RunParams): Promise<void> {
+    // The budget is the model's own window when it is known (Gemini 1M, GLM
+    // 200k...), and the shared default otherwise — so big-window models stop
+    // compacting long before their real limit.
+    const budget = historyBudgetFor(this.provider.model)
+    const compactTarget = Math.floor(budget * 0.72)
     const before = replayCost(this.history)
-    if (before <= MAX_HISTORY_TOKENS) return
+    if (before <= budget) return
 
     const suffixCosts: number[] = new Array(this.history.length)
     let running = 0
@@ -586,13 +610,13 @@ export class AgentSession {
     const boundaries = this.history.flatMap((message, index) => isPlainPrompt(message) ? [index] : [])
     const fits = (limit: number): number | undefined =>
       boundaries.find((index) => (suffixCosts[index] ?? Infinity) <= limit)
-    const cut = fits(COMPACTION_TARGET) ?? fits(MAX_HISTORY_TOKENS) ?? -1
+    const cut = fits(compactTarget) ?? fits(budget) ?? -1
 
     // Do not repeatedly send an oversized single turn to the provider. A new
     // user prompt supplies a safe boundary for the next continuation.
     if (cut < 0) throw new Error('This turn exceeds the context budget. Send a shorter continuation or start a new session.')
     if (cut === 0) return
-    await this.replaceWithMemory(cut, params.signal, (usage) => params.emit({
+    await this.replaceWithMemory(cut, compactTarget, params.signal, (usage) => params.emit({
       type: 'usage',
       runId: params.runId,
       provider: this.provider.name,
@@ -624,20 +648,20 @@ export class AgentSession {
       }
       // Only the memory itself precedes the latest prompt: nothing new to fold.
       const alreadyCompact = cut === 1 && isMemory(this.history[0])
-      if (cut > 0 && !alreadyCompact) await this.replaceWithMemory(cut, signal, onUsage)
+      if (cut > 0 && !alreadyCompact) await this.replaceWithMemory(cut, DEFAULT_COMPACTION_TARGET, signal, onUsage)
       return { before, after: replayCost(this.history) }
     } finally {
       this.running = false
     }
   }
 
-  private async replaceWithMemory(cut: number, signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<void> {
+  private async replaceWithMemory(cut: number, compactTarget: number, signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<void> {
     const memory = await this.writeMemory(this.history.slice(0, cut), signal, onUsage)
     this.history.splice(0, cut)
     if (memory === '') return
     this.history.unshift({ role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${memory}` }] })
     // A verbose summary must never put replay back over the cliff.
-    while (this.history.length > 1 && replayCost(this.history) > COMPACTION_TARGET) {
+    while (this.history.length > 1 && replayCost(this.history) > compactTarget) {
       const boundary = this.history.findIndex((message, index) => index > 1 && isPlainPrompt(message))
       if (boundary < 0) break
       this.history.splice(1, boundary - 1)
