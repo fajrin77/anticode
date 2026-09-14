@@ -365,6 +365,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return sendFile(res, attachmentPath(sessionId, url.searchParams.get('path') ?? ''))
     }
 
+    // The attachment as a download, not inline: a PDF sent from the desktop
+    // can be saved on the phone. Same transcript allowlist, same headers.
+    if (req.method === 'GET' && url.pathname === '/api/attachment/download') {
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
+      return sendDownload(res, sessionId, url.searchParams.get('path') ?? '', attachmentPath)
+    }
+
     // A file looked at on the phone instead of downloaded to be opened
     // elsewhere. Documents come back rendered, the same pages the desktop
     // draws; /api/view is the file itself, inline, for pictures and PDFs.
@@ -751,9 +759,14 @@ function producedPath(sessionId: string, relativePath: string): string {
   return resolveInWorkspace(root, relativePath)
 }
 
-/** Hands a produced file to the phone as a download. */
-function sendDownload(res: http.ServerResponse, sessionId: string, relativePath: string): void {
-  const target = producedPath(sessionId, relativePath)
+/** Hands a produced file (or, with a resolver, an attachment) to the phone as a download. */
+function sendDownload(
+  res: http.ServerResponse,
+  sessionId: string,
+  relativePath: string,
+  resolve: (sessionId: string, relativePath: string) => string = producedPath
+): void {
+  const target = resolve(sessionId, relativePath)
   const info = statSync(target)
   if (!info.isFile()) throw new Error('Not a file')
 

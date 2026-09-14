@@ -2493,11 +2493,14 @@ async function openFileViewer(sessionId, target, attachment) {
   const name = target.split(/[\\/]/).pop();
   document.getElementById('fileName').textContent = name;
   const download = document.getElementById('fileDownload');
-  download.classList.toggle('hidden', attachment);
-  if (!attachment) {
+  download.classList.remove('hidden');
+  if (attachment) {
+    download.href = '/api/attachment/download?sessionId=' + encodeURIComponent(sessionId) +
+      '&path=' + encodeURIComponent(target) + '&token=' + encodeURIComponent(token);
+  } else {
     download.href = downloadUrl(sessionId, target);
-    download.setAttribute('download', name);
   }
+  download.setAttribute('download', name);
   document.getElementById('fileTabs').innerHTML = '';
   document.getElementById('fileNote').textContent = '';
   showViewerMessage('Membuka…');
