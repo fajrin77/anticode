@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { useSessionStore } from './session'
+import { useSessionStore, type Session } from './session'
 
 /** Fresh store per test: sessions are the only state moveSession touches. */
 function seed(titles: string[]): string[] {
@@ -7,8 +7,16 @@ function seed(titles: string[]): string[] {
   return titles.map((title) => {
     const id = useSessionStore.getState().openSession('code', null)
     useSessionStore.setState((state) => ({
-      sessions: state.sessions.map((session) =>
-        session.id === id ? { ...session, title, messages: [{ id: 'm', role: 'user', parts: [], at: 1 }] } : session
+      sessions: state.sessions.map((session): Session =>
+        session.id === id
+          ? {
+              ...session,
+              title,
+              messages: [
+                { id: 'm', role: 'user' as const, parts: [], pending: false }
+              ]
+            }
+          : session
       )
     }))
     return id
@@ -21,21 +29,20 @@ describe('moveSession', () => {
   })
 
   it('swaps a tab with its left neighbour, leaving closed sessions in place', () => {
-    const [a, b, c] = seed(['a', 'b', 'c'])
-    useSessionStore.getState().closeSession(b)
-    useSessionStore.getState().moveSession(c, 'left')
+    const ids = seed(['a', 'b', 'c'])
+    useSessionStore.getState().closeSession(ids[1]!)
+    useSessionStore.getState().moveSession(ids[2]!, 'left')
     const titles = useSessionStore
       .getState()
       .sessions.filter((session) => !session.closed)
       .map((session) => session.title)
     expect(titles).toEqual(['c', 'a'])
-    expect(a).toBeDefined()
   })
 
   it('does nothing at the edges', () => {
-    const [a, b] = seed(['a', 'b'])
-    useSessionStore.getState().moveSession(a, 'left')
-    useSessionStore.getState().moveSession(b, 'right')
+    const ids = seed(['a', 'b'])
+    useSessionStore.getState().moveSession(ids[0]!, 'left')
+    useSessionStore.getState().moveSession(ids[1]!, 'right')
     const titles = useSessionStore.getState().sessions.map((session) => session.title)
     expect(titles).toEqual(['a', 'b'])
   })
