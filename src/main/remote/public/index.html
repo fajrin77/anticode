@@ -852,7 +852,7 @@ const jfetch = (path, options) => api(path, options).then(async (r) => {
 let currentSession = null;
 let currentRunId = null;
 /* Declared up here: updateSendBtn reads them, and it can run during start-up. */
-let followMode = (() => { try { return localStorage.getItem('followMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
+let followMode = (() => { try { return localStorage.getItem('anticode.followUpMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
 let currentPlan = null;
 let planOpen = null;
 let submitting = false;
@@ -3776,7 +3776,7 @@ function renderPlan() {
  * finish and goes out as the next run (queue). The choice is remembered. */
 function toggleFollowMode() {
   followMode = followMode === 'queue' ? 'steer' : 'queue';
-  try { localStorage.setItem('followMode', followMode); } catch { /* private mode */ }
+  try { localStorage.setItem('anticode.followUpMode', followMode); } catch { /* private mode */ }
   updateSendBtn();
 }
 

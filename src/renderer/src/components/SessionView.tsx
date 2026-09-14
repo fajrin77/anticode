@@ -564,23 +564,20 @@ function RunSummaryCard({
   const [menuOpen, setMenuOpen] = useState(false)
   const [shownFile, setShownFile] = useState<string | null>(null)
   const files = fileStats(message.parts)
-  const added = files.reduce((sum, file) => sum + file.added, 0)
-  const removed = files.reduce((sum, file) => sum + file.removed, 0)
   const summary = message.summary
   if (summary === undefined) return <></>
   const { model, durationMs } = summary
-  const steps = message.parts.filter((part) => part.kind === 'tool').length
-  const failedSteps = message.parts.filter((part) => part.kind === 'tool' && part.status === 'error').length
   const tokens = summary.inputTokens + summary.outputTokens
 
-  // A faint, centred footnote rather than a card — hidden until the cursor
-  // comes near, so the conversation stays the only thing on stage. Clicking
-  // unfolds both the changed files and the run's tool steps.
+  // A faint, centred footnote rather than a card — always visible with just
+  // the essentials the user asked for: model, copy, duration, tokens. The
+  // step breakdown and file counts stay in the unfolded detail (the toggle
+  // still opens the changed files), out of the one-line summary.
   return (
     <div className="group mt-2 flex flex-col items-center">
       <div
         className={`flex items-center gap-2 text-[12.5px] text-faint transition-opacity ${
-          open || menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          open || menuOpen ? 'opacity-100' : 'opacity-70'
         }`}
       >
         <button
@@ -621,24 +618,6 @@ function RunSummaryCard({
           className="flex items-center gap-2 rounded-md px-2 py-1 text-faint transition-colors hover:text-brand"
         >
           <span>{formatDuration(durationMs)}</span>
-          {steps > 0 && (
-            <>
-              <span>·</span>
-              <span>{stepCount(steps)}</span>
-              <span className="hidden sm:inline">{breakdownOf(message.parts)}</span>
-              {failedSteps > 0 && <span className="text-del">· {failedSteps} failed</span>}
-            </>
-          )}
-          {files.length > 0 && (
-            <>
-              <span>·</span>
-              <span>
-                {files.length} {files.length === 1 ? 'file' : 'files'}
-              </span>
-              {added > 0 && <span className="text-add">+{added}</span>}
-              {removed > 0 && <span className="text-del">−{removed}</span>}
-            </>
-          )}
           {tokens > 0 && (
             <>
               <span>·</span>

@@ -393,7 +393,16 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       else queues[sessionId] = items
       return { queues }
     }),
-  setFollowUpMode: (followUpMode) => set({ followUpMode }),
+  setFollowUpMode: (followUpMode) => {
+    set({ followUpMode })
+    // Keep the phone on the same page as the desktop: the chip there reads
+    // the same preference, so one flip flips both screens.
+    try {
+      localStorage.setItem('anticode.followUpMode', followUpMode)
+    } catch {
+      /* private mode */
+    }
+  },
   diffLayout: 'unified',
   setDiffLayout: (diffLayout) => set({ diffLayout }),
 
