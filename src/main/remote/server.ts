@@ -50,6 +50,7 @@ import {
   resetRotation,
   selectRotationGroup,
   setApprovalMode,
+  setFollowUpModeRemote,
   setRotation,
   setRotationGroups,
   updateProvider
@@ -267,6 +268,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (req.method === 'POST' && url.pathname === '/api/policy') {
       if (typeof body.autoApprove !== 'boolean') return json(res, 400, { error: 'autoApprove must be true or false' })
       return json(res, 200, { status: setApprovalMode(body.autoApprove) })
+    }
+
+    // Steer or queue: one home in the main process, so flipping it here flips
+    // the desktop chip too, and the next /api/status agrees with both.
+    if (req.method === 'POST' && url.pathname === '/api/follow-up') {
+      const mode = body.mode === 'queue' ? 'queue' : 'steer'
+      return json(res, 200, { status: setFollowUpModeRemote(mode) })
     }
 
     // Providers, managed from either screen: added, edited, removed, and

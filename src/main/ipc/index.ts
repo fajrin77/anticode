@@ -32,6 +32,7 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { resetRotationUsage, setRotationChangeSink } from '../rotation'
+import { setFollowUpMode } from '../followUp'
 import {
   deleteSession,
   compactSession,
@@ -126,10 +127,15 @@ function artifactPath(sessionId: string, relativePath: string): string {
   return resolveInWorkspace(root, relativePath)
 }
 
-/**
- * Default or Auto, pressed on the desktop or the phone. Prompts from both obey
+/** Default or Auto, pressed on the desktop or the phone. Prompts from both obey
  * the one policy, so both screens are told which it is.
  */
+/** Steer or queue, pressed on either screen; the value lives in followUp.ts. */
+export function setFollowUpModeRemote(mode: 'steer' | 'queue'): SessionStatus {
+  setFollowUpMode(mode)
+  return getStatus()
+}
+
 export function setApprovalMode(enabled: boolean): SessionStatus {
   policy.setAutoApprove(enabled)
   savePersistedSettings({ autoApprove: enabled, alwaysAllowed: policy.allowedAlways() })
@@ -389,6 +395,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.POLICY_SET, (_event, enabled: boolean): SessionStatus =>
     setApprovalMode(enabled === true)
   )
+
+  ipcMain.handle(IpcChannel.FOLLOW_UP_SET, (_event, mode: string): SessionStatus => {
+    setFollowUpMode(mode === 'queue' ? 'queue' : 'steer')
+    return getStatus()
+  })
 
   ipcMain.handle(
     IpcChannel.PROVIDER_ADD,

@@ -853,6 +853,9 @@ let currentSession = null;
 let currentRunId = null;
 /* Declared up here: updateSendBtn reads them, and it can run during start-up. */
 let followMode = (() => { try { return localStorage.getItem('anticode.followUpMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
+/** True while a flip is on its way to the main process, so a status tick that
+ * arrives meanwhile does not bounce the chip back to the old value. */
+let pendingFollowFlip = false;
 let currentPlan = null;
 let planOpen = null;
 let submitting = false;
@@ -3234,6 +3237,13 @@ function noteStatus(status) {
     (modelInfo?.rotationGroup ?? null) !== (shown.rotationGroup ?? null) ||
     (modelInfo?.rotationEnabled === true) !== (shown.rotationEnabled === true);
   lastStatus = status;
+  // The main process owns the follow-up mode now: the chip follows it, so a
+  // flip on the desktop shows up here on the next status tick.
+  if (typeof status.followUpMode === 'string' && status.followUpMode !== followMode && !pendingFollowFlip) {
+    followMode = status.followUpMode;
+    updateComposerChrome();
+    updateSendBtn();
+  }
   if (modelMoved) void loadModels();
   updateChips();
 }
@@ -3775,9 +3785,16 @@ function renderPlan() {
 /* While a run works, a prompt either joins it (steer) or waits for it to
  * finish and goes out as the next run (queue). The choice is remembered. */
 function toggleFollowMode() {
+  pendingFollowFlip = true;
   followMode = followMode === 'queue' ? 'steer' : 'queue';
-  try { localStorage.setItem('anticode.followUpMode', followMode); } catch { /* private mode */ }
+  updateComposerChrome();
   updateSendBtn();
+  const settle = () => { pendingFollowFlip = false; };
+  if (currentSession === null) { try { localStorage.setItem('anticode.followUpMode', followMode); } catch (e) {} settle(); return; }
+  jfetch('/api/follow-up', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: currentSession, mode: followMode }) })
+    .then((data) => { if (data && data.status && typeof data.status.followUpMode === 'string') { followMode = data.status.followUpMode; updateComposerChrome(); updateSendBtn(); } })
+    .catch(() => {})
+    .finally(settle);
 }
 
 /* The queue is the Mac's: queued here or on the desktop, it shows on both,

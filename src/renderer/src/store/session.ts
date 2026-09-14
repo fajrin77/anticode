@@ -394,14 +394,12 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       return { queues }
     }),
   setFollowUpMode: (followUpMode) => {
+    // Render optimistically, then let the main process own the value: the
+    // status tick will agree with both screens because there is one home.
     set({ followUpMode })
-    // Keep the phone on the same page as the desktop: the chip there reads
-    // the same preference, so one flip flips both screens.
-    try {
-      localStorage.setItem('anticode.followUpMode', followUpMode)
-    } catch {
-      /* private mode */
-    }
+    void window.anticode.setFollowUpMode(followUpMode).then((status) => {
+      if (status.followUpMode !== followUpMode) set({ followUpMode: status.followUpMode })
+    })
   },
   diffLayout: 'unified',
   setDiffLayout: (diffLayout) => set({ diffLayout }),

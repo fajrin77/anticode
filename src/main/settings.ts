@@ -12,6 +12,8 @@ export interface PersistedSettings {
   autoApprove?: boolean
   /** `${sessionId}:${toolName}` grants from "Always allow", kept across restarts. */
   alwaysAllowed?: string[]
+  /** Ride along with a running task, or wait in line. One source for both screens. */
+  followUpMode?: 'steer' | 'queue'
   provider?: string | null
   model?: string | null
   remote?: RemoteSettings

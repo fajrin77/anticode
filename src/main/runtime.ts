@@ -20,6 +20,7 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { AgentSession, titleOf } from './agent/loop'
+import { followUpMode } from './followUp'
 import { answeredRuns, isTypedPrompt } from './agent/turns'
 import { CheckpointStore } from './checkpoints'
 import type { ProviderFallback } from './agent/loop'
@@ -621,6 +622,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     defaultProvider: fallback().provider,
     defaultModel: fallback().model,
     autoApprove: policy.isAutoApprove(),
+    followUpMode: followUpMode(),
     providerReady: top.providerReady,
     blockedReason: top.blockedReason,
     lastUsed: top.lastUsed,

@@ -89,6 +89,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ROTATION_GROUP_SELECT, id) as Promise<SessionStatus>,
   setAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
+  setFollowUpMode: (mode: 'steer' | 'queue') =>
+    ipcRenderer.invoke(IpcChannel.FOLLOW_UP_SET, mode) as Promise<SessionStatus>,
   addProvider: (input: CustomProviderInput) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_ADD, input) as Promise<ProviderInfo[]>,
   getRemoteStatus: () => ipcRenderer.invoke(IpcChannel.REMOTE_STATUS) as Promise<RemoteStatus>,

@@ -7,6 +7,7 @@ export const IpcChannel = {
   PROVIDER_SELECT: 'provider:select',
   PROVIDER_MODELS: 'provider:models',
   POLICY_SET: 'policy:set',
+  FOLLOW_UP_SET: 'followUp:set',
   SESSION_LIST: 'session:list',
   SESSION_CREATE: 'session:create',
   SESSION_CLOSE: 'session:close',
@@ -378,6 +379,9 @@ export interface SessionStatus {
   defaultProvider: ProviderId
   defaultModel: string
   autoApprove: boolean
+  /** What a prompt sent while a run works does: add to it or line it up. One
+   * source for both screens — the desktop chip and the phone chip read this. */
+  followUpMode: 'steer' | 'queue'
   /** Whether the selected provider has credentials and a model name. */
   providerReady: boolean
   blockedReason: string | null
@@ -920,6 +924,7 @@ export interface AnticodeApi {
   /** The group every session rotates over from its next prompt; null for the whole pool. */
   selectRotationGroup: (id: string | null) => Promise<SessionStatus>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
+  setFollowUpMode: (mode: 'steer' | 'queue') => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */
   createSession: (spec: SessionSpec) => Promise<SessionSpec>
   closeSession: (sessionId: string) => Promise<void>
