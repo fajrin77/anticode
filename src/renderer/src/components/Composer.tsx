@@ -372,6 +372,9 @@ export function Composer({
         session.projectRoot === null
       ) {
         flagMissingFolder()
+      } else if (status?.blockedReason !== undefined) {
+        // A silent rejection reads as a broken Enter key; say why, in place.
+        setError(status.blockedReason)
       }
       return
     }
@@ -649,7 +652,9 @@ export function Composer({
                     ? 'Queue the next prompt…'
                     : 'Add to the task…'
                   : !hero && session?.mode === 'code'
-                    ? 'Tell anticode what to change…'
+                    ? folderMissing
+                      ? 'Choose a project folder first…'
+                      : 'Tell anticode what to change…'
                     : "Don't work today, just vibes."
               }
               onChange={(event) => setDraft(event.target.value)}
@@ -730,6 +735,7 @@ export function Composer({
               {isStreaming && !isPaused && (
                 <button
                   type="button"
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => setFollowUpMode(followUpMode === 'queue' ? 'steer' : 'queue')}
                   title={
                     followUpMode === 'queue'
@@ -747,6 +753,7 @@ export function Composer({
 
               {steering && (
                 <button type="button" aria-label="Pause" title="Pause this task and keep your draft" disabled={pausing}
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void pause()} className="glass-ghost mr-1 flex h-8 w-8 items-center justify-center rounded-lg text-dim transition-colors hover:text-brand disabled:opacity-50">
                   <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
                 </button>
@@ -754,6 +761,7 @@ export function Composer({
               {isPaused && !isStreaming && (
                 <button
                   type="button"
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void revert()}
                   title="Take back the last prompt and edit it"
                   className="glass-ghost mr-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"

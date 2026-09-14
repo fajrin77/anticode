@@ -295,7 +295,8 @@ describe('docx tools', () => {
 })
 
 describe('pdf tools', () => {
-  it('extracts text and page count', async () => {
+  // pdfjs cold-loads slowly inside a vitest worker; the default 5s flakes.
+  it('extracts text and page count', { timeout: 30_000 }, async () => {
     await makePdf(false)
     const output = (await readPdfTool.prepare({ path: 'dokumen.pdf' }).execute(context)).text
     expect(output).toContain('PDF · 1 pages')

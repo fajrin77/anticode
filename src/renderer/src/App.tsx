@@ -124,34 +124,61 @@ export function App(): JSX.Element {
       if (!active) return
       const store = useSessionStore.getState()
       const revisions = new Map<string, number>()
+      // Recovery flag (set by the error boundary after repeat crashes): list
+      // sessions but skip replaying their transcripts, so a poisoned message
+      // can never take the window down twice in a row. Clearing the flag is a
+      // plain restart without the hash.
+      const recovery = window.location.hash === '#recover'
+      if (recovery) {
+        hydrating.current = false
+        history.replaceState(null, '', window.location.pathname)
+        return
+      }
       for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
       for (const spec of specs) {
-        store.addExternalSession(spec)
-        // Saved before the main process kept colours: hand over the one this
-        // window has been showing, so the phone matches it from now on.
-        if (spec.colour === undefined) {
-          const shown = useSessionStore.getState().sessions.find((entry) => entry.id === spec.sessionId)?.colour
-          if (shown !== undefined) void window.anticode.setSessionColour(spec.sessionId, shown)
+        // One poisoned snapshot must not abort the whole restore or the app
+        // half-hydrates; each session stands on its own.
+        try {
+          store.addExternalSession(spec)
+          // Saved before the main process kept colours: hand over the one this
+          // window has been showing, so the phone matches it from now on.
+          if (spec.colour === undefined) {
+            const shown = useSessionStore.getState().sessions.find((entry) => entry.id === spec.sessionId)?.colour
+            if (shown !== undefined) void window.anticode.setSessionColour(spec.sessionId, shown)
+          }
+          const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
+          if (active && snapshot !== null) {
+            store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
+            revisions.set(spec.sessionId, snapshot.revision)
+            for (const event of snapshot.events) receiveEvent.current(event)
+            if (snapshot.paused) store.pauseSession(spec.sessionId)
+            else store.resumeSession(spec.sessionId)
+            store.setQueue(spec.sessionId, snapshot.queue ?? [])
+          }
+        } catch (error) {
+          console.error(`[anticode] restore failed for session ${spec.sessionId}:`, error)
         }
-        const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
-        if (active && snapshot !== null) {
-          store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
-          revisions.set(spec.sessionId, snapshot.revision)
-          for (const event of snapshot.events) receiveEvent.current(event)
-          if (snapshot.paused) store.pauseSession(spec.sessionId)
-          else store.resumeSession(spec.sessionId)
-          store.setQueue(spec.sessionId, snapshot.queue ?? [])
-        }
+        if (!active) return
       }
       if (!active) return
       hydrating.current = false
       const pending = bufferedEvents.current.splice(0)
       for (const event of pending) {
-        if ((event.revision ?? Infinity) > (revisions.get(event.sessionId) ?? 0)) receiveEvent.current(event)
+        try {
+          if ((event.revision ?? Infinity) > (revisions.get(event.sessionId) ?? 0)) receiveEvent.current(event)
+        } catch (error) {
+          console.error('[anticode] buffered event dropped:', error)
+        }
       }
     }).catch((error: Error) => {
       hydrating.current = false
-      for (const event of bufferedEvents.current.splice(0)) receiveEvent.current(event)
+      for (const event of bufferedEvents.current.splice(0)) {
+        try {
+          receiveEvent.current(event)
+        } catch (eventError) {
+          console.error('[anticode] buffered event dropped after hydrate failure:', eventError)
+        }
+      }
       setAppError(error.message)
     })
     const refresh = () => { void window.anticode.getStatus().then(setStatus).catch((error: Error) => setAppError(error.message)) }

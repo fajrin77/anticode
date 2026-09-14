@@ -9,7 +9,7 @@ import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
 import { DiffView } from './DiffView'
 import { formatUsd } from '../money'
-import { PAUSE_LABEL, RESUME_LABEL } from '../labels'
+import { FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../labels'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -304,6 +304,10 @@ function MessageView({
           <div className="max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
             {text}
           </div>
+        )}
+        {/* The phone shows "Follow-up added." for prompts that joined a running turn; the desktop transcript says the same in the same place. */}
+        {message.followUp === true && (
+          <div className="max-w-[80%] text-right text-[11.5px] text-dim">{FOLLOW_UP_LABEL}</div>
         )}
         {/* Always the same height, shown or not: hovering never moves the transcript. */}
         {isTypedPrompt(message) && !busy ? <EditPrompt sessionId={sessionId} message={message} /> : <div className="h-6" />}
@@ -768,7 +772,10 @@ export function SessionView(): JSX.Element {
     const id = session?.id
     if (!box || !id) return
     const saved = useSessionStore.getState().readPositions[id]
-    const busy = useSessionBusy(id)
+    const runs = useSessionStore.getState()
+    const busy =
+      Object.values(runs.activeRuns).some((run) => run.sessionId === id) ||
+      Object.values(runs.mirrorRuns).some((run) => run.sessionId === id)
     // A working session has no "where I stopped": its end moves every second.
     // Coming back to the tab lands on the live tail — the saved top belongs
     // to an idle session only.
@@ -782,7 +789,7 @@ export function SessionView(): JSX.Element {
     }
     window.addEventListener('beforeunload', savePosition)
     return () => { window.removeEventListener('beforeunload', savePosition); savePosition() }
-    // useSessionBusy is read once per tab switch, which is all it decides for.
+    // Busy is read once per tab switch, which is all it decides for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id])
 
