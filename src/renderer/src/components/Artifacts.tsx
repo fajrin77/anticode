@@ -4,7 +4,10 @@ import type { MessagePart } from '../store/session'
 import { usePreviewStore } from '../store/preview'
 
 /** Files a person opens rather than reads as code — worth offering to save. */
-const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip']
+const DOCUMENT_EXTENSIONS = [
+  '.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip',
+  '.png', '.jpg', '.jpeg', '.webp', '.gif'
+]
 
 function extensionOf(target: string): string {
   const dot = target.lastIndexOf('.')
@@ -24,7 +27,7 @@ export function documentsProduced(parts: MessagePart[], everyFile = false): stri
   for (const part of parts) {
     if (part.kind !== 'tool' || part.status !== 'ok') continue
     const shared = part.name === 'share_file'
-    if (!shared && !/^(write|create|fill|add|format)_/.test(part.name)) continue
+    if (!shared && !/^(write|create|fill|add|format|generate)_/.test(part.name)) continue
     if (part.input === null || typeof part.input !== 'object') continue
     const input = part.input as Record<string, unknown>
     const target = typeof input.output_path === 'string' ? input.output_path : input.path

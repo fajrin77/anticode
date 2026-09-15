@@ -5,6 +5,8 @@ import type {
   LLMProvider,
   LLMResponse,
   Message,
+  ImageGenerationParams,
+  GeneratedImage,
   ProviderEvent,
   StopReason,
   ToolDefinition
@@ -129,6 +131,43 @@ export class OpenAICompatibleProvider implements LLMProvider {
   private readonly maxTokensField: 'max_completion_tokens' | 'max_tokens'
   private readonly firstDataTimeoutMs: number
   private readonly streamInactivityMs: number
+
+  async generateImage(params: ImageGenerationParams): Promise<GeneratedImage> {
+    params.signal.throwIfAborted()
+    const response = await this.client.images.generate(
+      {
+        model: params.model,
+        prompt: params.prompt,
+        n: 1,
+        output_format: 'png',
+        quality: params.quality,
+        size: params.size
+      },
+      { signal: params.signal }
+    )
+    const image = response.data?.[0]
+    if (image === undefined) throw new Error('The image provider returned no image')
+
+    let data = image.b64_json
+    let mediaType = 'image/png'
+    if (data === undefined && image.url !== undefined) {
+      const downloaded = await fetch(image.url, { signal: params.signal })
+      if (!downloaded.ok) throw new Error(`Failed to download generated image: HTTP ${downloaded.status}`)
+      const bytes = Buffer.from(await downloaded.arrayBuffer())
+      if (bytes.length === 0) throw new Error('The image provider returned an empty image')
+      if (bytes.length > 30 * 1024 * 1024) throw new Error('The generated image is larger than 30 MB')
+      data = bytes.toString('base64')
+      mediaType = downloaded.headers.get('content-type')?.split(';')[0] || mediaType
+    }
+    if (data === undefined || Buffer.from(data, 'base64').length === 0) {
+      throw new Error('The image provider returned no image bytes')
+    }
+    return {
+      data,
+      mediaType,
+      ...(image.revised_prompt !== undefined ? { revisedPrompt: image.revised_prompt } : {})
+    }
+  }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
     params.signal.throwIfAborted()

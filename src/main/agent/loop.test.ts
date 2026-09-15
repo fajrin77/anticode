@@ -1075,6 +1075,7 @@ describe('antichat', () => {
       'delete_file',
       'fetch_url',
       'browser_navigate',
+      'generate_image',
       'task',
       'screenshot'
     ]))

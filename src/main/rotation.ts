@@ -364,6 +364,9 @@ export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMPr
     name: inner.name,
     id: entry.provider,
     model: inner.model,
+    ...(inner.generateImage !== undefined
+      ? { generateImage: (params) => inner.generateImage!(params) }
+      : {}),
     async *chat(params) {
       try {
         for await (const event of inner.chat(params)) {

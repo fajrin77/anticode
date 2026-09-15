@@ -772,6 +772,9 @@ export class AgentSession {
       workspaceRoot: this.workspaceRoot,
       signal: params.signal,
       sessionId: this.scope,
+      ...(this.provider.generateImage !== undefined
+        ? { generateImage: (input: Parameters<NonNullable<LLMProvider['generateImage']>>[0]) => this.provider.generateImage!(input) }
+        : {}),
       // One level deep: a sub-agent has no `task` tool, and no delegate either.
       ...(this.options.subagent === true
         ? {}
@@ -1108,6 +1111,7 @@ export class AgentSession {
           'there, and each attachment header names its path.',
         'Use browser and internet tools whenever current or externally verifiable information would ' +
           'improve the answer. Browser state belongs to this session.',
+        'When the user asks to create an image, call generate_image and return its file card.',
         'To change an attached file, read it first, then edit that copy in place — or write a ' +
           'new file next to it when the user wants a separate one. You can also create new ' +
           'documents there. Every document you write is offered to the user as a download on ' +
@@ -1145,6 +1149,7 @@ export class AgentSession {
       '- For broad exploration across many files, delegate to the task tool — several task calls in one turn ' +
         'run in parallel — and keep your own context for the work itself.',
       '- Check that a tool or dependency already exists before installing or re-running it.',
+      '- When the user asks to create an image, call generate_image and return its file card.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
       '- Files the user attaches from outside the project are copied into .anticode/uploads/. ' +

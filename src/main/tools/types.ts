@@ -15,6 +15,14 @@ export interface ToolContext {
   signal: AbortSignal
   /** Runs a sub-agent and resolves to its report; absent inside a sub-agent. */
   delegate?: (task: DelegatedTask) => Promise<string>
+  /** Uses the active provider's image endpoint; absent on text-only providers. */
+  generateImage?: (input: {
+    prompt: string
+    model: string
+    size: '1024x1024' | '1536x1024' | '1024x1536'
+    quality: 'low' | 'medium' | 'high' | 'auto'
+    signal: AbortSignal
+  }) => Promise<ToolImage & { revisedPrompt?: string }>
 }
 
 export interface ToolImage {

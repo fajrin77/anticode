@@ -30,6 +30,7 @@ import type { Tool } from './types'
 import { todoWriteTool } from './todoWrite'
 import { taskTool } from './task'
 import { screenshotTool } from './screenshot'
+import { generateImageTool } from './generateImage'
 
 export const tools: Tool[] = [
   todoWriteTool,
@@ -59,7 +60,8 @@ export const tools: Tool[] = [
   browserClickTool,
   browserFillTool,
   readNetworkRequestsTool,
-  screenshotTool
+  screenshotTool,
+  generateImageTool
 ]
 
 /**

@@ -1,5 +1,10 @@
 # anticode
 
+Versi **0.0.29** menambah tool `generate_image` di antichat dan anticode. Tool memakai endpoint
+image-generation OpenAI-compatible milik provider aktif, menyimpan PNG di workspace sesi, lalu
+menampilkan kartu Preview/Download. Model gambar, ukuran, dan kualitas dapat dipilih pada setiap call;
+provider teks tanpa endpoint gambar mengembalikan petunjuk yang jelas.
+
 Versi **0.0.28** menyamakan kemampuan antichat dan anticode: keduanya mendapat seluruh tool file,
 terminal, browser/internet, screenshot, sub-agent, dan MCP serta memakai kebijakan approval yang sama.
 Perbedaannya hanya workspace: antichat otomatis memakai folder privat per sesi, sedangkan anticode
@@ -103,7 +108,7 @@ menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap
 | | antichat | anticode |
 |---|---|---|
 | Folder project | tidak perlu (folder privat per sesi di data app) | wajib |
-| Tool | semua tool, termasuk terminal, browser/internet, screenshot, sub-agent, dan MCP | sama |
+| Tool | semua tool, termasuk terminal, browser/internet, generate gambar, screenshot, sub-agent, dan MCP | sama |
 | Dipakai untuk | tanya jawab dan pekerjaan tanpa project lokal | pekerjaan di dalam project pilihan |
 
 Daftar tool yang dikirim ke provider sama untuk kedua mode. Tool file dan terminal antichat terkunci

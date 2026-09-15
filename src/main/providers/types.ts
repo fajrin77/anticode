@@ -70,10 +70,26 @@ export interface ChatParams {
   signal: AbortSignal
 }
 
+export interface ImageGenerationParams {
+  prompt: string
+  model: string
+  size: '1024x1024' | '1536x1024' | '1024x1536'
+  quality: 'low' | 'medium' | 'high' | 'auto'
+  signal: AbortSignal
+}
+
+export interface GeneratedImage {
+  data: string
+  mediaType: string
+  revisedPrompt?: string
+}
+
 export interface LLMProvider {
   readonly name: string
   /** The provider id this talks through, when known — the name is only a label. */
   readonly id?: string
   readonly model: string
   chat(params: ChatParams): AsyncIterable<ProviderEvent>
+  /** Optional because text-only providers do not expose an image endpoint. */
+  generateImage?(params: ImageGenerationParams): Promise<GeneratedImage>
 }

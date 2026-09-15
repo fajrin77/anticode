@@ -388,6 +388,23 @@ function spentProvider(entry: { provider: string; model: string }): { chat: (par
   }) as unknown as { chat: (params: unknown) => AsyncIterable<unknown> }
 }
 
+it('keeps image generation available through the rotation usage wrapper', async () => {
+  const inner = {
+    name: 'one',
+    model: 'm1',
+    async *chat() { yield { type: 'response' as const, response: { content: [], stopReason: 'end_turn' as const, usage: { inputTokens: 0, outputTokens: 0 } } } },
+    async generateImage() { return { data: 'aW1hZ2U=', mediaType: 'image/png' } }
+  }
+  const provider = countedProvider({ provider: 'one', model: 'm1' }, inner)
+  await expect(provider.generateImage?.({
+    prompt: 'test',
+    model: 'gpt-image-1',
+    size: '1024x1024',
+    quality: 'auto',
+    signal: new AbortController().signal
+  })).resolves.toEqual({ data: 'aW1hZ2U=', mediaType: 'image/png' })
+})
+
 async function drain(provider: { chat: (params: unknown) => AsyncIterable<unknown> }): Promise<void> {
   try { for await (const _event of provider.chat({})) { /* drain */ } } catch { /* expected */ }
 }

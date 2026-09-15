@@ -10,8 +10,18 @@ import type { AttachmentRef, ExportOptions, RunSummary, SessionSpec, SnapshotBlo
  */
 
 /** Documents the agent produced, by extension — the same kinds the transcript offers as downloads. */
-const PRODUCED = /\.(pdf|xlsx|xlsm|xls|docx|csv|pptx|zip)$/i
-const PRODUCING_TOOLS = new Set(['write_file', 'create_excel', 'write_excel_cell', 'add_excel_formula', 'format_excel_cells', 'write_docx', 'create_pdf', 'fill_pdf_form'])
+const PRODUCED = /\.(pdf|xlsx|xlsm|xls|docx|csv|pptx|zip|png|jpe?g|webp|gif)$/i
+const PRODUCING_TOOLS = new Set([
+  'write_file',
+  'create_excel',
+  'write_excel_cell',
+  'add_excel_formula',
+  'format_excel_cells',
+  'write_docx',
+  'create_pdf',
+  'fill_pdf_form',
+  'generate_image'
+])
 
 export function isTypedSnapshotPrompt(message: SnapshotMessage): boolean {
   if (message.role !== 'user' || message.blocks.some((block) => block.type === 'tool_result')) return false

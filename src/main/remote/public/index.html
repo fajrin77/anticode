@@ -2451,13 +2451,13 @@ function attachmentsEl(items) {
  * uses: a successful write of something a person opens rather than reads. In
  * antichat every file it writes counts; it has no project to leave them in.
  * A file passed to share_file always counts, whatever its kind. */
-const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip'];
+const DOCUMENT_EXTENSIONS = ['.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip', '.png', '.jpg', '.jpeg', '.webp', '.gif'];
 
 function documentsProduced(items, everyFile = false) {
   const paths = [];
   for (const item of items) {
     const shared = item.name === 'share_file';
-    if (!shared && !/^(write|create|fill|add|format)_/.test(item.name)) continue;
+    if (!shared && !/^(write|create|fill|add|format|generate)_/.test(item.name)) continue;
     if (item.result === undefined || item.result.isError) continue;
     const input = item.input || {};
     const target = typeof input.output_path === 'string' ? input.output_path : input.path;
