@@ -130,12 +130,14 @@ void app.whenReady().then(() => {
   onPreferences((next, previous) => {
     if (next.tray !== previous.tray) applyTray()
   })
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
-    showMainWindow()
-  })
-  // Taken already by another app, it simply is not registered; the tray menu
-  // still opens the panel.
-  globalShortcut.register(QUICK_CAPTURE_SHORTCUT, () => showQuickCapture())
+  // Taken already by another app, the tray menu still opens the panel — but
+  // say so, or the shortcut silently never works and nobody knows why.
+  if (!globalShortcut.register('CommandOrControl+Shift+Space', () => showMainWindow())) {
+    console.warn('[anticode] CommandOrControl+Shift+Space is taken by another app — the tray menu still opens the window.')
+  }
+  if (!globalShortcut.register(QUICK_CAPTURE_SHORTCUT, () => showQuickCapture())) {
+    console.warn(`[anticode] ${QUICK_CAPTURE_SHORTCUT} is taken by another app — quick capture is still reachable from the tray.`)
+  }
   // Test harnesses have no menu bar to click; they open the panel through this.
   if (process.env['ANTICODE_TEST_HOOKS'] === '1') Object.assign(globalThis, { anticodeTest: { showQuickCapture } })
 

@@ -1,5 +1,9 @@
 # anticode
 
+Versi **0.0.30** menghilangkan jeda panjang antar-swipe sesi di trackpad. Flick baru yang kuat
+langsung mengaktifkan gesture berikutnya meski ekor momentum gesture lama belum sepenuhnya berhenti,
+sementara momentum kecil tetap disaring agar satu swipe tidak melewati beberapa sesi tanpa sengaja.
+
 Versi **0.0.29** menambah tool `generate_image` di antichat dan anticode. Tool memakai endpoint
 image-generation OpenAI-compatible milik provider aktif, menyimpan PNG di workspace sesi, lalu
 menampilkan kartu Preview/Download. Model gambar, ukuran, dan kualitas dapat dipilih pada setiap call;

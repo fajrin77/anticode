@@ -4,6 +4,7 @@ import {
   SWIPE_BOUNCE_MS,
   SWIPE_COMMIT_MS,
   SWIPE_IDLE_MS,
+  canRearmSwipe,
   swipeDelta,
   swipeTarget
 } from '../sessionSwipe'
@@ -22,6 +23,8 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
     let frame = 0
     let busy = false
     let suppressTail = false
+    let tailDirection = 0
+    let tailPeak = 0
     let disposed = false
     let animation: Animation | undefined
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -41,6 +44,8 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       const sign = Math.sign(distance)
       busy = true
       suppressTail = true
+      tailDirection = sign
+      tailPeak = 0
       restore()
       try {
         if (!target && pane && !reduced.matches) {
@@ -90,23 +95,38 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
         if (node.scrollWidth > node.clientWidth + 2 && /auto|scroll/.test(style.overflowX)) return
       }
       const now = performance.now()
-      const quiet = now - lastEvent > SWIPE_IDLE_MS
+      const gap = now - lastEvent
+      const quiet = gap > SWIPE_IDLE_MS
+      const horizontal = swipeDelta(event.deltaX, event.deltaY, event.deltaMode)
       lastEvent = now
-      // Momentum after a committed slide belongs to that slide, even if it
-      // outlasts the animation. A new gesture needs a quiet interval.
-      if (busy || (suppressTail && !quiet)) {
-        if (swipeDelta(event.deltaX, event.deltaY, event.deltaMode)) event.preventDefault()
+      // Do not compete with the destination animation. Once it settles, the
+      // recognizer below can tell a fresh flick from the old momentum tail.
+      if (busy) {
+        if (horizontal) event.preventDefault()
         return
       }
-      if (quiet) { clearTimeout(timer); reset(); suppressTail = false }
+      // A new strong flick can start before macOS has completely stopped
+      // emitting the previous gesture's tiny momentum events.
+      if (suppressTail && canRearmSwipe(gap, horizontal, tailDirection, tailPeak)) {
+        clearTimeout(timer)
+        reset()
+        suppressTail = false
+        tailPeak = 0
+      }
+      if (quiet) { clearTimeout(timer); reset(); suppressTail = false; tailPeak = 0 }
+      if (suppressTail) {
+        if (horizontal) event.preventDefault()
+        tailPeak = Math.max(tailPeak, Math.abs(horizontal))
+        return
+      }
       if (axis === null) {
         if (Math.max(Math.abs(event.deltaX), Math.abs(event.deltaY)) === 0) return
-        axis = swipeDelta(event.deltaX, event.deltaY, event.deltaMode) === 0 ? 'y' : 'x'
+        axis = horizontal === 0 ? 'y' : 'x'
         origin = useSessionStore.getState().activeSessionId
       }
       if (axis === 'y') return
       event.preventDefault()
-      distance += event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1)
+      distance += horizontal
       clearTimeout(timer)
       const state = useSessionStore.getState()
       const ids = state.sessions.filter(s => !s.closed).map(s => s.id)

@@ -32,6 +32,8 @@ export const readFileTool = defineTool({
     if (raw.length === 0) return '(empty file)'
 
     const lines = raw.split('\n')
+    // A trailing newline is a line terminator, not an extra empty line.
+    if (lines.length > 1 && lines.at(-1) === '') lines.pop()
     const start = (input.offset ?? 1) - 1
     if (start >= lines.length) {
       throw new ToolError(`Offset ${input.offset} is past the end of the file (${lines.length} lines)`)

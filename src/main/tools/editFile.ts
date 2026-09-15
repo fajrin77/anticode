@@ -64,7 +64,11 @@ export const editFileTool = defineTool({
     return {
       kind: 'diff',
       subject: input.path,
-      detail: unifiedDiff(input.path, original, original.replace(input.old_string, input.new_string))
+      detail: unifiedDiff(
+        input.path,
+        original,
+        original.replace(input.old_string, () => input.new_string)
+      )
     }
   },
   execute: async (input, context) => {
@@ -91,7 +95,9 @@ export const editFileTool = defineTool({
       )
     }
 
-    const updated = original.replace(input.old_string, input.new_string)
+    // A function replacement keeps `$&`, `` $` ``, `$'` and `$1` in
+    // new_string literal text instead of substitution patterns.
+    const updated = original.replace(input.old_string, () => input.new_string)
     try {
       await writeFile(target, updated, 'utf8')
     } catch (error) {

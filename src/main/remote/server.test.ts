@@ -162,8 +162,8 @@ it('rejects concurrent saves from the same file version instead of silently over
     body: JSON.stringify({ sessionId: 'test-session', path: 'note.txt', version: opened.version, content })
   })
   const responses = await Promise.all([save('phone one'), save('phone two')])
-  expect(responses.map((response) => response.status).sort()).toEqual([200, 400])
-  const conflict = responses.find((response) => response.status === 400)!
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+  const conflict = responses.find((response) => response.status === 409)!
   expect((await conflict.json() as { error: string }).error).toContain('File changed')
 })
 
@@ -178,7 +178,8 @@ it('blocks file writes while another session uses the same workspace', async () 
   try {
     const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId: 'test-session', path: 'note.txt', version: opened.version, content: 'overwrite' }) })
-    expect(response.status).toBe(400)
+    // 409 Conflict: the write is refused because another run holds the workspace.
+    expect(response.status).toBe(409)
     expect((await response.json() as { error: string }).error).toContain('Wait for the agent')
   } finally { finishRun('other-run') }
 })

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
@@ -82,9 +83,12 @@ function execute(
     const stderr: string[] = []
     const capture = (chunks: string[]) => {
       let count = 0
+      // A decoder instead of chunk.toString(): a multibyte character split
+      // across two chunks stays one character instead of becoming U+FFFD.
+      const decoder = new StringDecoder('utf8')
       return (chunk: Buffer): void => {
         if (count >= MAX_STREAM_CHARS + 1) return
-        const text = chunk.toString('utf8').slice(0, MAX_STREAM_CHARS + 1 - count)
+        const text = decoder.write(chunk).slice(0, MAX_STREAM_CHARS + 1 - count)
         count += text.length
         chunks.push(text)
       }

@@ -7,7 +7,7 @@ import {
 } from '../runs'
 import http from 'node:http'
 import os from 'node:os'
-import { randomUUID, createHash } from 'node:crypto'
+import { randomUUID, createHash, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
@@ -191,10 +191,14 @@ function persistedToken(): string {
 
 function authorised(url: URL, req: http.IncomingMessage): boolean {
   const expected = loadPersistedSettings().remote?.token
-  if (expected === undefined) return false
-  const query = url.searchParams.get('token')
-  const header = req.headers.authorization?.replace(/^Bearer\s+/i, '')
-  return query === expected || header === expected
+  if (expected === undefined || expected === '') return false
+  const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? url.searchParams.get('token')
+  if (supplied === null || supplied === '') return false
+  // Length-checked timing-safe compare: the token never decides equality by
+  // bailing out at the first differing byte.
+  const given = Buffer.from(supplied)
+  const wanted = Buffer.from(expected)
+  return given.length === wanted.length && timingSafeEqual(given, wanted)
 }
 
 function json(res: http.ServerResponse, code: number, body: unknown): void {
@@ -479,7 +483,17 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     return json(res, 404, { error: 'Not found' })
   } catch (error) {
-    json(res, 400, { error: (error as Error).message })
+    // A status that says what went wrong, not 400 for everything: too-large
+    // bodies and files are 413, a stale editor version is 409, bad input is
+    // 400, and anything unexpected is an honest 500.
+    const message = error instanceof Error ? error.message : String(error)
+    let code = 500
+    if (/^(Request too large|File too large)/.test(message)) code = 413
+    else if (/^(File changed since|Wait for the agent)/.test(message)) code = 409
+    else if (/^(Expected|Invalid|Malformed)/.test(message)) code = 400
+    else if (message.startsWith('Access outside the workspace')) code = 400
+    else if (message.includes('no project folder')) code = 404
+    json(res, code, { error: message })
   }
 }
 
@@ -544,7 +558,12 @@ async function readBody(
     chunks.push(Buffer.from(chunk))
   }
   const raw = Buffer.concat(chunks).toString('utf8')
-  const body: unknown = raw === '' ? {} : JSON.parse(raw)
+  let body: unknown
+  try {
+    body = raw === '' ? {} : JSON.parse(raw)
+  } catch {
+    throw new Error('Malformed JSON body')
+  }
   if (body === null || Array.isArray(body) || typeof body !== 'object') throw new Error('Expected a JSON object')
   return body as Record<string, unknown>
 }
