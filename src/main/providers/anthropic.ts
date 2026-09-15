@@ -52,12 +52,28 @@ function toMessageParams(messages: Message[]): Anthropic.MessageParam[] {
   })
 }
 
+/**
+ * Anthropic re-bills the whole prefix on every request unless a breakpoint
+ * marks it cacheable. The system prompt and tool schemas are identical on
+ * every turn of a session, so the last tool carries the breakpoint that lets
+ * the model read the entire prefix from cache instead.
+ */
 function toToolParams(tools: ToolDefinition[]): Anthropic.Tool[] {
-  return tools.map((tool) => ({
+  return tools.map((tool, index) => ({
     name: tool.name,
     description: tool.description,
-    input_schema: tool.inputSchema as Anthropic.Tool.InputSchema
+    input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+    ...(index === tools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {})
   }))
+}
+
+/**
+ * The system prompt is the first stable block of every request: caching it
+ * means later turns reuse both the instructions and the tools that follow.
+ * An empty prompt is left out entirely rather than sent as an empty block.
+ */
+function toSystemParam(system: string): Anthropic.TextBlockParam[] {
+  return [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
 }
 
 function fromContentBlock(block: Anthropic.ContentBlock): ContentBlock {
@@ -125,7 +141,7 @@ export class AnthropicProvider implements LLMProvider {
       {
         model: this.model,
         max_tokens: cap !== null ? Math.min(params.maxTokens, cap) : params.maxTokens,
-        system: params.system,
+        ...(params.system === '' ? {} : { system: toSystemParam(params.system) }),
         tools: toToolParams(params.tools),
         messages: toMessageParams(params.messages)
       },

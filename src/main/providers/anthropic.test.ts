@@ -6,7 +6,8 @@ import { chatModelsOnly } from './models'
 import type { ProviderEvent } from './types'
 
 /** Requests the stub saw: the model looked up, and the max_tokens each message asked for. */
-const seen: { lookups: string[]; maxTokens: number[] } = { lookups: [], maxTokens: [] }
+const seen: { lookups: string[]; maxTokens: number[]; bodies: Record<string, unknown>[] } =
+  { lookups: [], maxTokens: [], bodies: [] }
 
 const stub = createServer(async (req, res) => {
   const lookup = /^\/v1\/models\/(.+)$/.exec(req.url ?? '')
@@ -29,6 +30,7 @@ const stub = createServer(async (req, res) => {
   for await (const chunk of req) raw += chunk
   const body = JSON.parse(raw) as { model: string; max_tokens: number }
   seen.maxTokens.push(body.max_tokens)
+  seen.bodies.push(body as unknown as Record<string, unknown>)
   res.writeHead(200, { 'content-type': 'text/event-stream' })
   const send = (event: string, data: unknown): void => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) }
   send('message_start', { type: 'message_start', message: {
@@ -87,4 +89,28 @@ it('takes a Base URL with or without /v1', () => {
 it('leaves out of OpenAI’s list the models that cannot chat', () => {
   expect(chatModelsOnly(['gpt-5', 'text-embedding-3-large', 'tts-1', 'whisper-1', 'dall-e-3', 'omni-moderation-latest', 'gpt-5-mini']))
     .toEqual(['gpt-5', 'gpt-5-mini'])
+})
+
+it('puts a cache breakpoint on the system prompt and the last tool', async () => {
+  const events: ProviderEvent[] = []
+  const provider = new AnthropicProvider('sk-ant-test', 'claude-large', baseURL)
+  for await (const event of provider.chat({
+    system: 'instruksi tetap',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'halo' }] }],
+    tools: [
+      { name: 'satu', description: 'a', inputSchema: { type: 'object' } },
+      { name: 'dua', description: 'b', inputSchema: { type: 'object' } }
+    ],
+    maxTokens: 1000,
+    signal: new AbortController().signal
+  })) events.push(event)
+  expect(events.at(-1)).toMatchObject({ type: 'response' })
+
+  const body = seen.bodies.at(-1) as {
+    system: { cache_control?: unknown }[]
+    tools: { name: string; cache_control?: unknown }[]
+  }
+  expect(body.system.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
+  expect(body.tools[0]?.cache_control).toBeUndefined()
+  expect(body.tools.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
 })
