@@ -3973,13 +3973,15 @@ async function revertTurn() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId: id })
     });
+    // Nothing was taken back: leave the pause and the transcript as they were.
+    if (typeof prompt !== 'string') { updateSendBtn(); return; }
     pausedSessions.delete(id);
-    if (typeof prompt === 'string' && currentSession === id) {
+    if (currentSession === id) {
       const input = document.getElementById('prompt');
       input.value = prompt;
       input.dispatchEvent(new Event('input'));
+      await syncSession(id);
     }
-    if (currentSession === id) await syncSession(id);
   } catch (error) { showError(error); }
   updateSendBtn();
 }

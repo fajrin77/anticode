@@ -492,6 +492,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     else if (/^(File changed since|Wait for the agent)/.test(message)) code = 409
     else if (/^(Expected|Invalid|Malformed)/.test(message)) code = 400
     else if (message.startsWith('Access outside the workspace')) code = 400
+    // A path the session never named, or one that is not a file: a bad request,
+    // not a server fault. /api/view used to answer these with a 500.
+    else if (/^Not (a file|an attachment)/.test(message)) code = 400
     else if (message.includes('no project folder')) code = 404
     json(res, code, { error: message })
   }

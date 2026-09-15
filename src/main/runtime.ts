@@ -905,7 +905,11 @@ export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null
 export function revertLastTurn(sessionId: string): string | null {
   const live = sessions.get(sessionId)
   if (live === undefined) return null
-  if (runForSession(sessionId) !== null) {
+  // A paused run is already stopping: its reservation lingers only until the
+  // run's own cleanup finishes, and reverting is exactly what the pause was
+  // for. Turning it away for that last sliver of the run made the button fail
+  // on a fast click. Only a run still working (not paused) must be protected.
+  if (runForSession(sessionId) !== null && !isPaused(sessionId)) {
     throw new Error('Pause this session before reverting its last turn')
   }
   // The turn the pause interrupted is gone, and with it anything to resume.

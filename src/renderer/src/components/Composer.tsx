@@ -341,8 +341,11 @@ export function Composer({
     if (session === undefined) return
     try {
       const prompt = await window.anticode.revertLastTurn(session.id)
+      // Nothing to take back: the main process left the history alone, so the
+      // transcript must not drop a turn it still holds.
+      if (prompt === null) return
       dropLastTurn(session.id)
-      if (prompt !== null) setDraft(prompt)
+      setDraft(prompt)
     } catch (failure) {
       setError((failure as Error).message)
     }
