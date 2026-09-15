@@ -29,7 +29,7 @@ export class ApprovalCoordinator implements ApprovalGate {
 
     const target = this.sender()
 
-    // §8: a high-risk call must be approved individually every single time.
+    // In Default mode, a high-risk decision applies only to this call.
     const allowAlways = request.risk !== 'high'
     const payload: ApprovalRequest = {
       requestId: randomUUID(),

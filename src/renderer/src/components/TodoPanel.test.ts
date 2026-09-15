@@ -17,3 +17,11 @@ it('takes the newest checklist that went through', () => {
   expect(latestPlan([call('a', first), call('b', [{ content: 'x', status: 'pending' }], 'error')])).toEqual(first)
   expect(latestPlan([])).toBeNull()
 })
+
+it('does not carry a previous run plan into a new prompt', () => {
+  const old = [{ content: 'One', status: 'completed' }, { content: 'Two', status: 'pending' }, { content: 'Three', status: 'pending' }]
+  const nextPrompt: Message = {
+    id: 'next', role: 'user', pending: false, parts: [{ kind: 'text', text: 'new request' }]
+  }
+  expect(latestPlan([call('old', old), nextPrompt])).toBeNull()
+})

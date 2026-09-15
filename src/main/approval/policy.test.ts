@@ -73,18 +73,13 @@ describe('ApprovalPolicy', () => {
     expect(policy.needsApproval('write_file', 'medium')).toBe(true)
   })
 
-  it('lets auto-approve cover every medium-risk tool', () => {
+  it('auto runs every risk tier without showing an approval', () => {
     const policy = new ApprovalPolicy()
     policy.setAutoApprove(true)
+    expect(policy.needsApproval('read_file', 'low')).toBe(false)
     expect(policy.needsApproval('run_command', 'medium')).toBe(false)
-  })
-
-  it('auto covers medium but destructive commands still ask — Auto means fewer clicks, not a free rm', () => {
-    const policy = new ApprovalPolicy()
-    policy.setAutoApprove(true)
-    expect(policy.needsApproval('run_command', 'medium')).toBe(false)
-    expect(policy.needsApproval('run_command', 'high')).toBe(true)
-    expect(policy.needsApproval('delete_file', 'high')).toBe(true)
+    expect(policy.needsApproval('run_command', 'high')).toBe(false)
+    expect(policy.needsApproval('delete_file', 'high')).toBe(false)
   })
 
   it('always-allow still lifts a single tool without auto-approve', () => {

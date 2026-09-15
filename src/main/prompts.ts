@@ -45,6 +45,23 @@ async function admit(
   if (!Array.isArray(req.attachmentIds) || req.attachmentIds.some((id) => typeof id !== 'string')) {
     throw new Error('Invalid attachment IDs')
   }
+  // The common Steer path is text-only. Hand it to the active agent before
+  // the first await, otherwise even resolving two empty attachment arrays
+  // gives a fast-finishing run time to close and turns the instruction into a
+  // separate run (or makes it appear that Steer did nothing).
+  const runningNow = runForSession(req.sessionId)
+  if (runningNow !== null && req.attachmentIds.length === 0) {
+    if (isPaused(req.sessionId)) {
+      const queued = await queuePrompt(req, gate)
+      return { runId: queued.runId, steered: false }
+    }
+    const status = getStatus(req.sessionId)
+    if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+    const agent = getSession(req.sessionId, gate)
+    if (!agent.steer(req.prompt, [])) throw new Error('Wait for this session to finish stopping')
+    forward({ type: 'steer', runId: runningNow, text: req.prompt, attachments: [] })
+    return { runId: runningNow, steered: true }
+  }
   const sent = prepared === undefined ? await attachmentsFor(req.sessionId, req.attachmentIds) : []
   const blocks = prepared?.blocks ?? (await blocksOf(req.sessionId, sent))
   const refs = prepared?.attachments ?? refsOf(sent)

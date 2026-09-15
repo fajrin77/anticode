@@ -272,7 +272,7 @@ export interface ModelChoice extends ProviderSelection {
   lastUsed: ProviderSelection | null
 }
 
-/** §8 risk tiers: low runs unattended, medium can be pre-approved, high never can. */
+/** Tool risk tiers used for Default-mode approval and warning labels. */
 export type RiskTier = 'low' | 'medium' | 'high'
 
 export interface ToolPreview {
@@ -287,7 +287,7 @@ export interface ApprovalRequest {
   toolName: string
   risk: RiskTier
   preview: ToolPreview
-  /** False for high-risk calls, which must be approved individually every time. */
+  /** Whether Default mode may remember approval for this tool. */
   allowAlways: boolean
 }
 

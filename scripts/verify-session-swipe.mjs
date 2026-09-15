@@ -36,21 +36,31 @@ try {
     el.dispatchEvent(event)
     return event.defaultPrevented
   },{x,y})
-  const settle = () => page.waitForTimeout(800)
+  const settle = () => page.waitForTimeout(380)
   await select(1)
-  assert.equal(await wheel('[data-session-swipe]',35),true)
+  assert.equal(await wheel('[data-session-swipe]',18),true)
   await page.waitForTimeout(40)
   assert.equal(await active(),1,'small gesture must not switch immediately')
   assert.match(await page.locator('[data-session-slide]').getAttribute('style'),/translateX/)
   await settle()
   assert.equal(await active(),1,'short gesture springs back')
   assert.equal(await page.locator('[data-session-slide]').evaluate(el=>el.style.transform),'')
-  for(let i=0;i<12;i++){await wheel('[data-session-swipe]',35);await page.waitForTimeout(15)}
-  assert.equal(await active(),1,'switch waits for release')
-  await settle()
-  assert.equal(await active(),2,'one gesture moves exactly one tab')
+  for(let i=0;i<4;i++){await wheel('[data-session-swipe]',12);await page.waitForTimeout(15)}
+  await page.waitForTimeout(40)
+  assert.equal(await active(),2,'neighbour enters while the gesture is still moving')
+  const layering = await page.evaluate(() => {
+    const pane = document.querySelector('[data-session-slide]')
+    const tabs = document.querySelector('[data-session-tabs]')
+    if (!(pane instanceof HTMLElement) || !(tabs instanceof HTMLElement)) return null
+    return {
+      local: getComputedStyle(pane).viewTransitionName === 'none',
+      belowTabs: pane.getBoundingClientRect().top >= tabs.getBoundingClientRect().bottom
+    }
+  })
+  assert.deepEqual(layering,{local:true,belowTabs:true},'session animation must stay clipped below the tab bar')
+  await page.waitForTimeout(200)
   await page.screenshot({path:path.join(directory,'conversation.png')})
-  console.log('PASS: chat surface follows gesture, springs back, commits only one neighbour')
+  console.log('PASS: chat surface follows immediately, springs back, and commits only one neighbour')
   await wheel('[data-session-tabs]',-180);await settle()
   assert.equal(await active(),1,'tab strip shares the gesture recognizer')
   assert.equal(await wheel('[data-session-swipe]',10,80),false)
@@ -68,7 +78,9 @@ try {
   await select(1)
   await page.locator('[data-composer]').fill('draft survives swipe')
   await wheel('[data-session-swipe]',180);await settle()
+  assert.equal(await active(),2,'draft check moves to the next session')
   await wheel('[data-session-swipe]',-180);await settle()
+  assert.equal(await active(),1,'draft check returns to the original session')
   assert.equal(await page.locator('[data-composer]').inputValue(),'draft survives swipe')
   console.log('PASS: no boundary wrapping; draft survives leaving and returning')
   await select(1)

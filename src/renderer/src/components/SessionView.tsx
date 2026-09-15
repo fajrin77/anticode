@@ -781,7 +781,7 @@ export function SessionView(): JSX.Element {
     // to an idle session only.
     following.current = busy || (saved?.following ?? true)
     seenPrompts.current = saved?.prompts ?? promptCount
-    box.scrollTop = box.scrollHeight
+    box.scrollTop = following.current ? box.scrollHeight : (saved?.top ?? box.scrollHeight)
     const savePosition = () => {
       if (!useSessionStore.getState().sessions.some(s => s.id === id)) return
       const position = { top: box.scrollTop, following: following.current, prompts: seenPrompts.current }

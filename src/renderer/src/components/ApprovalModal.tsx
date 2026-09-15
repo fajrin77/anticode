@@ -84,7 +84,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
         bottom: 'calc(var(--composer-offset, 16px) + 8px)'
       }}
     >
-      <div className="glass-surface pointer-events-auto overflow-hidden rounded-xl border border-line shadow-2xl">
+      <div className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl">
         <header className="flex items-baseline gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">
             {/^mcp__(.+?)__(.+)$/.test(request.toolName)

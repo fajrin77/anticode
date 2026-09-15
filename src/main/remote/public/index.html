@@ -554,6 +554,11 @@
   .composer #chipRow button:active {
     color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
   }
+  .composer #chipRow #followChips { display: flex; gap: 1px; }
+  .composer #chipRow #followChips.hidden { display: none; }
+  .composer #chipRow #followChips button.on {
+    color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
+  }
   .composer #chipRow #modelChip {
     position: relative; flex: 0 1 44vw; max-width: 44vw; text-align: left;
     font-family: ui-monospace, Menlo, monospace; text-overflow: clip;
@@ -764,7 +769,10 @@
   <div id="chipRow">
     <button id="modelChip" onclick="openSettings(modelInfo?.rotationEnabled === true ? 'rotation' : 'model')" title="Model"><span class="modelText">…</span></button>
     <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
-    <button id="followChip" class="hidden" onclick="toggleFollowMode()" title="What a prompt sent while the run works does">steer</button>
+    <span id="followChips" class="hidden">
+      <button id="steerChip" onclick="setPhoneFollowMode('steer')" title="Steer: add to the current run">steer</button>
+      <button id="queueChip" onclick="setPhoneFollowMode('queue')" title="Queue: send after the current run">queue</button>
+    </span>
     <span class="grow"></span>
     <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
   </div>
@@ -2013,6 +2021,7 @@ async function applyStreamEvent(id, event) {
     }
     else if (event.type === 'prompt') {
       currentRunId = event.runId; liveEl = null; liveRun = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
+      currentPlan = null; planOpen = null; renderPlan();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
       else appendUserBubble(event.text, event.attachments);
       liveRunEl();
@@ -2614,9 +2623,10 @@ function updateSendBtn() {
   document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
   const working = currentRunId !== null && !pausedSessions.has(currentSession);
   renderPlan();
-  const chip = document.getElementById('followChip');
-  chip.classList.toggle('hidden', !working);
-  chip.textContent = followMode;
+  const chips = document.getElementById('followChips');
+  chips.classList.toggle('hidden', !working);
+  document.getElementById('steerChip').classList.toggle('on', followMode === 'steer');
+  document.getElementById('queueChip').classList.toggle('on', followMode === 'queue');
   document.getElementById('promptHint').textContent = working
     ? (followMode === 'queue' ? 'Queue the next prompt\u2026' : 'Add to the task\u2026')
     : 'Message\u2026';
@@ -3730,8 +3740,8 @@ async function removePhoneProvider(provider) {
 }
 
 /* The session's plan: the newest checklist todo_write published that did not
- * fail. Shown above the box — the whole list while a run works, one line
- * otherwise, and not at all once everything is done and nothing runs. */
+ * fail. It belongs only to the current run, needs at least three items, and
+ * disappears completely as soon as that run ends. */
 function planOf(messages) {
   const failed = new Set();
   for (const message of messages) for (const block of message.blocks) {
@@ -3754,7 +3764,7 @@ function renderPlan() {
   const items = (currentPlan ?? []).filter((item) => typeof item?.content === 'string');
   const working = currentRunId !== null && !pausedSessions.has(currentSession);
   const done = items.filter((item) => item.status === 'completed').length;
-  const hidden = items.length === 0 || (done === items.length && !working && planOpen !== true);
+  const hidden = items.length < 3 || !working;
   row.classList.toggle('hidden', hidden);
   if (hidden) return;
   const open = planOpen ?? working;
@@ -3784,9 +3794,10 @@ function renderPlan() {
 
 /* While a run works, a prompt either joins it (steer) or waits for it to
  * finish and goes out as the next run (queue). The choice is remembered. */
-function toggleFollowMode() {
+function setPhoneFollowMode(next) {
+  if (next !== 'steer' && next !== 'queue') return;
   pendingFollowFlip = true;
-  followMode = followMode === 'queue' ? 'steer' : 'queue';
+  followMode = next;
   updateComposerChrome();
   updateSendBtn();
   const settle = () => { pendingFollowFlip = false; };

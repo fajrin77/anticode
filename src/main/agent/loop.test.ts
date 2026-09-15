@@ -115,6 +115,53 @@ describe('AgentSession', () => {
     expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
   })
 
+  it('finishes every item in a three-item plan without waiting for another user prompt', async () => {
+    const open = [
+      { content: 'Prompt one', status: 'completed' },
+      { content: 'Prompt two', status: 'in_progress' },
+      { content: 'Prompt three', status: 'pending' }
+    ]
+    const complete = open.map((item) => ({ ...item, status: 'completed' as const }))
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'plan-open', name: 'todo_write', input: { items: open } }], 'tool_use'),
+      turn([{ type: 'text', text: 'Bagian pertama selesai.' }], 'end_turn'),
+      turn([{ type: 'tool_use', id: 'plan-done', name: 'todo_write', input: { items: complete } }], 'tool_use'),
+      turn([{ type: 'text', text: 'Semua selesai.' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'code', root)
+
+    await session.run({
+      runId: 'planned', prompt: 'kerjakan tiga permintaan', signal: new AbortController().signal,
+      emit: (event) => events.push(event)
+    })
+
+    expect(provider.sent).toHaveLength(4)
+    expect(lastContent(provider, 2)).toEqual([
+      expect.objectContaining({ type: 'text', internal: true, text: expect.stringContaining('do not ask the user to type continue') })
+    ])
+    expect(session.snapshot().messages.flatMap((message) => message.content).some(
+      (block) => block.type === 'text' && block.internal === true
+    )).toBe(true)
+    expect(events.filter((event) => event.type === 'end')).toEqual([
+      { type: 'end', runId: 'planned', reason: 'complete' }
+    ])
+  })
+
+  it('does not turn a two-item checklist into an auto-continuing plan', async () => {
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'short-plan', name: 'todo_write', input: { items: [
+        { content: 'One', status: 'in_progress' },
+        { content: 'Two', status: 'pending' }
+      ] } }], 'tool_use'),
+      turn([{ type: 'text', text: 'done' }], 'end_turn')
+    ])
+
+    await run(provider)
+
+    expect(provider.sent).toHaveLength(2)
+    expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
+  })
+
   it('stops after three identical tool calls return the same result', async () => {
     await writeFile(path.join(root, 'same.txt'), 'unchanged')
     const provider = new FakeProvider([1, 2, 3, 4].map((index) => turn([
@@ -855,7 +902,7 @@ describe('semantic compaction', () => {
     // The model was shown the turns it summarised, in readable form.
     expect(provider.compactions[0]).toContain('USER: first')
     expect(provider.compactions[0]).toContain('ASSISTANT: first answered')
-    expect(events).toContainEqual(expect.objectContaining({ type: 'notice', text: expect.stringContaining('context compacted') }))
+    expect(events).not.toContainEqual(expect.objectContaining({ type: 'notice', text: expect.stringContaining('context compacted') }))
     expect(events).toContainEqual(expect.objectContaining({ type: 'usage', subagent: true }))
     // The record is never cut, only the replay.
     expect(session.snapshot().messages).toHaveLength(6)
@@ -1065,4 +1112,22 @@ it("puts the user's instructions in the system prompt, read fresh on every reque
   expect(systems[0]).toContain('for every session:\n\nAnswer in Indonesian.')
   expect(systems[0]).not.toContain('for this session')
   expect(systems[1]).toMatch(/Answer in Indonesian\.[\s\S]*for this session:\n\nFocus on billing\./)
+})
+
+it('instructs coding models to batch independent tools instead of spending one turn per call', async () => {
+  const systems: string[] = []
+  const provider: LLMProvider = {
+    name: 'batch-audit',
+    model: 'batch-audit-model',
+    async *chat(params) {
+      systems.push(params.system)
+      yield { type: 'response', response: turn([{ type: 'text', text: 'done' }], 'end_turn') }
+    }
+  }
+
+  await run(provider)
+
+  expect(systems[0]).toContain('issue those independent tool calls together in that same response')
+  expect(systems[0]).toContain('Never spend a model turn only updating todo_write')
+  expect(systems[0]).toContain('Only serialize calls when one result is genuinely required')
 })

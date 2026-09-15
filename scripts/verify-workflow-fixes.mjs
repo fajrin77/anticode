@@ -155,7 +155,7 @@ try {
   const info=await page.evaluate(()=>window.anticode.getAppInfo())
   assert.equal(typeof info.screenRecording,'string')
   assert.equal(info.version,JSON.parse(await readFile(path.resolve('package.json'),'utf8')).version)
-  assert.equal(await page.getByText('Skip medium-risk approvals; high-risk actions still ask in Auto',{exact:true}).count(),1)
+  assert.equal(await page.getByText('Run without approval prompts, including high-risk actions',{exact:true}).count(),1)
   await page.getByText('Refresh permissions',{exact:true}).click()
   await page.screenshot({path:path.join(directory,'capabilities.png')})
   console.log('PASS: settings explains real tool capabilities and reports OS permission status')

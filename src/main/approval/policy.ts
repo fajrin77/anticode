@@ -55,15 +55,12 @@ export class ApprovalPolicy {
     for (const entry of entries) this.alwaysAllowed.add(entry)
   }
 
-  /**
-   * Auto mode covers every tier except high: destructive commands still ask,
-   * because the point of Auto is fewer clicks, not silent `rm -rf`. Without
-   * auto, low runs free, high always asks, and "always allow" lifts a single
-   * tool to low — high included, since the grant was given knowingly.
-   */
+  /** Auto means unattended execution: no approval card at any risk tier.
+   * Default still runs low-risk tools freely and asks for other calls unless
+   * that exact tool was explicitly allowed for the session. */
   needsApproval(toolName: string, risk: RiskTier, sessionId = 'default'): boolean {
     if (risk === 'low') return false
-    if (this.autoApprove) return risk === 'high'
+    if (this.autoApprove) return false
     if (risk === 'high') return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
     return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
   }

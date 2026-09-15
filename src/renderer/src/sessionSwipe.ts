@@ -1,6 +1,9 @@
 /** Wheel events include trackpad momentum; a quiet interval ends one gesture. */
-export const SWIPE_IDLE_MS = 220
-export const SWIPE_THRESHOLD = 110
+export const SWIPE_IDLE_MS = 90
+/** Deliberate horizontal travel before the neighbour starts entering. */
+export const SWIPE_THRESHOLD = 32
+export const SWIPE_COMMIT_MS = 170
+export const SWIPE_BOUNCE_MS = 140
 
 export function swipeDelta(x: number, y: number, mode: number): number {
   if (Math.abs(x) <= Math.abs(y) * 1.4) return 0

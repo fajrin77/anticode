@@ -12,6 +12,7 @@ export function isTypedPrompt(message: Message): boolean {
   if (message.role !== 'user' || message.content.some((block) => block.type === 'tool_result')) return false
   return message.content.some((block) =>
     block.type === 'text' && block.attachment === undefined && block.followUp === undefined &&
+    block.internal !== true &&
     block.text !== CONTINUE_PROMPT && !block.text.startsWith(MEMORY_HEADER))
 }
 

@@ -175,7 +175,7 @@ interface SessionState {
   nextColour: number
   /** Prompts waiting for each session's run to finish; a mirror of the main process. */
   queues: Record<string, QueuedPrompt[]>
-  /** The user's explicit Plan fold state, kept per session across tabs and launches. */
+  /** The user's Plan fold state for the current live run, kept per session. */
   planOpenBySession: Record<string, boolean>
   setPlanOpen: (sessionId: string, open: boolean) => void
   /**
@@ -293,7 +293,7 @@ interface SessionState {
   ) => void
   /** A running tool reported a step — a sub-agent reading a file. */
   progressTool: (sessionId: string, toolUseId: string, text: string) => void
-  /** The app noted something about a run in progress — its context was compacted. */
+  /** The app noted something about a run in progress. */
   noticeInRun: (sessionId: string, messageId: string, text: string) => void
   /** The run failed; the reason stays under the reply, apart from what the model said. */
   errorInRun: (sessionId: string, messageId: string, text: string) => void
@@ -1039,9 +1039,15 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   setActiveRun: (run, runId) => set((state) => {
     const activeRuns = { ...state.activeRuns }
-    if (run) activeRuns[run.runId] = run
+    const planOpenBySession = { ...state.planOpenBySession }
+    if (run) {
+      activeRuns[run.runId] = run
+      // A fresh run must not inherit the fold state or visible plan of the
+      // previous prompt in this session.
+      delete planOpenBySession[run.sessionId]
+    }
     else if (runId) delete activeRuns[runId]
-    return { activeRuns }
+    return { activeRuns, planOpenBySession }
   }),
 
   addUserPrompt: (sessionId, text, attachments) =>

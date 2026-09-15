@@ -12,6 +12,11 @@ import type {
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam
 
+/** Move to the next Rotate provider when a request has produced no useful data. */
+export const FIRST_DATA_TIMEOUT_MS = 60_000
+/** Once output has begun, allow long generations to keep progressing. */
+export const STREAM_INACTIVITY_MS = 180_000
+
 /**
  * Anthropic groups every tool result into one user message; OpenAI wants one
  * message per result with role "tool". Splitting them is this adapter's job.
@@ -102,16 +107,28 @@ export class OpenAICompatibleProvider implements LLMProvider {
   constructor(
     readonly name: string,
     readonly model: string,
-    options: { apiKey: string; baseURL?: string; maxTokensField: 'max_completion_tokens' | 'max_tokens' }
+    options: {
+      apiKey: string
+      baseURL?: string
+      maxTokensField: 'max_completion_tokens' | 'max_tokens'
+      /** Test hook; production uses FIRST_DATA_TIMEOUT_MS. */
+      firstDataTimeoutMs?: number
+      /** Test hook; production uses STREAM_INACTIVITY_MS. */
+      streamInactivityMs?: number
+    }
   ) {
     this.client = new OpenAI({
       apiKey: options.apiKey,
       ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {})
     })
     this.maxTokensField = options.maxTokensField
+    this.firstDataTimeoutMs = options.firstDataTimeoutMs ?? FIRST_DATA_TIMEOUT_MS
+    this.streamInactivityMs = options.streamInactivityMs ?? STREAM_INACTIVITY_MS
   }
 
   private readonly maxTokensField: 'max_completion_tokens' | 'max_tokens'
+  private readonly firstDataTimeoutMs: number
+  private readonly streamInactivityMs: number
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
     params.signal.throwIfAborted()
@@ -123,7 +140,6 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // chunk arrives for a while. A stall before anything streamed is treated
     // as transient (the loop retries); a stall mid-stream is a hard error, so
     // the turn is never silently duplicated.
-    const INACTIVITY_MS = 180_000
     const watchdog = new AbortController()
     const onOuterAbort = (): void => watchdog.abort()
     params.signal.addEventListener('abort', onOuterAbort, { once: true })
@@ -131,7 +147,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
     let inactivity: ReturnType<typeof setTimeout> | null = null
     const bump = (): void => {
       if (inactivity !== null) clearTimeout(inactivity)
-      inactivity = setTimeout(() => watchdog.abort(), INACTIVITY_MS)
+      inactivity = setTimeout(
+        () => watchdog.abort(),
+        received ? this.streamInactivityMs : this.firstDataTimeoutMs
+      )
     }
     bump()
 
@@ -139,6 +158,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     let finishReason: string | null = null
     const usage = { inputTokens: 0, outputTokens: 0 }
     const calls = new Map<number, { id: string; name: string; args: string }>()
+    const stalled = (): Error => received
+      ? new Error('Provider stream stalled mid-turn — run stopped so nothing is duplicated')
+      : Object.assign(new Error('Provider stream stalled before any data arrived'), { status: 503 })
 
     try {
       const stream = await this.client.chat.completions.create(
@@ -154,7 +176,6 @@ export class OpenAICompatibleProvider implements LLMProvider {
       )
 
       for await (const chunk of stream) {
-        bump()
         if (chunk.usage) {
           usage.inputTokens = chunk.usage.prompt_tokens
           usage.outputTokens = chunk.usage.completion_tokens
@@ -180,22 +201,21 @@ export class OpenAICompatibleProvider implements LLMProvider {
             args: existing.args + (call.function?.arguments ?? '')
           })
         }
+        // Useful text or a tool call switches from the short first-data guard
+        // to the longer mid-stream guard. Empty keepalive chunks do not.
+        bump()
       }
     } catch (error) {
       if (params.signal.aborted) throw error
-      if (watchdog.signal.aborted && !params.signal.aborted) {
-        const stall = received
-          ? new Error('Provider stream stalled mid-turn — run stopped so nothing is duplicated')
-          : Object.assign(new Error('Provider stream stalled before any data arrived'), {
-              status: 503
-            })
-        throw stall
-      }
+      if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
       throw error
     } finally {
       if (inactivity !== null) clearTimeout(inactivity)
       params.signal.removeEventListener('abort', onOuterAbort)
     }
+    // Some OpenAI-compatible SDK streams end their iterator cleanly on abort
+    // instead of throwing. It is still a stall and must reach Rotate fallback.
+    if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
 
     const content: ContentBlock[] = []
     if (text !== '') content.push({ type: 'text', text })

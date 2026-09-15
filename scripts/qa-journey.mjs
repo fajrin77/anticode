@@ -84,10 +84,11 @@ try {
   // Resep ala pengguna: fokus klik cukup SEKALI sebelum run; di tengah streaming
   // ketik murni lewat window.keyboard — locator action menunggu layout stabil
   // dan hanya berhasil setelah run selesai (bukan cara orang mengetik).
-  const queueToggle = window.locator('button[title*="queue"]')
-  check('J3 toggle steer/queue tersedia saat run berjalan', (await queueToggle.count()) >= 1)
-  if (await queueToggle.count()) {
-    await queueToggle.first().click()
+  const queueChoice = window.locator('button[title^="Queue:"]')
+  const steerChoice = window.locator('button[title^="Steer:"]')
+  check('J3 pilihan steer/queue tersedia saat run berjalan', (await queueChoice.count()) >= 1 && (await steerChoice.count()) >= 1)
+  if (await queueChoice.count()) {
+    await queueChoice.first().click()
     await wait(250)
     await window.keyboard.type('antrian lewat queue')
     await window.keyboard.press('Enter')
@@ -99,7 +100,7 @@ try {
   }
   await shot('03-queue-chips')
   // kembali ke steer untuk sisa journey
-  if (await queueToggle.count()) await queueToggle.first().click()
+  if (await steerChoice.count()) await steerChoice.first().click()
   // tunggu semua antrean kering (2 giliran @ ~3.5s)
   let steady = false
   for (let i = 0; i < 14; i++) {

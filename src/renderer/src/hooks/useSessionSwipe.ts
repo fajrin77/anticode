@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore } from '../store/session'
-import { SWIPE_IDLE_MS, SWIPE_THRESHOLD, swipeDelta, swipeTarget } from '../sessionSwipe'
+import {
+  SWIPE_BOUNCE_MS,
+  SWIPE_COMMIT_MS,
+  SWIPE_IDLE_MS,
+  swipeDelta,
+  swipeTarget
+} from '../sessionSwipe'
 
 /** One shared recognizer for the tab strip and conversation, with release-to-commit. */
 export function useSessionSwipe(enabled: boolean, select: (id: string) => void) {
@@ -24,8 +30,6 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
     const restore = () => {
       const pane = content()
       if (pane) { pane.style.transform = ''; pane.style.willChange = '' }
-      delete host.dataset.swipeDirection
-      delete host.dataset.swipeReady
     }
     const finish = async () => {
       cancelAnimationFrame(frame)
@@ -39,27 +43,41 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       suppressTail = true
       restore()
       try {
-        if (pane && !reduced.matches) {
+        if (!target && pane && !reduced.matches) {
           animation = pane.animate([
             { transform: from },
-            { transform: target ? `translateX(${-sign * 100}px)` : 'translateX(0px)', opacity: target ? 0 : 1 }
-          ], { duration: target ? 160 : 240, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' })
+            { transform: 'translateX(0px)', opacity: 1 }
+          ], { duration: SWIPE_BOUNCE_MS, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' })
           await animation.finished
         }
         if (disposed || useSessionStore.getState().activeSessionId !== origin) return
         if (target && useSessionStore.getState().sessions.some(s => s.id === target && !s.closed)) {
-          select(target)
-          animation?.cancel()
-          if (pane && !reduced.matches) {
-            animation = pane.animate([
-              { transform: `translateX(${sign * 70}px)`, opacity: 0 },
-              { transform: 'translateX(0px)', opacity: 1 }
-            ], { duration: 280, easing: 'cubic-bezier(.22,1,.36,1)' })
-            await animation.finished
+          if (reduced.matches) {
+            select(target)
+          } else {
+            // Select immediately, then settle only the destination pane inside
+            // the clipped session container. A document View Transition lives
+            // above every z-index and let transcript text flash over the tab
+            // bar; a local animation can never cross that boundary.
+            select(target)
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+            const nextPane = content()
+            if (nextPane !== null) {
+              animation = nextPane.animate([
+                { transform: `translateX(${sign * 36}px)`, opacity: .72 },
+                { transform: 'translateX(0px)', opacity: 1 }
+              ], { duration: SWIPE_COMMIT_MS, easing: 'cubic-bezier(.22,1,.36,1)' })
+              await animation.finished
+            }
           }
         }
       } catch { /* Unmounting or a direct tab click can cancel an animation. */ }
-      finally { animation?.cancel(); busy = false; reset(); restore() }
+      finally {
+        animation?.cancel()
+        busy = false
+        reset()
+        restore()
+      }
     }
     const onWheel = (event: WheelEvent) => {
       const target = event.target
@@ -90,21 +108,24 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       event.preventDefault()
       distance += event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1)
       clearTimeout(timer)
+      const state = useSessionStore.getState()
+      const ids = state.sessions.filter(s => !s.closed).map(s => s.id)
+      const neighbour = swipeTarget(ids, origin, distance)
+      // Commit while the fingers are still moving. Waiting for the idle timer
+      // used to produce the visible arrow-then-pause beat the user felt.
+      if (neighbour !== null) {
+        cancelAnimationFrame(frame)
+        void finish()
+        return
+      }
       timer = window.setTimeout(() => { void finish() }, SWIPE_IDLE_MS)
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const state = useSessionStore.getState()
-        if (state.activeSessionId !== origin) { restore(); return }
-        const ids = state.sessions.filter(s => !s.closed).map(s => s.id)
-        const neighbour = swipeTarget(ids, origin, Math.sign(distance) * SWIPE_THRESHOLD)
-        host.dataset.swipeDirection = distance > 0 ? 'next' : 'previous'
-        host.dataset.swipeReady = neighbour && Math.abs(distance) >= SWIPE_THRESHOLD ? 'true' : 'false'
-        const pane = content()
-        if (pane && !reduced.matches) {
-          pane.style.willChange = 'transform'
-          pane.style.transform = `translateX(${-Math.sign(distance) * Math.min(80, Math.abs(distance) * (neighbour ? .45 : .12))}px)`
-        }
-      })
+      // Track the fingers in this very event. Deferring this by one animation
+      // frame left a visible still beat before the session began moving.
+      const pane = content()
+      if (pane && !reduced.matches) {
+        pane.style.willChange = 'transform'
+        pane.style.transform = `translateX(${-Math.sign(distance) * Math.min(80, Math.abs(distance) * .45)}px)`
+      }
     }
     host.addEventListener('wheel', onWheel, { passive: false })
     return () => {

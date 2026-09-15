@@ -379,7 +379,7 @@ try {
   await composer().fill('')
   await limeOnHover('dashboard: session row title', window.locator('.group button div.truncate'))
   await window.getByText('Default',{exact:true}).click(); await window.waitForTimeout(250)
-  await limeOnHover('dashboard: approval menu hint', window.getByText('Skip prompts for medium risk'))
+  await limeOnHover('dashboard: approval menu hint', window.getByText('Ask before changing anything'))
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
 
   // Deleting a session is destructive; red is a warning lime would erase.
@@ -1096,7 +1096,8 @@ try {
             kind: 'tool', toolUseId: crypto.randomUUID(), name: 'todo_write', status: 'ok', output: '',
             input: { items: [
               { content: 'keep this folded', status: 'in_progress' },
-              { content: 'second stage of the plan', status: 'pending' }
+              { content: 'second stage of the plan', status: 'pending' },
+              { content: 'third stage of the plan', status: 'pending' }
             ] }
           }]
         }]
@@ -1104,31 +1105,31 @@ try {
     }))
     store.setPlanOpen(first.id, true)
     store.reopenSession(first.id)
+    // The panel belongs to a live run: without one, an idle session shows no
+    // plan. Register a quiet run on the first session so the pinned panel is
+    // tested in the state a user actually sees it in.
+    store.setActiveRun({ runId: 'plan-regression-run', messageId: first.messages.at(-1)?.id ?? 'plan-regression-msg', sessionId: first.id, startedAt: Date.now() })
     return { first: first.id, second: second.id }
   })
   await window.waitForTimeout(400)
   if (planSessions !== null) {
-    // The panel shows while its run streams or when pinned open; nothing is
-    // streaming here, so pin it — that pinned state is what the test checks.
-    await window.evaluate((sessionId) => {
-      ;(window).__store.getState().setPlanOpen(sessionId, true)
-    }, planSessions.first)
-    await window.waitForTimeout(200)
-  }
-  if (planSessions !== null) {
     const planPanel = window.locator('[data-todo-panel]')
-    // Pinned open before this (setPlanOpen above): switching tabs and back
-    // must not lose the pin, so the panel is still expanded here.
+    // Pinned open while its run streams: switching tabs and back keeps it.
     await window.getByTitle('plan regression b').click(); await window.waitForTimeout(300)
     await window.getByTitle('plan regression a').click(); await window.waitForTimeout(300)
-    check('plan: pin survives switching to another tab and back', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'true')
-    // Collapse while idle: the panel goes with the run — pinned state persists.
+    check('plan: the pinned panel survives switching to another tab and back', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'true')
+    // Collapse while the run lives: the header folds to one line, still there.
     await planPanel.getByRole('button').click(); await window.waitForTimeout(200)
-    check('plan: collapse while idle removes the panel', await planPanel.count(), 0)
+    check('plan: collapse folds the panel to its header', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'false')
     check('plan: collapse is written to persisted session metadata', await window.evaluate((sessionId) => {
       const saved = JSON.parse(localStorage.getItem('anticode-session-metadata') ?? '{}')
       return saved.state?.planOpenBySession?.[sessionId] === false ? 'persisted' : 'missing'
     }, planSessions.first), 'persisted')
+    // When the run ends, the panel goes with it — finished or not, folded or
+    // pinned open: that is what keeps an idle composer clean.
+    await window.evaluate(() => { (window).__store.getState().setActiveRun(null, 'plan-regression-run') })
+    await window.waitForTimeout(200)
+    check('plan: the panel leaves when the run ends', await planPanel.count(), 0)
   } else {
     check('plan: collapse survives switching to another tab and back', 'needs two sessions', 'false')
   }

@@ -15,10 +15,10 @@ const urlSchema = z
     message: 'Only http and https are supported'
   })
 
-function clip(text: string): string {
-  return text.length > MAX_TEXT
-    ? `${text.slice(0, MAX_TEXT)}\n… dipotong (${text.length} karakter total)`
-    : text
+function clip(text: string, total?: number): string {
+  if (text.length <= MAX_TEXT) return text
+  const size = total ?? text.length
+  return `${text.slice(0, MAX_TEXT)}\n… dipotong (${size} karakter total)`
 }
 
 function describe(error: unknown): string {
@@ -40,17 +40,35 @@ export const fetchUrlTool = defineTool({
     } catch (error) {
       throw new ToolError(`Failed to fetch ${input.url}: ${describe(error)}`)
     }
+    // A 404 or 500 body is the answer the model needs, not a failure of fetch.
+    const statusLine = `HTTP ${response.status} ${response.headers.get('content-type') ?? ''}`
     const reader = response.body?.getReader()
+    if (reader === undefined) return `${statusLine}\n\n(empty body)`
     const decoder = new TextDecoder()
     let body = ''
+    let total = 0
     try {
-      while (reader && body.length <= MAX_TEXT) {
+      while (body.length <= MAX_TEXT) {
         const part = await reader.read()
         if (part.done) break
-        body += decoder.decode(part.value, { stream: true }).slice(0, MAX_TEXT + 1 - body.length)
+        const chunk = decoder.decode(part.value, { stream: true })
+        total += chunk.length
+        if (body.length <= MAX_TEXT) body += chunk
       }
-    } finally { await reader?.cancel() }
-    return `HTTP ${response.status} ${response.headers.get('content-type') ?? ''}\n\n${clip(body)}`
+      // A stream cut off by the model's stop or a timeout still has a final
+      // slice waiting in the decoder; flush it so the tail is not lost.
+      body += decoder.decode()
+    } catch (error) {
+      // Half a page with a known reason beats a failed call that drops it.
+      return `${statusLine} (berhenti di tengah: ${describe(error)})\n\n${clip(body, total)}`
+    } finally {
+      // Cancelling must not replace the real error or result with its own.
+      await reader.cancel().catch(() => undefined)
+    }
+    if (body.length > MAX_TEXT) {
+      return `${statusLine} (halaman lebih besar dari ${MAX_TEXT} karakter)\n\n${clip(body, total)}`
+    }
+    return `${statusLine}\n\n${clip(body, total)}`
   }
 })
 

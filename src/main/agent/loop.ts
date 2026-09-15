@@ -62,6 +62,10 @@ const AGENT_MAX_STEPS = 200
 const AGENT_GRACE_STEPS = 2
 /** Three identical tool rounds in a row are almost certainly a stuck model. */
 const MAX_IDENTICAL_TOOL_ROUNDS = 3
+const FINISH_PLAN_PROMPT =
+  '[The checklist for this run still has unfinished items. Continue working now and finish every remaining item. ' +
+  'Do not stop at a stage boundary, do not ask the user to type continue, and do not only describe the next step. ' +
+  'Update todo_write as items finish, verify the complete result, then return the final answer.]'
 
 interface RunParams {
   runId: string
@@ -362,6 +366,7 @@ export class AgentSession {
 
   private async runExclusive(params: RunParams): Promise<void> {
     const { runId, prompt, signal, emit } = params
+    const runTranscriptStart = this.transcript.length
     // Taking instructions in is what moves every viewer's reply below them.
     const takeIn = (): ContentBlock[] => {
       const blocks = this.takeFollowUps(true)
@@ -411,6 +416,17 @@ export class AgentSession {
           // reply keeps the run going: it is the next thing to do.
           if (response.stopReason === 'end_turn' && this.followUps.length > 0) {
             this.record({ role: 'user', content: takeIn() })
+            continue
+          }
+          // A plan belongs to one run and is a commitment, not a series of
+          // pauses. Some models finish each checklist item with end_turn and
+          // wait for "continue". Keep the same run alive until its latest
+          // three-or-more-item checklist says the whole request is done.
+          if (response.stopReason === 'end_turn' && this.hasUnfinishedPlan(runTranscriptStart)) {
+            this.record({
+              role: 'user',
+              content: [{ type: 'text', text: FINISH_PLAN_PROMPT, internal: true }]
+            })
             continue
           }
           emit({
@@ -493,6 +509,22 @@ export class AgentSession {
     this.sealPendingToolUses()
     this.recordDisplay('notice', 'Paused.')
     emit({ type: 'end', runId, reason: 'cancelled' })
+  }
+
+  private hasUnfinishedPlan(from: number): boolean {
+    for (let i = this.transcript.length - 1; i >= from; i--) {
+      const message = this.transcript[i]
+      for (let j = (message?.content.length ?? 0) - 1; j >= 0; j--) {
+        const block = message?.content[j]
+        if (block?.type !== 'tool_use' || block.name !== 'todo_write') continue
+        const items = (block.input as { items?: unknown } | null)?.items
+        if (!Array.isArray(items) || items.length < 3) return false
+        return items.some((item) =>
+          item === null || typeof item !== 'object' || (item as { status?: unknown }).status !== 'completed'
+        )
+      }
+    }
+    return false
   }
 
   private async requestTurn(params: RunParams): Promise<LLMResponse> {
@@ -630,11 +662,8 @@ export class AgentSession {
       outputTokens: usage.outputTokens,
       subagent: true
     }))
-    params.emit({
-      type: 'notice',
-      runId: params.runId,
-      text: `context compacted · ${before.toLocaleString('en-US')} → ${replayCost(this.history).toLocaleString('en-US')} tokens`
-    })
+    // Automatic compaction is maintenance, not a conversation event. Keep it
+    // silent so the transcript flows directly from the prompt into the work.
   }
 
   /**
@@ -1101,9 +1130,15 @@ export class AgentSession {
       '- Use search_files to locate code instead of reading files one by one.',
       '- Read a file before changing it; never guess its contents.',
       '- For partial changes use edit_file, not write_file.',
-      '- Work in as few steps as possible: issue independent tool calls together in one turn ' +
-        'and combine related shell commands into one.',
-      '- For work with three or more meaningful steps, use todo_write before editing and keep it current.',
+      '- Work in as few model turns as possible. Before every tool response, list what can already be done ' +
+        'without another result and issue those independent tool calls together in that same response. ' +
+        'When two or more independent actions are known, do not send them one tool at a time.',
+      '- Batch related searches and file reads, batch independent edits, and combine related shell checks into ' +
+        'one run_command. Never spend a model turn only updating todo_write: include the next concrete work call ' +
+        'in that response. Only serialize calls when one result is genuinely required to construct the next call.',
+      '- Use todo_write only when the user gives three or more distinct prompts/outcomes to complete together. ' +
+        'Each checklist item must represent one complete user outcome, not an internal phase such as inspect, edit, or test. ' +
+        'Finish every checklist item in this same run, keep the checklist current, and never stop between items or ask the user to type continue.',
       '- For broad exploration across many files, delegate to the task tool — several task calls in one turn ' +
         'run in parallel — and keep your own context for the work itself.',
       '- Check that a tool or dependency already exists before installing or re-running it.',
@@ -1213,7 +1248,7 @@ function compactionMaterial(messages: Message[]): string {
   const parts: string[] = []
   for (const message of messages) {
     for (const block of message.content) {
-      if (block.type === 'text') {
+      if (block.type === 'text' && block.internal !== true) {
         const who = message.role === 'user' ? (block.attachment !== undefined ? 'USER (attachment)' : 'USER') : 'ASSISTANT'
         parts.push(`${who}: ${clip(block.followUp?.text ?? block.text, 6_000)}`)
       } else if (block.type === 'tool_use') {
@@ -1244,7 +1279,7 @@ function summariseMessages(messages: Message[]): string {
   for (const message of messages) {
     for (const block of message.content) {
       let line = ''
-      if (block.type === 'text') {
+      if (block.type === 'text' && block.internal !== true) {
         line = `${message.role === 'user' ? 'User' : 'Assistant'}: ${block.followUp?.text ?? block.text}`
       } else if (block.type === 'tool_use') {
         const input = block.input as Record<string, unknown> | null

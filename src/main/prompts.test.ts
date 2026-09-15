@@ -44,6 +44,22 @@ it('admits simultaneous desktop and phone sends into one run after attachments f
   complete()
   await vi.waitFor(() => expect(runForSession('session')).toBeNull())
 })
+it('steers a text-only prompt without waiting for attachment preparation', async () => {
+  let complete!: () => void
+  mocks.run.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve }))
+  await submitPrompt(request('desktop'), gate)
+  mocks.blocks.mockClear()
+
+  expect(await submitPrompt(request('phone'), gate)).toEqual({ runId: 'desktop', steered: true })
+  expect(mocks.blocks).not.toHaveBeenCalled()
+  expect(mocks.steer).toHaveBeenCalledWith('phone', [])
+  expect(mocks.forward).toHaveBeenCalledWith({
+    type: 'steer', runId: 'desktop', text: 'phone', attachments: []
+  })
+
+  complete()
+  await vi.waitFor(() => expect(runForSession('session')).toBeNull())
+})
 it('lines a prompt up when the session was paused mid-run instead of erroring', async () => {
   // Both runs hold: the paused one and the queued one that starts after it.
   const held: Array<() => void> = []

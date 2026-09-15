@@ -516,7 +516,7 @@ export function Composer({
             <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
-                { value: true, name: 'Auto', hint: 'Skip prompts for medium risk' }
+                { value: true, name: 'Auto', hint: 'Run without approval prompts' }
               ].map((option) => (
                 <button
                   key={option.name}
@@ -536,7 +536,7 @@ export function Composer({
                 </button>
               ))}
               <p className="px-2 py-1.5 text-[11px] text-faint">
-                Auto still asks before high-risk actions. Saved permissions apply in Default.
+                Auto runs without approval prompts. Saved permissions apply in Default.
               </p>
             </div>
           )}
@@ -736,23 +736,31 @@ export function Composer({
                 {status?.autoApprove === true ? 'Auto' : 'Default'}
               </Chip>
 
-              {/* Only while a run works: what a prompt sent now does. Both words
-                  are laid out at once so flipping never moves the row. */}
+              {/* Only while a run works: make both destinations explicit. A click
+                  on "steer" must always select steer, never toggle away from it. */}
               {isStreaming && !isPaused && (
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => setFollowUpMode(followUpMode === 'queue' ? 'steer' : 'queue')}
-                  title={
-                    followUpMode === 'queue'
-                      ? 'Enter queues the prompt for after this run · ⌘/Ctrl+Enter adds it to this run'
-                      : 'Enter adds the prompt to this run · ⌘/Ctrl+Enter queues it for after'
-                  }
-                  className="glass-ghost grid rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
-                >
-                  <span className={`col-start-1 row-start-1 ${followUpMode === 'steer' ? '' : 'invisible'}`}>steer</span>
-                  <span className={`col-start-1 row-start-1 ${followUpMode === 'queue' ? '' : 'invisible'}`}>queue</span>
-                </button>
+                <div className="glass-ghost flex rounded-md p-0.5 text-[12.5px]" data-follow-up-mode>
+                  <button
+                    type="button"
+                    aria-pressed={followUpMode === 'steer'}
+                    title="Steer: add the next prompt to the current run"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setFollowUpMode('steer')}
+                    className={`rounded px-1.5 py-0.5 transition-colors ${followUpMode === 'steer' ? 'bg-hover text-brand' : 'text-dim hover:text-main'}`}
+                  >
+                    steer
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={followUpMode === 'queue'}
+                    title="Queue: send the next prompt after the current run"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setFollowUpMode('queue')}
+                    className={`rounded px-1.5 py-0.5 transition-colors ${followUpMode === 'queue' ? 'bg-hover text-brand' : 'text-dim hover:text-main'}`}
+                  >
+                    queue
+                  </button>
+                </div>
               )}
 
               <div className="flex-1" />

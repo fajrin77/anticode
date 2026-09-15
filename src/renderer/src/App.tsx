@@ -591,8 +591,6 @@ export function App(): JSX.Element {
         // rather than being covered by it: both stay usable at once, which is
         // the point of watching a page the agent is working on.
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
-          <div className="session-swipe-hint session-swipe-previous" aria-hidden>‹</div>
-          <div className="session-swipe-hint session-swipe-next" aria-hidden>›</div>
           {/* Full size hands the whole window to the page. The transcript is
               only set aside, not unmounted — its scroll and draft are where
               they were when the pane shrinks back. */}

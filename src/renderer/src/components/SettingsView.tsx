@@ -68,7 +68,7 @@ function General({
       <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
         <SettingRow
           title="Auto-accept permissions"
-          hint="Skip medium-risk approvals; high-risk actions still ask in Auto"
+          hint="Run without approval prompts, including high-risk actions"
         >
           <Toggle on={status?.autoApprove === true} onChange={onToggleAutoApprove} />
         </SettingRow>

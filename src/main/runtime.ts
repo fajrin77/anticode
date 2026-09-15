@@ -783,7 +783,7 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
     blocks: message.content
       .filter(
         (block): block is Extract<ContentBlock, { type: 'text' | 'tool_use' | 'tool_result' | 'display' }> =>
-          block.type === 'text' || block.type === 'tool_use' || block.type === 'tool_result' || block.type === 'display'
+          (block.type === 'text' && block.internal !== true) || block.type === 'tool_use' || block.type === 'tool_result' || block.type === 'display'
       )
       .map((block) => {
         if (block.type === 'text') {
@@ -897,7 +897,7 @@ export function takeBackPrompt(sessionId: string, count: number): TakenPrompt | 
     for (let i = live.messages.length - 1; i >= 0 && taken === null; i--) {
       const message = live.messages[i]
       if (message === undefined || !isTypedPrompt(message) || ++seen < count) continue
-      const typed = message.content.find((block) => block.type === 'text' && block.attachment === undefined && block.followUp === undefined)
+      const typed = message.content.find((block) => block.type === 'text' && block.attachment === undefined && block.followUp === undefined && block.internal !== true)
       if (typed?.type !== 'text') return null
       const removed = live.messages.slice(i)
       live.messages.length = i

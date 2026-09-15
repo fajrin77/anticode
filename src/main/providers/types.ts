@@ -25,6 +25,8 @@ export type ContentBlock =
        * paused before it could take the instruction in.
        */
       followUp?: { text: string; during: boolean }
+      /** Runtime instruction for the model that is intentionally hidden from viewers. */
+      internal?: boolean
     }
   | { type: 'image'; mediaType: string; data: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
