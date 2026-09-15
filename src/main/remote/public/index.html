@@ -595,18 +595,14 @@
   .ssec > .muted { margin-bottom: 8px; font-size: 14px; }
   .ssec .mode { margin-bottom: 6px; }
   .mode button:active { color: #d1fa22; }
-  /* The new-session page: the mode pill floats just under the blurred header,
-     and the page it titles is an empty chat — one soft hint, nothing else.
-     The provider/folder details are tucked away until anticode is picked. */
+  /* The new-session page: the mode pill floats centred just under the blurred
+     header, and the page it titles is an empty chat — nothing else. The
+     provider/folder details are tucked away until anticode is picked. */
   #newSessionCard { padding-top: 4px; }
-  #newSessionCard .mode { margin: 2px 0 0; }
+  #newSessionCard .mode { margin: 2px auto 0; }
   #newSessionCard .path, #newSessionCard select.wide, #newSessionCard .actions { display: none; }
   #newSessionCard.picking .path, #newSessionCard.picking select.wide { display: block; }
   #newSessionCard.picking .actions { display: flex; margin-top: 8px; }
-  #newEmptyHint {
-    margin: auto 0; padding: 26vh 12px 0; text-align: center;
-    color: #6d6d6d; font-size: 14.5px;
-  }
   .usage { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 14px; }
   .usage span:nth-child(odd) { color: #6d6d6d; }
   .prow { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #262626; font-size: 15px; }
@@ -698,7 +694,6 @@
           <button onclick="startSession()">Start</button>
           <button id="useModelBtn" class="alt hidden" onclick="applyCustomModel()">Use model ID</button>
         </div>
-        <div class="new-empty" id="newEmptyHint">Belum ada pesan. Mulai ngobrol di bawah.</div>
       </div>
       <input class="path hidden" id="sessionSearch" type="search" placeholder="Search sessions"
         autocapitalize="off" autocorrect="off" spellcheck="false" oninput="renderSessionList()" />
