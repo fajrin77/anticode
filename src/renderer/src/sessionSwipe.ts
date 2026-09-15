@@ -6,10 +6,12 @@ export const SWIPE_REARM_DELTA = 6
 /** Momentum only decays; an event this much stronger than the tail's peak is
  * a new flick, recognised immediately instead of after the residue dies. */
 export const SWIPE_TAIL_ESCAPE_RATIO = 2
-/** Deliberate horizontal travel before the neighbour starts entering. */
+/** Deliberate horizontal travel before the neighbour is committed. */
 export const SWIPE_THRESHOLD = 32
-export const SWIPE_COMMIT_MS = 120
-export const SWIPE_BOUNCE_MS = 140
+/** The swap itself: a short fade-in, never a sideways slide. */
+export const SWIPE_COMMIT_MS = 140
+/** A wheel step at or below this speed means the fingers have let go. */
+export const SWIPE_SETTLE_DELTA = 6
 
 export function swipeDelta(x: number, y: number, mode: number): number {
   if (Math.abs(x) <= Math.abs(y) * 1.4) return 0

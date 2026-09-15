@@ -1,15 +1,22 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore } from '../store/session'
 import {
-  SWIPE_BOUNCE_MS,
   SWIPE_COMMIT_MS,
   SWIPE_IDLE_MS,
+  SWIPE_SETTLE_DELTA,
+  SWIPE_THRESHOLD,
   canRearmSwipe,
   swipeDelta,
   swipeTarget
 } from '../sessionSwipe'
 
-/** One shared recognizer for the tab strip and conversation, with release-to-commit. */
+/** One shared recognizer for the tab strip and conversation.
+ *
+ * The tab changes on release, not while the fingers are still moving: the
+ * gesture only records a direction and how far it travelled, and the swap
+ * happens once the momentum has clearly eased. The session and its composer
+ * never slide — content stays centred and only fades back in, so a switch
+ * reads as a change of state rather than a sideways motion. */
 export function useSessionSwipe(enabled: boolean, select: (id: string) => void) {
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -20,7 +27,6 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
     let lastEvent = 0
     let origin: string | null = null
     let timer = 0
-    let frame = 0
     let busy = false
     let suppressTail = false
     let tailDirection = 0
@@ -30,58 +36,39 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
     const content = () => host.querySelector<HTMLElement>('[data-session-slide]')
     const reset = () => { distance = 0; axis = null; origin = null }
-    const restore = () => {
-      const pane = content()
-      if (pane) { pane.style.transform = ''; pane.style.willChange = '' }
-    }
-    const finish = async () => {
-      cancelAnimationFrame(frame)
+    const settle = async () => {
+      clearTimeout(timer)
       const state = useSessionStore.getState()
-      if (origin !== state.activeSessionId) { restore(); reset(); return }
-      const target = swipeTarget(state.sessions.filter(s => !s.closed).map(s => s.id), origin, distance)
-      const pane = content()
-      const from = pane?.style.transform || 'translateX(0px)'
-      const sign = Math.sign(distance)
+      const from = origin
+      const travelled = distance
+      const sign = Math.sign(travelled)
+      reset()
+      if (from === null || from !== state.activeSessionId) return
+      const ids = state.sessions.filter(s => !s.closed).map(s => s.id)
+      const target = swipeTarget(ids, from, travelled)
+      if (target === null || !state.sessions.some(s => s.id === target && !s.closed)) return
       busy = true
       suppressTail = true
       tailDirection = sign
       tailPeak = 0
-      restore()
       try {
-        if (!target && pane && !reduced.matches) {
-          animation = pane.animate([
-            { transform: from },
-            { transform: 'translateX(0px)', opacity: 1 }
-          ], { duration: SWIPE_BOUNCE_MS, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' })
+        select(target)
+        if (reduced.matches) return
+        // The pane never moves sideways: only its content eases back in, so the
+        // swap reads as a change of state rather than a slide.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        const pane = content()
+        if (pane !== null && !disposed) {
+          animation = pane.animate(
+            [{ opacity: .4 }, { opacity: 1 }],
+            { duration: SWIPE_COMMIT_MS, easing: 'ease-out' }
+          )
           await animation.finished
-        }
-        if (disposed || useSessionStore.getState().activeSessionId !== origin) return
-        if (target && useSessionStore.getState().sessions.some(s => s.id === target && !s.closed)) {
-          if (reduced.matches) {
-            select(target)
-          } else {
-            // Select immediately, then settle only the destination pane inside
-            // the clipped session container. A document View Transition lives
-            // above every z-index and let transcript text flash over the tab
-            // bar; a local animation can never cross that boundary.
-            select(target)
-            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-            const nextPane = content()
-            if (nextPane !== null) {
-              animation = nextPane.animate([
-                { transform: `translateX(${sign * 36}px)`, opacity: .72 },
-                { transform: 'translateX(0px)', opacity: 1 }
-              ], { duration: SWIPE_COMMIT_MS, easing: 'cubic-bezier(.22,1,.36,1)' })
-              await animation.finished
-            }
-          }
         }
       } catch { /* Unmounting or a direct tab click can cancel an animation. */ }
       finally {
         animation?.cancel()
         busy = false
-        reset()
-        restore()
       }
     }
     const onWheel = (event: WheelEvent) => {
@@ -99,8 +86,8 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       const quiet = gap > SWIPE_IDLE_MS
       const horizontal = swipeDelta(event.deltaX, event.deltaY, event.deltaMode)
       lastEvent = now
-      // Do not compete with the destination animation. Once it settles, the
-      // recognizer below can tell a fresh flick from the old momentum tail.
+      // Do not compete with the swap. Once it settles, the recognizer below can
+      // tell a fresh flick from the old momentum tail.
       if (busy) {
         if (horizontal) event.preventDefault()
         return
@@ -128,33 +115,21 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       event.preventDefault()
       distance += horizontal
       clearTimeout(timer)
-      const state = useSessionStore.getState()
-      const ids = state.sessions.filter(s => !s.closed).map(s => s.id)
-      const neighbour = swipeTarget(ids, origin, distance)
-      // Commit while the fingers are still moving. Waiting for the idle timer
-      // used to produce the visible arrow-then-pause beat the user felt.
-      if (neighbour !== null) {
-        cancelAnimationFrame(frame)
-        void finish()
+      // Release is when the momentum eases: once the run is long enough and the
+      // latest step has dropped to a settle speed, the neighbour is committed.
+      // A slow deliberate drag that never speeds up falls back to the idle gap.
+      if (Math.abs(distance) >= SWIPE_THRESHOLD && Math.abs(horizontal) <= SWIPE_SETTLE_DELTA) {
+        void settle()
         return
       }
-      timer = window.setTimeout(() => { void finish() }, SWIPE_IDLE_MS)
-      // Track the fingers in this very event. Deferring this by one animation
-      // frame left a visible still beat before the session began moving.
-      const pane = content()
-      if (pane && !reduced.matches) {
-        pane.style.willChange = 'transform'
-        pane.style.transform = `translateX(${-Math.sign(distance) * Math.min(80, Math.abs(distance) * .45)}px)`
-      }
+      timer = window.setTimeout(() => { void settle() }, SWIPE_IDLE_MS)
     }
     host.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       disposed = true
       host.removeEventListener('wheel', onWheel)
       clearTimeout(timer)
-      cancelAnimationFrame(frame)
       animation?.cancel()
-      restore()
     }
   }, [enabled, select])
   return root
