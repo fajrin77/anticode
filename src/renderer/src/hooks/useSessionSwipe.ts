@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore } from '../store/session'
 import {
-  SWIPE_COMMIT_MS,
+  SWIPE_FADE_IN_MS,
+  SWIPE_FADE_OUT_MS,
   SWIPE_IDLE_MS,
   SWIPE_SETTLE_DELTA,
   SWIPE_THRESHOLD,
@@ -52,16 +53,28 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       tailDirection = sign
       tailPeak = 0
       try {
+        if (!reduced.matches) {
+          // The old session dims out first — a real fade, not a one-frame
+          // blink — then the swap happens while the pane is dark, and the
+          // new session eases back in. The pane itself never slides.
+          const pane = content()
+          if (pane !== null) {
+            const out = pane.animate(
+              [{ opacity: 1 }, { opacity: .12 }],
+              { duration: SWIPE_FADE_OUT_MS, easing: 'ease-in' }
+            )
+            try { await out.finished } catch { /* unmounted mid-fade */ }
+          }
+        }
+        if (disposed) return
         select(target)
         if (reduced.matches) return
-        // The pane never moves sideways: only its content eases back in, so the
-        // swap reads as a change of state rather than a slide.
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
         const pane = content()
         if (pane !== null && !disposed) {
           animation = pane.animate(
-            [{ opacity: .4 }, { opacity: 1 }],
-            { duration: SWIPE_COMMIT_MS, easing: 'ease-out' }
+            [{ opacity: .12 }, { opacity: 1 }],
+            { duration: SWIPE_FADE_IN_MS, easing: 'ease-out' }
           )
           await animation.finished
         }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SWIPE_COMMIT_MS,
+  SWIPE_FADE_IN_MS,
+  SWIPE_FADE_OUT_MS,
   SWIPE_IDLE_MS,
   canRearmSwipe,
   swipeDelta,
@@ -10,7 +11,10 @@ import {
 describe('session swipe intent', () => {
   it('commits quickly while leaving a short smooth transition', () => {
     expect(SWIPE_IDLE_MS).toBeLessThanOrEqual(100)
-    expect(SWIPE_COMMIT_MS).toBeLessThanOrEqual(180)
+    // Out before the swap, back in after: the whole dip stays under 350 ms.
+    expect(SWIPE_FADE_OUT_MS).toBeLessThanOrEqual(120)
+    expect(SWIPE_FADE_IN_MS).toBeLessThanOrEqual(200)
+    expect(SWIPE_FADE_OUT_MS + SWIPE_FADE_IN_MS).toBeLessThanOrEqual(350)
   })
   it('leaves vertical and diagonal scrolling alone', () => {
     expect(swipeDelta(20, 40, 0)).toBe(0)

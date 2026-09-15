@@ -8,8 +8,9 @@ export const SWIPE_REARM_DELTA = 6
 export const SWIPE_TAIL_ESCAPE_RATIO = 2
 /** Deliberate horizontal travel before the neighbour is committed. */
 export const SWIPE_THRESHOLD = 32
-/** The swap itself: a short fade-in, never a sideways slide. */
-export const SWIPE_COMMIT_MS = 140
+/** The old session dims out before the swap; the new one eases in after. */
+export const SWIPE_FADE_OUT_MS = 90
+export const SWIPE_FADE_IN_MS = 150
 /** A wheel step at or below this speed means the fingers have let go. */
 export const SWIPE_SETTLE_DELTA = 6
 
