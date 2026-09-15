@@ -265,8 +265,8 @@ function ServerRow({ server, editing, onEdit }: { server: McpServerStatus; editi
 }
 
 /**
- * MCP servers whose tools anticode sessions can use. Each call is approved
- * like a built-in edit unless the server is trusted; antichat never gets them.
+ * MCP servers whose tools both modes can use. Each call is approved like a
+ * built-in edit unless the server is trusted.
  */
 export function Mcp(): JSX.Element {
   const [servers, setServers] = useState<McpServerStatus[]>([])

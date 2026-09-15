@@ -1,5 +1,10 @@
 # anticode
 
+Versi **0.0.28** menyamakan kemampuan antichat dan anticode: keduanya mendapat seluruh tool file,
+terminal, browser/internet, screenshot, sub-agent, dan MCP serta memakai kebijakan approval yang sama.
+Perbedaannya hanya workspace: antichat otomatis memakai folder privat per sesi, sedangkan anticode
+wajib memakai folder project yang dipilih pengguna.
+
 Versi **0.0.27** memperhalus swipe antar sesi dari isi chat dan bar tab, menjaga
 lampiran serta draft setelah restart, menyediakan Pause saat mengetik, menyimpan
 posisi baca, dan mencegah download ganda. Dashboard memakai draft persisten;
@@ -98,14 +103,13 @@ menampilkan persentase context terbaru dan menyediakan ekspor transcript lengkap
 | | antichat | anticode |
 |---|---|---|
 | Folder project | tidak perlu (folder privat per sesi di data app) | wajib |
-| Tool | tool dokumen saja — file, Excel, Word, PDF, checklist, `share_file` | kedua puluh tujuh tool |
-| Dipakai untuk | tanya jawab, brainstorming | membaca dan mengubah project |
+| Tool | semua tool, termasuk terminal, browser/internet, screenshot, sub-agent, dan MCP | sama |
+| Dipakai untuk | tanya jawab dan pekerjaan tanpa project lokal | pekerjaan di dalam project pilihan |
 
-antichat bukan sekadar mode dengan tool yang disembunyikan: daftar tool yang dikirim ke provider
-hanya berisi tool dokumen, dan semuanya terkunci di folder privat sesi itu — tanpa terminal, hapus,
-browser, internet, maupun MCP — jadi model tidak bisa menyentuh project atau berkas lain di disk.
-Karena hanya menyentuh salinannya sendiri, tool itu jalan tanpa approval. Kartu **anticode** di dashboard
-tetap mati sampai sebuah folder dipilih.
+Daftar tool yang dikirim ke provider sama untuk kedua mode. Tool file dan terminal antichat terkunci
+di folder privat sesi itu, sehingga tidak menyentuh project atau berkas lain di disk; browser memiliki
+state per sesi. Kebijakan approval Default/Auto juga sama. Kartu **anticode** di dashboard tetap mati
+sampai sebuah folder dipilih.
 
 Tiap tab punya percakapannya sendiri di main process, terikat pada mode dan folder yang berlaku saat
 sesi itu dibuat. Membuka tab Code kedua di folder berbeda tidak mencampur riwayatnya.
@@ -251,14 +255,14 @@ kembali ke agent utama hanya laporan akhirnya, jadi berkas yang dibaca sub-agent
 context utama. Karena `task` terhitung read-only, beberapa `task` dalam satu giliran berjalan
 paralel: itulah "parallel Explore". Langkah sub-agent muncul live di baris **Agent** transkrip,
 tokennya ikut dihitung di baris penutup run tetapi tidak menggeser meter context, dan ia berhenti
-sendiri setelah 30 langkah. antichat tidak ditawari `task`.
+sendiri setelah 30 langkah. `task` tersedia di antichat dan anticode.
 Tool browser (navigate, get_text, screenshot, network) berbagi satu halaman Chromium, jadi mereka
 diperlakukan serial meski tidak mengubah berkas.
 
 ## MCP
 
 Settings → **MCP** menghubungkan server Model Context Protocol, dan tool-nya ikut ditawarkan ke sesi
-anticode (antichat tidak pernah mendapatkannya). Server bisa berupa **Command** — proses lokal yang
+antichat maupun anticode. Server bisa berupa **Command** — proses lokal yang
 diajak bicara lewat stdio, misalnya `npx -y @modelcontextprotocol/server-filesystem /path` — atau
 **URL** Streamable HTTP dengan header seperti `Authorization: Bearer …`. Blok `mcpServers` dari
 konfigurasi klien MCP lain bisa ditempel di **Import**. Environment dan header disegel dengan keychain

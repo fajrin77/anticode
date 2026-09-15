@@ -781,18 +781,14 @@ export class AgentSession {
     try {
       const prepared = tool.prepare(call.input)
 
-      // antichat asks nothing: its tools only reach copies in its own private
-      // folder, with no terminal, deleting, or network to be careful about.
-      const approved =
-        this.mode === 'chat' ||
-        (await this.gate.authorize({
-          runId,
-          sessionId: this.scope,
-          toolName: tool.name,
-          risk: prepared.risk,
-          preview: () => prepared.preview(context),
-          signal: params.signal
-        }))
+      const approved = await this.gate.authorize({
+        runId,
+        sessionId: this.scope,
+        toolName: tool.name,
+        risk: prepared.risk,
+        preview: () => prepared.preview(context),
+        signal: params.signal
+      })
       if (params.signal.aborted) {
         return this.finishCall(
           params,
@@ -1102,17 +1098,25 @@ export class AgentSession {
     if (this.mode === 'chat') {
       return [
         'You are antichat, the ask-and-answer mode of anticode.',
-        'You have no terminal, no network, and no project folder.',
-        'Files the user attaches are copied into a private folder that belongs to this ' +
-          'conversation; each attachment header names its path there. Your document tools ' +
-          '(read and write files, Excel, Word, PDF) take paths relative to that folder, and ' +
-          'nothing outside it is reachable.',
+        `Private workspace root: ${this.workspaceRoot}`,
+        `Operating system: ${process.platform}`,
+        'You have the same file, terminal, browser, internet, screenshot, delegation, and MCP tools ' +
+          'as anticode. The only difference is the workspace: antichat needs no project selection, ' +
+          'because every session receives its own private folder.',
+        'Every path you pass to a file or terminal tool is relative to that private workspace root. ' +
+          'Nothing outside it is reachable through those tools. Files the user attaches are copied ' +
+          'there, and each attachment header names its path.',
+        'Use browser and internet tools whenever current or externally verifiable information would ' +
+          'improve the answer. Browser state belongs to this session.',
         'To change an attached file, read it first, then edit that copy in place — or write a ' +
           'new file next to it when the user wants a separate one. You can also create new ' +
           'documents there. Every document you write is offered to the user as a download on ' +
           'the desktop and the phone, so say what you changed instead of pasting the file back. ' +
           'To hand back a file you did not write — an attachment as it is — call share_file on it.',
-        'Without an attachment there is nothing to edit: ask the user to attach the file.',
+        'If the user refers to a specific local file that is not attached, ask them to attach it. ' +
+          'You may still create new files or use terminal, browser, and internet tools without an attachment.',
+        'Use search_files to locate workspace content instead of reading files one by one. Read a file ' +
+          'before changing it, and use edit_file for partial changes.',
         'Do not offer scripts for the user to run as a substitute unless they ask for one.',
         'Reply in the language the user writes in; be concise and to the point.',
         'Do not use emojis or decorative symbols in your replies.'

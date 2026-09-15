@@ -300,8 +300,8 @@ export interface ApprovalResponse {
 }
 
 /**
- * Chat never touches the filesystem, so it is offered no tools and needs no
- * folder. Code binds to a project folder for the life of the session.
+ * Chat uses a private per-session workspace and needs no folder selection.
+ * Code binds the same tools to a selected project folder for the session.
  */
 export type SessionMode = 'chat' | 'code'
 

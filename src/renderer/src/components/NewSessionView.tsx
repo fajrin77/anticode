@@ -395,7 +395,7 @@ function DashboardComposer({
               <button
                 key={value}
                 type="button"
-                title={value === 'chat' ? 'Documents and downloads; use anticode for terminal and browser tasks' : 'Files, terminal and session browser tools'}
+                title={value === 'chat' ? 'All tools in a private session folder; no project folder required' : 'All tools in the selected project folder'}
                 onClick={() => setMode(value)}
                 className={`rounded-md px-4 py-1.5 text-[13px] transition-colors ${
                   mode === value

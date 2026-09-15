@@ -63,30 +63,6 @@ export const tools: Tool[] = [
 ]
 
 /**
- * What antichat may do with the files it is sent: read and edit documents in
- * its own private folder. No terminal, no deleting, no network, no browser —
- * it works on copies, and hands the results back as downloads.
- */
-const CHAT_TOOL_NAMES = new Set([
-  'todo_write',
-  'read_file',
-  'write_file',
-  'edit_file',
-  'list_directory',
-  'share_file',
-  'read_excel',
-  'create_excel',
-  'write_excel_cell',
-  'add_excel_formula',
-  'format_excel_cells',
-  'read_docx',
-  'write_docx',
-  'read_pdf',
-  'create_pdf',
-  'fill_pdf_form'
-])
-
-/**
  * A sub-agent's kit: reading only. No editing, no terminal, no browser page
  * (it is shared with the parent), and no `task` of its own — one level deep.
  */
@@ -112,11 +88,11 @@ export function setExternalTools(source: () => Tool[]): void {
 }
 
 /**
- * anticode gets the built-in tools plus the external ones; antichat only its
- * document kit — an MCP server can reach anything, so it stays out of there.
+ * Both modes get the same built-in and external tools. Their only capability
+ * boundary is the workspace root: anticode uses the selected project, while
+ * antichat uses a private folder owned by that session.
  */
-export function toolsFor(mode: SessionMode): Tool[] {
-  if (mode === 'chat') return tools.filter((tool) => CHAT_TOOL_NAMES.has(tool.name))
+export function toolsFor(_mode: SessionMode): Tool[] {
   const builtIn = new Set(tools.map((tool) => tool.name))
   return [...tools, ...external().filter((tool) => !builtIn.has(tool.name))]
 }

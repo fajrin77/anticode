@@ -273,3 +273,11 @@ describe('share_file', () => {
     expect(shareFileTool.prepare({ path: 'a.exe' }).risk).toBe('low')
   })
 })
+
+describe('mode toolsets', () => {
+  it('offers antichat and anticode the same tools', () => {
+    expect(toolsFor('chat').map((tool) => tool.name)).toEqual(
+      toolsFor('code').map((tool) => tool.name)
+    )
+  })
+})

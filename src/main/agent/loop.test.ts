@@ -1038,9 +1038,9 @@ describe('sub-agents', () => {
     expect(usage.filter((event) => event.type === 'usage' && event.subagent !== true)).toHaveLength(2)
   })
 
-  it('is not offered in antichat', () => {
+  it('is offered in antichat too', () => {
     const offered = new AgentSession(new FakeProvider([]), allowAll, 'chat', root)
-    expect((offered as unknown as { toolset: () => { name: string }[] }).toolset().some((tool) => tool.name === 'task')).toBe(false)
+    expect((offered as unknown as { toolset: () => { name: string }[] }).toolset().some((tool) => tool.name === 'task')).toBe(true)
   })
 })
 
@@ -1059,18 +1059,28 @@ describe('titleOf', () => {
 })
 
 describe('antichat', () => {
-  it('offers document tools only, with no terminal, deleting, or network', async () => {
+  it('offers the same file, terminal, browser, internet, and delegation tools as anticode', async () => {
     let offered: string[] = []
     const provider: LLMProvider = { name: 'spy', model: 'spy', async *chat(params) {
       offered = params.tools.map((tool) => tool.name)
       yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
     } }
     await new AgentSession(provider, allowAll, 'chat', root).run({ runId: 'tools', prompt: 'hai', signal: new AbortController().signal, emit: () => {} })
-    expect(offered).toEqual(expect.arrayContaining(['read_excel', 'format_excel_cells', 'write_docx', 'edit_file']))
-    for (const name of ['run_command', 'delete_file', 'fetch_url', 'browser_navigate']) expect(offered).not.toContain(name)
+    expect(offered).toEqual(expect.arrayContaining([
+      'read_excel',
+      'format_excel_cells',
+      'write_docx',
+      'edit_file',
+      'run_command',
+      'delete_file',
+      'fetch_url',
+      'browser_navigate',
+      'task',
+      'screenshot'
+    ]))
   })
 
-  it('writes without asking, since it only ever touches its own copies', async () => {
+  it('uses the same approval gate as anticode for mutations', async () => {
     let asked = 0
     const provider = new FakeProvider([
       turn([{ type: 'tool_use', id: 'w', name: 'write_file', input: { path: 'hasil.txt', content: 'jadi' } }], 'tool_use'),
@@ -1078,11 +1088,11 @@ describe('antichat', () => {
     ])
     const gate = { authorize: async () => { asked += 1; return false } }
     await new AgentSession(provider, gate, 'chat', root).run({ runId: 'ask', prompt: 'tulis', signal: new AbortController().signal, emit: () => {} })
-    expect(asked).toBe(0)
-    expect(await readFile(path.join(root, 'hasil.txt'), 'utf8')).toBe('jadi')
+    expect(asked).toBe(1)
+    await expect(readFile(path.join(root, 'hasil.txt'), 'utf8')).rejects.toThrow()
   })
 
-  it('edits a file in its own folder, and runs nothing it was not offered', async () => {
+  it('edits and runs commands inside its own folder', async () => {
     await writeFile(path.join(root, 'catatan.txt'), 'halo dunia')
     const provider = new FakeProvider([
       turn([
@@ -1093,8 +1103,8 @@ describe('antichat', () => {
     ])
     await new AgentSession(provider, allowAll, 'chat', root).run({ runId: 'edit', prompt: 'ganti', signal: new AbortController().signal, emit: (event) => events.push(event) })
     expect(await readFile(path.join(root, 'catatan.txt'), 'utf8')).toBe('halo semua')
-    expect(events).toContainEqual(expect.objectContaining({ type: 'tool_end', toolUseId: 'shell', ok: false, output: 'Unknown tool: run_command' }))
-    await expect(readFile(path.join(root, 'pwned'))).rejects.toThrow()
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool_end', toolUseId: 'shell', ok: true }))
+    expect(await readFile(path.join(root, 'pwned'), 'utf8')).toBe('')
   })
 })
 

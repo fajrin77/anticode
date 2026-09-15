@@ -849,7 +849,7 @@ export function Composer({
               {(['chat', 'code'] as const).map((mode) => (
                 <button
                   key={mode}
-                  title={mode === 'chat' ? 'Documents and downloads; use anticode for terminal and browser tasks' : 'Files, terminal and session browser tools'}
+                  title={mode === 'chat' ? 'All tools in a private session folder; no project folder required' : 'All tools in the selected project folder'}
                   type="button"
                   onClick={() =>
                     updateSessionConfig(session.id, {

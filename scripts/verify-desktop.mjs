@@ -191,11 +191,13 @@ try {
   // after the file that rode ahead of them, and deleting it takes the folder.
   const chatSession = (await api('/api/session',{mode:'chat'})).sessionId
   const chatUpload = await api('/api/attachment',{name:'Template_Import_Data_Barang.xlsx',data:Buffer.from(await template.xlsx.writeBuffer()).toString('base64')})
-  // In Default mode too, antichat edits without an approval: it only touches its copies.
+  // Both modes use the same approval policy; only their workspace roots differ.
   await api('/api/prompt',{sessionId:chatSession,prompt:'chat-format-fixture: ubah header biru jadi merah',attachmentIds:[chatUpload.id]})
+  await window.getByRole('button',{name:'Approve',exact:true}).waitFor()
+  await window.getByRole('button',{name:'Approve',exact:true}).click()
   for (let i=0;i<250;i++) { if (!(await api('/api/session/'+chatSession)).runId) break; await new Promise(r=>setTimeout(r,20)) }
   assert.match(lastSent, /own folder at `Template_Import_Data_Barang\.xlsx`/)
-  assert.equal(await window.getByRole('button',{name:'Approve',exact:true}).count(), 0, 'antichat asked for approval')
+  assert.equal(await window.getByRole('button',{name:'Approve',exact:true}).count(), 0, 'antichat approval did not close')
   const chatFolder = path.join(profile,'antichat',chatSession)
   const chatRecoloured = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${chatSession}&path=${encodeURIComponent('Template_Import_Data_Barang-merah.xlsx')}&token=${remote.token}`)
   assert.equal(chatRecoloured.status,200)
@@ -222,7 +224,7 @@ try {
   let chatFolderGone = false
   for (let i=0;i<50 && !chatFolderGone;i++) { chatFolderGone = await readFile(path.join(chatFolder,'Template_Import_Data_Barang.xlsx')).then(()=>false,()=>true); if (!chatFolderGone) await new Promise(r=>setTimeout(r,20)) }
   assert.equal(chatFolderGone, true, 'deleting an antichat session left its folder behind')
-  log('antichat edits an attached workbook with no folder chosen or approval asked; it opens in place and downloads back')
+  log('antichat edits an attached workbook with no folder chosen, uses the shared approval policy, and downloads it back')
   await writeFile(path.join(workspace,'laporan.pdf'),'fixture pdf')
   const download = await fetch(`http://127.0.0.1:18680/api/download?sessionId=${sessionId}&path=laporan.pdf&token=${remote.token}`)
   assert.equal(download.status,200)
