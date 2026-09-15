@@ -471,14 +471,16 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
   }
   .composer button.lime { background: #d1fa22; color: #1a1a1a; }
+  /* A small segmented pill, centred under the title: two short labels side by
+     side, sized to their own text rather than the card's width. */
   .mode {
-    display: flex; gap: 4px; margin-bottom: 10px; padding: 4px;
-    background: rgba(20,20,20,.55); border: 1px solid var(--glass-border); border-radius: 12px;
+    display: flex; gap: 4px; margin: 0 auto 10px; padding: 3px; width: fit-content;
+    background: rgba(20,20,20,.55); border: 1px solid var(--glass-border); border-radius: 10px;
     -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
   }
   .mode button {
-    flex: 1; background: none; color: #9a9a9a; border: 1px solid transparent;
-    border-radius: 9px; padding: 9px 0; font-weight: 600; transition: color .15s, background .15s;
+    background: none; color: #9a9a9a; border: 1px solid transparent;
+    border-radius: 8px; padding: 5px 14px; font-size: 13px; font-weight: 600; transition: color .15s, background .15s;
   }
   .mode button:active { color: #d1fa22; }
   .mode button.on { color: #1a1a1a; background: #d1fa22; border-color: #d1fa22; }
@@ -2650,7 +2652,11 @@ const PAUSE_GLYPH = '<span class="sq" aria-hidden="true"></span>';
 const RESUME_GLYPH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z"/></svg>';
 
 function updateSendBtn() {
-  document.getElementById('inputRow').classList.toggle('hidden', !currentSession
+  // The new-session page is a chat that has not started: currentSession is
+  // null there, but the composer must stay — it is where the first prompt is
+  // typed. Only the sessions list (and the web/files views) put it away.
+  const onNewPage = !document.getElementById('newSessionCard').classList.contains('hidden');
+  document.getElementById('inputRow').classList.toggle('hidden', (!currentSession && !onNewPage)
     || !document.getElementById('viewFiles').classList.contains('hidden')
     || !document.getElementById('viewWeb').classList.contains('hidden'));
   const btn = document.getElementById('sendBtn');
