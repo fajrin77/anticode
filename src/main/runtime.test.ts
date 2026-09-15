@@ -1,9 +1,10 @@
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ApprovalGate } from './approval/types'
 import type { ProviderFallback } from './agent/loop'
+import type { Message } from './providers/types'
 
 const userData = mkdtempSync(path.join(tmpdir(), 'anticode-runtime-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
@@ -28,14 +29,21 @@ vi.mock('./providers', () => ({
 vi.mock('./agent/loop', () => ({
   titleOf: () => '',
   AgentSession: class {
-    messageCount = 0
     fallback: ProviderFallback | null = null
-    constructor(public provider: { name: string; model: string }) {}
+    messages: unknown[]
+    constructor(
+      public provider: { name: string; model: string },
+      _gate: unknown,
+      _mode: unknown,
+      _root: unknown,
+      initialHistory: unknown[] = []
+    ) { this.messages = structuredClone(initialHistory) }
+    get messageCount(): number { return this.messages.length }
     useProvider(provider: { name: string; model: string }, fallback: ProviderFallback | null): void {
       this.provider = provider
       this.fallback = fallback
     }
-    snapshot(): { messages: never[] } { return { messages: [] } }
+    snapshot(): { messages: unknown[] } { return { messages: structuredClone(this.messages) } }
     dispose(): void {}
   }
 }))
@@ -45,10 +53,12 @@ import {
   applyRotationEnabled,
   applyRotationGroup,
   applyRotationGroups,
+  cloneSession,
   createSession,
   deleteSession,
   getSession,
   getStatus,
+  loadSessionMessages,
   providerInUse,
   selectProvider
 } from './runtime'
@@ -57,7 +67,11 @@ import { beginRun, finishRun } from './runs'
 import { modelLabel, ROTATE_PROVIDER } from '@shared/ipc'
 
 const gate = {} as ApprovalGate
-type FakeAgent = { provider: { name: string; model: string }; fallback: ProviderFallback | null }
+type FakeAgent = {
+  provider: { name: string; model: string }
+  fallback: ProviderFallback | null
+  messages: Message[]
+}
 const agentOf = (sessionId: string): FakeAgent => getSession(sessionId, gate) as unknown as FakeAgent
 const modelOf = (sessionId: string): string => agentOf(sessionId).provider.model
 
@@ -66,7 +80,7 @@ beforeEach(() => {
   applyRotation([])
   applyRotationEnabled(false)
   selectProvider({ provider: 'one', model: 'm1' })
-  for (const id of ['a', 'b', 'c']) deleteSession(id)
+  for (const id of ['a', 'b', 'c', 'fork', 'copy']) deleteSession(id)
 })
 afterEach(() => {
   finishRun('run-a')
@@ -110,6 +124,56 @@ it('makes the latest pick what new sessions start on', () => {
   expect(modelOf('b')).toBe('m2')
   createSession({ sessionId: 'c', mode: 'chat', workspaceRoot: null })
   expect(modelOf('c')).toBe('m3')
+})
+
+it('clones a durable branch through the selected prompt and keeps its model choice', () => {
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null, colour: 2 })
+  selectProvider({ provider: 'two', model: 'm2' }, 'a')
+  const source = agentOf('a')
+  source.messages.push(
+    { role: 'user', content: [{ type: 'text', text: 'topik pertama' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'jawaban pertama' }] },
+    { role: 'user', content: [{ type: 'text', text: 'topik cabang' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'jawaban yang tidak ikut' }] }
+  )
+
+  const branch = cloneSession('a', 'fork', 2, 7)
+
+  expect(branch).toMatchObject({ sessionId: 'fork', mode: 'chat', colour: 7 })
+  expect(loadSessionMessages('fork')?.map((message) => message.blocks[0])).toEqual([
+    { type: 'text', text: 'topik pertama' },
+    { type: 'text', text: 'jawaban pertama' },
+    { type: 'text', text: 'topik cabang' }
+  ])
+  expect(getStatus('fork')).toMatchObject({ provider: 'two', model: 'm2' })
+})
+
+it('gives a duplicated chat its own attachment files and references', () => {
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  const sourceRoot = path.join(userData, 'antichat', 'a')
+  mkdirSync(sourceRoot, { recursive: true })
+  const original = path.join(sourceRoot, 'notes.txt')
+  writeFileSync(original, 'private copy')
+  agentOf('a').messages.push({
+    role: 'user',
+    content: [{
+      type: 'text',
+      text: 'Attachment: notes.txt',
+      attachment: {
+        name: 'notes.txt', path: original, workspacePath: 'notes.txt',
+        kind: 'text', size: 12, thumbnail: null
+      }
+    }]
+  })
+
+  cloneSession('a', 'copy', null)
+
+  const attachment = loadSessionMessages('copy')?.[0]?.blocks[0]
+  expect(attachment?.type).toBe('attachment')
+  if (attachment?.type !== 'attachment') throw new Error('missing cloned attachment')
+  expect(attachment.attachment.path).toBe(path.join(userData, 'antichat', 'copy', 'notes.txt'))
+  expect(existsSync(attachment.attachment.path)).toBe(true)
+  expect(readFileSync(attachment.attachment.path, 'utf8')).toBe('private copy')
 })
 
 it('rejects a mistyped model without making it the default', () => {

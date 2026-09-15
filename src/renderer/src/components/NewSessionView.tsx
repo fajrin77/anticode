@@ -515,7 +515,7 @@ export function NewSessionView({
   const [fillPulse, setFillPulse] = useState(0)
   const sessions = useSessionStore((state) => state.sessions)
   const deleteSession = useSessionStore((state) => state.deleteSession)
-  const duplicateSession = useSessionStore((state) => state.duplicateSession)
+  const duplicateLocalSession = useSessionStore((state) => state.duplicateSession)
   const presets = useSessionStore((state) => state.presets)
   const deletePreset = useSessionStore((state) => state.deletePreset)
   const activeRuns = useSessionStore((state) => state.activeRuns)
@@ -527,6 +527,26 @@ export function NewSessionView({
     for (const run of Object.values(activeRuns)) if (run.sessionId === id) void window.anticode.cancelRun(run.runId)
     void window.anticode.closeSession(id)
     deleteSession(id)
+  }
+
+  /** Duplicate both the visible tab and the main-process conversation. */
+  function duplicateSession(id: string): void {
+    const duplicate = duplicateLocalSession(id)
+    if (!duplicate) return
+    const colour = useSessionStore.getState().sessions.find((item) => item.id === duplicate)?.colour
+    void window.anticode
+      .cloneSession(id, duplicate, null, colour)
+      .then(async (settled) => {
+        useSessionStore.getState().addExternalSession(settled)
+        const snapshot = await window.anticode.getSessionSnapshot(duplicate)
+        if (snapshot !== null) {
+          useSessionStore.getState().importSnapshot(duplicate, snapshot.messages, snapshot.summaries)
+        }
+      })
+      .catch((error) => {
+        useSessionStore.getState().deleteSession(duplicate)
+        console.error(`[anticode] duplicate failed for session ${id}:`, error)
+      })
   }
 
   /** A preset fills the dashboard composer; Enter then sends it. */

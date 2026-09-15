@@ -36,6 +36,7 @@ import { setFollowUpMode } from '../followUp'
 import {
   deleteSession,
   compactSession,
+  cloneSession,
   createSession,
   adoptSessionColour,
   getStatus,
@@ -556,6 +557,12 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.SESSION_CREATE, (_event, spec: SessionSpec): SessionSpec =>
     createSession(spec)
+  )
+
+  ipcMain.handle(
+    IpcChannel.SESSION_CLONE,
+    (_event, sourceSessionId: string, newSessionId: string, throughPrompt: number | null, colour?: number) =>
+      cloneSession(sourceSessionId, newSessionId, throughPrompt, colour)
   )
 
   ipcMain.handle(IpcChannel.SESSION_COLOUR, (_event, sessionId: string, colour: number): void => {

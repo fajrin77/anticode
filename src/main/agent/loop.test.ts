@@ -779,9 +779,9 @@ describe('follow-ups sent while a run is working', () => {
     const second = lastContent(provider, 1)
     expect(second[0]).toMatchObject({ type: 'tool_result', toolUseId: 't1' })
     expect(followUpsIn(second)).toEqual([{ text: 'tambah juga README', during: true }])
-    // The model reads it framed as an addition to the task, not a new one.
+    // The model may keep, correct, or replace the task according to the user.
     const framed = second.find((block) => block.type === 'text')
-    expect(framed?.type === 'text' ? framed.text : '').toMatch(/lanjutkan, dan kerjakan juga ini[\s\S]*tambah juga README/)
+    expect(framed?.type === 'text' ? framed.text : '').toMatch(/jika pengguna mengganti topik[\s\S]*fokus pada pesan ini[\s\S]*tambah juga README/)
     expect(events.filter((event) => event.type === 'end')).toEqual([
       { type: 'end', runId: 'run-1', reason: 'complete' }
     ])

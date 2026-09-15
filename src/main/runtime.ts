@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { cancelSessionRuns, clearPause, isPaused, isPausedForRetry, restorePausedSession, runForSession } from './runs'
@@ -492,6 +492,80 @@ export function createSession(spec: SessionSpec): SessionSpec {
   persistSessions()
   const announced = specOf(live)
   announcedTitles.set(spec.sessionId, announced.title ?? '')
+  sessionCreatedSink?.(announced)
+  return announced
+}
+
+/**
+ * Makes a durable branch owned by the main process. A fork retains the
+ * transcript through one typed prompt; a duplicate retains everything. The
+ * provider choice follows the source, while Rotate chooses a pool entry
+ * independently on the branch's first run.
+ */
+export function cloneSession(
+  sourceSessionId: string,
+  newSessionId: string,
+  throughPrompt: number | null,
+  proposedColour?: number
+): SessionSpec {
+  const source = sessions.get(sourceSessionId)
+  if (source === undefined) throw new Error('The conversation to copy no longer exists')
+  if (sessions.has(newSessionId)) throw new Error('The new conversation already exists')
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(newSessionId)) throw new Error('Invalid conversation ID')
+  if (throughPrompt !== null && (!Number.isInteger(throughPrompt) || throughPrompt < 1)) {
+    throw new Error('Choose a prompt to branch from')
+  }
+
+  const complete = source.agent?.snapshot().messages ?? structuredClone(source.messages)
+  let messages = complete
+  if (throughPrompt !== null) {
+    let seen = 0
+    const boundary = complete.findIndex((message) => isTypedPrompt(message) && ++seen === throughPrompt)
+    if (boundary < 0) throw new Error('The prompt to branch from no longer exists')
+    messages = complete.slice(0, boundary + 1)
+  }
+  messages = structuredClone(messages)
+
+  const colour = validColour(proposedColour) ? proposedColour : nextColour
+  nextColour = (colour + 1) % SESSION_COLOURS.length
+  // Antichat files live under the session id. Give the branch its own copies
+  // so editing or deleting either conversation cannot alter the other one.
+  if (source.spec.mode === 'chat') {
+    const from = chatFilesRoot(sourceSessionId)
+    const to = chatFilesRoot(newSessionId)
+    if (from === null || to === null) throw new Error('Invalid conversation ID')
+    if (existsSync(from)) cpSync(from, to, { recursive: true, errorOnExist: true })
+    // Attachment cards persist absolute paths. Point the clone at its copies,
+    // otherwise deleting the source conversation would break the branch.
+    messages = messages.map((message) => ({
+      ...message,
+      content: message.content.map((block) => {
+        if (block.type !== 'text' || block.attachment === undefined) return block
+        const relative = path.relative(from, block.attachment.path)
+        const inside = relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+        return inside
+          ? { ...block, attachment: { ...block.attachment, path: path.join(to, relative) } }
+          : block
+      })
+    }))
+  }
+
+  const live: LiveSession = {
+    spec: {
+      ...source.spec,
+      sessionId: newSessionId,
+      colour
+    },
+    agent: null,
+    messages,
+    summaries: structuredClone(source.summaries.slice(0, answeredRuns(messages))),
+    ...(source.choice !== undefined ? { choice: { ...source.choice } } : {})
+  }
+
+  sessions.set(newSessionId, live)
+  persistSessions()
+  const announced = specOf(live)
+  announcedTitles.set(newSessionId, announced.title ?? '')
   sessionCreatedSink?.(announced)
   return announced
 }

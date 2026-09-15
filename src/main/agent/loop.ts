@@ -107,15 +107,14 @@ export interface AgentOptions {
   instructions?: () => { global: string; session: string }
 }
 
-/**
- * How a follow-up reads to the model: an addition to the task in hand, not a
- * replacement for it. Without the framing a model tends to drop what it was
- * doing and answer only the newest message.
- */
+/** How a mid-run message reads to the model. The user may be adding to the
+ * current task, correcting it, or deliberately changing topic; the model must
+ * follow that intent instead of being forced back onto the original task. */
 function framedFollowUp(text: string): string {
   return (
-    '[Pesan tambahan dari pengguna, dikirim saat kamu masih mengerjakan tugas sebelumnya. ' +
-    'Tugas sebelumnya belum selesai: lanjutkan, dan kerjakan juga ini.]\n\n' +
+    '[Pesan terbaru dari pengguna, dikirim saat kamu masih mengerjakan permintaan sebelumnya. ' +
+    'Ikuti maksud terbaru pengguna: jika ini tambahan, gabungkan; jika ini koreksi, ubah arah; ' +
+    'jika pengguna mengganti topik atau meminta pekerjaan berbeda, hentikan pekerjaan lama dan fokus pada pesan ini.]\n\n' +
     text
   )
 }

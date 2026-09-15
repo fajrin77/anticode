@@ -123,6 +123,14 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.PROVIDER_UPDATE, id, edit) as Promise<ProviderInfo[]>,
   createSession: (spec: SessionSpec) =>
     ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<SessionSpec>,
+  cloneSession: (sourceSessionId, newSessionId, throughPrompt, colour) =>
+    ipcRenderer.invoke(
+      IpcChannel.SESSION_CLONE,
+      sourceSessionId,
+      newSessionId,
+      throughPrompt,
+      colour
+    ) as Promise<SessionSpec>,
   setSessionColour: (sessionId: string, colour: number) =>
     ipcRenderer.invoke(IpcChannel.SESSION_COLOUR, sessionId, colour) as Promise<void>,
   closeSession: (sessionId: string) =>

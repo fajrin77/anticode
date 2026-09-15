@@ -10,6 +10,7 @@ export const IpcChannel = {
   FOLLOW_UP_SET: 'followUp:set',
   SESSION_LIST: 'session:list',
   SESSION_CREATE: 'session:create',
+  SESSION_CLONE: 'session:clone',
   SESSION_CLOSE: 'session:close',
   ATTACH_CHOOSE: 'attachment:choose',
   ATTACH_ADD: 'attachment:add',
@@ -927,6 +928,16 @@ export interface AnticodeApi {
   setFollowUpMode: (mode: 'steer' | 'queue') => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */
   createSession: (spec: SessionSpec) => Promise<SessionSpec>
+  /**
+   * Copies a conversation in the main process. `throughPrompt` is the number
+   * of typed prompts to retain; null duplicates the complete transcript.
+   */
+  cloneSession: (
+    sourceSessionId: string,
+    newSessionId: string,
+    throughPrompt: number | null,
+    colour?: number
+  ) => Promise<SessionSpec>
   closeSession: (sessionId: string) => Promise<void>
   chooseAttachments: () => Promise<AttachmentInfo[]>
   addAttachments: (paths: string[]) => Promise<AttachmentInfo[]>

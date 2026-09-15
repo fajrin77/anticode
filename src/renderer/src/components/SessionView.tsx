@@ -224,8 +224,28 @@ function EditPrompt({ sessionId, message }: { sessionId: string; message: Messag
           <button
             type="button"
             onClick={() => {
-              const forked = useSessionStore.getState().forkSession(sessionId, message.id)
-              if (forked !== null) setConfirming(false)
+              const store = useSessionStore.getState()
+              const source = store.sessions.find((session) => session.id === sessionId)
+              const index = source?.messages.findIndex((entry) => entry.id === message.id) ?? -1
+              if (source === undefined || index < 0) return
+              const throughPrompt = source.messages.slice(0, index + 1).filter(isTypedPrompt).length
+              const forked = store.forkSession(sessionId, message.id)
+              if (!forked) return
+              setConfirming(false)
+              const colour = useSessionStore.getState().sessions.find((session) => session.id === forked)?.colour
+              void window.anticode
+                .cloneSession(sessionId, forked, throughPrompt, colour)
+                .then(async (settled) => {
+                  useSessionStore.getState().addExternalSession(settled)
+                  const snapshot = await window.anticode.getSessionSnapshot(forked)
+                  if (snapshot !== null) {
+                    useSessionStore.getState().importSnapshot(forked, snapshot.messages, snapshot.summaries)
+                  }
+                })
+                .catch((failure) => {
+                  useSessionStore.getState().deleteSession(forked)
+                  setError(errorText(failure))
+                })
             }}
             title="Branch a new session from here; this one stays as it is"
             className="flex items-center gap-1 text-faint transition-colors hover:text-brand"

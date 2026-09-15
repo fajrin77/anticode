@@ -112,6 +112,20 @@ try {
   const activeTitle = () => window.evaluate(() => { const s = window.__store.getState(); return s.sessions.find((x) => x.id === s.activeSessionId)?.title })
   for (let i = 0; i < 50 && await activeTitle() !== 'halo dunia'; i++) await window.waitForTimeout(40)
   check('antichat: the tab is named after its first prompt', await activeTitle(), 'halo dunia')
+  // Fork is a real main-process conversation, not only an optimistic tab.
+  const originalSession = await window.evaluate(() => window.__store.getState().activeSessionId)
+  const sessionCountBeforeFork = await window.evaluate(() => window.anticode.listSessions().then((items) => items.length))
+  await window.getByRole('button', { name: 'Fork', exact: true }).click()
+  await window.waitForFunction((original) => window.__store.getState().activeSessionId !== original, originalSession)
+  const forkedSession = await window.evaluate(() => window.__store.getState().activeSessionId)
+  const durableFork = await window.evaluate(async (id) => ({
+    count: (await window.anticode.listSessions()).length,
+    messages: (await window.anticode.getSessionSnapshot(id))?.messages.length ?? -1
+  }), forkedSession)
+  check('fork: creates a durable main-process conversation', durableFork.count, sessionCountBeforeFork + 1)
+  check('fork: stops at the selected prompt', durableFork.messages, 1)
+  await window.evaluate((id) => window.__store.getState().selectSession(id), originalSession)
+  await window.waitForTimeout(200)
   await window.mouse.move(640, 400); await window.waitForTimeout(200)
   const composerLayer = await window.locator('.composer-glass').last().evaluate((el) => {
     const layer = getComputedStyle(el.closest('[data-composer-layer]'))
@@ -891,7 +905,7 @@ try {
   check('follow-up: the marker is grey', await followMarker.first().evaluate((el) => getComputedStyle(el).color), 'rgb(154, 154, 154)')
   check('follow-up: the instruction shows as sent',
     await window.locator('div.rounded-xl', { hasText: 'tambah ini' }).count() > 0 ? 'sent' : 'missing', 'sent')
-  await window.getByText(/Fixture reply: \[Pesan tambahan/).waitFor({ timeout: 15000 })
+  await window.getByText(/Fixture reply: \[Pesan terbaru/).waitFor({ timeout: 15000 })
   await window.waitForTimeout(500)
   const followRun = await window.evaluate(() => {
     const state = window.__store.getState()
