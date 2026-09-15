@@ -622,7 +622,7 @@ function RunSummaryCard({
   // step breakdown and file counts stay in the unfolded detail (the toggle
   // still opens the changed files), out of the one-line summary.
   return (
-    <div className="group mt-2 flex flex-col items-center">
+    <div className="group my-3 flex flex-col items-center">
       <div
         className={`flex items-center gap-2 text-[12.5px] text-faint transition-opacity ${
           open || menuOpen ? 'opacity-100' : 'opacity-70'
@@ -844,6 +844,32 @@ export function SessionView(): JSX.Element {
     seenPrompts.current = promptCount
     if (following.current) box.scrollTop = box.scrollHeight
   }, [messages, promptCount])
+
+  // The composer floats above the transcript, so anything that grows it
+  // upward — attachments, the plan, a queued prompt — silently eats into the
+  // gap the working line sits in. Watching the layer's box keeps the tail
+  // anchored to the same distance instead of drifting up the page.
+  useLayoutEffect(() => {
+    const box = scrollRef.current
+    if (!box) return
+    const layer = document.querySelector<HTMLElement>('[data-composer-layer]')
+    if (layer === null) return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      // The composer's own observer writes --desktop-composer-height as the
+      // transcript's bottom padding; wait one frame so scrollHeight already
+      // includes the new padding before we re-anchor the tail to it.
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (following.current) box.scrollTop = box.scrollHeight
+      })
+    })
+    observer.observe(layer)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
