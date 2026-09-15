@@ -4,6 +4,7 @@ import type {
   AttachmentInfo,
   AttachmentRef,
   QueuedPrompt,
+  RunPhase,
   RunSummary,
   SessionMode,
   SessionSpec,
@@ -127,6 +128,8 @@ export interface ActiveRun {
   /** Tokens seen so far, so the closing line can be drawn the moment it ends. */
   inputTokens?: number
   outputTokens?: number
+  /** What the loop says it is doing between replies — the status dot's words. */
+  phase?: RunPhase
 }
 
 interface SessionPreset {
@@ -164,6 +167,7 @@ interface SessionState {
       startedAt: number
       inputTokens?: number
       outputTokens?: number
+      phase?: RunPhase
     }
   >
   /**
@@ -223,6 +227,8 @@ interface SessionState {
   ) => void
   /** Adds a run's token usage to whichever live entry owns it. */
   addRunTokens: (runId: string, inputTokens: number, outputTokens: number) => void
+  /** The loop said what it is doing between replies; the status dot repeats it. */
+  setRunPhase: (runId: string, phase: RunPhase) => void
   /** Records the model as soon as a run starts, before usage or errors arrive. */
   setRunModel: (sessionId: string, provider: string, model: string) => void
   /** Puts the closing summary on the newest assistant message (post-import). */
@@ -613,6 +619,21 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       const mirrored = state.mirrorRuns[runId]
       if (mirrored !== undefined) {
         return { mirrorRuns: { ...state.mirrorRuns, [runId]: add(mirrored) } }
+      }
+      return state
+    }),
+
+  // "Thinking", "Browsing", ... — shown by the status dot while the run lives;
+  // the closing line never repeats it, so nothing needs clearing at the end.
+  setRunPhase: (runId, phase) =>
+    set((state) => {
+      const active = state.activeRuns[runId]
+      if (active !== undefined) {
+        return { activeRuns: { ...state.activeRuns, [runId]: { ...active, phase } } }
+      }
+      const mirrored = state.mirrorRuns[runId]
+      if (mirrored !== undefined) {
+        return { mirrorRuns: { ...state.mirrorRuns, [runId]: { ...mirrored, phase } } }
       }
       return state
     }),

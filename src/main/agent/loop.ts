@@ -5,8 +5,16 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { CheckpointStore } from '../checkpoints'
 import type { WorkspaceScan } from '../checkpoints'
-import type { AgentEvent, SessionMode } from '@shared/ipc'
-import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
+import type { AgentEvent, RunPhase, SessionMode } from '@shared/ipc'
+
+/** The phase a tool name maps to: shell-likes run commands, browser-likes
+ * browse; everything else keeps the run in "thinking". */
+function phaseForTool(name: string): RunPhase {
+  if (name === 'runCommand' || name === 'run_command') return 'command'
+  if (name.startsWith('browser_') || name === 'openWebUrl') return 'browsing'
+  return 'thinking'
+}
+import { HISTORY_TOKEN_BUDGET, historyBudgetFor as sharedHistoryBudgetFor } from '@shared/ipc'
 import { isTypedPrompt, MEMORY_HEADER } from './turns'
 import type { ContentBlock, LLMProvider, LLMResponse, Message, ProviderEvent, Usage } from '../providers/types'
 import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
@@ -124,25 +132,16 @@ interface FollowUp {
   attachments: ContentBlock[]
 }
 
-/** The default context budget stays put for models whose real window is
+/**
+ * The default context budget stays put for models whose real window is
  * unknown; a known bigger window (Gemini 1M, GLM 200k) lets the history run
- * longer before compaction replaces old turns with a memory. */
-const KNOWN_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
-  ['gemini-2.5-pro', 1_000_000],
-  ['gemini-2.5-flash', 1_000_000],
-  ['gemini-2.0-flash', 1_000_000],
-  ['glm-4.6', 200_000],
-  ['glm-4.5', 128_000],
-  ['glm-5.3-flash', 200_000]
-])
-
-/** Headroom for the model's own reply and the next tool results. */
-const REPLY_HEADROOM = 24_000
+ * longer before compaction replaces old turns with a memory. The table lives
+ * in @shared/ipc next to HISTORY_TOKEN_BUDGET, so the UI's context meter and
+ * the loop's compaction always agree on the ceiling.
+ */
 
 export function historyBudgetFor(model: string): number {
-  const base = KNOWN_CONTEXT_WINDOWS.get(model)
-  if (base === undefined) return HISTORY_TOKEN_BUDGET
-  return Math.max(HISTORY_TOKEN_BUDGET, base - REPLY_HEADROOM)
+  return sharedHistoryBudgetFor(model)
 }
 
 const isToolUse = (block: ContentBlock): block is ToolUseBlock => block.type === 'tool_use'
@@ -396,7 +395,11 @@ export class AgentSession {
         }
 
         this.condenseHistory()
+        if (signal.aborted) break
+        const queued = takeIn()
+        if (queued.length > 0) emit({ type: 'phase', runId, phase: 'follow-up' })
         await this.compactHistory(params)
+        emit({ type: 'phase', runId, phase: 'thinking' })
         const response = await this.requestTurn(params)
         this.record({ role: 'assistant', content: response.content })
         emit({
@@ -635,6 +638,8 @@ export class AgentSession {
     const compactTarget = Math.floor(budget * 0.72)
     const before = replayCost(this.history)
     if (before <= budget) return
+    // Long enough to feel like a hang: say what is happening while it runs.
+    params.emit({ type: 'phase', runId: params.runId, phase: 'condensing' })
 
     const suffixCosts: number[] = new Array(this.history.length)
     let running = 0
@@ -757,6 +762,7 @@ export class AgentSession {
   private async executeCall(call: ToolUseBlock, params: RunParams): Promise<ContentBlock> {
     const { runId, emit } = params
     emit({ type: 'tool_start', runId, toolUseId: call.id, name: call.name, input: call.input })
+    emit({ type: 'phase', runId, phase: phaseForTool(call.name) })
 
     if (params.signal.aborted) return this.finishCall(params, call.id, 'Cancelled by the user.', true)
     // Only the tools this mode offers: a name the model invents runs nothing.

@@ -4,7 +4,7 @@ import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
 import { Badge } from './Badge'
-import { HISTORY_TOKEN_BUDGET } from '@shared/ipc'
+import { historyBudgetFor } from '@shared/ipc'
 import { formatUsd } from '../money'
 import { InstructionsField } from './InstructionsField'
 
@@ -59,7 +59,10 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
   }, [open])
 
   const totalTokens = session.inputTokens + session.outputTokens
-  const contextPercent = Math.min(100, Math.round((session.lastInputTokens / HISTORY_TOKEN_BUDGET) * 100))
+  // The same ceiling the loop compacts against — a 1M-window model is not
+  // "85% full" at 85k tokens.
+  const budget = historyBudgetFor(session.model ?? '')
+  const contextPercent = Math.min(100, Math.round((session.lastInputTokens / budget) * 100))
 
   return (
     <div className="region-no-drag relative" ref={boxRef}>
@@ -122,7 +125,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
               />
             </div>
             <div className="mt-1.5 text-[10.5px] text-faint">
-              Latest request against {formatNumber(HISTORY_TOKEN_BUDGET)} token replay budget
+              Latest request against {formatNumber(budget)} token replay budget
             </div>
           </div>
           <button
@@ -176,12 +179,15 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
 interface TabBarProps {
   onDashboard: () => void
   onOpenSettings: () => void
+  onOpenSchedule: () => void
   onNewTab: () => void
   onSelectSession: (id: string) => void
   /** True while the dashboard view is on screen — lights the grid icon lime. */
   dashboardActive: boolean
   /** True while Settings is on screen — lights the gear the same way. */
   settingsActive: boolean
+  /** True while Schedule is on screen — lights the clock the same way. */
+  scheduleActive: boolean
 }
 
 /**
@@ -229,10 +235,12 @@ function GridIcon(): JSX.Element {
 export function TabBar({
   onDashboard,
   onOpenSettings,
+  onOpenSchedule,
   onNewTab,
   onSelectSession,
   dashboardActive,
-  settingsActive
+  settingsActive,
+  scheduleActive
 }: TabBarProps): JSX.Element {
   const sessions = useSessionStore((state) => state.sessions)
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
@@ -380,6 +388,20 @@ export function TabBar({
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
         {activeSession !== undefined && <UsageButton session={activeSession} />}
+        <button
+          type="button"
+          onClick={onOpenSchedule}
+          title="Schedule"
+          aria-pressed={scheduleActive}
+          className={`glass-ghost region-no-drag flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
+            scheduleActive ? 'text-brand' : 'text-dim'
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <circle cx="8" cy="8" r="5.6" />
+            <path d="M8 4.8V8l2.2 1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
         <button
           type="button"
           onClick={onOpenSettings}

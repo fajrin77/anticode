@@ -7,6 +7,7 @@ import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
 import { Composer } from './components/Composer'
 import { SettingsView } from './components/SettingsView'
+import { ScheduleView } from './components/ScheduleView'
 import { CONTINUE_PROMPT, PAUSE_LABEL, RESUME_LABEL } from './components/Composer'
 import { ApprovalModal } from './components/ApprovalModal'
 import { useSessionStore } from './store/session'
@@ -26,7 +27,7 @@ import type {
 } from '@shared/ipc'
 import { ROTATE_PROVIDER } from '@shared/ipc'
 
-type View = 'dashboard' | 'session' | 'settings'
+type View = 'dashboard' | 'session' | 'settings' | 'schedule'
 
 export function App(): JSX.Element {
   useEffect(() => { void restoreDraftAttachments() }, [])
@@ -374,6 +375,10 @@ export function App(): JSX.Element {
           case 'notice':
             store.noticeInRun(run.sessionId, run.messageId, event.text)
             break
+          case 'phase':
+            // The dot's vocabulary between replies: Thinking, Browsing, ...
+            store.setRunPhase(event.runId, event.phase)
+            break
           case 'tool_end':
             store.endTool(run.sessionId, run.messageId, event.toolUseId, event.ok, event.output, event.diff)
             break
@@ -445,6 +450,9 @@ export function App(): JSX.Element {
           break
         case 'notice':
           store.noticeInRun(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
+          break
+        case 'phase':
+          store.setRunPhase(event.runId, event.phase)
           break
         case 'usage':
           store.addUsage(event.sessionId, event.provider, event.model, event.inputTokens, event.outputTokens, `${event.runId}:${event.revision}`, event.subagent, event.costUsd)
@@ -557,11 +565,17 @@ export function App(): JSX.Element {
       <TabBar
         dashboardActive={view === 'dashboard'}
         settingsActive={view === 'settings'}
+        scheduleActive={view === 'schedule'}
         onDashboard={() => setView('dashboard')}
         onOpenSettings={toggleSettings}
+        onOpenSchedule={() => setView('schedule')}
         onNewTab={startSession}
         onSelectSession={openExistingSession}
       />
+
+      {view === 'schedule' && (
+        <ScheduleView onBack={() => setView('dashboard')} onOpenSession={openExistingSession} />
+      )}
 
       {view === 'settings' && (
         <SettingsView
@@ -583,6 +597,7 @@ export function App(): JSX.Element {
           onSelectProvider={selectProvider}
           onToggleAutoApprove={toggleAutoApprove}
           onSelectSession={openExistingSession}
+          onOpenSchedule={() => setView('schedule')}
         /></DropZone>
       )}
 
@@ -610,6 +625,7 @@ export function App(): JSX.Element {
                   onSelectProvider={selectProvider}
                   onToggleAutoApprove={toggleAutoApprove}
                   onSelectSession={openExistingSession}
+                  onOpenSchedule={() => setView('schedule')}
                 />
               ) : (
                 <>

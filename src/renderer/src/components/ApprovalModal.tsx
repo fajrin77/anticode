@@ -47,6 +47,14 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
   // The card covers the end of the transcript, so the transcript makes room
   // for it: the prompt that asked for this stays readable above the card.
   const cardRef = useRef<HTMLDivElement>(null)
+  const approveRef = useRef<HTMLButtonElement>(null)
+  // A dialog that blocks a risky action must be announced and reachable: the
+  // decision moves into the card, and the reader's place comes back after.
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    approveRef.current?.focus()
+    return () => previous?.focus()
+  }, [])
   useLayoutEffect(() => {
     const card = cardRef.current
     if (card === null) return
@@ -84,7 +92,14 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
         bottom: 'calc(var(--composer-offset, 16px) + 8px)'
       }}
     >
-      <div className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl">
+      <div
+        ref={cardRef}
+        data-approval
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${request.toolName} needs approval`}
+        className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl"
+      >
         <header className="flex items-baseline gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">
             {/^mcp__(.+?)__(.+)$/.test(request.toolName)
@@ -142,6 +157,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
           <button
             type="button"
+            ref={approveRef}
             onClick={() => onDecide('approve')}
             className="glass-control rounded-md border px-4 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand"
           >

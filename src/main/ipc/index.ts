@@ -1,4 +1,6 @@
 import { APP_VERSION } from '../version'
+import { listSchedules, addSchedule, updateSchedule, removeSchedule } from '../scheduler'
+import type { ScheduleEntry, ScheduleInput } from '@shared/ipc'
 import { setAttachmentStorage } from '../attachments'
 import {
   cancelRun,
@@ -286,6 +288,12 @@ export function pickModel(selection: ProviderSelection, sessionId?: string | nul
 
 export function registerIpcHandlers(): void {
   setAttachmentStorage(path.join(app.getPath('userData'), 'draft-attachments'))
+  // Recurring runs: the entry owns a session and reuses its model, so a
+  // schedule never needs a provider picker of its own.
+  ipcMain.handle(IpcChannel.SCHEDULE_LIST, () => listSchedules())
+  ipcMain.handle(IpcChannel.SCHEDULE_ADD, (_event, input: ScheduleInput) => addSchedule(input))
+  ipcMain.handle(IpcChannel.SCHEDULE_UPDATE, (_event, id: string, patch: Partial<ScheduleEntry>) => updateSchedule(id, patch))
+  ipcMain.handle(IpcChannel.SCHEDULE_REMOVE, (_event, id: string) => removeSchedule(id))
   // The pane's state is owned by the main process — the agent is what opens
   // pages — so every window is told about a change rather than asked for one.
   setWebSink((sessions) => {

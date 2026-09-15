@@ -19,6 +19,7 @@ interface NewSessionViewProps {
   onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   onSelectSession: (id: string) => void
+  onOpenSchedule: () => void
 }
 
 function Chip({
@@ -507,7 +508,8 @@ export function NewSessionView({
   providers,
   onSelectProvider,
   onToggleAutoApprove,
-  onSelectSession
+  onSelectSession,
+  onOpenSchedule
 }: NewSessionViewProps): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -569,23 +571,36 @@ export function NewSessionView({
     ...Object.values(mirrorRuns).map((entry) => entry.sessionId)
   ])
 
-  const searchButton = (
-    <button
-      type="button"
-      onClick={() => {
-        setSearchOpen((value) => !value)
-        setQuery('')
-      }}
-      title="Search sessions"
-      className={`glass-ghost flex h-9 w-9 items-center justify-center rounded-lg hover:text-brand ${
-        searchOpen ? 'text-brand' : 'text-dim'
-      }`}
-    >
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <circle cx="7" cy="7" r="4.4" />
-        <path d="M10.4 10.4L14 14" strokeLinecap="round" />
-      </svg>
-    </button>
+  const heroExtra = (
+    <>
+      <button
+        type="button"
+        onClick={onOpenSchedule}
+        title="Schedule"
+        className="glass-ghost flex h-9 w-9 items-center justify-center rounded-lg text-dim hover:text-brand"
+      >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <circle cx="8" cy="8" r="5.6" />
+          <path d="M8 4.8V8l2.2 1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setSearchOpen((value) => !value)
+          setQuery('')
+        }}
+        title="Search sessions"
+        className={`glass-ghost flex h-9 w-9 items-center justify-center rounded-lg hover:text-brand ${
+          searchOpen ? 'text-brand' : 'text-dim'
+        }`}
+      >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="7" cy="7" r="4.4" />
+          <path d="M10.4 10.4L14 14" strokeLinecap="round" />
+        </svg>
+      </button>
+    </>
   )
 
   return (
@@ -598,7 +613,7 @@ export function NewSessionView({
         {session !== undefined ? (
           <Composer
             hero
-            heroExtra={searchButton}
+            heroExtra={heroExtra}
             status={status}
             providers={providers}
             onSelectProvider={onSelectProvider}
@@ -610,7 +625,7 @@ export function NewSessionView({
             providers={providers}
             onSelectProvider={onSelectProvider}
             onToggleAutoApprove={onToggleAutoApprove}
-            extra={searchButton}
+            extra={heroExtra}
             fill={{ text: fillText, pulse: fillPulse }}
           />
         )}

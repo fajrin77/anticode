@@ -17,6 +17,8 @@ import type {
   PricedModel,
   RemoteStatus,
   RoutedAgentEvent,
+  ScheduleEntry,
+  ScheduleInput,
   SessionSnapshot,
   ProviderId,
   ProviderEdit,
@@ -196,7 +198,14 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.APPROVAL_RESPOND, response) as Promise<void>,
   onAgentEvent: (listener) => subscribe<RoutedAgentEvent>(IpcChannel.AGENT_EVENT, listener),
   onApprovalRequest: (listener) =>
-    subscribe<ApprovalRequest>(IpcChannel.APPROVAL_REQUEST, listener)
+    subscribe<ApprovalRequest>(IpcChannel.APPROVAL_REQUEST, listener),
+  listSchedules: () => ipcRenderer.invoke(IpcChannel.SCHEDULE_LIST) as Promise<ScheduleEntry[]>,
+  addSchedule: (input: ScheduleInput) =>
+    ipcRenderer.invoke(IpcChannel.SCHEDULE_ADD, input) as Promise<ScheduleEntry>,
+  updateSchedule: (id: string, patch: Partial<ScheduleEntry>) =>
+    ipcRenderer.invoke(IpcChannel.SCHEDULE_UPDATE, id, patch) as Promise<ScheduleEntry>,
+  removeSchedule: (id: string) => ipcRenderer.invoke(IpcChannel.SCHEDULE_REMOVE, id) as Promise<void>,
+  onScheduleState: (listener) => subscribe<ScheduleEntry[]>(IpcChannel.SCHEDULE_STATE, listener)
 }
 
 contextBridge.exposeInMainWorld('anticode', api)

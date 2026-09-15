@@ -471,14 +471,17 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
   }
   .composer button.lime { background: #d1fa22; color: #1a1a1a; }
-  .mode { display: flex; gap: 8px; margin-bottom: 10px; }
-  .mode button {
-    flex: 1; background: var(--glass-control); color: #9a9a9a; border: 1px solid var(--glass-border);
-    border-radius: 10px; padding: 10px 0; font-weight: 600;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  .mode {
+    display: flex; gap: 4px; margin-bottom: 10px; padding: 4px;
+    background: rgba(20,20,20,.55); border: 1px solid var(--glass-border); border-radius: 12px;
     -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
   }
-  .mode button.on { color: #ededed; border-color: #d1fa22; background: linear-gradient(145deg, rgba(209,250,34,.08), transparent 60%), rgba(35,38,22,.5); }
+  .mode button {
+    flex: 1; background: none; color: #9a9a9a; border: 1px solid transparent;
+    border-radius: 9px; padding: 9px 0; font-weight: 600; transition: color .15s, background .15s;
+  }
+  .mode button:active { color: #d1fa22; }
+  .mode button.on { color: #1a1a1a; background: #d1fa22; border-color: #d1fa22; }
   .path {
     width: 100%; background: var(--glass-field); border: 1px solid var(--glass-border); border-radius: 8px;
     color: #ededed; padding: 8px 10px; font: 16px ui-monospace, Menlo, monospace; margin-bottom: 8px;
@@ -590,6 +593,18 @@
   .ssec > .muted { margin-bottom: 8px; font-size: 14px; }
   .ssec .mode { margin-bottom: 6px; }
   .mode button:active { color: #d1fa22; }
+  /* The new-session page: the mode pill floats just under the blurred header,
+     and the page it titles is an empty chat — one soft hint, nothing else.
+     The provider/folder details are tucked away until anticode is picked. */
+  #newSessionCard { padding-top: 4px; }
+  #newSessionCard .mode { margin: 2px 0 0; }
+  #newSessionCard .path, #newSessionCard select.wide, #newSessionCard .actions { display: none; }
+  #newSessionCard.picking .path, #newSessionCard.picking select.wide { display: block; }
+  #newSessionCard.picking .actions { display: flex; margin-top: 8px; }
+  #newEmptyHint {
+    margin: auto 0; padding: 26vh 12px 0; text-align: center;
+    color: #6d6d6d; font-size: 14.5px;
+  }
   .usage { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 14px; }
   .usage span:nth-child(odd) { color: #6d6d6d; }
   .prow { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #262626; font-size: 15px; }
@@ -666,13 +681,12 @@
 <main>
   <section id="viewChat">
     <div id="dashboard">
-      <div class="card" id="newSessionCard">
-        <div class="muted" style="margin-bottom:8px">New session</div>
-        <div class="mode">
-          <button id="modeCode" class="on" onclick="setMode('code')">anticode</button>
-          <button id="modeChat" onclick="setMode('chat')">antichat</button>
+      <div id="newSessionCard">
+        <div class="mode" id="newModePill">
+          <button id="modeChat" class="on" onclick="setMode('chat')">antichat</button>
+          <button id="modeCode" onclick="setMode('code')">anticode</button>
         </div>
-        <input class="path" id="folderInput" list="knownFolders" autocapitalize="off" autocorrect="off" spellcheck="false"
+        <input class="path hidden" id="folderInput" list="knownFolders" autocapitalize="off" autocorrect="off" spellcheck="false"
           placeholder="Folder on the Mac, e.g. /Users/me/Projects/app" />
         <datalist id="knownFolders"></datalist>
         <select class="wide" id="providerSelect" aria-label="Provider" onchange="pickProvider(this.value)"></select>
@@ -682,6 +696,7 @@
           <button onclick="startSession()">Start</button>
           <button id="useModelBtn" class="alt hidden" onclick="applyCustomModel()">Use model ID</button>
         </div>
+        <div class="new-empty" id="newEmptyHint">Belum ada pesan. Mulai ngobrol di bawah.</div>
       </div>
       <input class="path hidden" id="sessionSearch" type="search" placeholder="Search sessions"
         autocapitalize="off" autocorrect="off" spellcheck="false" oninput="renderSessionList()" />
@@ -890,7 +905,9 @@ let currentPath = '.';
 let openedFile = null;
 let folderReady = false;
 let creatingSession = false;
-let phoneMode = 'code';
+let phoneMode = 'chat';
+/** Prompt typed on the new-session page, sent once the session exists. */
+let pendingFirstPrompt = null;
 let modelInfo = null;
 /** The model choice that is not one model: the Rotate usage pool (ROTATE_PROVIDER). */
 const ROTATE = 'rotate';
@@ -1139,8 +1156,11 @@ function gotoNew() {
   document.getElementById('sessionList').classList.add('hidden');
   document.getElementById('sessionSearch').classList.add('hidden');
   document.getElementById('newSessionCard').classList.remove('hidden');
-  setMenuTitle('anticode');
-  setMode(phoneMode);
+  setMenuTitle('antichat');
+  setMode('chat');
+  // The new-session page is a chat that has not started: the same composer
+  // stays visible, so the first line typed is the first prompt sent.
+  document.getElementById('inputRow').classList.remove('hidden');
   void loadModels();
   void jfetch('/api/overview').then(({ sessions }) => fillKnownFolders(sessions)).catch(() => undefined);
 }
@@ -1160,6 +1180,7 @@ function gotoSessions() {
   document.getElementById('chatView').classList.add('hidden');
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('newSessionCard').classList.add('hidden');
+  document.getElementById('inputRow').classList.add('hidden');
   document.getElementById('sessionList').classList.remove('hidden');
   document.getElementById('sessionSearch').classList.remove('hidden');
   setMenuTitle('Sessions');
@@ -1265,6 +1286,11 @@ function setMode(mode) {
   phoneMode = mode;
   document.getElementById('modeCode').classList.toggle('on', mode === 'code');
   document.getElementById('modeChat').classList.toggle('on', mode === 'chat');
+  // The header names the mode the same way the session it is about to make will.
+  if (currentSession === null) setMenuTitle(mode === 'code' ? 'anticode' : 'antichat');
+  // The folder lives on the Mac; a chat has none, so the field (and a plain
+  // Start button for people who would rather not type first) is anticode's.
+  document.getElementById('newSessionCard').classList.toggle('picking', mode === 'code');
   document.getElementById('folderInput').classList.toggle('hidden', mode !== 'code');
 }
 
@@ -1377,7 +1403,13 @@ async function startSession() {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
     });
     await openSession(sessionId);
-  } catch (error) { showError(error); }
+    // A prompt typed before the session existed goes in as its first message.
+    if (pendingFirstPrompt !== null && currentSession === sessionId) {
+      const prompt = pendingFirstPrompt;
+      pendingFirstPrompt = null;
+      await submitPrompt(prompt);
+    }
+  } catch (error) { showError(error); pendingFirstPrompt = null; }
   finally { creatingSession = false; }
 }
 
@@ -2020,7 +2052,7 @@ async function applyStreamEvent(id, event) {
       else if (currentSession === id) showSessionHeader(id);
     }
     else if (event.type === 'prompt') {
-      currentRunId = event.runId; liveEl = null; liveRun = null; liveGroup = null; sealedGroups = []; steerAnchor = null; hideWorking();
+      currentRunId = event.runId; liveEl = null; liveRun = null; liveGroup = null; sealedGroups = []; steerAnchor = null; runPhaseLabel = null; hideWorking();
       currentPlan = null; planOpen = null; renderPlan();
       if (event.text === CONTINUE_PROMPT) appendNotice(RESUME_LABEL);
       else appendUserBubble(event.text, event.attachments);
@@ -2038,7 +2070,7 @@ async function applyStreamEvent(id, event) {
     else if (event.type === 'steer_taken') {
       // From here the run answers the new instructions: its output goes below
       // them, and steps still in flight settle where they were drawn.
-      currentRunId = event.runId; steerAnchor = null; liveEl = null; liveRun = null; hideWorking();
+      currentRunId = event.runId; steerAnchor = null; liveEl = null; liveRun = null; runPhaseLabel = null; hideWorking();
       settleLiveGroup();
       if (liveGroup !== null) sealedGroups.push(liveGroup);
       liveGroup = null;
@@ -2051,6 +2083,11 @@ async function applyStreamEvent(id, event) {
       showWorking();
     }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
+    else if (event.type === 'phase') {
+      // The line under the steps names the wait: thinking, browsing, ...
+      runPhaseLabel = PHASE_LABELS[event.phase] ?? null;
+      if (workingEl !== null) workingEl.lastChild.textContent = runPhaseLabel ?? 'working';
+    }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output, event.diff); }
     else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
     else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; liveRun = null; appendNotice(event.text); }
@@ -2083,6 +2120,15 @@ function followBottom(force) {
 }
 
 let workingEl = null;
+/** What the run says it is doing — set by `phase` events, shown on the line. */
+let runPhaseLabel = null;
+const PHASE_LABELS = {
+  thinking: 'thinking',
+  command: 'running command',
+  browsing: 'browsing',
+  condensing: 'condensing context',
+  'follow-up': 'processing follow-up'
+};
 function showWorking() {
   if (workingEl === null) {
     workingEl = document.createElement('div');
@@ -2107,7 +2153,7 @@ function showWorking() {
   // The steps are open right now: the working line steps aside instead of
   // duplicating what the expanded group already says.
   workingEl.style.display = liveGroup?.el?.open === true ? 'none' : '';
-  workingEl.lastChild.textContent = 'working';
+  workingEl.lastChild.textContent = runPhaseLabel ?? 'working';
   followBottom();
 }
 function hideWorking() {
@@ -2761,7 +2807,24 @@ document.addEventListener('pointerdown', (event) => {
 async function sendPrompt() {
   const input = document.getElementById('prompt');
   const prompt = input.value.trim();
-  if (!prompt || !currentSession || submitting) return;
+  if (!prompt || submitting) return;
+  // On the new-session page there is no session yet: the first prompt creates
+  // one ( honouring the chosen mode and folder) and then sends into it.
+  if (currentSession === null) {
+    if (!document.getElementById('newSessionCard').classList.contains('hidden')) {
+      const folder = document.getElementById('folderInput');
+      if (phoneMode === 'code' && folder.value.trim() === '') {
+        folder.focus();
+        return;
+      }
+      pendingFirstPrompt = prompt;
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      await startSession();
+      return;
+    }
+    return;
+  }
   input.value = '';
   input.dispatchEvent(new Event('input'));
   const sent = await submitPrompt(prompt);

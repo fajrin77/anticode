@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { JSX } from 'react'
 import type { Session } from '../store/session'
 import { Badge } from './Badge'
@@ -25,6 +26,9 @@ export function SessionRow({
   onDuplicate?: (id: string) => void
   spinning?: boolean
 }): JSX.Element {
+  // Deleting a session also deletes its checkpoints and chat files — there is
+  // no undo — so the first click only arms the button, the second confirms.
+  const [confirming, setConfirming] = useState(false)
   return (
     <div className="group relative flex w-full items-start">
       <button
@@ -61,7 +65,7 @@ export function SessionRow({
           type="button"
           aria-label="Duplicate session"
           onClick={() => onDuplicate(session.id)}
-          className="absolute top-2 right-10 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-brand"
+          className="absolute top-2 right-10 text-faint opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-brand"
         >
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
@@ -72,11 +76,15 @@ export function SessionRow({
       {onDelete !== undefined && (
         <button
           type="button"
-          aria-label="Delete session"
-          onClick={() => onDelete(session.id)}
-          className="absolute top-2.5 right-2 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-del"
+          aria-label={confirming ? `Confirm deleting this session` : 'Delete session'}
+          title={confirming ? 'Click again — deleting also removes its checkpoints and files' : 'Delete session'}
+          onClick={() => (confirming ? onDelete(session.id) : setConfirming(true))}
+          onBlur={() => setConfirming(false)}
+          className={`absolute top-2.5 right-2 text-[13px] leading-none opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-del ${
+            confirming ? 'font-medium text-del' : 'text-faint'
+          } transition-colors ${confirming ? '' : 'hover:text-del'}`}
         >
-          ×
+          {confirming ? 'Delete?' : '×'}
         </button>
       )}
     </div>

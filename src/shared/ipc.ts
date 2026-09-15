@@ -1,5 +1,10 @@
 export const IpcChannel = {
   APP_INFO: 'app:info',
+  SCHEDULE_STATE: 'schedule:state',
+  SCHEDULE_LIST: 'schedule:list',
+  SCHEDULE_ADD: 'schedule:add',
+  SCHEDULE_UPDATE: 'schedule:update',
+  SCHEDULE_REMOVE: 'schedule:remove',
   STATUS: 'session:status',
   WORKSPACE_CHOOSE: 'workspace:choose',
   WORKSPACE_SET: 'workspace:set',
@@ -114,6 +119,31 @@ export const FOLLOW_UP_LABEL = 'Follow-up added.'
  * number as the context ceiling so both sides agree on "how full am I".
  */
 export const HISTORY_TOKEN_BUDGET = 100_000
+
+/** Headroom for the model's own reply and the next tool results. */
+const REPLY_HEADROOM = 24_000
+
+/** The default context budget stays put for models whose real window is
+ * unknown; a known bigger window (Gemini 1M, GLM 200k) lets the history run
+ * longer before compaction replaces old turns with a memory. */
+const KNOWN_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
+  ['gemini-2.5-pro', 1_000_000],
+  ['gemini-2.5-flash', 1_000_000],
+  ['gemini-2.0-flash', 1_000_000],
+  ['glm-4.6', 200_000],
+  ['glm-4.5', 128_000],
+  ['glm-5.3-flash', 200_000]
+])
+
+/** Model ids arrive prefixed by their gateway (`cline-pass/glm-5.3-flash`),
+ * so match on the tail as well as the whole id. */
+export function historyBudgetFor(model: string): number {
+  const base =
+    KNOWN_CONTEXT_WINDOWS.get(model) ??
+    [...KNOWN_CONTEXT_WINDOWS.entries()].find(([id]) => model.endsWith(`/${id}`))?.[1]
+  if (base === undefined) return HISTORY_TOKEN_BUDGET
+  return Math.max(HISTORY_TOKEN_BUDGET, base - REPLY_HEADROOM)
+}
 
 export interface AppInfo {
   name: string
@@ -657,6 +687,44 @@ export interface SessionPause {
 }
 
 export type AgentEndReason = 'complete' | 'cancelled' | 'max_tokens' | 'refusal'
+/** Phases between model replies, mirrored on both screens near the status dot. */
+export const RUN_PHASES = ['thinking', 'command', 'browsing', 'condensing', 'follow-up'] as const
+export type RunPhase = (typeof RUN_PHASES)[number]
+export const PHASE_LABEL: Record<RunPhase, string> = {
+  thinking: 'Thinking',
+  command: 'Running command',
+  browsing: 'Browsing',
+  condensing: 'Condensing context',
+  'follow-up': 'Processing follow-up'
+}
+
+/** A recurring run: one session, one prompt, on a clock. */
+export interface ScheduleEntry {
+  id: string
+  name: string
+  prompt: string
+  frequency: 'daily' | 'weekly'
+  /** Hour 0-23 / minute 0-59, local time on the Mac. */
+  hour: number
+  minute: number
+  /** Weekly only: 0 is Sunday. */
+  weekday?: number
+  sessionId: string
+  enabled: boolean
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastResult?: string
+  lastError?: string
+}
+export interface ScheduleInput {
+  name: string
+  prompt: string
+  frequency: 'daily' | 'weekly'
+  hour: number
+  minute: number
+  weekday?: number
+  sessionId: string
+}
 
 export type AgentEvent =
   /** Emitted by the routing layer before the run starts, so every viewer sees
@@ -712,7 +780,12 @@ export type AgentEvent =
       estimated?: boolean
     }
   /** A line the app writes about the run itself — the context was compacted. */
+  /** A line the app writes about the run itself — the context was compacted. */
   | { type: 'notice'; runId: string; text: string }
+  /** What the run is doing between model replies — "Thinking", "Running
+   * command", "Browsing" — so a wait feels like progress, not a hang. The
+   * label is already the words shown to the user. */
+  | { type: 'phase'; runId: string; phase: RunPhase }
   | {
       type: 'end'
       runId: string
@@ -964,6 +1037,12 @@ export interface AnticodeApi {
    * answers with the run that was already going.
    */
   sendPrompt: (req: AgentRequest) => Promise<{ runId: string; steered: boolean }>
+  /** Recurring prompts: the scheduler reuses one session and its model. */
+  listSchedules: () => Promise<ScheduleEntry[]>
+  addSchedule: (input: ScheduleInput) => Promise<ScheduleEntry>
+  updateSchedule: (id: string, patch: Partial<ScheduleEntry>) => Promise<ScheduleEntry>
+  removeSchedule: (id: string) => Promise<void>
+  onScheduleState: (listener: (entries: ScheduleEntry[]) => void) => () => void
   /**
    * Queues a prompt to go out as its own run once the session's run finishes
    * (it starts at once when nothing is running). `queued` is false then.

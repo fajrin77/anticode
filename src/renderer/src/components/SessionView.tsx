@@ -3,6 +3,7 @@ import type { JSX } from 'react'
 import { isTypedPrompt, useActiveSession, useSessionStore } from '../store/session'
 import type { Message, MessagePart } from '../store/session'
 import type { ProviderSelection, RotationEntryStatus } from '@shared/ipc'
+import { PHASE_LABEL } from '@shared/ipc'
 import { ToolBlock } from './ToolBlock'
 import { RichText } from './RichText'
 import { Attachments } from './Attachments'
@@ -42,6 +43,7 @@ function groupBlocks(parts: MessagePart[]): Block[] {
 function ToolGroup({
   parts,
   live = false,
+  phaseLabel,
   open: openFromParent,
   onToggle: toggleFromParent
 }: {
@@ -52,6 +54,8 @@ function ToolGroup({
    * or the line would flip to "ran" and back on every step.
    */
   live?: boolean
+  /** What the loop says it is doing right now — "Browsing", "Thinking"... */
+  phaseLabel?: string | null
   /** Given while this is the live run: the working line folds it. */
   open?: boolean
   onToggle?: () => void
@@ -86,7 +90,7 @@ function ToolGroup({
         )}
         <span className="min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand">
           {running
-            ? `working · ${stepCount(parts.length)}`
+            ? `${phaseLabel ?? 'working'} · ${stepCount(parts.length)}`
             : failed > 0
               ? `ran ${stepCount(parts.length)} · ${failed} failed`
               : `ran ${stepCount(parts.length)}`}
@@ -149,9 +153,28 @@ function useSessionBusy(sessionId: string): boolean {
   )
 }
 
+/** The live run's phase label — "Thinking", "Browsing" — or null when idle. */
+function useSessionPhase(sessionId: string): string | null {
+  return useSessionStore((state) => {
+    const run =
+      Object.values(state.activeRuns).find((entry) => entry.sessionId === sessionId) ??
+      Object.values(state.mirrorRuns).find((entry) => entry.sessionId === sessionId)
+    return run?.phase === undefined ? null : PHASE_LABEL[run.phase]
+  })
+}
+
 function errorText(failure: unknown): string {
   return (failure as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
+
+/** Plain text a message keeps, for searching its transcript. */
+function messageText(message: Message): string {
+  const parts = message.parts
+  return parts
+    .map((part) => (part.kind === 'text' ? part.text : part.kind === 'tool' ? part.name : ''))
+    .join('\n')
+}
+void messageText
 
 /**
  * Takes a prompt back to be edited: it and everything after it — replies,
@@ -307,6 +330,7 @@ function MessageView({
 }): JSX.Element {
   const [stepsOpen, setStepsOpen] = useState(false)
   const busy = useSessionBusy(sessionId)
+  const phaseLabel = useSessionPhase(sessionId)
   const chat = useSessionStore(
     (state) => state.sessions.find((session) => session.id === sessionId)?.mode === 'chat'
   )
@@ -388,7 +412,7 @@ function MessageView({
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
-            {...(tailRunning && block === tail ? { live: true, open: liveOpen, onToggle: () => setLiveOpen((value) => !value) } : {})}
+            {...(tailRunning && block === tail ? { live: true, phaseLabel, open: liveOpen, onToggle: () => setLiveOpen((value) => !value) } : {})}
           />
         )
       })}

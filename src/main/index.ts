@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, nativeImage, globalShortcut } from 'electron
 import type { WebContents } from 'electron'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
+import { startScheduler } from './scheduler'
 import { loadEnvFile } from './config'
 import { cancelAllRuns } from './runs'
 import { initPersistedState, persistSessions } from './runtime'
@@ -114,6 +115,7 @@ void app.whenReady().then(() => {
   loadEnvFile()
   initPersistedState()
   registerIpcHandlers()
+  startScheduler()
   void restoreRemoteServer()
   initUpdates()
   // MCP servers start in the background; their tools join anticode sessions
