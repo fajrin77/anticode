@@ -1,6 +1,6 @@
 {
   "name": "anticode",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "Provider-agnostic AI coding agent desktop app",
   "main": "./out/main/index.js",
   "author": "asani",
@@ -56,5 +56,8 @@
     "vite": "^7.3.6",
     "vitest": "^5.0.0",
     "zustand": "^5.0.15"
+  },
+  "optionalDependencies": {
+    "@img/sharp-win32-x64": "^0.35.4"
   }
 }
