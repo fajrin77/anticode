@@ -1821,11 +1821,16 @@ function toolGroupEl(items, live = false) {
   dot.className = 'tdot' + (running ? ' live' : failed > 0 ? ' bad' : '');
   const label = document.createElement('span');
   label.className = 'tlabel';
+  // The step count is kept on the element so a `phase` event can rewrite the
+  // header in place — one line naming both the phase and the count, as the
+  // desktop draws it, instead of a second "working" line under the group.
+  const count = stepCount(items.length);
+  label.dataset.count = count;
   label.textContent = running
-    ? 'working \u00b7 ' + stepCount(items.length)
+    ? (runPhaseLabel ?? 'working') + ' \u00b7 ' + count
     : failed > 0
-      ? 'ran ' + stepCount(items.length) + ' \u00b7 ' + failed + ' failed'
-      : 'ran ' + stepCount(items.length);
+      ? 'ran ' + count + ' \u00b7 ' + failed + ' failed'
+      : 'ran ' + count;
   const chev = document.createElement('span');
   chev.className = 'tchev';
   chev.textContent = '\u2304';
@@ -2086,9 +2091,15 @@ async function applyStreamEvent(id, event) {
     }
     else if (event.type === 'tool_start') { currentRunId = event.runId; liveEl = null; liveToolStart(event.toolUseId, event.name, event.input); }
     else if (event.type === 'phase') {
-      // The line under the steps names the wait: thinking, browsing, ...
+      // The phase is drawn in one place: the working line while the run waits,
+      // or the running step group's own header once steps are streaming.
       runPhaseLabel = PHASE_LABELS[event.phase] ?? null;
       if (workingEl !== null) workingEl.lastChild.textContent = runPhaseLabel ?? 'working';
+      const live = document.getElementById('transcript').querySelector('.tdot.live');
+      const label = live?.parentElement?.querySelector('.tlabel');
+      if (label !== null && label !== undefined && label.dataset.count !== undefined) {
+        label.textContent = (runPhaseLabel ?? 'working') + ' \u00b7 ' + label.dataset.count;
+      }
     }
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output, event.diff); }
     else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
@@ -2132,6 +2143,12 @@ const PHASE_LABELS = {
   'follow-up': 'processing follow-up'
 };
 function showWorking() {
+  // A running step group already names its phase in its own header — the one
+  // line the desktop draws — so the working line steps aside while it is up.
+  if (document.getElementById('transcript').querySelector('.tdot.live') !== null) {
+    hideWorking();
+    return;
+  }
   if (workingEl === null) {
     workingEl = document.createElement('div');
     workingEl.className = 'working';
