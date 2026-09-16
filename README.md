@@ -4,6 +4,18 @@ AI coding agent desktop app. Satu aplikasi Electron untuk mengobrol dan bekerja 
 provider AI — dengan tool file, terminal, browser, dan dokumen yang dijalankan langsung di project
 Anda, plus akses dari HP.
 
+## Unduh
+
+Ambil build terbaru dari halaman [Releases](https://github.com/fajrin77/anticode/releases/latest), lalu pilih berkas sesuai sistem operasi:
+
+| Sistem | Berkas | Keterangan |
+|---|---|---|
+| macOS (Apple Silicon) | `anticode-<versi>-arm64.dmg` | Buka, lalu drag anticode ke Applications |
+| macOS (Apple Silicon, zip) | `anticode-<versi>-arm64-mac.zip` | Alternatif tanpa mount dmg |
+| Windows (64-bit) | `anticode Setup <versi>.exe` | Installer NSIS, jalankan langsung |
+
+Setiap release juga memuat `latest-mac.yml` (macOS) dan `latest.yml` (Windows). Kedua berkas itulah yang dibaca updater untuk menawarkan versi baru, jadi menambah atau mengubah keterangan di sini tidak memengaruhi auto update — app yang sudah terpasang tetap menemukan dan memasang build baru lewat Settings -> Updates.
+
 ## Fitur
 
 - **Multi-provider** — lima provider di belakang satu abstraksi; tambah lewat Settings, kredensial disimpan terenkripsi di secure storage OS.
