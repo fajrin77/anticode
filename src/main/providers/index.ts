@@ -6,7 +6,7 @@ import { OpenAICompatibleProvider } from './openai'
 import { GoogleProvider } from './google'
 import type { LLMProvider } from './types'
 import { listAuthAccounts, readAuthTokens } from '../auth/store'
-import { authProvider, AUTH_DEFAULT_MODELS } from '../auth/provider'
+import { authProvider, AUTH_DEFAULT_MODELS, AUTH_MODELS } from '../auth/provider'
 
 const OLLAMA_FALLBACK_URL = 'http://127.0.0.1:11434/v1'
 /** Where an Anthropic provider starts when no model id was typed for it. */
@@ -77,7 +77,7 @@ export function listProviders(): ProviderInfo[] {
       credentialAvailable: tokens !== null,
       configured: true,
       credentialHint: 'OAuth account',
-      models: [AUTH_DEFAULT_MODELS[account.kind]],
+      models: [...AUTH_MODELS[account.kind]],
       kind: 'auth',
       baseURL: '',
       hasKey: tokens !== null

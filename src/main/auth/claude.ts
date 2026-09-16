@@ -31,6 +31,17 @@ function toTokens(raw: TokenResponse, previous?: AuthTokens): AuthTokens {
   }
 }
 
+/** The vendor's own wording beats "failed: 400" when a grant is refused. */
+async function reason(response: Response): Promise<string> {
+  try {
+    const body = await response.text()
+    const parsed = JSON.parse(body) as { error_description?: string; error?: string }
+    return (parsed.error_description ?? parsed.error ?? body).slice(0, 200)
+  } catch {
+    return `HTTP ${response.status}`
+  }
+}
+
 /** Accepts either the bare code or the whole `code#state` string. */
 function parsePasted(input: string): { code: string; state: string } {
   const trimmed = input.trim()
@@ -78,9 +89,11 @@ export async function loginClaude(callbacks: AuthLoginCallbacks): Promise<AuthTo
   const parsed = parsePasted(pasted)
   if (parsed.code === '') throw new Error('No code was pasted')
 
+  callbacks.onUpdate({ message: 'Exchanging the code…' })
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    signal: callbacks.signal,
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code: parsed.code,
@@ -90,7 +103,7 @@ export async function loginClaude(callbacks: AuthLoginCallbacks): Promise<AuthTo
       code_verifier: verifier
     })
   })
-  if (!response.ok) throw new Error(`Claude token exchange failed: ${response.status}`)
+  if (!response.ok) throw new Error(`Claude token exchange failed — ${await reason(response)}`)
   const tokens = toTokens((await response.json()) as TokenResponse)
   callbacks.onUpdate({ message: 'Signed in', done: true })
   return tokens
@@ -107,7 +120,7 @@ export async function refreshClaude(tokens: AuthTokens): Promise<AuthTokens> {
       client_id: CLIENT_ID
     })
   })
-  if (!response.ok) throw new Error(`Claude refresh failed: ${response.status}`)
+  if (!response.ok) throw new Error(`Claude refresh failed — ${await reason(response)}`)
   return toTokens((await response.json()) as TokenResponse, tokens)
 }
 

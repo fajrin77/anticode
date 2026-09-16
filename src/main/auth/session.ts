@@ -17,6 +17,10 @@ interface Running {
   abort: AbortController
   /** Resolved by submitAuthCode with the pasted code. */
   resolveCode: ((code: string) => void) | null
+  /** Rejects the parked promptForCode so Cancel unblocks a paste-code flow. */
+  rejectCode: ((error: Error) => void) | null
+  /** Set by cancelAuthLogin so the flow's own failure is not re-broadcast. */
+  cancelled: boolean
 }
 
 const running = new Map<string, Running>()
@@ -54,7 +58,13 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
     needsCode: false,
     done: false
   }
-  const entry: Running = { state: initial, abort: controller, resolveCode: null }
+  const entry: Running = {
+    state: initial,
+    abort: controller,
+    resolveCode: null,
+    rejectCode: null,
+    cancelled: false
+  }
   running.set(id, entry)
 
   const update = (patch: Partial<AuthLoginState>): void => {
@@ -75,10 +85,12 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
           })
         },
         promptForCode: (message) =>
-          new Promise<string>((resolve) => {
+          new Promise<string>((resolve, reject) => {
             entry.resolveCode = resolve
+            entry.rejectCode = reject
             update({ status: message, needsCode: true })
-          })
+          }),
+        signal: controller.signal
       })
       update({
         status: 'Signed in',
@@ -88,8 +100,12 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
         needsCode: false
       })
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      update({ status: message, error: message, done: false, needsCode: false })
+      // Cancel already said what happened; an AbortError on top of it would
+      // replace "Cancelled" with a stack-shaped message.
+      if (!entry.cancelled) {
+        const message = error instanceof Error ? error.message : String(error)
+        update({ status: message, error: message, done: false, needsCode: false })
+      }
     } finally {
       // Keep the final state around briefly so a late window can read it; a
       // fresh login of the same kind still works because it keys on `done`.
@@ -107,6 +123,7 @@ export function submitAuthCode(id: string, code: string): void {
   if (entry === undefined || entry.resolveCode === null) return
   const resolve = entry.resolveCode
   entry.resolveCode = null
+  entry.rejectCode = null
   entry.state = { ...entry.state, needsCode: false, status: 'Exchanging the code…' }
   broadcast(entry.state)
   resolve(code)
@@ -116,13 +133,16 @@ export function submitAuthCode(id: string, code: string): void {
 export function cancelAuthLogin(id: string): void {
   const entry = running.get(id)
   if (entry === undefined) return
+  entry.cancelled = true
+  // The signal reaches the flow itself: the localhost listener closes, the
+  // CodeBuddy poll stops, and any in-flight token exchange is dropped.
   entry.abort.abort()
-  // A Claude flow parked on promptForCode never sees the abort; unblock it so
-  // the promise rejects with an empty code and the flow ends.
-  entry.resolveCode?.('')
+  // A flow parked on promptForCode never sees the abort, so unblock it too.
+  entry.rejectCode?.(new Error('Login cancelled'))
   entry.resolveCode = null
+  entry.rejectCode = null
   running.delete(id)
-  broadcast({ ...entry.state, status: 'Cancelled', error: 'Cancelled', done: false })
+  broadcast({ ...entry.state, status: 'Cancelled', error: 'Cancelled', needsCode: false, done: false })
 }
 
 /** For tests: forget every running flow. */

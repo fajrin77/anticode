@@ -93,7 +93,12 @@ export function saveAuthAccount(account: AuthAccount, tokens: AuthTokens): void 
   persist()
 }
 
-/** Rewrites only the tokens of an existing account, keeping its public half. */
+/**
+ * Rewrites only the tokens of an existing account, keeping its public half.
+ * The two facts the Settings list reads off the public half — when the token
+ * dies and whether it can be renewed — are kept in step here, so a refresh
+ * that drops the refresh token does not leave the UI promising one.
+ */
 export function updateAuthTokens(id: string, tokens: AuthTokens): void {
   const store = load()
   const entry = store.accounts.find((row) => row.account.id === id)
@@ -101,7 +106,21 @@ export function updateAuthTokens(id: string, tokens: AuthTokens): void {
   const sealed = seal(JSON.stringify(tokens))
   if (sealed === '') return
   entry.sealed = sealed
-  if (tokens.expiresAt !== undefined) entry.account.expiresAt = tokens.expiresAt
+  // A vendor that does not say when the token dies gets no expiry shown at
+  // all; 0 would read as "expired in 1970".
+  if (tokens.expiresAt === undefined || tokens.expiresAt === 0) delete entry.account.expiresAt
+  else entry.account.expiresAt = tokens.expiresAt
+  entry.account.refreshable = tokens.refreshToken !== undefined
+  cache = { version: 1, accounts: store.accounts }
+  persist()
+}
+
+/** Renames one account without touching its tokens. */
+export function renameAuthAccount(id: string, label: string): void {
+  const store = load()
+  const entry = store.accounts.find((row) => row.account.id === id)
+  if (entry === undefined) return
+  entry.account.label = label
   cache = { version: 1, accounts: store.accounts }
   persist()
 }

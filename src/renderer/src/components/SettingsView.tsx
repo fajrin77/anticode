@@ -1982,7 +1982,7 @@ export function SettingsView({
               onProvidersChange={onProvidersChange}
             />
           )}
-          {section === 'auth' && <Auth onProvidersChange={onProvidersChange} />}
+          {section === 'auth' && <Auth providers={providers} onProvidersChange={onProvidersChange} />}
           {section === 'models' && (
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
           )}

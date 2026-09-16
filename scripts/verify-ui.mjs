@@ -62,6 +62,16 @@ const siteOrigin = `http://127.0.0.1:${site.address().port}`
 const bootstrap = path.join(directory,'bootstrap.cjs')
 // Only models switched on in Settings → Models are used; the fixture model is one.
 await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ rotation: { entries: [{ provider: 'clinepass', model: 'test-model' }], usage: {} } }))
+// Two OAuth accounts to look at without signing in to anything. Their token
+// blobs are plaintext, which is exactly the case the panel has to name: a file
+// carried over from another machine, whose seal this keychain cannot open.
+await writeFile(path.join(profile, 'auth-accounts.json'), JSON.stringify({
+  version: 1,
+  accounts: [
+    { account: { id: 'auth:codex', kind: 'codex', label: 'ChatGPT (Codex) · fixture@example.com', account: 'fixture@example.com', expiresAt: Date.now() + 3600_000, createdAt: Date.now(), refreshable: true }, sealed: 'plaintext' },
+    { account: { id: 'auth:claude', kind: 'claude', label: 'Claude Code', createdAt: Date.now(), refreshable: false }, sealed: 'plaintext' }
+  ]
+}))
 await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('userData', ${JSON.stringify(profile)}); import(${JSON.stringify(path.resolve('out/main/index.js'))});`)
 const env={...process.env,CLINEPASS_API_KEY:'fixture-key',CLINEPASS_BASE_URL:`http://127.0.0.1:${stub.address().port}/v1`,CLINEPASS_MODEL:'test-model',ANTICODE_REMOTE_PORT:'18681'}
 delete env.ELECTRON_RUN_AS_NODE
@@ -561,6 +571,60 @@ try {
   await removeClinepass.click(); await window.waitForTimeout(200)
   await limeOnHover('settings: keep instead of removing', window.getByRole('button',{name:'Keep'}))
   await window.getByRole('button',{name:'Keep'}).click(); await window.waitForTimeout(200)
+
+  // Auth provider: OAuth accounts that stand in for an API key. The panel has
+  // to say what each token is worth without ever showing the token itself.
+  await limeOnHover('settings: sidebar auth provider', window.getByRole('button',{name:/Auth provider/}))
+  await window.getByRole('button',{name:/Auth provider/}).click(); await window.waitForTimeout(300)
+  const codexVendor = window.locator('[data-auth-vendor="codex"]')
+  await limeOnHover('settings: auth sign in', codexVendor.getByRole('button',{name:'Sign in'}))
+  // A vendor with no account still renders its count, so the first sign-in
+  // does not shift the row it lands in.
+  check('settings: auth counts every vendor, signed in or not',
+    String(await window.locator('[data-auth-vendor] >> text=/signed in/').count()), '4')
+  check('settings: auth counts the accounts of a vendor',
+    await codexVendor.getByText(/signed in/).textContent(), '1 signed in')
+  // Seeded with an unopenable seal: the panel must say so rather than let a
+  // turn fail later with a vendor's 401.
+  const codexAccount = window.locator('[data-auth-account="auth:codex"]')
+  check('settings: auth names a token whose seal will not open',
+    String(await codexAccount.getByText('sign in again', { exact: true }).count()), '1')
+  check('settings: auth lists what the account can run',
+    String(await codexAccount.getByText(/5 models · gpt-5-codex/).count()), '1')
+  // The account name may be clipped in a narrow window; its state may not.
+  check('settings: auth keeps the token state out of the truncated name',
+    await codexAccount.getByText('sign in again', { exact: true }).evaluate((el) => getComputedStyle(el).flexShrink), '0')
+  await limeOnHover('settings: auth renew', codexAccount.getByRole('button',{name:'Renew'}))
+  // Renew says "Renewing…" while it runs, in a box wide enough for both, so
+  // Rename and Remove do not slide sideways under the cursor.
+  check('settings: auth renew keeps its width while it works',
+    await codexAccount.getByRole('button',{name:'Renew'}).evaluate((el) => getComputedStyle(el).width), '74px')
+  await limeOnHover('settings: auth rename', codexAccount.getByRole('button',{name:'Rename'}))
+  // Claude was seeded without a refresh token, so there is nothing to renew.
+  const claudeRenew = window.locator('[data-auth-account="auth:claude"]').getByRole('button',{name:'Renew'})
+  check('settings: auth cannot renew a login that came without a refresh token',
+    await claudeRenew.isDisabled() ? 'disabled' : 'enabled', 'disabled')
+  // …and it has to look unpressable, not merely refuse the press.
+  check('settings: auth dims a renew that has nothing to renew',
+    await claudeRenew.evaluate((el) => getComputedStyle(el).color), 'rgb(48, 48, 48)')
+  const removeAccount = codexAccount.getByRole('button',{name:'Remove'})
+  check('settings: auth removing an account is red on hover',
+    await colourOnHover(removeAccount, 'rgb(224, 108, 108)'), 'rgb(224, 108, 108)')
+  await removeAccount.click(); await window.waitForTimeout(200)
+  check('settings: auth asks before dropping an account',
+    String(await codexAccount.getByText('Remove?').count()), '1')
+  await limeOnHover('settings: auth keep instead of removing', codexAccount.getByRole('button',{name:'Keep'}))
+  await codexAccount.getByRole('button',{name:'Keep'}).click(); await window.waitForTimeout(200)
+  // Renaming keeps the provider id, so sessions pointing at it keep working.
+  await codexAccount.getByRole('button',{name:'Rename'}).click(); await window.waitForTimeout(200)
+  await codexAccount.locator('input').fill('Kerja')
+  await codexAccount.getByRole('button',{name:'Save',exact:true}).click(); await window.waitForTimeout(400)
+  check('settings: auth rename keeps the provider id',
+    String(await window.locator('[data-auth-account="auth:codex"]').getByText('Kerja').count()), '1')
+  await shot('18a-auth-provider')
+
+  // Rotate usage lives back under Providers, where the pool is assembled.
+  await window.getByRole('button',{name:/Providers/}).click(); await window.waitForTimeout(300)
 
   // Rotate usage: a pool of models sharing the token load, run only once
   // switched on. Taking one out of the pool deletes nothing, so it is lime

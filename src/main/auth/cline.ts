@@ -22,10 +22,15 @@ interface WorkosTokens {
   token_type?: string
 }
 
-async function exchangeWorkos(code: string, callbackUrl: string): Promise<WorkosTokens> {
+async function exchangeWorkos(
+  code: string,
+  callbackUrl: string,
+  signal: AbortSignal
+): Promise<WorkosTokens> {
   const response = await fetch(`${WORKOS_BASE}/user_management/authenticate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    signal,
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code,
@@ -40,10 +45,11 @@ async function exchangeWorkos(code: string, callbackUrl: string): Promise<Workos
 }
 
 /** Trades the WorkOS access token for a Cline session token. */
-async function exchangeCline(workos: WorkosTokens): Promise<AuthTokens> {
+async function exchangeCline(workos: WorkosTokens, signal: AbortSignal): Promise<AuthTokens> {
   const response = await fetch(`${API_BASE}/api/v1/auth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    signal,
     body: JSON.stringify({
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
       subject_token: workos.access_token,
@@ -62,39 +68,32 @@ async function exchangeCline(workos: WorkosTokens): Promise<AuthTokens> {
 
 export async function loginCline(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   const state = makeState()
-  const controller = new AbortController()
+  // WorkOS checks that the exchange repeats the redirect URI the browser was
+  // sent to, so the callback the listener actually bound is what is sent.
+  let callbackUrl = ''
   const callback = waitForCallback({
     ports: Array.from({ length: 11 }, (_, i) => 48801 + i),
     path: CALLBACK_PATH,
-    signal: controller.signal,
+    signal: callbacks.signal,
     onListening: (port) => {
+      callbackUrl = `http://127.0.0.1:${port}${CALLBACK_PATH}`
       const url = new URL('/api/v1/auth/authorize', APP_BASE)
       url.searchParams.set('client_type', 'extension')
-      url.searchParams.set('callback_url', `http://127.0.0.1:${port}${CALLBACK_PATH}`)
+      url.searchParams.set('callback_url', callbackUrl)
       url.searchParams.set('state', state)
       callbacks.onUpdate({ message: 'Sign in to your Cline account', url: url.toString() })
       void shell.openExternal(url.toString())
     }
   })
 
-  let code = ''
-  let callbackUrl = ''
-  try {
-    const result = await callback
-    if (result.error !== undefined) throw new Error(result.error)
-    if (result.state !== state) throw new Error('Login returned the wrong state')
-    code = result.code
-    // The exchange needs the exact redirect URI the callback landed on.
-    callbackUrl = result.state === state ? '' : ''
-  } finally {
-    controller.abort()
-  }
-  if (code === '') throw new Error('Login did not return a code')
+  const result = await callback
+  if (result.error !== undefined) throw new Error(result.error)
+  if (result.state !== state) throw new Error('Login returned the wrong state')
+  if (result.code === '') throw new Error('Login did not return a code')
 
-  callbacks.onUpdate({ message: 'Exchanging the Cline session', done: false })
-  void callbackUrl
-  const workos = await exchangeWorkos(code, `${APP_BASE}/api/v1/auth/authorize`)
-  const tokens = await exchangeCline(workos)
+  callbacks.onUpdate({ message: 'Exchanging the Cline session' })
+  const workos = await exchangeWorkos(result.code, callbackUrl, callbacks.signal)
+  const tokens = await exchangeCline(workos, callbacks.signal)
   callbacks.onUpdate({ message: 'Signed in', done: true })
   return tokens
 }

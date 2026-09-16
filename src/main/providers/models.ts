@@ -6,6 +6,8 @@ import { getCustomProvider } from './custom'
 import { clinepassConfig } from './clinepass'
 import { anthropicBaseURL } from './anthropic'
 import { recordPublishedPrices } from '../pricing'
+import { AUTH_MODELS } from '../auth/provider'
+import { getAuthAccount } from '../auth/store'
 
 const TIMEOUT_MS = 15_000
 
@@ -96,6 +98,13 @@ export async function fetchModels(id: ProviderId): Promise<string[]> {
 }
 
 async function fetchModelList(id: ProviderId): Promise<string[]> {
+  // An OAuth account has no /models endpoint to ask — the plan decides the
+  // catalogue, and it is written down next to the adapter that uses it.
+  if (id.startsWith('auth:')) {
+    const account = getAuthAccount(id)
+    return account === undefined ? [] : [...AUTH_MODELS[account.kind]]
+  }
+
   if (id.startsWith('custom:')) {
     const config = getCustomProvider(id)
     if (config === undefined) return []

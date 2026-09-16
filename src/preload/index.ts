@@ -133,6 +133,10 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.AUTH_REMOVE, id) as Promise<ProviderInfo[]>,
   listAuthAccounts: () =>
     ipcRenderer.invoke(IpcChannel.AUTH_LIST) as ReturnType<AnticodeApi['listAuthAccounts']>,
+  refreshAuthProvider: (id) =>
+    ipcRenderer.invoke(IpcChannel.AUTH_REFRESH, id) as ReturnType<AnticodeApi['refreshAuthProvider']>,
+  renameAuthProvider: (id, label) =>
+    ipcRenderer.invoke(IpcChannel.AUTH_RENAME, id, label) as ReturnType<AnticodeApi['renameAuthProvider']>,
   onAuthLogin: (listener) => subscribe(IpcChannel.AUTH_EVENT, listener),
   createSession: (spec: SessionSpec) =>
     ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<SessionSpec>,

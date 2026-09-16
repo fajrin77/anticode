@@ -63,4 +63,10 @@ export interface AuthLoginCallbacks {
   onUpdate: (update: AuthLoginUpdate) => void
   /** Only paste-code flows call this. */
   promptForCode: PromptForCode
+  /**
+   * Aborted the moment the user presses Cancel. Every flow must pass it to
+   * its listener, its polls, and its fetches — otherwise a cancelled login
+   * keeps port 1455 bound, or keeps polling the vendor for five minutes.
+   */
+  signal: AbortSignal
 }

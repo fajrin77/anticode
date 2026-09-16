@@ -81,6 +81,8 @@ export const IpcChannel = {
   AUTH_CANCEL: 'auth:cancel',
   AUTH_REMOVE: 'auth:remove',
   AUTH_LIST: 'auth:list',
+  AUTH_REFRESH: 'auth:refresh',
+  AUTH_RENAME: 'auth:rename',
   AUTH_EVENT: 'auth:event',
   ROTATION_SET: 'rotation:set',
   ROTATION_RESET: 'rotation:reset',
@@ -263,6 +265,14 @@ export interface AuthAccountSummary {
   account?: string
   expiresAt?: number
   refreshable: boolean
+  /** Epoch ms the account was added. */
+  createdAt: number
+  /**
+   * False when the sealed tokens cannot be opened — the keychain is locked or
+   * the file was written by another machine. The account is listed, but it
+   * cannot answer a turn until it is signed in again.
+   */
+  usable: boolean
 }
 
 /**
@@ -1174,6 +1184,10 @@ export interface AnticodeApi {
   removeAuthProvider: (id: string) => Promise<ProviderInfo[]>
   /** Accounts on disk, without their tokens. */
   listAuthAccounts: () => Promise<AuthAccountSummary[]>
+  /** Renews one account's token now; resolves to the refreshed list. */
+  refreshAuthProvider: (id: string) => Promise<AuthAccountSummary[]>
+  /** Renames an account without touching its id or its tokens. */
+  renameAuthProvider: (id: string, label: string) => Promise<AuthAccountSummary[]>
   onAuthLogin: (listener: (state: AuthLoginState) => void) => () => void
   onAgentEvent: (listener: (event: RoutedAgentEvent) => void) => () => void
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void

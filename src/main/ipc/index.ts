@@ -66,7 +66,12 @@ import {
 } from '../runtime'
 import { listProviders } from '../providers'
 import { startAuthLogin, submitAuthCode, cancelAuthLogin } from '../auth/session'
-import { listAuthAccounts, removeAuthAccount } from '../auth'
+import {
+  listAuthAccountSummaries,
+  refreshAuthAccount,
+  removeAuthAccount,
+  renameAuthAccount
+} from '../auth'
 import { resolveInWorkspace } from '../tools/workspace'
 import { ApprovalCoordinator } from '../approval/coordinator'
 import {
@@ -428,9 +433,22 @@ export function registerIpcHandlers(): void {
     submitAuthCode(id, code)
   )
   ipcMain.handle(IpcChannel.AUTH_CANCEL, (_event, id: string) => cancelAuthLogin(id))
-  ipcMain.handle(IpcChannel.AUTH_LIST, () => listAuthAccounts())
+  ipcMain.handle(IpcChannel.AUTH_LIST, () => listAuthAccountSummaries())
+  ipcMain.handle(IpcChannel.AUTH_REFRESH, async (_event, id: string) => {
+    await refreshAuthAccount(id)
+    // A renewed token can flip the account from "needs signing in" back to
+    // usable, and the composer reads that off the provider list.
+    announceStatus()
+    return listAuthAccountSummaries()
+  })
+  ipcMain.handle(IpcChannel.AUTH_RENAME, (_event, id: string, label: string) => {
+    renameAuthAccount(id, label.trim().slice(0, 80))
+    announceStatus()
+    return listAuthAccountSummaries()
+  })
   ipcMain.handle(IpcChannel.AUTH_REMOVE, (_event, id: string) => {
     removeAuthAccount(id)
+    forgetCatalogue(id as ProviderId)
     announceStatus()
     return listProviders()
   })

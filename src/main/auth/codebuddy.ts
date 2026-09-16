@@ -66,14 +66,14 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
-  const controller = new AbortController()
+  const signal = callbacks.signal
   const requestId = makeState()
 
   const start = await fetch(STATE_URL, {
     method: 'POST',
     headers: headers(requestId),
     body: JSON.stringify({ platform: 'CLI' }),
-    signal: controller.signal
+    signal
   })
   if (!start.ok) throw new Error(`CodeBuddy login could not start: ${start.status}`)
   const started = (await start.json()) as StateResponse
@@ -85,36 +85,39 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
   void shell.openExternal(authUrl)
 
   const deadline = Date.now() + POLL_TIMEOUT_MS
-  try {
-    while (Date.now() < deadline) {
-      await sleep(POLL_INTERVAL_MS, controller.signal)
-      const poll = await fetch(TOKEN_URL, {
-        method: 'POST',
-        headers: headers(makeState()),
-        body: JSON.stringify({ state, platform: 'CLI' }),
-        signal: controller.signal
-      })
-      if (!poll.ok) continue
-      const payload = (await poll.json()) as TokenResponse
-      const token = payload.data?.accessToken ?? payload.data?.bearerToken
-      if (payload.code === 0 && token !== undefined && token !== '') {
-        callbacks.onUpdate({ message: 'Signed in', done: true })
-        const refreshToken = payload.data?.refreshToken
-        return {
-          accessToken: token,
-          ...(refreshToken !== undefined ? { refreshToken } : {}),
-          expiresAt: payload.data?.expiresIn ? Date.now() + payload.data.expiresIn * 1000 : 0,
-          meta: {
-            userId: payload.data?.user_id ?? '',
-            sessionState: payload.data?.state ?? ''
-          }
+  let waited = 0
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL_MS, signal)
+    waited += POLL_INTERVAL_MS
+    const poll = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: headers(makeState()),
+      body: JSON.stringify({ state, platform: 'CLI' }),
+      signal
+    })
+    if (!poll.ok) continue
+    const payload = (await poll.json()) as TokenResponse
+    const token = payload.data?.accessToken ?? payload.data?.bearerToken
+    if (payload.code === 0 && token !== undefined && token !== '') {
+      callbacks.onUpdate({ message: 'Signed in', done: true })
+      const refreshToken = payload.data?.refreshToken
+      return {
+        accessToken: token,
+        ...(refreshToken !== undefined ? { refreshToken } : {}),
+        expiresAt: payload.data?.expiresIn ? Date.now() + payload.data.expiresIn * 1000 : 0,
+        meta: {
+          userId: payload.data?.user_id ?? '',
+          sessionState: payload.data?.state ?? ''
         }
       }
     }
-    throw new Error('CodeBuddy login timed out')
-  } finally {
-    controller.abort()
+    // Five minutes of silence looks like a hang otherwise; say what is being
+    // waited on once the browser has had a moment to load.
+    if (waited === POLL_INTERVAL_MS * 4) {
+      callbacks.onUpdate({ message: 'Waiting for you to finish signing in', url: authUrl })
+    }
   }
+  throw new Error('CodeBuddy login timed out')
 }
 
 export function accountLabel(tokens: AuthTokens): string | undefined {

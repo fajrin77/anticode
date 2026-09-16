@@ -32,23 +32,53 @@ function redirectUri(port = REDIRECT_PORT): string {
   return `http://localhost:${port}${CALLBACK_PATH}`
 }
 
-function emailFrom(idToken: string | undefined): string | undefined {
-  if (idToken === undefined) return undefined
+interface IdTokenClaims {
+  email?: string
+  'https://api.openai.com/auth'?: { chatgpt_account_id?: string; chatgpt_plan_type?: string }
+}
+
+function claims(idToken: string | undefined): IdTokenClaims {
+  if (idToken === undefined || idToken === '') return {}
   try {
-    const payload = JSON.parse(Buffer.from(idToken.split('.')[1] ?? '', 'base64url').toString())
-    return typeof payload.email === 'string' ? payload.email : undefined
+    return JSON.parse(Buffer.from(idToken.split('.')[1] ?? '', 'base64url').toString()) as IdTokenClaims
   } catch {
-    return undefined
+    return {}
   }
 }
 
+/**
+ * Carries the id token's claims forward. The Codex backend wants the numeric
+ * ChatGPT account id in its own header — not the email — and a refresh grant
+ * does not always return a new id token, so whatever the login learned is
+ * kept alongside the tokens.
+ */
 function toTokens(raw: TokenResponse, previous?: AuthTokens): AuthTokens {
   const refreshToken = raw.refresh_token ?? previous?.refreshToken
+  const idToken = raw.id_token ?? previous?.meta?.idToken ?? ''
+  const parsed = claims(idToken)
+  const auth = parsed['https://api.openai.com/auth']
   return {
     accessToken: raw.access_token,
     ...(refreshToken !== undefined ? { refreshToken } : {}),
     expiresAt: raw.expires_in ? Date.now() + raw.expires_in * 1000 : 0,
-    meta: { idToken: raw.id_token ?? previous?.meta?.idToken ?? '' }
+    meta: {
+      idToken,
+      email: parsed.email ?? previous?.meta?.email ?? '',
+      accountId: auth?.chatgpt_account_id ?? previous?.meta?.accountId ?? '',
+      plan: auth?.chatgpt_plan_type ?? previous?.meta?.plan ?? ''
+    }
+  }
+}
+
+/** The vendor's own wording beats "failed: 400" when a grant is refused. */
+async function reason(response: Response): Promise<string> {
+  try {
+    const body = await response.text()
+    const parsed = JSON.parse(body) as { error_description?: string; error?: string }
+    const detail = parsed.error_description ?? parsed.error ?? body
+    return detail.slice(0, 200)
+  } catch {
+    return `HTTP ${response.status}`
   }
 }
 
@@ -58,12 +88,15 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
   const challenge = makeChallenge(verifier)
   const state = makeState()
 
-  const controller = new AbortController()
+  // The exchange has to repeat the exact redirect_uri the authorize URL
+  // carried, so the port the listener actually bound is remembered here.
+  let boundPort = REDIRECT_PORT
   const callback = waitForCallback({
     ports: [REDIRECT_PORT, 1456, 1457],
     path: CALLBACK_PATH,
-    signal: controller.signal,
+    signal: callbacks.signal,
     onListening: (port) => {
+      boundPort = port
       const url = new URL(AUTHORIZE_URL)
       url.searchParams.set('response_type', 'code')
       url.searchParams.set('client_id', CLIENT_ID)
@@ -80,36 +113,27 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
     }
   })
 
-  let code = ''
-  let returned = ''
-  try {
-    const result = await callback
-    if (result.error !== undefined) throw new Error(result.error)
-    if (result.state !== state) throw new Error('Login returned the wrong state')
-    code = result.code
-    returned = result.state
-  } finally {
-    controller.abort()
-  }
-  if (code === '') throw new Error('Login did not return a code')
+  const result = await callback
+  if (result.error !== undefined) throw new Error(result.error)
+  if (result.state !== state) throw new Error('Login returned the wrong state')
+  if (result.code === '') throw new Error('Login did not return a code')
 
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: redirectUri(),
-    client_id: CLIENT_ID,
-    code_verifier: verifier,
-    state: returned
-  })
+  callbacks.onUpdate({ message: 'Exchanging the ChatGPT token' })
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body
+    signal: callbacks.signal,
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: result.code,
+      redirect_uri: redirectUri(boundPort),
+      client_id: CLIENT_ID,
+      code_verifier: verifier,
+      state: result.state
+    })
   })
-  if (!response.ok) throw new Error(`Codex token exchange failed: ${response.status}`)
-  const raw = (await response.json()) as TokenResponse
-  const tokens = toTokens(raw)
-  tokens.meta = { ...tokens.meta, email: emailFrom(raw.id_token) ?? '' }
+  if (!response.ok) throw new Error(`ChatGPT token exchange failed — ${await reason(response)}`)
+  const tokens = toTokens((await response.json()) as TokenResponse)
   callbacks.onUpdate({ message: 'Signed in', done: true })
   return tokens
 }
@@ -123,13 +147,19 @@ export async function refreshCodex(tokens: AuthTokens): Promise<AuthTokens> {
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: tokens.refreshToken,
-      client_id: CLIENT_ID
+      client_id: CLIENT_ID,
+      scope: SCOPES
     })
   })
-  if (!response.ok) throw new Error(`Codex refresh failed: ${response.status}`)
+  if (!response.ok) throw new Error(`ChatGPT refresh failed — ${await reason(response)}`)
   return toTokens((await response.json()) as TokenResponse, tokens)
 }
 
 export function accountLabel(tokens: AuthTokens): string | undefined {
   return tokens.meta?.email || undefined
+}
+
+/** The numeric ChatGPT account id the Codex backend wants in its header. */
+export function chatgptAccountId(tokens: AuthTokens): string | undefined {
+  return tokens.meta?.accountId || undefined
 }
