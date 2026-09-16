@@ -14,6 +14,7 @@ mac:
   icon: build/icon.png
   target:
     - dmg
+    - zip
   category: public.app-category.developer-tools
   # Personal local builds: no developer certificate, skip signing entirely.
   identity: null
@@ -26,3 +27,10 @@ linux:
   target:
     - AppImage
   category: Development
+# Remote updates (Settings -> Updates). Building writes a feed file into release/
+# -- latest-mac.yml, latest.yml, latest-linux.yml -- listing each build's version,
+# file name and sha512. Host that folder as-is (GitHub Release, static host, or a
+# local folder) and point Settings -> Updates at it. See docs/RELEASING.md.
+publish:
+  provider: generic
+  url: https://example.com/anticode/

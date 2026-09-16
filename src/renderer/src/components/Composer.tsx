@@ -464,11 +464,7 @@ export function Composer({
   }
 
   const shortModel = modelLabel(status)
-  // Code sessions always name the repo they are bound to, right in the composer.
-  const folder =
-    session?.mode === 'code' && session.projectRoot !== null
-      ? (session.projectRoot.split(/[\\/]/).filter((part) => part !== '').at(-1) ?? session.projectRoot)
-      : null
+  void session
 
   return (
     <div
@@ -687,18 +683,6 @@ export function Composer({
               >
                 +
               </button>
-
-              {folder !== null && !hero && (
-                <span
-                  title={session?.projectRoot ?? undefined}
-                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-dim"
-                >
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M1.5 4.2A1.2 1.2 0 0 1 2.7 3h3l1.4 1.6h5.2a1.2 1.2 0 0 1 1.2 1.2v6A1.2 1.2 0 0 1 12.3 13H2.7a1.2 1.2 0 0 1-1.2-1.2z" />
-                  </svg>
-                  <span className="max-w-40 truncate font-mono">{folder}</span>
-                </span>
-              )}
 
               {/* Once a code session has messages the hero is gone, and with it
                   the only way to attach a folder — a session that reached this

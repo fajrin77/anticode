@@ -20,7 +20,8 @@
     "pack:linux": "npm run build && electron-builder --linux",
     "test:desktop": "npm run build && node scripts/verify-desktop.mjs",
     "test:packaged": "node scripts/verify-packaged.mjs",
-    "test:ui": "npm run build && node scripts/verify-ui.mjs"
+    "test:ui": "npm run build && node scripts/verify-ui.mjs",
+    "release": "npm run build && electron-builder --mac --win --linux --publish never"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
