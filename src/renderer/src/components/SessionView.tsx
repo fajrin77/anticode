@@ -287,6 +287,37 @@ function EditPrompt({ sessionId, message }: { sessionId: string; message: Messag
 }
 
 /**
+ * Copies the prompt's own text — no model, duration, or token cost — to the
+ * clipboard. Drawn at the bubble's edge, visible only while hovered, and it
+ * never shifts the transcript: the badge it swaps to occupies the same spot.
+ */
+function CopyPromptButton({ text }: { text: string }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        })
+      }}
+      title="Copy this prompt"
+      className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-md p-1 text-faint opacity-0 transition-opacity hover:text-brand group-hover/prompt:opacity-100"
+    >
+      {copied ? (
+        <span className="text-[11px]">copied</span>
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+          <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+          <path d="M10.5 3.5h-6a1.5 1.5 0 0 0-1.5 1.5v6" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
+/**
  * Answers the last prompt again, drawn as this window's own run: the prompt
  * stays, the reply goes, and a fresh one streams in its place.
  */
@@ -345,8 +376,9 @@ function MessageView({
       <div className="group/prompt flex flex-col items-end gap-2 pt-4 pb-1">
         {files.length > 0 && <Attachments items={files} />}
         {text.trim() !== '' && (
-          <div className="max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
+          <div className="relative max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
             {text}
+            <CopyPromptButton text={text} />
           </div>
         )}
         {/* The phone shows "Follow-up added." for prompts that joined a running turn; the desktop transcript says the same in the same place. */}
@@ -495,23 +527,12 @@ function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
 }
 
-/** What the copy button puts on the clipboard: the reply, then what it cost. */
+/** What the copy button puts on the clipboard: the reply, nothing else. */
 function summaryText(message: Message): string {
-  const said = message.parts
+  return message.parts
     .map((part) => (part.kind === 'text' ? part.text : ''))
     .join('')
     .trim()
-  const summary = message.summary
-  const stats =
-    summary === undefined
-      ? []
-      : [
-          summary.model,
-          formatDuration(summary.durationMs),
-          `${formatNumber(summary.inputTokens + summary.outputTokens)} tokens`,
-          ...(summary.costUsd !== undefined && summary.costUsd > 0 ? [`${summary.costPartial === true ? '≥ ' : '~'}${formatUsd(summary.costUsd)}`] : [])
-        ]
-  return [said, stats.join(' · ')].filter((part) => part !== '').join('\n\n')
 }
 
 /**
