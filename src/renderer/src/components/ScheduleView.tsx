@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { useSessionStore } from '../store/session'
-import type { ScheduleEntry, ScheduleInput } from '@shared/ipc'
+import type { ScheduleEntry, ScheduleInput, SessionMode } from '@shared/ipc'
 
 interface ScheduleViewProps {
   onBack: () => void
@@ -52,6 +52,10 @@ interface Draft {
   prompt: string
   sessionId: string
   enabled: boolean
+  /** When true, the main process builds a fresh session from mode + folder. */
+  newSession: boolean
+  mode: SessionMode
+  folder: string
 }
 
 function draftFrom(entry: ScheduleEntry): Draft {
@@ -63,7 +67,10 @@ function draftFrom(entry: ScheduleEntry): Draft {
     minute: entry.minute,
     prompt: entry.prompt,
     sessionId: entry.sessionId,
-    enabled: entry.enabled
+    enabled: entry.enabled,
+    newSession: false,
+    mode: 'chat',
+    folder: ''
   }
 }
 
@@ -96,7 +103,10 @@ function ScheduleModal({
           minute: 0,
           prompt: '',
           sessionId: fallback,
-          enabled: true
+          enabled: true,
+          newSession: usable.length === 0,
+          mode: 'chat',
+          folder: ''
         }
   )
   const [error, setError] = useState<string | null>(null)
@@ -106,13 +116,23 @@ function ScheduleModal({
     setDraft((current) => ({ ...current, ...patch }))
   }
 
+  async function pickFolder(): Promise<void> {
+    const status = await window.anticode.chooseWorkspace()
+    if (status.workspaceRoot !== null) update({ folder: status.workspaceRoot })
+  }
+
   async function save(): Promise<void> {
     if (saving) return
     if (draft.prompt.trim() === '') {
       setError('Give the schedule a prompt.')
       return
     }
-    if (draft.sessionId === '') {
+    if (draft.newSession) {
+      if (draft.mode === 'code' && draft.folder.trim() === '') {
+        setError('Pick a folder for the new anticode session.')
+        return
+      }
+    } else if (draft.sessionId === '') {
       setError('Pick a session to run in.')
       return
     }
@@ -138,7 +158,14 @@ function ScheduleModal({
           hour: draft.hour,
           minute: draft.minute,
           ...(draft.frequency === 'weekly' ? { weekday: draft.weekday } : {}),
-          sessionId: draft.sessionId
+          ...(draft.newSession
+            ? {
+                sessionId: '',
+                newSession: true,
+                mode: draft.mode,
+                workspaceRoot: draft.mode === 'code' ? draft.folder : null
+              }
+            : { sessionId: draft.sessionId })
         }
         const saved = await window.anticode.addSchedule(input)
         onSaved(saved)
@@ -232,21 +259,95 @@ function ScheduleModal({
             className="glass-field mb-4 w-full resize-none rounded-lg border border-line px-3 py-2 text-[13.5px] text-text outline-none placeholder:text-faint focus:border-hover"
           />
 
-          <label className="mb-1.5 block text-[12.5px] text-dim">Session</label>
-          <select
-            value={draft.sessionId}
-            onChange={(event) => update({ sessionId: event.target.value })}
-            disabled={entry !== null}
-            className="glass-field mb-1 w-full rounded-lg border border-line px-3 py-2 text-[13.5px] text-text outline-none focus:border-hover disabled:opacity-60"
-          >
-            {usable.length === 0 && <option value="">No sessions yet</option>}
-            {usable.map((session) => (
-              <option key={session.id} value={session.id}>{session.title}</option>
-            ))}
-          </select>
-          <p className="mb-4 text-[12px] text-faint">
-            The run uses this session's model and folder — nothing to pick again.
-          </p>
+          <label className="mb-1.5 block text-[12.5px] text-dim">Run in</label>
+          {entry === null ? (
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => update({ newSession: false })}
+                className={`rounded-lg border px-3 py-2 text-[13px] transition-colors ${
+                  draft.newSession
+                    ? 'border-line text-dim hover:text-brand'
+                    : 'border-brand text-brand'
+                }`}
+              >
+                Existing session
+              </button>
+              <button
+                type="button"
+                onClick={() => update({ newSession: true })}
+                className={`rounded-lg border px-3 py-2 text-[13px] transition-colors ${
+                  draft.newSession
+                    ? 'border-brand text-brand'
+                    : 'border-line text-dim hover:text-brand'
+                }`}
+              >
+                New session
+              </button>
+            </div>
+          ) : null}
+
+          {draft.newSession && entry === null ? (
+            <>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => update({ mode: 'chat' })}
+                  className={`rounded-lg border px-3 py-2 text-[13px] transition-colors ${
+                    draft.mode === 'chat'
+                      ? 'border-brand text-brand'
+                      : 'border-line text-dim hover:text-brand'
+                  }`}
+                >
+                  antichat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update({ mode: 'code' })}
+                  className={`rounded-lg border px-3 py-2 text-[13px] transition-colors ${
+                    draft.mode === 'code'
+                      ? 'border-brand text-brand'
+                      : 'border-line text-dim hover:text-brand'
+                  }`}
+                >
+                  anticode
+                </button>
+              </div>
+              {draft.mode === 'code' && (
+                <button
+                  type="button"
+                  onClick={() => void pickFolder()}
+                  className="mb-3 flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-[13px] transition-colors hover:text-brand"
+                >
+                  <span className="text-dim transition-colors">Folder</span>
+                  <span className={`min-w-0 flex-1 truncate ${draft.folder === '' ? 'text-faint' : 'text-text'}`}>
+                    {draft.folder === '' ? 'Pick a folder…' : draft.folder}
+                  </span>
+                </button>
+              )}
+              <p className="mb-4 text-[12px] text-faint">
+                A fresh {draft.mode === 'code' ? 'anticode' : 'antichat'} session is created when the
+                schedule is saved. Every run gets a new empty conversation in this folder.
+              </p>
+            </>
+          ) : (
+            <>
+              <select
+                value={draft.sessionId}
+                onChange={(event) => update({ sessionId: event.target.value })}
+                disabled={entry !== null}
+                className="glass-field mb-1 w-full rounded-lg border border-line px-3 py-2 text-[13.5px] text-text outline-none focus:border-hover disabled:opacity-60"
+              >
+                {usable.length === 0 && <option value="">No sessions yet</option>}
+                {usable.map((session) => (
+                  <option key={session.id} value={session.id}>{session.title}</option>
+                ))}
+              </select>
+              <p className="mb-4 text-[12px] text-faint">
+                The run uses this session's model and folder — nothing to pick again.
+              </p>
+            </>
+          )}
 
           {error !== null && <div role="alert" className="mb-2 text-[12.5px] text-del">{error}</div>}
         </div>

@@ -164,6 +164,7 @@ export function initPersistedState(): void {
           ? { choice: { provider: choice.provider, model: choice.model } }
           : {})
       })
+      rememberSpec(entry.spec)
       if (entry.paused === true) restorePausedSession(entry.spec.sessionId, entry.pausedForRetry === true)
       // The page this session had open comes back with it, so relaunching the
       // app lands on the same local server the last run was looking at.
@@ -489,6 +490,7 @@ export function createSession(spec: SessionSpec): SessionSpec {
     ...(previous?.choice !== undefined ? { choice: previous.choice } : {})
   }
   sessions.set(spec.sessionId, live)
+  rememberSpec(settled)
   persistSessions()
   const announced = specOf(live)
   announcedTitles.set(spec.sessionId, announced.title ?? '')
@@ -616,8 +618,22 @@ export function deleteSession(sessionId: string): void {
   sessions.delete(sessionId)
   announcedTitles.delete(sessionId)
   clearWeb(sessionId)
+  if (live !== undefined) rememberSpec(live.spec)
   persistSessions()
   sessionClosedSink?.(sessionId)
+}
+
+/**
+ * Specs of every session ever created, kept after the session itself is
+ * closed or deleted. A schedule bound to a session that is gone can still
+ * build a fresh one with the same mode and folder instead of failing.
+ */
+const rememberedSpecs = new Map<string, SessionSpec>()
+export function rememberSpec(spec: SessionSpec): void {
+  rememberedSpecs.set(spec.sessionId, spec)
+}
+export function rememberedSpec(sessionId: string): SessionSpec | undefined {
+  return rememberedSpecs.get(sessionId) ?? sessions.get(sessionId)?.spec
 }
 
 type Providers = ReturnType<typeof listProviders>
@@ -1089,3 +1105,13 @@ export function persistSessions(): void {
   } catch (error) { console.error('Could not save session history:', (error as Error).message) }
 }
 export function listSessionSpecs(): SessionSpec[] { return [...sessions.values()].map(specOf) }
+
+/**
+ * Builds a fresh session from a spec snapshot: same mode, folder, and model,
+ * a brand-new transcript. Used by the scheduler when the session a recurring
+ * run is bound to no longer exists.
+ */
+export function recreateSession(spec: SessionSpec): SessionSpec {
+  rememberSpec(spec)
+  return createSession({ ...spec, sessionId: randomUUID() })
+}

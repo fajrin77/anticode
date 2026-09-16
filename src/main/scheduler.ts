@@ -6,7 +6,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { IpcChannel } from '@shared/ipc'
 import { submitPrompt } from './prompts'
 import { approvals } from './ipc/index'
-import { getStatus, listSessionSpecs } from './runtime'
+import { getStatus, listSessionSpecs, rememberedSpec, recreateSession, createSession } from './runtime'
+import type { SessionMode, ScheduleEntry, ScheduleInput } from '../shared/ipc'
 
 /**
  * Cron for the rest of us: a schedule is "run this prompt every N" — daily
@@ -17,26 +18,6 @@ import { getStatus, listSessionSpecs } from './runtime'
  * so a slow run can never squeeze two fires onto one tick.
  */
 type Frequency = 'daily' | 'weekly'
-
-export interface ScheduleEntry {
-  id: string
-  name: string
-  prompt: string
-  frequency: Frequency
-  /** Hour 0-23 and minute 0-59 in the Mac's local time. */
-  hour: number
-  minute: number
-  /** Weekly runs land on this weekday; 0 is Sunday. */
-  weekday?: number
-  sessionId: string
-  enabled: boolean
-  /** Epoch ms of the upcoming run; rewritten on every start. */
-  nextRunAt: number | null
-  lastRunAt: number | null
-  /** How the last scheduled run ended, for the list on the dashboard. */
-  lastResult?: string
-  lastError?: string
-}
 
 const TICK = 15_000
 
@@ -103,6 +84,18 @@ async function fire(entry: ScheduleEntry): Promise<void> {
   persist()
   announce(entry)
   try {
+    // A session can be closed or deleted between scheduling and firing. With
+    // a recorded binding the schedule rebuilds an empty session with the same
+    // mode and folder instead of dying; without one there is nothing to run.
+    let liveSpecs = listSessionSpecs()
+    if (!liveSpecs.some((spec) => spec.sessionId === entry.sessionId)) {
+      const spec = entry.binding !== undefined ? rememberedSpec(entry.sessionId) : undefined
+      if (spec === undefined) throw new Error('No such session')
+      const rebuilt = recreateSession(spec)
+      entry.sessionId = rebuilt.sessionId
+      liveSpecs = listSessionSpecs()
+      persist()
+    }
     const status = getStatus(entry.sessionId)
     if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
     await submitPrompt(
@@ -167,7 +160,8 @@ export function stopScheduler(): void {
 
 export function addSchedule(input: {
   name: string; prompt: string; frequency: Frequency; hour: number; minute: number;
-  weekday?: number; sessionId: string
+  weekday?: number; sessionId: string;
+  newSession?: boolean; mode?: SessionMode; workspaceRoot?: string | null
 }): ScheduleEntry {
   const prompt = input.prompt.trim()
   if (prompt === '') throw new Error('Give the schedule a prompt')
@@ -178,18 +172,35 @@ export function addSchedule(input: {
   if (input.frequency === 'weekly' && (input.weekday === undefined || input.weekday < 0 || input.weekday > 6)) {
     throw new Error('Pick a weekday for a weekly schedule')
   }
-  if (!listSessionSpecs().some((spec) => (spec as unknown as { id: string }).id === input.sessionId)) {
-    throw new Error('No such session')
+  const {
+    sessionId,
+    newSession,
+    mode,
+    workspaceRoot,
+    ...rest
+  } = input as ScheduleInput & { newSession?: boolean; mode?: SessionMode; workspaceRoot?: string | null }
+
+  let boundId = sessionId
+  let binding: ScheduleEntry['binding'] = undefined
+  if (newSession === true) {
+    const folder = mode === 'code' ? workspaceRoot ?? null : null
+    if (mode === 'code' && folder === null) throw new Error('Pick a folder for a new anticode session')
+    const spec = createSession({ sessionId: randomUUID(), mode: mode ?? 'chat', workspaceRoot: folder })
+    boundId = spec.sessionId
+  } else if (sessionId !== '') {
+    const known = listSessionSpecs().find((spec) => spec.sessionId === sessionId)
+    if (known === undefined) {
+      // A session the schedule outlived: its binding must already carry the
+      // mode and folder needed to rebuild it, or the schedule cannot run.
+      binding = rememberedSpec(sessionId)
+      if (binding === undefined) throw new Error('No such session')
+    } else {
+      binding = { mode: known.mode, workspaceRoot: known.workspaceRoot }
+    }
+  } else {
+    throw new Error('Pick a session, or create a new one')
   }
-  const { weekday, ...rest } = input
-  const spec: ScheduleEntry = {
-    ...rest,
-    id: '',
-    enabled: false,
-    nextRunAt: null,
-    lastRunAt: null,
-    ...(weekday !== undefined ? { weekday } : {})
-  }
+
   const now = Date.now()
   const entry: ScheduleEntry = {
     id: randomUUID(),
@@ -198,10 +209,11 @@ export function addSchedule(input: {
     frequency: rest.frequency,
     hour: rest.hour,
     minute: rest.minute,
-    ...(weekday !== undefined ? { weekday } : {}),
-    sessionId: rest.sessionId,
+    ...(rest.weekday !== undefined ? { weekday: rest.weekday } : {}),
+    sessionId: boundId,
+    ...(binding !== undefined ? { binding } : {}),
     enabled: true,
-    nextRunAt: nextOccurrence(spec, now),
+    nextRunAt: nextOccurrence({ ...input, weekday: rest.weekday } as ScheduleEntry, now),
     lastRunAt: null
   }
   entries.set(entry.id, entry)

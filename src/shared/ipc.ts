@@ -710,6 +710,12 @@ export interface ScheduleEntry {
   /** Weekly only: 0 is Sunday. */
   weekday?: number
   sessionId: string
+  /**
+   * The mode and folder the bound session was created with, recorded when the
+   * schedule is saved. If the session is gone when the clock fires, a fresh
+   * one is built from this instead of the run failing with "No such session".
+   */
+  binding?: { mode: SessionMode; workspaceRoot: string | null }
   enabled: boolean
   nextRunAt: number | null
   lastRunAt: number | null
@@ -723,7 +729,14 @@ export interface ScheduleInput {
   hour: number
   minute: number
   weekday?: number
+  /**
+   * The session to run in, or '' with `newSession` to have the main process
+   * build a brand-new session (mode + folder below) at save time.
+   */
   sessionId: string
+  newSession?: boolean
+  mode?: SessionMode
+  workspaceRoot?: string | null
 }
 
 export type AgentEvent =
