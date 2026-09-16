@@ -73,13 +73,14 @@ describe('ApprovalPolicy', () => {
     expect(policy.needsApproval('write_file', 'medium')).toBe(true)
   })
 
-  it('auto runs every risk tier without showing an approval', () => {
+  it('auto clears ordinary work but still asks before destructive tools', () => {
     const policy = new ApprovalPolicy()
     policy.setAutoApprove(true)
     expect(policy.needsApproval('read_file', 'low')).toBe(false)
     expect(policy.needsApproval('run_command', 'medium')).toBe(false)
-    expect(policy.needsApproval('run_command', 'high')).toBe(false)
-    expect(policy.needsApproval('delete_file', 'high')).toBe(false)
+    // Destructive work keeps its guards in every mode, as an IDE would.
+    expect(policy.needsApproval('run_command', 'high')).toBe(true)
+    expect(policy.needsApproval('delete_file', 'high')).toBe(true)
   })
 
   it('always-allow still lifts a single tool without auto-approve', () => {

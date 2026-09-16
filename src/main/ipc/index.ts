@@ -146,6 +146,7 @@ export function setApprovalMode(enabled: boolean): SessionStatus {
   return getStatus()
 }
 
+
 function announceProviders(): void {
   const providers = listProviders()
   for (const window of BrowserWindow.getAllWindows()) {

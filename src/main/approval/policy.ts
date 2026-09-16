@@ -60,8 +60,11 @@ export class ApprovalPolicy {
    * that exact tool was explicitly allowed for the session. */
   needsApproval(toolName: string, risk: RiskTier, sessionId = 'default'): boolean {
     if (risk === 'low') return false
-    if (this.autoApprove) return false
+    // Auto exists to skip the ceremony around ordinary edits, never around
+    /// the destructive ones: deleting files and the like ask every time, as
+    // an IDE would, whichever mode is lit.
     if (risk === 'high') return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
+    if (this.autoApprove) return false
     return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
   }
 }
