@@ -223,9 +223,19 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
+  background: transparent;
   border: 3px solid var(--color-bg);
   border-radius: 6px;
+}
+
+/* The rail appears only while the pane is actually being hovered, so an
+   idle transcript shows no gutter line at all. */
+.transcript-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  transition: background-color 0.25s ease;
+}
+.transcript-scroll:hover::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
 }
 
 ::-webkit-scrollbar-thumb:hover {

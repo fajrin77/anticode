@@ -820,6 +820,7 @@ const FOLLOW_SLACK = 80
 export function SessionView(): JSX.Element {
   const session = useActiveSession()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrolled, setScrolled] = useState(false)
   const messages = session?.messages ?? []
   // The latest finished reply with no prompt after it is the one Retry answers.
   const lastPrompt = messages.findLastIndex(isTypedPrompt)
@@ -893,15 +894,36 @@ export function SessionView(): JSX.Element {
   }, [])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <ReplyToSelection sessionId={session?.id ?? ''} />
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center">
+        {scrolled && (
+          <button
+            type="button"
+            onClick={() => {
+              const box = scrollRef.current
+              if (box !== null) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' })
+              following.current = true
+              setScrolled(false)
+            }}
+            title="Back to the latest message"
+            aria-label="Scroll to latest"
+            className="pointer-events-auto mt-2 flex h-9 w-9 items-center justify-center rounded-full bg-brand text-bg shadow-lg transition-colors hover:bg-brand-strong"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+              <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
+      </div>
       <div
         ref={scrollRef}
         onScroll={(event) => {
           const box = event.currentTarget
           following.current = box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_SLACK
+          setScrolled(box.scrollTop > 4 && !following.current)
         }}
-        className="under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
+        className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
           {messages.map((message) => (
