@@ -785,6 +785,22 @@ export function Composer({  status: sharedStatus,
                 {status?.autoApprove === true ? 'Auto' : 'Default'}
               </Chip>
 
+              {/* Plan or Build, right of the mode: the two read as one choice
+                  about what this run is allowed to do. */}
+              {session?.mode === 'code' && (
+                <button
+                  type="button"
+                  onClick={() => setPlanMode(session.id, !planMode)}
+                  title={planMode ? 'Plan: prepare the work; nothing is executed' : 'Build: execute the work now'}
+                  aria-pressed={planMode}
+                  className={`shrink-0 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
+                    planMode ? 'bg-hover text-brand' : 'text-dim hover:text-brand'
+                  }`}
+                >
+                  {planMode ? 'plan' : 'build'}
+                </button>
+              )}
+
               {/* Only while a run works: the queued prompt waits above the
                   composer; a second arrow steers it into the live run. */}
               <div className="flex-1" />
@@ -869,20 +885,6 @@ export function Composer({  status: sharedStatus,
                   </svg>
                 )}
               </button>
-
-              {session?.mode === 'code' && (
-                <button
-                  type="button"
-                  onClick={() => setPlanMode(session.id, !planMode)}
-                  title={planMode ? 'Plan: prepare the work; nothing is executed' : 'Build: execute the work now'}
-                  aria-pressed={planMode}
-                  className={`shrink-0 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
-                    planMode ? 'bg-hover text-brand' : 'text-dim hover:text-brand'
-                  }`}
-                >
-                  {planMode ? 'plan' : 'build'}
-                </button>
-              )}
             </div>
           </div>
         </div>

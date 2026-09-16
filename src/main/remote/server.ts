@@ -705,11 +705,12 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
   const ids = Array.isArray(body.attachmentIds)
     ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
     : []
+  const plan = body.plan === true
   if (body.queue === true) {
-    const queued = await queuePrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids }, approvals)
+    const queued = await queuePrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids, plan }, approvals)
     return { sessionId, runId: queued.runId, steered: false }
   }
-  const result = await submitPrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids }, approvals)
+  const result = await submitPrompt({ sessionId, runId: randomUUID(), prompt, attachmentIds: ids, plan }, approvals)
   return { sessionId, ...result }
 }
 

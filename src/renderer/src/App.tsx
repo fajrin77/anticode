@@ -23,7 +23,8 @@ import type {
   ProviderId,
   ProviderInfo,
   RoutedAgentEvent,
-  SessionStatus
+  SessionStatus,
+  UpdateState
 } from '@shared/ipc'
 import { ROTATE_PROVIDER } from '@shared/ipc'
 
@@ -38,11 +39,21 @@ export function App(): JSX.Element {
   const [status, setStatus] = useState<SessionStatus | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [appError, setAppError] = useState<string | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
+  // A version the user closed the banner on; the next one appears on its own.
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [view, setView] = useState<View>('dashboard')
   // Where Settings was opened from, so closing it returns there. Without this
   // the gear dropped the user into a session view that may not exist.
   const viewBeforeSettings = useRef<View>('dashboard')
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+
+  // The updater checks on its own; this is where the window says so, so the
+  // user does not have to open Settings and press Check now.
+  useEffect(() => {
+    void window.anticode.getUpdateState().then(setUpdateState)
+    return window.anticode.onUpdateState(setUpdateState)
+  }, [])
 
   const activeSessionId = useSessionStore((state) => state.activeSessionId)
   const openSession = useSessionStore((state) => state.openSession)
@@ -544,8 +555,45 @@ export function App(): JSX.Element {
   const web = useWebSession(activeSessionId)
   const swipeRoot = useSessionSwipe(view === 'session' && approvals.length === 0, openExistingSession)
 
+  // An update the user has not closed the banner on. Ready means it has been
+  // downloaded and waits for a restart; available means it waits for the click.
+  const availableVersion =
+    updateState !== null && (updateState.status === 'available' || updateState.status === 'ready')
+      ? updateState.latest
+      : null
+  const showUpdateBanner = availableVersion !== null && availableVersion !== dismissedVersion
+
   return (
     <div ref={swipeRoot} className="session-swipe-root flex h-full flex-col overflow-hidden">
+      {showUpdateBanner && availableVersion !== null && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-4 bg-raised px-6 py-2 text-[13px] text-text"
+        >
+          <span className="min-w-0 flex-1">
+            {updateState?.status === 'ready'
+              ? `anticode ${availableVersion} is downloaded and ready to install.`
+              : `anticode ${availableVersion} is available.`}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              viewBeforeSettings.current = view
+              setView('settings')
+            }}
+            className="shrink-0 rounded-md px-2 py-0.5 text-dim transition-colors hover:bg-hover hover:text-brand"
+          >
+            Open Settings
+          </button>
+          <button
+            type="button"
+            onClick={() => setDismissedVersion(availableVersion)}
+            className="shrink-0 rounded-md px-2 py-0.5 text-dim transition-colors hover:bg-hover hover:text-brand"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {appError && (
         <div
           role="alert"

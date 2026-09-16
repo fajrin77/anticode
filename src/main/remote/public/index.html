@@ -367,8 +367,8 @@
   }
   #queueRow .qn { flex: none; color: #6d6d6d; font-variant-numeric: tabular-nums; }
   #queueRow .qt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9a9a9a; }
-  #queueRow .qt:active, #queueRow .qx:active { color: #d1fa22; }
-  #queueRow .qx { flex: none; background: none; border: none; color: #6d6d6d; font-size: 15px; line-height: 1; padding: 0 2px; }
+  #queueRow .qt:active, #queueRow .qx:active, #queueRow .qs:active { color: #d1fa22; }
+  #queueRow .qx, #queueRow .qs { flex: none; background: none; border: none; color: #6d6d6d; font-size: 15px; line-height: 1; padding: 0 2px; }
   /* Staged files sit on their own row above the text box. */
   #stagedRow { flex: 0 0 100%; display: flex; gap: 8px; overflow-x: auto; }
   #stagedRow .vision-warning { flex: none; max-width: 250px; color: #f3aaaa; font-size: 12px; line-height: 1.35; }
@@ -561,7 +561,8 @@
   }
   .composer #chipRow #followChips { display: flex; gap: 1px; }
   .composer #chipRow #followChips.hidden { display: none; }
-  .composer #chipRow #followChips button.on {
+  .composer #chipRow #followChips button.on,
+  .composer #chipRow #planChip.on {
     color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
   }
   .composer #chipRow #modelChip {
@@ -781,6 +782,7 @@
   <div id="chipRow">
     <button id="modelChip" onclick="openSettings(modelInfo?.rotationEnabled === true ? 'rotation' : 'model')" title="Model"><span class="modelText">…</span></button>
     <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
+    <button id="planChip" onclick="togglePhonePlan()" title="Build: execute now — Plan: prepare only, nothing runs yet">build</button>
     <span id="followChips" class="hidden">
       <button id="steerChip" onclick="setPhoneFollowMode('steer')" title="Steer: add to the current run">steer</button>
       <button id="queueChip" onclick="setPhoneFollowMode('queue')" title="Queue: send after the current run">queue</button>
@@ -877,6 +879,8 @@ let followMode = (() => { try { return localStorage.getItem('anticode.followUpMo
  * arrives meanwhile does not bounce the chip back to the old value. */
 let pendingFollowFlip = false;
 let currentPlan = null;
+/** The composer's build/plan choice, carried with each prompt. */
+let phonePlan = false;
 let planOpen = null;
 let submitting = false;
 let streamReady = null;
@@ -2659,6 +2663,11 @@ function sendBtnState() {
   return 'send';
 }
 
+function togglePhonePlan() {
+  phonePlan = !phonePlan;
+  updateSendBtn();
+}
+
 const SEND_GLYPH = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const PAUSE_GLYPH = '<span class="sq" aria-hidden="true"></span>';
 const RESUME_GLYPH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z"/></svg>';
@@ -2691,6 +2700,9 @@ function updateSendBtn() {
   chips.classList.toggle('hidden', !working);
   document.getElementById('steerChip').classList.toggle('on', followMode === 'steer');
   document.getElementById('queueChip').classList.toggle('on', followMode === 'queue');
+  const planChip = document.getElementById('planChip');
+  planChip.textContent = phonePlan ? 'plan' : 'build';
+  planChip.classList.toggle('on', phonePlan);
   document.getElementById('promptHint').textContent = working
     ? (followMode === 'queue' ? 'Queue the next prompt\u2026' : 'Add to the task\u2026')
     : 'Message\u2026';
@@ -2871,7 +2883,7 @@ async function submitPrompt(prompt) {
     const queue = followMode === 'queue' && currentRunId !== null && prompt !== CONTINUE_PROMPT;
     await jfetch('/api/prompt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: id, prompt, attachmentIds, queue })
+      body: JSON.stringify({ sessionId: id, prompt, attachmentIds, queue, plan: phonePlan })
     });
     for (const item of staged) if (attachmentIds.includes(item.id) && item.localUrl) URL.revokeObjectURL(item.localUrl);
     staged = staged.filter((item) => !attachmentIds.includes(item.id));
@@ -3910,9 +3922,37 @@ function renderQueue(items) {
     x.textContent = '\u00d7';
     x.setAttribute('aria-label', 'Remove from queue');
     x.onclick = () => void unqueue(item, false);
-    el.append(n, text, x);
+    if (currentRunId !== null) {
+      const st = document.createElement('button');
+      st.className = 'qs';
+      st.textContent = '\u21a7';
+      st.title = 'Steer: send into the run now';
+      st.setAttribute('aria-label', 'Steer into the running session');
+      st.onclick = () => void steerQueued(item);
+      el.append(n, text, st, x);
+    } else {
+      el.append(n, text, x);
+    }
     row.appendChild(el);
   });
+}
+
+/** Sends a queued prompt into the running session, as the desktop's steer
+ * arrow does: it leaves the queue and goes to the model right now. */
+async function steerQueued(item) {
+  const id = currentSession;
+  if (id === null || currentRunId === null) return;
+  try {
+    const { item: taken } = await jfetch('/api/unqueue', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: id, id: item.id })
+    });
+    if (!taken) return;
+    await jfetch('/api/prompt', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: id, prompt: taken.text, attachmentIds: [], plan: taken.plan === true })
+    });
+  } catch (error) { showError(error); }
 }
 
 async function unqueue(item, edit) {
