@@ -413,28 +413,25 @@ export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between px-10 pt-8 pb-5">
-        <div>
+      <div className="px-10 pt-8 pb-5">
+        <div className="mx-auto flex max-w-3xl items-center justify-between">
           <h1 className="text-[19px] text-text">Schedule</h1>
-          <p className="mt-1 max-w-lg text-[13px] text-dim">
-            Run agents on cron schedules for recurring automations like daily summaries and code reviews.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-lg px-3 py-2 text-[13.5px] text-dim transition-colors hover:text-brand"
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing('new')}
-            className="rounded-lg border border-line px-4 py-2 text-[13.5px] text-text transition-colors hover:text-brand"
-          >
-            + New Schedule
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-lg px-3 py-2 text-[13.5px] text-dim transition-colors hover:text-brand"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing('new')}
+              className="rounded-lg border border-line px-4 py-2 text-[13.5px] text-text transition-colors hover:text-brand"
+            >
+              + New Schedule
+            </button>
+          </div>
         </div>
       </div>
 
