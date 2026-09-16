@@ -70,10 +70,17 @@ const AGENT_MAX_STEPS = 200
 const AGENT_GRACE_STEPS = 2
 /** Three identical tool rounds in a row are almost certainly a stuck model. */
 const MAX_IDENTICAL_TOOL_ROUNDS = 3
+/**
+ * Sent whenever the run tries to stop with a checklist that has unfinished
+ * items. It tells the model to publish the *updated* checklist before it does
+ * anything else, so the plan panel tracks the run instead of freezing on the
+ * state the model published at its first step.
+ */
 const FINISH_PLAN_PROMPT =
-  '[The checklist for this run still has unfinished items. Continue working now and finish every remaining item. ' +
-  'Do not stop at a stage boundary, do not ask the user to type continue, and do not only describe the next step. ' +
-  'Update todo_write as items finish, verify the complete result, then return the final answer.]'
+  '[The checklist for this run still has unfinished items. Call todo_write first — mark every item whose work ' +
+  'is already done as completed, keep exactly one item in_progress, then keep working. Do not stop at a stage ' +
+  'boundary, do not ask the user to type continue, and do not only describe the next step. When the last item ' +
+  'is done, verify the complete result before your final answer.]'
 
 interface RunParams {
   runId: string

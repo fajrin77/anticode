@@ -10,7 +10,9 @@ export interface TodoItem {
 /**
  * The session's current plan: the latest checklist `todo_write` published.
  * Each call replaces the whole list, so the newest one is the plan — a failed
- * call never replaced anything, so it is skipped.
+ * call never replaced anything, so it is skipped. A call still running counts:
+ * the model publishes its new list the moment it starts the call, and waiting
+ * for the tool result would leave the panel a step behind the run.
  */
 export function latestPlan(messages: Message[]): TodoItem[] | null {
   // A new typed prompt starts a new run. Never borrow the checklist from a
