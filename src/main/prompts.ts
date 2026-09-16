@@ -175,12 +175,23 @@ export async function queuePrompt(req: AgentRequest, gate: ApprovalGate): Promis
   return { runId: running, queued: true }
 }
 
-/** Takes a queued prompt out; its files are let go unless the caller keeps the text to edit. */
-export function unqueuePrompt(sessionId: string, id: string): QueuedPrompt | null {
+/**
+ * Takes a queued prompt out. Files are let go by default — a pull-back gets
+ * their paths back to re-stage them. `keep` is what a steer needs: the same
+ * staged files ride into the running turn, so they stay alive and their IDs
+ * come back with the prompt.
+ */
+export function unqueuePrompt(sessionId: string, id: string, keep = false): QueuedPrompt | null {
   const entry = removeQueued(sessionId, id)
   if (entry === undefined) return null
-  releaseAttachments(entry.attachmentIds)
-  return { id: entry.id, text: entry.text, attachments: entry.attachments, plan: entry.plan }
+  if (!keep) releaseAttachments(entry.attachmentIds)
+  return {
+    id: entry.id,
+    text: entry.text,
+    attachments: entry.attachments,
+    attachmentIds: entry.attachmentIds,
+    plan: entry.plan
+  }
 }
 
 /** The session was deleted: nothing it queued will ever be sent. */

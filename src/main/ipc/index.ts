@@ -724,7 +724,9 @@ export function registerIpcHandlers(): void {
     lastSender = event.sender
     return queuePrompt(req, approvals)
   })
-  ipcMain.handle(IpcChannel.QUEUE_REMOVE, (_event, sessionId: string, id: string) => unqueuePrompt(sessionId, id))
+  ipcMain.handle(IpcChannel.QUEUE_REMOVE, (_event, sessionId: string, id: string, keep = false) =>
+    unqueuePrompt(sessionId, id, keep === true)
+  )
 
   ipcMain.handle(IpcChannel.AGENT_CANCEL, (_event, runId: string): void => {
     cancelRun(runId)

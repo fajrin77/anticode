@@ -559,9 +559,6 @@
   .composer #chipRow button:active {
     color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
   }
-  .composer #chipRow #followChips { display: flex; gap: 1px; }
-  .composer #chipRow #followChips.hidden { display: none; }
-  .composer #chipRow #followChips button.on,
   .composer #chipRow #planChip.on {
     color: #d1fa22; background: var(--glass-control); border-color: rgba(255,255,255,.1);
   }
@@ -783,10 +780,6 @@
     <button id="modelChip" onclick="openSettings(modelInfo?.rotationEnabled === true ? 'rotation' : 'model')" title="Model"><span class="modelText">…</span></button>
     <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
     <button id="planChip" onclick="togglePhonePlan()" title="Build: execute now — Plan: prepare only, nothing runs yet">build</button>
-    <span id="followChips" class="hidden">
-      <button id="steerChip" onclick="setPhoneFollowMode('steer')" title="Steer: add to the current run">steer</button>
-      <button id="queueChip" onclick="setPhoneFollowMode('queue')" title="Queue: send after the current run">queue</button>
-    </span>
     <span class="grow"></span>
     <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
   </div>
@@ -873,11 +866,6 @@ const jfetch = (path, options) => api(path, options).then(async (r) => {
 });
 let currentSession = null;
 let currentRunId = null;
-/* Declared up here: updateSendBtn reads them, and it can run during start-up. */
-let followMode = (() => { try { return localStorage.getItem('anticode.followUpMode') === 'queue' ? 'queue' : 'steer'; } catch { return 'steer'; } })();
-/** True while a flip is on its way to the main process, so a status tick that
- * arrives meanwhile does not bounce the chip back to the old value. */
-let pendingFollowFlip = false;
 let currentPlan = null;
 /** The composer's build/plan choice, carried with each prompt. */
 let phonePlan = false;
@@ -2135,11 +2123,11 @@ let workingEl = null;
 /** What the run says it is doing — set by `phase` events, shown on the line. */
 let runPhaseLabel = null;
 const PHASE_LABELS = {
-  thinking: 'thinking',
-  command: 'running command',
-  browsing: 'browsing',
-  condensing: 'condensing context',
-  'follow-up': 'processing follow-up'
+  thinking: 'Thinking',
+  command: 'Running command',
+  browsing: 'Browsing',
+  condensing: 'Condensing context',
+  'follow-up': 'Processing follow-up'
 };
 function showWorking() {
   // A running step group already names its phase in its own header — the one
@@ -2696,16 +2684,12 @@ function updateSendBtn() {
   document.getElementById('revertBtn').classList.toggle('hidden', !reverting);
   const working = currentRunId !== null && !pausedSessions.has(currentSession);
   renderPlan();
-  const chips = document.getElementById('followChips');
-  chips.classList.toggle('hidden', !working);
-  document.getElementById('steerChip').classList.toggle('on', followMode === 'steer');
-  document.getElementById('queueChip').classList.toggle('on', followMode === 'queue');
   const planChip = document.getElementById('planChip');
   planChip.textContent = phonePlan ? 'plan' : 'build';
   planChip.classList.toggle('on', phonePlan);
-  document.getElementById('promptHint').textContent = working
-    ? (followMode === 'queue' ? 'Queue the next prompt\u2026' : 'Add to the task\u2026')
-    : 'Message\u2026';
+  // A prompt typed while a run works always waits its turn, exactly as the
+  // desktop does; steering is the queue's own arrow, not a chip.
+  document.getElementById('promptHint').textContent = working ? 'Queue the next prompt\u2026' : 'Message\u2026';
   requestAnimationFrame(updateModelFade);
 }
 
@@ -2880,7 +2864,7 @@ async function submitPrompt(prompt) {
   updateSendBtn();
   try {
     await listen(id);
-    const queue = followMode === 'queue' && currentRunId !== null && prompt !== CONTINUE_PROMPT;
+    const queue = currentRunId !== null && prompt !== CONTINUE_PROMPT;
     await jfetch('/api/prompt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId: id, prompt, attachmentIds, queue, plan: phonePlan })
@@ -3340,13 +3324,6 @@ function noteStatus(status) {
     (modelInfo?.rotationGroup ?? null) !== (shown.rotationGroup ?? null) ||
     (modelInfo?.rotationEnabled === true) !== (shown.rotationEnabled === true);
   lastStatus = status;
-  // The main process owns the follow-up mode now: the chip follows it, so a
-  // flip on the desktop shows up here on the next status tick.
-  if (typeof status.followUpMode === 'string' && status.followUpMode !== followMode && !pendingFollowFlip) {
-    followMode = status.followUpMode;
-    updateComposerChrome();
-    updateSendBtn();
-  }
   if (modelMoved) void loadModels();
   updateChips();
 }
@@ -3885,22 +3862,6 @@ function renderPlan() {
   row.appendChild(list);
 }
 
-/* While a run works, a prompt either joins it (steer) or waits for it to
- * finish and goes out as the next run (queue). The choice is remembered. */
-function setPhoneFollowMode(next) {
-  if (next !== 'steer' && next !== 'queue') return;
-  pendingFollowFlip = true;
-  followMode = next;
-  updateComposerChrome();
-  updateSendBtn();
-  const settle = () => { pendingFollowFlip = false; };
-  if (currentSession === null) { try { localStorage.setItem('anticode.followUpMode', followMode); } catch (e) {} settle(); return; }
-  jfetch('/api/follow-up', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: currentSession, mode: followMode }) })
-    .then((data) => { if (data && data.status && typeof data.status.followUpMode === 'string') { followMode = data.status.followUpMode; updateComposerChrome(); updateSendBtn(); } })
-    .catch(() => {})
-    .finally(settle);
-}
-
 /* The queue is the Mac's: queued here or on the desktop, it shows on both,
  * and tapping one takes it off the line and back into the box. */
 function renderQueue(items) {
@@ -3943,14 +3904,21 @@ async function steerQueued(item) {
   const id = currentSession;
   if (id === null || currentRunId === null) return;
   try {
+    // `keep` is what carries the queued prompt's files into the run: their
+    // staged IDs must survive the unqueue for the steer to attach them.
     const { item: taken } = await jfetch('/api/unqueue', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: id, id: item.id })
+      body: JSON.stringify({ sessionId: id, id: item.id, keep: true })
     });
     if (!taken) return;
     await jfetch('/api/prompt', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: id, prompt: taken.text, attachmentIds: [], plan: taken.plan === true })
+      body: JSON.stringify({
+        sessionId: id,
+        prompt: taken.text,
+        attachmentIds: taken.attachmentIds ?? [],
+        plan: taken.plan === true
+      })
     });
   } catch (error) { showError(error); }
 }

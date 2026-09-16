@@ -422,7 +422,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (req.method === 'POST' && url.pathname === '/api/unqueue') {
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
       const id = typeof body.id === 'string' ? body.id : ''
-      return json(res, 200, { item: unqueuePrompt(sessionId, id) })
+      const keep = body.keep === true
+      return json(res, 200, { item: unqueuePrompt(sessionId, id, keep) })
     }
 
     if (req.method === 'POST' && url.pathname === '/api/compact') {

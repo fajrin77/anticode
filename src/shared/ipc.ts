@@ -675,6 +675,12 @@ export interface QueuedPrompt {
   id: string
   text: string
   attachments: AttachmentRef[]
+  /**
+   * Staged attachment IDs. Present only on the answer to an unqueue that asked
+   * to keep them — a steer moves the same files into the running turn, so they
+   * must not be released the way a plain pull-back releases them.
+   */
+  attachmentIds?: string[]
   /** Plan mode: prepare the work, do not execute it yet. anticode only. */
   plan: boolean
 }
@@ -1066,7 +1072,7 @@ export interface AnticodeApi {
    */
   queuePrompt: (req: AgentRequest) => Promise<{ runId: string; queued: boolean }>
   /** Takes a prompt off the queue; answers it, so it can be edited instead. */
-  unqueuePrompt: (sessionId: string, id: string) => Promise<QueuedPrompt | null>
+  unqueuePrompt: (sessionId: string, id: string, keep?: boolean) => Promise<QueuedPrompt | null>
   onSessionQueue: (listener: (queue: SessionQueue) => void) => () => void
   getCredentialStatus: () => Promise<CredentialStatus>
   /** Seals the .env keys anticode uses and comments them out of the file. */

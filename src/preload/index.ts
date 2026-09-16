@@ -161,8 +161,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.AGENT_SEND, req) as Promise<{ runId: string; steered: boolean }>,
   queuePrompt: (req: AgentRequest) =>
     ipcRenderer.invoke(IpcChannel.QUEUE_ADD, req) as Promise<{ runId: string; queued: boolean }>,
-  unqueuePrompt: (sessionId, id) =>
-    ipcRenderer.invoke(IpcChannel.QUEUE_REMOVE, sessionId, id) as Promise<QueuedPrompt | null>,
+  unqueuePrompt: (sessionId, id, keep) =>
+    ipcRenderer.invoke(IpcChannel.QUEUE_REMOVE, sessionId, id, keep === true) as Promise<QueuedPrompt | null>,
   onSessionQueue: (listener) => subscribe<SessionQueue>(IpcChannel.QUEUE_UPDATED, listener),
   getCredentialStatus: () => ipcRenderer.invoke(IpcChannel.CREDENTIALS_STATUS) as Promise<CredentialStatus>,
   moveEnvCredentials: () => ipcRenderer.invoke(IpcChannel.CREDENTIALS_MOVE) as Promise<CredentialStatus>,

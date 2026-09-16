@@ -321,7 +321,9 @@ function CopyPromptButton({ text }: { text: string }): JSX.Element {
       className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-md p-1 text-faint opacity-0 transition-opacity hover:text-brand group-hover/prompt:opacity-100"
     >
       {copied ? (
-        <span className="text-[11px]">copied</span>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M3.5 8.5l3 3 5.5-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       ) : (
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
           <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
@@ -391,7 +393,7 @@ function MessageView({
       <div className="group/prompt flex flex-col items-end gap-2 pt-4 pb-1">
         {files.length > 0 && <Attachments items={files} />}
         {text.trim() !== '' && (
-          <div className="relative max-w-[80%] rounded-xl bg-raised px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
+          <div className="relative max-w-[80%] rounded-xl bg-raised py-2.5 pl-4 pr-9 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
             {text}
             <CopyPromptButton text={text} />
           </div>

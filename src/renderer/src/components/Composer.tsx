@@ -372,13 +372,15 @@ export function Composer({  status: sharedStatus,
       async function steerQueued(id: string): Promise<void> {
         if (session === undefined || !isStreaming || isPaused) return
         try {
-          const taken = await window.anticode.unqueuePrompt(session.id, id)
+          // `keep` is what carries the queued prompt's files into the run: the
+          // staged IDs must survive the unqueue for the steer to attach them.
+          const taken = await window.anticode.unqueuePrompt(session.id, id, true)
           if (taken === null) return
           const outcome = await window.anticode.sendPrompt({
             sessionId: session.id,
             runId: crypto.randomUUID(),
             prompt: taken.text,
-            attachmentIds: [],
+            attachmentIds: taken.attachmentIds ?? [],
             plan: taken.plan
           })
           if (!outcome.steered) return // The run ended; it already went out.
