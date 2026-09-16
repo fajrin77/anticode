@@ -25,9 +25,12 @@ ini menjelaskan cara menyiapkan sisi distribusinya supaya update dari jauh benar
 
 ## Menyiapkan hosting
 
-`electron-builder.yml` sudah memakai provider `generic`. Ganti `publish.url` ke alamat
-tempat Anda meng-host folder `release/` (GitHub Pages, S3, VPS, dsb.), atau pakai GitHub
-Releases: ganti blok `publish` menjadi `provider: github` dan isi `owner`/`repo`.
+`electron-builder.yml` sudah menunjuk GitHub Releases:
+`provider: github`, `owner: fajrin77`, `repo: anticode`. Tidak ada server tambahan —
+rilis baru cukup dibuat di halaman Releases repo itu, dan app terpasang menemukannya
+melalui Settings -> Updates. Bila suatu saat ingin hosting sendiri (GitHub Pages, S3,
+VPS), ganti blok `publish` menjadi `provider: generic` + `url: https://...` dan unggah
+isi `release/` ke sana, termasuk berkas feed-nya.
 
 Setiap kali build, electron-builder menulis file feed (`latest-mac.yml` untuk macOS,
 `latest.yml` untuk Windows, `latest-linux.yml` untuk Linux) ke `release/`. File itu memuat
@@ -42,10 +45,14 @@ versi, nama berkas, dan sha512 — inilah yang dibaca updater.
    npm run release
    ```
    Hasilnya ada di `release/` bersama file feed-nya.
-3. Unggah seluruh isi `release/` (bukan hanya satu berkas) ke sumber yang Anda pilih,
-   termasuk `latest-mac.yml`/`latest.yml`/`latest-linux.yml`.
-4. Di app yang sudah terpasang, isi Settings -> Updates dengan alamat sumber itu sekali
-   saja. Setelah itu update dari jauh berjalan sendiri: cek tiap 6 jam, dan **Check
+3. Buat release di https://github.com/fajrin77/anticode/releases dengan tag `v<versi>`,
+   lalu unggah seluruh isi `release/` sebagai asetnya — dmg/zip/exe, `.blockmap`, dan
+   `latest-mac.yml`/`latest.yml`/`latest-linux.yml`. Dengan `gh`:
+   ```
+   gh release create v0.0.31 release/*.dmg release/*.zip release/*.exe release/*.blockmap release/latest*.yml
+   ```
+4. Di app yang sudah terpasang, isi Settings -> Updates dengan `fajrin77/anticode`
+   sekali saja. Setelah itu update dari jauh berjalan sendiri: cek tiap 6 jam, dan **Check
    automatically** / **Download automatically** mengatur apakah unduhan dilakukan otomatis.
 
 Catatan: app harus berada di folder yang bisa ditulis (mis. `/Applications`) agar bisa

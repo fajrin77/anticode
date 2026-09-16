@@ -29,8 +29,9 @@ linux:
   category: Development
 # Remote updates (Settings -> Updates). Building writes a feed file into release/
 # -- latest-mac.yml, latest.yml, latest-linux.yml -- listing each build's version,
-# file name and sha512. Host that folder as-is (GitHub Release, static host, or a
-# local folder) and point Settings -> Updates at it. See docs/RELEASING.md.
+# file name and sha512. These are published together with the builds as assets of
+# a GitHub Release, which is where installed apps look for updates. See docs/RELEASING.md.
 publish:
-  provider: generic
-  url: https://example.com/anticode/
+  provider: github
+  owner: fajrin77
+  repo: anticode
