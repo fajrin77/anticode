@@ -55,16 +55,16 @@ export class ApprovalPolicy {
     for (const entry of entries) this.alwaysAllowed.add(entry)
   }
 
-  /** Auto means unattended execution: no approval card at any risk tier.
-   * Default still runs low-risk tools freely and asks for other calls unless
-   * that exact tool was explicitly allowed for the session. */
+  /**
+   * Auto means unattended execution: the run answers to nobody, so no card at
+   * any risk tier — destructive work included. The guard that matters is the
+   * mode itself being a deliberate choice. Default still runs low-risk tools
+   * freely and asks for other calls unless that exact tool was explicitly
+   * allowed for the session.
+   */
   needsApproval(toolName: string, risk: RiskTier, sessionId = 'default'): boolean {
-    if (risk === 'low') return false
-    // Auto exists to skip the ceremony around ordinary edits, never around
-    /// the destructive ones: deleting files and the like ask every time, as
-    // an IDE would, whichever mode is lit.
-    if (risk === 'high') return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
     if (this.autoApprove) return false
+    if (risk === 'low') return false
     return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
   }
 }

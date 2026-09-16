@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { ApprovalDecision, ApprovalRequest, RiskTier } from '@shared/ipc'
 import { DiffView } from './DiffView'
@@ -47,6 +47,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
   // The card covers the end of the transcript, so the transcript makes room
   // for it: the prompt that asked for this stays readable above the card.
   const cardRef = useRef<HTMLDivElement>(null)
+  const [anchor, setAnchor] = useState<{ left: number; width: number; bottom: number } | null>(null)
   const approveRef = useRef<HTMLButtonElement>(null)
   // A dialog that blocks a risky action must be announced and reachable: the
   // decision moves into the card, and the reader's place comes back after.
@@ -64,12 +65,30 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
       const atEnd = box !== null && box.scrollHeight - box.scrollTop - box.clientHeight < 80
       root.style.setProperty('--approval-height', `${card.getBoundingClientRect().height}px`)
       if (box !== null && atEnd) box.scrollTop = box.scrollHeight
+      // Center on the composer column itself: nothing sets --session-width,
+      // so the fallback used to center the card on the whole window and left
+      // it hanging toward the left edge of a wide session.
+      const composer = document.querySelector<HTMLElement>('[data-composer-box]')
+      if (composer === null) {
+        setAnchor(null)
+        return
+      }
+      const rect = composer.getBoundingClientRect()
+      setAnchor({
+        left: rect.left - 40,
+        width: rect.width + 80,
+        bottom: window.innerHeight - rect.top + 8
+      })
     }
     const observer = new ResizeObserver(sync)
     observer.observe(card)
+    const composer = document.querySelector<HTMLElement>('[data-composer-box]')
+    if (composer !== null) observer.observe(composer)
+    window.addEventListener('resize', sync)
     sync()
     return () => {
       observer.disconnect()
+      window.removeEventListener('resize', sync)
       root.style.removeProperty('--approval-height')
     }
   }, [])
@@ -78,19 +97,19 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
   return (
     <div
-      ref={cardRef}
-      data-approval
-      className="pointer-events-none fixed bottom-0 left-0 z-10"
-      style={{
-        // One session column wide, anchored to its left edge: when the web
-        // panel opens, shrinks, or fills the window, the card follows the
-        // composer instead of spanning the whole window.
-        width: 'var(--session-width, 100vw)',
-        maxWidth: 'calc(100vw - 80px)',
-        paddingLeft: 40,
-        paddingRight: 40,
-        bottom: 'calc(var(--composer-offset, 16px) + 8px)'
-      }}
+      className="pointer-events-none fixed z-10"
+      style={
+        anchor !== null
+          ? { left: anchor.left, width: anchor.width, bottom: anchor.bottom }
+          : {
+              left: 0,
+              bottom: 16,
+              width: '100vw',
+              maxWidth: 'calc(100vw - 80px)',
+              paddingLeft: 40,
+              paddingRight: 40
+            }
+      }
     >
       <div
         ref={cardRef}
@@ -130,9 +149,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
         <footer className="flex items-center gap-2 px-5 py-3">
           {request.risk === 'high' && (
-            <span className="mr-auto text-[11.5px] text-faint">
-              High risk asks again on every call.
-            </span>
+            <span className="mr-auto text-[11.5px] text-faint">High risk</span>
           )}
 
           <button

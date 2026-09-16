@@ -238,7 +238,7 @@ function DashboardComposer({
             <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
-                { value: true, name: 'Auto', hint: 'Skips prompts for ordinary work; risky steps still ask' }
+                { value: true, name: 'Auto', hint: 'Run everything without asking' }
               ].map((option) => (
                 <button
                   key={option.name}

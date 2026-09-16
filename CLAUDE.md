@@ -98,3 +98,12 @@ tidak ada yang boleh bergerak kecuali yang diklik.
 
 Pengguna biasanya mengumpulkan beberapa perubahan dulu baru commit sekaligus.
 Biarkan working tree kotor kecuali diminta commit.
+
+## Aturan balasan: tidak ada narasi kerja di sesi
+
+Sesi itu untuk percakapan dengan pengguna, bukan jurnal langkah. Jangan tampilkan rencana,
+verifikasi, atau status antara ("sekarang mengetik", "typecheck bersih, lanjut test") sebagai
+pesan; jalankan saja, maka composer menampilkannya sendiri lewat langkah-tools. Aturan
+prompts system juga melarang model membelanjakan turn hanya untuk status: rubah ke
+`todo_write` + panggilan kerja nyata di turn yang sama. Pesan terakhir = jawaban akhir,
+ringkas, tanpa "sekarang saya...", tanpa sisa kalimat proses.

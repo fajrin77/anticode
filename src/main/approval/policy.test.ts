@@ -73,14 +73,15 @@ describe('ApprovalPolicy', () => {
     expect(policy.needsApproval('write_file', 'medium')).toBe(true)
   })
 
-  it('auto clears ordinary work but still asks before destructive tools', () => {
+  it('auto clears every tier: unattended means no cards at all', () => {
     const policy = new ApprovalPolicy()
     policy.setAutoApprove(true)
     expect(policy.needsApproval('read_file', 'low')).toBe(false)
     expect(policy.needsApproval('run_command', 'medium')).toBe(false)
-    // Destructive work keeps its guards in every mode, as an IDE would.
-    expect(policy.needsApproval('run_command', 'high')).toBe(true)
-    expect(policy.needsApproval('delete_file', 'high')).toBe(true)
+    // Even destructive work goes through: Auto is the deliberate choice to
+    // run without a watcher.
+    expect(policy.needsApproval('run_command', 'high')).toBe(false)
+    expect(policy.needsApproval('delete_file', 'high')).toBe(false)
   })
 
   it('always-allow still lifts a single tool without auto-approve', () => {
