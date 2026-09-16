@@ -319,7 +319,10 @@ export async function install(file: string, exePath: string, workDirectory: stri
       throw new Error(`anticode cannot write to ${path.dirname(target)}; move the app somewhere it can, such as /Applications`)
     })
     const unpacked = path.join(workDirectory, 'unpacked')
-    await rm(unpacked, { recursive: true, force: true })
+    // Node's own rm chokes with ENOTEMPTY on the macOS bundles that carry
+    // extended attributes and resource forks, so the system rm is used for
+    // the recursive delete; a failed retry is still an error worth reporting.
+    await run('rm', ['-rf', unpacked])
     await mkdir(unpacked, { recursive: true })
     if (file.toLowerCase().endsWith('.zip')) {
       await run('ditto', ['-x', '-k', file, unpacked])
