@@ -9,7 +9,7 @@ import { Composer } from './Composer'
 import { fileTag, formatBytes } from './Attachments'
 import { ModelPicker } from './ModelPicker'
 import { SessionRow } from './SessionRow'
-import chatLogo from '../assets/open-chat-logo.svg'
+import { LogoMark } from './LogoMark'
 
 interface NewSessionViewProps {
   /** The fresh draft being edited, when the dashboard was opened via "+". */
@@ -607,7 +607,7 @@ export function NewSessionView({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex-[0.7]" />
       <div className="flex justify-center px-10">
-        <img src={chatLogo} alt="anticode" className="w-96 opacity-90" />
+        <LogoMark />
       </div>
       <div className="pt-8">
         {session !== undefined ? (
