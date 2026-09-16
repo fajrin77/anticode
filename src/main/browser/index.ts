@@ -103,6 +103,20 @@ export async function closePhonePage(sessionId: string): Promise<void> {
   await closeBrowser(phoneScope(sessionId))
 }
 
+/**
+ * Where web_search runs its queries. A search must never land on the page the
+ * agent is reading — browser_navigate followed by browser_get_text would come
+ * back with a result list instead of the page it opened — so a search engine
+ * gets a page of its own, for the same reason the phone mirror does.
+ */
+export function searchScope(sessionId = 'default'): string {
+  return `search:${sessionId}`
+}
+
+export async function closeSearchPage(sessionId = 'default'): Promise<void> {
+  await closeBrowser(searchScope(sessionId))
+}
+
 export function networkRecords(scope = 'default'): NetworkRecord[] { return records.get(scope) ?? [] }
 export function clearNetworkRecords(scope = 'default'): void { records.set(scope, []) }
 export async function closeBrowser(scope?: string): Promise<void> {

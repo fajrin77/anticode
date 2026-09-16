@@ -28,6 +28,7 @@ import {
 } from './browser'
 import type { Tool } from './types'
 import { todoWriteTool } from './todoWrite'
+import { webSearchTool } from './webSearch'
 import { taskTool } from './task'
 import { screenshotTool } from './screenshot'
 import { generateImageTool } from './generateImage'
@@ -53,6 +54,7 @@ export const tools: Tool[] = [
   readPdfTool,
   createPdfTool,
   fillPdfFormTool,
+  webSearchTool,
   fetchUrlTool,
   browserNavigateTool,
   browserGetTextTool,
@@ -67,6 +69,8 @@ export const tools: Tool[] = [
 /**
  * A sub-agent's kit: reading only. No editing, no terminal, no browser page
  * (it is shared with the parent), and no `task` of its own — one level deep.
+ * Searching is reading too, and a sub-agent sent to find something out is the
+ * one that needs it most; it runs on a page of its own, not the parent's.
  */
 const SUBAGENT_TOOL_NAMES = new Set([
   'read_file',
@@ -75,6 +79,7 @@ const SUBAGENT_TOOL_NAMES = new Set([
   'read_excel',
   'read_docx',
   'read_pdf',
+  'web_search',
   'fetch_url'
 ])
 

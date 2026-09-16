@@ -12,7 +12,7 @@ import { resolveInWorkspace } from './workspace'
 import type { ToolContext } from './types'
 import { todoWriteTool } from './todoWrite'
 import { shareFileTool } from './shareFile'
-import { toolsFor } from './index'
+import { subagentTools, toolsFor } from './index'
 
 let root: string
 let context: ToolContext
@@ -279,5 +279,14 @@ describe('mode toolsets', () => {
     expect(toolsFor('chat').map((tool) => tool.name)).toEqual(
       toolsFor('code').map((tool) => tool.name)
     )
+  })
+
+  // antichat is the mode people ask questions in, so the one tool that finds
+  // a page rather than reading a known one has to be there — and a sub-agent
+  // sent to look something up needs it more than the main agent does.
+  it('gives both modes and every sub-agent a way to search the web', () => {
+    expect(toolsFor('chat').some((tool) => tool.name === 'web_search')).toBe(true)
+    expect(toolsFor('code').some((tool) => tool.name === 'web_search')).toBe(true)
+    expect(subagentTools().some((tool) => tool.name === 'web_search')).toBe(true)
   })
 })

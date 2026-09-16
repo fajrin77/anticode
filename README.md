@@ -19,7 +19,7 @@ Setiap release juga memuat `latest-mac.yml` (macOS) dan `latest.yml` (Windows). 
 ## Fitur
 
 - **Multi-provider** — lima provider di belakang satu abstraksi; tambah lewat Settings, kredensial disimpan terenkripsi di secure storage OS.
-- **Tool lengkap** — file, terminal, browser Playwright, screenshot, sub-agent, MCP, gambar, serta Excel, Word, dan PDF.
+- **Tool lengkap** — file, terminal, pencarian web, browser Playwright, screenshot, sub-agent, MCP, gambar, serta Excel, Word, dan PDF.
 - **Approval berbasis risiko** — setiap tool punya tingkat risiko; mode Default meminta konfirmasi, mode Auto berjalan tanpa bertanya sama sekali.
 - **Dua mode sesi** — *antichat* untuk tanya jawab tanpa project (folder privat per sesi), *anticode* untuk bekerja di folder project.
 - **Dari HP** — buka dan kendalikan sesi dari browser ponsel di jaringan yang sama, lengkap dengan transkrip, approval, dan lampiran.

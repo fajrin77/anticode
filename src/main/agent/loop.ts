@@ -1,4 +1,4 @@
-import { closeBrowser } from '../browser'
+import { closeBrowser, closeSearchPage } from '../browser'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +11,7 @@ import type { AgentEvent, RunPhase, SessionMode } from '@shared/ipc'
  * browse; everything else keeps the run in "thinking". */
 function phaseForTool(name: string): RunPhase {
   if (name === 'runCommand' || name === 'run_command') return 'command'
-  if (name.startsWith('browser_') || name === 'openWebUrl') return 'browsing'
+  if (name.startsWith('browser_') || name === 'openWebUrl' || name === 'web_search') return 'browsing'
   return 'thinking'
 }
 import { HISTORY_TOKEN_BUDGET, historyBudgetFor as sharedHistoryBudgetFor } from '@shared/ipc'
@@ -1078,7 +1078,11 @@ export class AgentSession {
     this.checkpoints?.destroy()
   }
 
-  dispose(): void { void closeBrowser(this.scope) }
+  dispose(): void {
+    void closeBrowser(this.scope)
+    // web_search keeps a page of its own beside the agent's; both go.
+    void closeSearchPage(this.scope)
+  }
 
   /** A copy of the replayed history, for the remote API and dashboards. */
   snapshot(): { messages: Message[] } {
@@ -1120,7 +1124,8 @@ export class AgentSession {
         `Operating system: ${process.platform}`,
         '',
         'Rules:',
-        '- You can only read: files, folders, workspace search, Excel/Word/PDF, and URLs. You cannot edit or run anything.',
+        '- You can only read: files, folders, workspace search, Excel/Word/PDF, the web (web_search) and URLs. ' +
+          'You cannot edit or run anything.',
         '- Every path is relative to the workspace root. Search before reading; issue independent calls together.',
         '- Nobody can answer questions from you. Make reasonable assumptions and note them.',
         '- Stop as soon as you can answer. Your final reply is your report, and it is all the main agent sees: ' +
@@ -1145,6 +1150,10 @@ export class AgentSession {
           'there, and each attachment header names its path.',
         'Use browser and internet tools whenever current or externally verifiable information would ' +
           'improve the answer. Browser state belongs to this session.',
+        'To find something you do not already know the address of, call web_search first, then read ' +
+          'the result you chose with fetch_url or browser_navigate — the snippets are a summary, not ' +
+          'the page. Never guess a URL, and never answer from memory when the user asks about ' +
+          'anything current, released, priced, or otherwise checkable.',
         'When the user asks to create an image, call generate_image and return its file card.',
         'To change an attached file, read it first, then edit that copy in place — or write a ' +
           'new file next to it when the user wants a separate one. You can also create new ' +
@@ -1183,6 +1192,8 @@ export class AgentSession {
       '- For broad exploration across many files, delegate to the task tool — several task calls in one turn ' +
         'run in parallel — and keep your own context for the work itself.',
       '- Check that a tool or dependency already exists before installing or re-running it.',
+      '- For a library, API, error message, or release you are not sure of, call web_search and then ' +
+        'read the result with fetch_url instead of guessing a URL or answering from memory.',
       '- When the user asks to create an image, call generate_image and return its file card.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
