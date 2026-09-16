@@ -159,12 +159,6 @@ export async function findLatest(source: UpdateSource, platform: Platform): Prom
       body?: string
       assets?: { name: string; browser_download_url: string }[]
     }[]
-    interface Candidate {
-      version: string
-      body: string | null
-      asset: { name: string; browser_download_url: string }
-      feed: { name: string; browser_download_url: string } | undefined
-    }
     let best: UpdateAsset | null = null
     for (const release of releases) {
       if (release.draft === true || typeof release.tag_name !== 'string') continue
