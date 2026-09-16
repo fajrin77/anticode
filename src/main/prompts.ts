@@ -62,6 +62,7 @@ async function admit(
     forward({ type: 'steer', runId: runningNow, text: req.prompt, attachments: [] })
     return { runId: runningNow, steered: true }
   }
+  void req.plan
   const sent = prepared === undefined ? await attachmentsFor(req.sessionId, req.attachmentIds) : []
   const blocks = prepared?.blocks ?? (await blocksOf(req.sessionId, sent))
   const refs = prepared?.attachments ?? refsOf(sent)
@@ -97,6 +98,7 @@ async function admit(
   let terminal: AgentEvent | undefined
   void agent.run({
     runId: req.runId, prompt: req.prompt, signal: controller.signal, attachments: blocks,
+    plan: req.plan === true,
     emit: (event) => {
       // Publish completion only after the agent has committed pending follow-ups
       // and released ownership. A viewer may immediately resume or fetch history.
@@ -169,7 +171,7 @@ export async function queuePrompt(req: AgentRequest, gate: ApprovalGate): Promis
     const started = await submitPrompt(req, gate)
     return { runId: started.runId, queued: false }
   }
-  enqueue(req.sessionId, req.prompt, req.attachmentIds, stagedRefs(req.attachmentIds))
+  enqueue(req.sessionId, req.prompt, req.attachmentIds, stagedRefs(req.attachmentIds), req.plan === true)
   return { runId: running, queued: true }
 }
 
@@ -178,7 +180,7 @@ export function unqueuePrompt(sessionId: string, id: string): QueuedPrompt | nul
   const entry = removeQueued(sessionId, id)
   if (entry === undefined) return null
   releaseAttachments(entry.attachmentIds)
-  return { id: entry.id, text: entry.text, attachments: entry.attachments }
+  return { id: entry.id, text: entry.text, attachments: entry.attachments, plan: entry.plan }
 }
 
 /** The session was deleted: nothing it queued will ever be sent. */
@@ -190,7 +192,7 @@ function sendNextQueued(sessionId: string, gate: ApprovalGate): void {
   const next = dequeue(sessionId)
   if (next === undefined) return
   const { attachmentIds, ...shown } = next
-  void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds }, gate).catch(() => {
+  void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds, plan: next.plan }, gate).catch(() => {
     // It could not start — the model is not ready, the files are gone. It
     // waits at the front of the line rather than vanishing.
     requeue(sessionId, { ...shown, attachmentIds })

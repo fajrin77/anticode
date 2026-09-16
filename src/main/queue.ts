@@ -24,14 +24,20 @@ function announce(sessionId: string): void {
 }
 
 export function listQueue(sessionId: string): QueuedPrompt[] {
-  return (queues.get(sessionId) ?? []).map(({ id, text, attachments }) => ({ id, text, attachments }))
+  return (queues.get(sessionId) ?? []).map(({ id, text, attachments, plan }) => ({ id, text, attachments, plan }))
 }
 
-export function enqueue(sessionId: string, text: string, attachmentIds: string[], attachments: AttachmentRef[]): QueuedPrompt {
-  const entry: Entry = { id: randomUUID(), text, attachments, attachmentIds }
+export function enqueue(
+  sessionId: string,
+  text: string,
+  attachmentIds: string[],
+  attachments: AttachmentRef[],
+  plan = false
+): QueuedPrompt {
+  const entry: Entry = { id: randomUUID(), text, attachments, attachmentIds, plan }
   queues.set(sessionId, [...(queues.get(sessionId) ?? []), entry])
   announce(sessionId)
-  return { id: entry.id, text, attachments }
+  return { id: entry.id, text, attachments, plan }
 }
 
 /** The next prompt to send, taken off the queue. */

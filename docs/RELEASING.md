@@ -5,6 +5,20 @@ Tidak ada Squirrel/electron-updater: build ini tidak ditandatangani, jadi app me
 bundelnya sendiri lewat helper kecil setelah user menekan **Restart to update**. Berkas
 ini menjelaskan cara menyiapkan sisi distribusinya supaya update dari jauh benar-benar jalan.
 
+## Windows
+
+Build Windows butuh NSIS, dan di macOS NSIS berjalan lewat wine:
+
+```sh
+brew install --cask wine-stable
+npm run pack:win          # anticode Setup <versi>.exe + .blockmap + latest.yml di release/
+```
+
+Kalau wine tidak dipakai, jalankan `npm run pack:win` di mesin Windows, lalu unggah
+`anticode Setup <versi>.exe` + `.blockmap` + `latest.yml` ke release yang sama.
+Tanpa `latest.yml` di release, app Windows tidak akan pernah menawarkan update —
+feed itulah yang dicari updater di Windows.
+
 ## Cara kerjanya
 
 1. **Sumber.** Tetap: repository `fajrin77/anticode`, dipatok di `src/main/updates.ts`

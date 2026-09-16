@@ -61,11 +61,7 @@ export function Updates(): JSX.Element {
       <h1 className="mb-6 text-[19px] text-text">Updates</h1>
 
       <div className="glass-surface mb-6 overflow-hidden rounded-xl border border-line">
-        <div className="border-b border-line-soft px-5 py-4">
-          <div className="text-[13.5px] text-text">Update source</div>
-          <div className="mt-1 font-mono text-[12.5px] text-dim">{state?.source ?? ''}</div>
-        </div>
-        <SettingRow title="Check automatically" hint="At start-up and every six hours, while a source is set">
+        <SettingRow title="Check automatically" hint="At start-up and every six hours">
           <Toggle
             on={state?.autoCheck === true}
             onChange={(value) => void act(() => window.anticode.configureUpdates({ autoCheck: value }))}

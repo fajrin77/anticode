@@ -365,6 +365,28 @@ export function Composer({  status: sharedStatus,
     } catch (failure) { setError((failure as Error).message) }
   }
 
+      /**
+       * Sends a queued prompt straight into the run in progress, as the
+       * steer arrow does for a typed prompt; the entry leaves the queue.
+       */
+      async function steerQueued(id: string): Promise<void> {
+        if (session === undefined || !isStreaming || isPaused) return
+        try {
+          const taken = await window.anticode.unqueuePrompt(session.id, id)
+          if (taken === null) return
+          const outcome = await window.anticode.sendPrompt({
+            sessionId: session.id,
+            runId: crypto.randomUUID(),
+            prompt: taken.text,
+            attachmentIds: [],
+            plan: taken.plan
+          })
+          if (!outcome.steered) return // The run ended; it already went out.
+        } catch (failure) {
+          setError((failure as Error).message)
+        }
+      }
+
   const planMode = useSessionStore(
     (state) => session !== undefined && session.mode === 'code' && state.planModeBySession[session.id] === true
   )
@@ -423,18 +445,11 @@ export function Composer({  status: sharedStatus,
       return
     }
 
-    const attachmentIds = attached.map((item) => item.id)
-    // A quoted passage travels with the prompt so the model answers the part
-    // that was selected, and shows in the transcript for the same reason.
     const quoted = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
-    // Plan is a note to the model, not a second pipeline: the prompt asks for
-    // the approach and its steps, and says to stop there, so nothing is
-    // written, edited, or run until the next message says go.
-    const shown = planMode
-      ? `${quoted}\n\n(Plan mode: describe how you would do this and the exact steps you would take. Do not write, edit, or run anything yet — wait for my go-ahead.)`
-      : quoted
-
-    // The session is working: the prompt waits above the composer as a queue
+    // Plan travels as a flag, not as text: the transcript keeps showing the
+    // prompt exactly as it was typed.
+    const shown = quoted
+    const attachmentIds = attached.map((item) => item.id)
     // entry and goes out as its own run when this one finishes. Steering is
     // a separate, deliberate act — the arrow button beside the send button.
     if (isStreaming) {
@@ -443,7 +458,7 @@ export function Composer({  status: sharedStatus,
       setAttached([])
       clearQuote()
       try {
-        const request = { sessionId: session.id, runId: crypto.randomUUID(), prompt: shown, attachmentIds }
+        const request = { sessionId: session.id, runId: crypto.randomUUID(), prompt: shown, attachmentIds, plan: planMode }
         await window.anticode.queuePrompt(request)
       } catch (failure) {
         setError((failure as Error).message)
@@ -484,7 +499,7 @@ export function Composer({  status: sharedStatus,
       })
     }
 
-      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds })
+      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds, plan: planMode })
       // A run started elsewhere a moment ago took this as a follow-up; the
       // steer event draws it, so what was drawn here for a new run goes.
       if (outcome.steered) {
@@ -596,6 +611,19 @@ export function Composer({  status: sharedStatus,
                     <span className="shrink-0 text-[11px] text-faint">
                       +{item.attachments.length} {item.attachments.length === 1 ? 'file' : 'files'}
                     </span>
+                  )}
+                  {isStreaming && !isPaused && (
+                    <button
+                      type="button"
+                      aria-label="Steer into the current run"
+                      title="Steer: send this into the run in progress now"
+                      onClick={() => void steerQueued(item.id)}
+                      className="shrink-0 text-dim transition-colors hover:text-brand"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                        <path d="M8 3v10M3.5 8.5L8 13l4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
                   )}
                   <button
                     type="button"

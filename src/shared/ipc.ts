@@ -525,6 +525,8 @@ export interface AgentRequest {
   runId: string
   prompt: string
   attachmentIds: string[]
+  /** Plan mode: prepare the work, do not execute it yet. anticode only. */
+  plan?: boolean
 }
 
 /** What an export writes: which prompts, in which format, masked or not, with files or not. */
@@ -673,6 +675,8 @@ export interface QueuedPrompt {
   id: string
   text: string
   attachments: AttachmentRef[]
+  /** Plan mode: prepare the work, do not execute it yet. anticode only. */
+  plan: boolean
 }
 
 export interface SessionQueue {

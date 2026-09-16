@@ -45,7 +45,7 @@ const FETCH_TIMEOUT_MS = 30_000
  * `anticode Setup 0.0.24.exe`: the version, with a pre-release tag only when
  * it is not one of electron-builder's arch or platform words.
  */
-const BUILD_NAME = /[-\s](\d+\.\d+\.\d+(?:-(?!(?:arm64|x64|ia32|armv7l|universal|mac|win|linux)\b)[\w.]+)?)(?:-[\w-]+)?\.(zip|dmg|exe|AppImage)$/i
+const BUILD_NAME = /[-.\s](\d+\.\d+\.\d+(?:-(?!(?:arm64|x64|ia32|armv7l|universal|mac|win|linux)\b)[\w.]+)?)(?:-[\w-]+)?\.(zip|dmg|exe|AppImage)$/i
 
 /** What the user typed in Settings, understood; null for nothing usable. */
 export function parseSource(raw: string): UpdateSource | null {
@@ -170,12 +170,22 @@ export async function findLatest(source: UpdateSource, platform: Platform): Prom
       // installer beside the new one can no longer hand out the wrong one.
       const feedAsset = assets.find((entry) => entry.name === feedName(platform))
       let chosen: { version: string; asset: { name: string; browser_download_url: string }; sha512: string | null } | null = null
+      /** GitHub normalises spaces and some punctuation to dots in asset names,
+       * while the feed keeps them as the builder wrote them, so the match
+       * ignores everything that is not a letter, digit, or dot-delimited
+       * version — "anticode-Setup-0.0.32.exe", "anticode.Setup.0.0.32.exe",
+       * and "anticode Setup 0.0.32.exe" are one and the same installer. */
+      const loose = (value: string): string => value.toLowerCase().replace(/[-_. ]+/g, '.')
       if (feedAsset !== undefined) {
         try {
           const feed = parseFeed(await fetchText(feedAsset.browser_download_url))
           const picked = pickAssetName(feed.files.map((file) => path.basename(file.url)), platform)
           const file = feed.files.find((entry) => path.basename(entry.url) === picked)
-          const upload = file === undefined ? undefined : assets.find((entry) => entry.name === path.basename(file.url))
+          let upload = file === undefined ? undefined : assets.find((entry) => entry.name === path.basename(file.url))
+          if (file !== undefined && upload === undefined) {
+            const wanted = loose(path.basename(file.url))
+            upload = assets.find((entry) => loose(entry.name) === wanted)
+          }
           if (feed.version !== '' && file !== undefined && upload !== undefined) {
             chosen = { version: feed.version, asset: upload, sha512: file.sha512 }
           }

@@ -82,6 +82,8 @@ interface RunParams {
   emit: (event: AgentEvent) => void
   /** Attachment blocks, already normalised, prepended to the user turn. */
   attachments?: ContentBlock[]
+  /** Plan mode: the run prepares the work and stops before executing. */
+  plan?: boolean
 }
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
@@ -248,6 +250,8 @@ export class AgentSession {
   private readonly history: Message[] = []
   private readonly transcript: Message[] = []
   private running = false
+  /** Plan mode of the run in flight; cleared when it settles. */
+  private activePlan = false
   /** A fixed kit (a sub-agent's); otherwise the mode's tools, asked for fresh each step. */
   private readonly fixedTools: Tool[] | null
   /** Images produced by tools this turn; appended after their tool results. */
@@ -313,11 +317,13 @@ export class AgentSession {
     if (this.running) throw new Error('A run is already active in this session')
     this.running = true
     this.activeSignal = params.signal
+    this.activePlan = params.plan === true
     try {
       await this.runExclusive(params)
     } finally {
       this.running = false
       this.activeSignal = null
+      this.activePlan = false
       // A pause can land between an instruction arriving and the run taking it
       // in. It was sent, and the user saw it sent, so it goes into the history
       // rather than vanishing — the next run (a resume) reads it there.
@@ -1081,6 +1087,21 @@ export class AgentSession {
       ...(given !== undefined && given.global.trim() !== '' ? [`Instructions from the user, for every session:\n\n${given.global.trim()}`] : []),
       ...(given !== undefined && given.session.trim() !== '' ? [`Instructions from the user, for this session:\n\n${given.session.trim()}`] : [])
     ]
+    // One prompt turned on plan mode for this run: the model prepares the
+    // work and stops. The flag lives on the run, not on the session — the
+    // next prompt goes back to building, whichever way the button sits.
+    if (this.activePlan === true) {
+      sections.push(
+        [
+          'Plan mode is on for this run. Prepare the work, do not do it:',
+          '- Read what you need to understand the task, then describe your approach and the exact steps you would take,',
+          '  including which files you would change and in what order.',
+          '- Do not write, edit, create, move, or delete files. Do not run terminal commands that change anything,',
+          '  and do not change project state in any way. Read-only commands are fine.',
+          '- End by waiting for approval. When the next message says go (or changes the plan), you may execute it.'
+        ].join('\n')
+      )
+    }
     return sections.length === 0 ? base : [base, ...sections].join('\n\n')
   }
 

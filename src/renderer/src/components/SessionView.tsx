@@ -911,7 +911,8 @@ export function SessionView(): JSX.Element {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ReplyToSelection sessionId={session?.id ?? ''} />
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center">
+      {/* Right above the composer: where the eye already is when reading. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
         {scrolled && (
           <button
             type="button"
