@@ -113,6 +113,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
       apiKey: string
       baseURL?: string
       maxTokensField: 'max_completion_tokens' | 'max_tokens'
+      /** Extra headers a vendor needs (CodeBuddy's X-Domain, for instance). */
+      defaultHeaders?: Record<string, string>
       /** Test hook; production uses FIRST_DATA_TIMEOUT_MS. */
       firstDataTimeoutMs?: number
       /** Test hook; production uses STREAM_INACTIVITY_MS. */
@@ -121,7 +123,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
   ) {
     this.client = new OpenAI({
       apiKey: options.apiKey,
-      ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {})
+      ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {}),
+      ...(options.defaultHeaders !== undefined ? { defaultHeaders: options.defaultHeaders } : {})
     })
     this.maxTokensField = options.maxTokensField
     this.firstDataTimeoutMs = options.firstDataTimeoutMs ?? FIRST_DATA_TIMEOUT_MS

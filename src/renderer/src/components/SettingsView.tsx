@@ -21,6 +21,7 @@ import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
 import { Mcp } from './settings/Mcp'
 import { Capabilities } from './settings/Capabilities'
+import { Auth } from './settings/Auth'
 import { InstructionsField } from './InstructionsField'
 
 interface SettingsViewProps {
@@ -33,7 +34,7 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'models' | 'mcp' | 'remote' | 'updates'
+type Section = 'general' | 'providers' | 'auth' | 'models' | 'mcp' | 'remote' | 'updates'
 
 function Tag({ children }: { children: string }): JSX.Element {
   return (
@@ -1882,6 +1883,16 @@ export function SettingsView({
       )
     },
     {
+      id: 'auth',
+      label: 'Auth provider',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <circle cx="8" cy="5.5" r="2.5" />
+          <path d="M3 13.5c.8-2.2 2.8-3.5 5-3.5s4.2 1.3 5 3.5" strokeLinecap="round" />
+        </svg>
+      )
+    },
+    {
       id: 'models',
       label: 'Models',
       icon: (
@@ -1971,6 +1982,7 @@ export function SettingsView({
               onProvidersChange={onProvidersChange}
             />
           )}
+          {section === 'auth' && <Auth onProvidersChange={onProvidersChange} />}
           {section === 'models' && (
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
           )}

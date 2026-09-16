@@ -20,6 +20,7 @@ import { IpcChannel } from '@shared/ipc'
 import type {
   AgentRequest,
   AppInfo,
+  AuthKind,
   ExportOptions,
   ApprovalResponse,
   FilePreview,
@@ -64,6 +65,8 @@ import {
   setWorkspaceRoot
 } from '../runtime'
 import { listProviders } from '../providers'
+import { startAuthLogin, submitAuthCode, cancelAuthLogin } from '../auth/session'
+import { listAuthAccounts, removeAuthAccount } from '../auth'
 import { resolveInWorkspace } from '../tools/workspace'
 import { ApprovalCoordinator } from '../approval/coordinator'
 import {
@@ -169,11 +172,12 @@ export async function addProvider(input: CustomProviderInput): Promise<ProviderI
     })
     forgetCatalogue('clinepass')
   } else {
-    if (input.kind !== 'ollama' && input.apiKey.trim() === '') throw new Error('API key is required')
+    if (input.kind !== 'ollama' && input.kind !== 'auth' && input.apiKey.trim() === '') throw new Error('API key is required')
     // Only a gateway or a local server has no address of its own to fall back on.
     if (input.kind === 'openai' && input.baseURL.trim() === '') {
       throw new Error('Base URL is required')
     }
+    if (input.kind === 'auth') throw new Error('OAuth accounts are added with Sign in, not here')
     const baseURL = input.baseURL.trim() || 'http://127.0.0.1:11434/v1'
     if (input.kind === 'ollama') await probeLocalProvider(baseURL)
     const named = { anthropic: 'Anthropic', 'openai-api': 'OpenAI' }[input.kind as string]
@@ -415,6 +419,21 @@ export function registerIpcHandlers(): void {
     IpcChannel.PROVIDER_ADD,
     (_event, input: CustomProviderInput): Promise<ProviderInfo[]> => addProvider(input)
   )
+
+  // OAuth logins. A running flow is kept in memory while it waits for the
+  // browser (or for a pasted code, in Claude's case) and reports through
+  // AUTH_EVENT so both windows and the phone can follow along.
+  ipcMain.handle(IpcChannel.AUTH_LOGIN, (_event, kind: AuthKind) => startAuthLogin(kind))
+  ipcMain.handle(IpcChannel.AUTH_SUBMIT_CODE, (_event, id: string, code: string) =>
+    submitAuthCode(id, code)
+  )
+  ipcMain.handle(IpcChannel.AUTH_CANCEL, (_event, id: string) => cancelAuthLogin(id))
+  ipcMain.handle(IpcChannel.AUTH_LIST, () => listAuthAccounts())
+  ipcMain.handle(IpcChannel.AUTH_REMOVE, (_event, id: string) => {
+    removeAuthAccount(id)
+    announceStatus()
+    return listProviders()
+  })
 
   ipcMain.handle(
     IpcChannel.PROVIDER_UPDATE,

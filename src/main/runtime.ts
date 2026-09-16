@@ -27,6 +27,7 @@ import type { ProviderFallback } from './agent/loop'
 import type { LLMProvider } from './providers/types'
 import { clearWeb, restoreWeb, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
+import { authProvider, isAuthProvider as isAuthId } from './auth/provider'
 import { fetchModels } from './providers/models'
 import {
   activeRotationEntries,
@@ -726,7 +727,8 @@ export function getStatus(sessionId?: string | null): SessionStatus {
 
 /** Every session talks through this, so pooled models count what they spend. */
 function providerFor(target: ProviderSelection): LLMProvider {
-  return countedProvider(target, createProvider(target.provider, target.model))
+  const inner = isAuthId(target.provider) ? authProvider(target.provider, target.model) : createProvider(target.provider, target.model)
+  return countedProvider(target, inner)
 }
 
 /** Sessions working on this pool entry right now. */

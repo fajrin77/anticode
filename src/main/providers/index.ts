@@ -5,6 +5,8 @@ import { clinepassConfig } from './clinepass'
 import { OpenAICompatibleProvider } from './openai'
 import { GoogleProvider } from './google'
 import type { LLMProvider } from './types'
+import { listAuthAccounts, readAuthTokens } from '../auth/store'
+import { authProvider, AUTH_DEFAULT_MODELS } from '../auth/provider'
 
 const OLLAMA_FALLBACK_URL = 'http://127.0.0.1:11434/v1'
 /** Where an Anthropic provider starts when no model id was typed for it. */
@@ -62,10 +64,34 @@ export function listProviders(): ProviderInfo[] {
     baseURL: config.baseURL,
     hasKey: config.apiKey !== ''
   }))
-  return [...builtIn, ...custom]
+
+  // OAuth accounts added in Settings → Auth provider. Each is a provider id of
+  // its own (`auth:codex`, `auth:codex-2`, …) so two logins of the same vendor
+  // sit side by side and can be rotated between like any other entry.
+  const auth = listAuthAccounts().map((account): ProviderInfo => {
+    const tokens = readAuthTokens(account.id)
+    return {
+      id: account.id,
+      label: account.label,
+      defaultModel: AUTH_DEFAULT_MODELS[account.kind],
+      credentialAvailable: tokens !== null,
+      configured: true,
+      credentialHint: 'OAuth account',
+      models: [AUTH_DEFAULT_MODELS[account.kind]],
+      kind: 'auth',
+      baseURL: '',
+      hasKey: tokens !== null
+    }
+  })
+
+  return [...builtIn, ...custom, ...auth]
 }
 
 export function createProvider(id: ProviderId, model: string): LLMProvider {
+  // OAuth accounts go through the auth wrapper, which keeps their tokens
+  // fresh and retries once on 401; sessions route here via runtime.ts.
+  if (id.startsWith('auth:')) return authProvider(id, model)
+
   if (id.startsWith('custom:')) {
     const config = getCustomProvider(id)
     if (config === undefined) throw new Error('Unknown provider')

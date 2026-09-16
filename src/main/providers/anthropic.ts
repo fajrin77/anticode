@@ -111,10 +111,20 @@ export class AnthropicProvider implements LLMProvider {
   constructor(
     apiKey: string,
     readonly model: string,
-    baseURL?: string
+    baseURL?: string,
+    extra?: { authToken?: string; defaultHeaders?: Record<string, string> }
   ) {
-    this.client = new Anthropic({ apiKey, ...(baseURL !== undefined ? { baseURL: anthropicBaseURL(baseURL) } : {}) })
-    this.capKey = `${baseURL ?? ''}\n${apiKey.slice(-8)}\n${model}`
+    this.client = new Anthropic({
+      // An OAuth account sends its access token as a Bearer header rather than
+      // an x-api-key; the SDK's authToken is exactly that, and it replaces the
+      // key entirely.
+      ...(extra?.authToken !== undefined
+        ? { authToken: extra.authToken, apiKey: null }
+        : { apiKey }),
+      ...(baseURL !== undefined ? { baseURL: anthropicBaseURL(baseURL) } : {}),
+      ...(extra?.defaultHeaders !== undefined ? { defaultHeaders: extra.defaultHeaders } : {})
+    })
+    this.capKey = `${baseURL ?? ''}\n${(extra?.authToken ?? apiKey).slice(-8)}\n${model}`
   }
 
   /**

@@ -123,6 +123,17 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
   updateProvider: (id: ProviderId, edit: ProviderEdit) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_UPDATE, id, edit) as Promise<ProviderInfo[]>,
+  startAuthLogin: (kind) =>
+    ipcRenderer.invoke(IpcChannel.AUTH_LOGIN, kind) as ReturnType<AnticodeApi['startAuthLogin']>,
+  submitAuthCode: (id, code) =>
+    ipcRenderer.invoke(IpcChannel.AUTH_SUBMIT_CODE, id, code) as Promise<void>,
+  cancelAuthLogin: (id) =>
+    ipcRenderer.invoke(IpcChannel.AUTH_CANCEL, id) as Promise<void>,
+  removeAuthProvider: (id) =>
+    ipcRenderer.invoke(IpcChannel.AUTH_REMOVE, id) as Promise<ProviderInfo[]>,
+  listAuthAccounts: () =>
+    ipcRenderer.invoke(IpcChannel.AUTH_LIST) as ReturnType<AnticodeApi['listAuthAccounts']>,
+  onAuthLogin: (listener) => subscribe(IpcChannel.AUTH_EVENT, listener),
   createSession: (spec: SessionSpec) =>
     ipcRenderer.invoke(IpcChannel.SESSION_CREATE, spec) as Promise<SessionSpec>,
   cloneSession: (sourceSessionId, newSessionId, throughPrompt, colour) =>

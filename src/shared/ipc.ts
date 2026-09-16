@@ -76,6 +76,12 @@ export const IpcChannel = {
   PROVIDER_ADD: 'provider:add',
   PROVIDER_REMOVE: 'provider:remove',
   PROVIDER_UPDATE: 'provider:update',
+  AUTH_LOGIN: 'auth:login',
+  AUTH_SUBMIT_CODE: 'auth:submitCode',
+  AUTH_CANCEL: 'auth:cancel',
+  AUTH_REMOVE: 'auth:remove',
+  AUTH_LIST: 'auth:list',
+  AUTH_EVENT: 'auth:event',
   ROTATION_SET: 'rotation:set',
   ROTATION_RESET: 'rotation:reset',
   ROTATION_ENABLE: 'rotation:enable',
@@ -168,7 +174,7 @@ export type ProviderId = string
  * 'anthropic' and 'openai-api' the vendors' own APIs under an API key, and
  * 'clinepass' the built-in gateway.
  */
-export type ProviderKind = 'openai' | 'ollama' | 'anthropic' | 'openai-api' | 'clinepass'
+export type ProviderKind = 'openai' | 'ollama' | 'anthropic' | 'openai-api' | 'clinepass' | 'auth'
 
 /** Where a vendor API lives when its Base URL is left empty. */
 export const VENDOR_BASE_URLS: Partial<Record<ProviderKind, string>> = {
@@ -223,6 +229,40 @@ export interface ModelCatalogue {
 export interface ProviderSelection {
   provider: ProviderId
   model: string
+}
+
+/** The OAuth vendors anticode can sign into. */
+export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy'
+
+/** A vendor flow as the Settings UI needs it while it runs. */
+export interface AuthLoginState {
+  /** Only unique inside one run of the app; the renderer keys its UI on it. */
+  id: string
+  kind: AuthKind
+  /** Human status, e.g. "Waiting for the browser". */
+  status: string
+  /** The URL the user must open, when the flow needs one. */
+  url?: string
+  /** True while the flow waits for a pasted code (Claude). */
+  needsCode: boolean
+  /** True once the account was stored. */
+  done: boolean
+  /** Set when the flow failed; status carries the message. */
+  error?: string
+  /** The provider id the account now has, e.g. `auth:codex`. */
+  accountId?: string
+  /** The label shown in the list, once done. */
+  label?: string
+}
+
+/** The public half of a stored account. */
+export interface AuthAccountSummary {
+  id: string
+  kind: AuthKind
+  label: string
+  account?: string
+  expiresAt?: number
+  refreshable: boolean
 }
 
 /**
@@ -1124,6 +1164,17 @@ export interface AnticodeApi {
   addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>
   removeProvider: (id: ProviderId) => Promise<ProviderInfo[]>
   updateProvider: (id: ProviderId, edit: ProviderEdit) => Promise<ProviderInfo[]>
+  /** Starts an OAuth login; events arrive on onAuthLogin. Resolves to the id. */
+  startAuthLogin: (kind: AuthKind) => Promise<AuthLoginState>
+  /** Feeds the code a paste-code vendor (Claude) asked for. */
+  submitAuthCode: (id: string, code: string) => Promise<void>
+  /** Gives up on a running login; the local listener is torn down. */
+  cancelAuthLogin: (id: string) => Promise<void>
+  /** Removes a stored account and returns the fresh provider list. */
+  removeAuthProvider: (id: string) => Promise<ProviderInfo[]>
+  /** Accounts on disk, without their tokens. */
+  listAuthAccounts: () => Promise<AuthAccountSummary[]>
+  onAuthLogin: (listener: (state: AuthLoginState) => void) => () => void
   onAgentEvent: (listener: (event: RoutedAgentEvent) => void) => () => void
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void
 }
