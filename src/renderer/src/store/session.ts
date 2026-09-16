@@ -190,6 +190,12 @@ interface SessionState {
   followUpMode: 'steer' | 'queue'
   setQueue: (sessionId: string, items: QueuedPrompt[]) => void
   setFollowUpMode: (mode: 'steer' | 'queue') => void
+  /**
+   * Per-anticode-session choice between doing the work (build) and only
+   * preparing it (plan). antichat has one voice, so this never applies.
+   */
+  planModeBySession: Record<string, true>
+  setPlanMode: (sessionId: string, plan: boolean) => void
   /** How diffs are drawn: one column, or old and new side by side. Remembered. */
   diffLayout: 'unified' | 'split'
   setDiffLayout: (layout: 'unified' | 'split') => void
@@ -389,6 +395,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   nextColour: 0,
   queues: {},
   planOpenBySession: {},
+  planModeBySession: {},
   setPlanOpen: (sessionId, open) =>
     set((state) => ({ planOpenBySession: { ...state.planOpenBySession, [sessionId]: open } })),
   followUpMode: 'steer',
@@ -642,6 +649,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     set((state) => ({
       sessions: mapSession(state, sessionId, (session) => ({ ...session, provider, model }))
     })),
+
+  setPlanMode: (sessionId, plan) =>
+    set((state) => {
+      const planModeBySession = { ...state.planModeBySession }
+      if (plan) planModeBySession[sessionId] = true
+      else delete planModeBySession[sessionId]
+      return { planModeBySession }
+    }),
 
   importSnapshot: (sessionId, messages, summaries = []) =>
     set((state) => ({

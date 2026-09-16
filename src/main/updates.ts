@@ -14,7 +14,14 @@ const CHECK_EVERY_MS = 6 * 60 * 60 * 1_000
 /** The first check waits until start-up has settled. */
 const FIRST_CHECK_MS = 20_000
 
-const DEFAULTS: UpdateSettings = { source: '', autoCheck: true, autoDownload: false }
+/**
+ * Updates come from exactly one place: the repository this app is released
+ * from. It is not a setting, so nothing typed into an older build — or into
+ * this one — can point the updater somewhere else.
+ */
+const OFFICIAL_REPO = 'fajrin77/anticode'
+
+const DEFAULTS: UpdateSettings = { source: OFFICIAL_REPO, autoCheck: true, autoDownload: false }
 
 let state: UpdateState | null = null
 let asset: UpdateAsset | null = null
@@ -46,7 +53,14 @@ export async function pruneOldDownloads(keep?: string): Promise<void> {
 }
 
 function settings(): UpdateSettings {
-  return { ...DEFAULTS, ...(loadPersistedSettings().updates ?? {}) }
+  // The source is pinned, whatever an earlier install stored; only the two
+  // switches follow what the user chose.
+  const saved = loadPersistedSettings().updates
+  return {
+    source: OFFICIAL_REPO,
+    autoCheck: saved?.autoCheck ?? DEFAULTS.autoCheck,
+    autoDownload: saved?.autoDownload ?? DEFAULTS.autoDownload
+  }
 }
 
 export function updateState(): UpdateState {
@@ -97,26 +111,13 @@ export function initUpdates(): void {
 }
 
 export function configureUpdates(patch: Partial<UpdateSettings>): UpdateState {
+  // `source` is deliberately not accepted: the repository is fixed in this
+  // build, so a stale value from an older install is overwritten here too.
   const next: UpdateSettings = { ...settings() }
-  if (typeof patch.source === 'string') {
-    const source = patch.source.trim()
-    if (source !== '' && parseSource(source) === null) {
-      throw new Error('Use a GitHub repository (owner/repo), a feed URL, or an absolute folder path')
-    }
-    next.source = source
-  }
   if (typeof patch.autoCheck === 'boolean') next.autoCheck = patch.autoCheck
   if (typeof patch.autoDownload === 'boolean') next.autoDownload = patch.autoDownload
   savePersistedSettings({ updates: next })
-  const sourceChanged = next.source !== updateState().source
-  if (sourceChanged) {
-    asset = null
-    downloaded = null
-  }
-  const result = publish({
-    ...next,
-    ...(sourceChanged ? { status: 'idle', latest: null, notes: null, progress: null, error: null, checkedAt: null } : {})
-  })
+  const result = publish(next)
   schedule()
   return result
 }

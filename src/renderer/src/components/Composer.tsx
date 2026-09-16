@@ -90,8 +90,7 @@ function Chip({
   )
 }
 
-export function Composer({
-  status: sharedStatus,
+export function Composer({  status: sharedStatus,
   providers,
   onSelectProvider,
   onToggleAutoApprove,
@@ -146,7 +145,6 @@ export function Composer({
   )
   const dropLastTurn = useSessionStore((state) => state.dropLastTurn)
   const followUpMode = useSessionStore((state) => state.followUpMode)
-  const setFollowUpMode = useSessionStore((state) => state.setFollowUpMode)
   const queued = useSessionStore((state) => state.queues[session?.id ?? ''] ?? NO_QUEUE)
 
   // Streaming is judged per session: a run elsewhere must never block this
@@ -165,10 +163,11 @@ export function Composer({
     : sessionReady
       ? null
       : 'This code session is not connected to a project folder'
-  // A prompt typed while the session is working is sent too: it joins the run
-  // in progress as a follow-up rather than waiting for it to end.
+  // A prompt typed while the session is working waits as a queue entry and
+  // goes out as its own run; the arrow button is what steers it into the
+  // run in progress.
   const canSend = draft.trim() !== '' && blocked === null && !attachmentsBlocked
-  /** Working, with something typed: the button sends it rather than pausing. */
+  /** Working, with something typed: Enter queues, the arrow button steers. */
   const steering = isStreaming && !isPaused && draft.trim() !== ''
   /**
    * Paused, with nothing typed: the button picks the work back up. It wears a
@@ -366,11 +365,47 @@ export function Composer({
     } catch (failure) { setError((failure as Error).message) }
   }
 
+  const planMode = useSessionStore(
+    (state) => session !== undefined && session.mode === 'code' && state.planModeBySession[session.id] === true
+  )
+  const setPlanMode = useSessionStore((state) => state.setPlanMode)
+
+  /**
+   * `steerNow` is the arrow button: with a run working it throws the typed
+   * prompt straight into that run instead of queueing it.
+   */
+  async function steerNow(): Promise<void> {
+    const prompt = draft.trim()
+    if (session === undefined || prompt === '' || !isStreaming || isPaused) return
+    const attachmentIds = attached.map((item) => item.id)
+    const shown = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
+    const kept = { text: draft, attachments: attached, quote }
+    setDraft('')
+    setAttached([])
+    clearQuote()
+    try {
+      const outcome = await window.anticode.sendPrompt({
+        sessionId: session.id,
+        runId: crypto.randomUUID(),
+        prompt: shown,
+        attachmentIds
+      })
+      if (!outcome.steered) {
+        // The run ended between the click and the call: it has already gone
+        // out as an ordinary prompt, so there is nothing to put back.
+        return
+      }
+    } catch (failure) {
+      setError((failure as Error).message)
+      useSessionStore.getState().updateDraft(session.id, kept)
+    }
+  }
+
   /**
    * `alternate` is Cmd/Ctrl+Enter: while a run works it does the other of
    * steer and queue, so neither needs the chip to be flipped first.
    */
-  async function send(alternate = false): Promise<void> {
+  async function send(): Promise<void> {
     const prompt = draft.trim()
     if (session && ((useAttachmentJobs.getState().pending[session.id] ?? 0) > 0 || (useSessionStore.getState().drafts[session.id]?.attachmentErrors?.length ?? 0) > 0)) return
     if (!canSend || session === undefined) {
@@ -391,23 +426,25 @@ export function Composer({
     const attachmentIds = attached.map((item) => item.id)
     // A quoted passage travels with the prompt so the model answers the part
     // that was selected, and shows in the transcript for the same reason.
-    const shown = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
+    const quoted = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
+    // Plan is a note to the model, not a second pipeline: the prompt asks for
+    // the approach and its steps, and says to stop there, so nothing is
+    // written, edited, or run until the next message says go.
+    const shown = planMode
+      ? `${quoted}\n\n(Plan mode: describe how you would do this and the exact steps you would take. Do not write, edit, or run anything yet — wait for my go-ahead.)`
+      : quoted
 
-    // The session is working: this joins that run. The main process tells
-    // every viewer — this one included — and the transcript is drawn from
-    // that, so nothing is drawn here that the phone would not also see.
+    // The session is working: the prompt waits above the composer as a queue
+    // entry and goes out as its own run when this one finishes. Steering is
+    // a separate, deliberate act — the arrow button beside the send button.
     if (isStreaming) {
       const kept = { text: draft, attachments: attached, quote }
       setDraft('')
       setAttached([])
       clearQuote()
-      const queue = (followUpMode === 'queue') !== alternate
       try {
         const request = { sessionId: session.id, runId: crypto.randomUUID(), prompt: shown, attachmentIds }
-        // A queued prompt waits in the main process, shown above the box on
-        // every screen, and goes out as its own run once this one finishes.
-        if (queue) await window.anticode.queuePrompt(request)
-        else await window.anticode.sendPrompt(request)
+        await window.anticode.queuePrompt(request)
       } catch (failure) {
         setError((failure as Error).message)
         useSessionStore.getState().updateDraft(session.id, kept)
@@ -515,7 +552,7 @@ export function Composer({
             <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
-                { value: true, name: 'Auto', hint: 'Run without approval prompts' }
+                { value: true, name: 'Auto', hint: 'Skips prompts for ordinary work; risky steps still ask' }
               ].map((option) => (
                 <button
                   key={option.name}
@@ -534,9 +571,6 @@ export function Composer({
                   </div>
                 </button>
               ))}
-              <p className="px-2 py-1.5 text-[11px] text-faint">
-                Auto runs without approval prompts. Saved permissions apply in Default.
-              </p>
             </div>
           )}
 
@@ -667,7 +701,7 @@ export function Composer({
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
-                  void send(event.metaKey || event.ctrlKey)
+                  void send()
                 }
               }}
               data-composer
@@ -723,33 +757,8 @@ export function Composer({
                 {status?.autoApprove === true ? 'Auto' : 'Default'}
               </Chip>
 
-              {/* Only while a run works: make both destinations explicit. A click
-                  on "steer" must always select steer, never toggle away from it. */}
-              {isStreaming && !isPaused && (
-                <div className="glass-ghost flex rounded-md p-0.5 text-[12.5px]" data-follow-up-mode>
-                  <button
-                    type="button"
-                    aria-pressed={followUpMode === 'steer'}
-                    title="Steer: add the next prompt to the current run"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setFollowUpMode('steer')}
-                    className={`rounded px-1.5 py-0.5 transition-colors ${followUpMode === 'steer' ? 'bg-hover text-brand' : 'text-dim hover:text-main'}`}
-                  >
-                    steer
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={followUpMode === 'queue'}
-                    title="Queue: send the next prompt after the current run"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => setFollowUpMode('queue')}
-                    className={`rounded px-1.5 py-0.5 transition-colors ${followUpMode === 'queue' ? 'bg-hover text-brand' : 'text-dim hover:text-main'}`}
-                  >
-                    queue
-                  </button>
-                </div>
-              )}
-
+              {/* Only while a run works: the queued prompt waits above the
+                  composer; a second arrow steers it into the live run. */}
               <div className="flex-1" />
 
               {steering && (
@@ -779,7 +788,7 @@ export function Composer({
                 type="button"
                 onClick={() => {
                   if (steering) {
-                    void send()
+                    void steerNow()
                     return
                   }
                   if (isStreaming && !isPaused) {
@@ -796,14 +805,21 @@ export function Composer({
                 // Typed but blocked stays live only when a folder is what is
                 // missing, so pressing it points at the folder button.
                 disabled={
-                  pausing || (attachmentsBlocked && (!isStreaming || steering)) ||
+                  pausing ||
+                  (attachmentsBlocked && (!isStreaming || steering)) ||
                   (isPaused && isStreaming) ||
-                  (!isStreaming &&
-                    !resuming &&
-                    (draft.trim() === '' || (!canSend && !folderMissing)))
+                  (!isStreaming && !resuming && (draft.trim() === '' || (!canSend && !folderMissing)))
                 }
-                title={resuming ? 'Continue from the conversation history with a new request' : undefined}
-                aria-label={resuming ? 'Continue' : steering ? (followUpMode === 'queue' ? 'Queue' : 'Send') : isStreaming ? 'Pause' : 'Send'}
+                title={
+                  steering
+                    ? 'Steer: add this prompt to the run in progress'
+                    : resuming
+                      ? 'Continue from the conversation history with a new request'
+                      : undefined
+                }
+                aria-label={
+                  resuming ? 'Continue' : steering ? 'Steer' : isStreaming ? 'Pause' : 'Send'
+                }
                 className={`flex h-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                   resuming
                     ? 'gap-1.5 bg-brand px-3 text-bg hover:bg-brand-strong'
@@ -825,6 +841,20 @@ export function Composer({
                   </svg>
                 )}
               </button>
+
+              {session?.mode === 'code' && (
+                <button
+                  type="button"
+                  onClick={() => setPlanMode(session.id, !planMode)}
+                  title={planMode ? 'Plan: prepare the work; nothing is executed' : 'Build: execute the work now'}
+                  aria-pressed={planMode}
+                  className={`shrink-0 rounded-md px-2 py-1 text-[12.5px] transition-colors ${
+                    planMode ? 'bg-hover text-brand' : 'text-dim hover:text-brand'
+                  }`}
+                >
+                  {planMode ? 'plan' : 'build'}
+                </button>
+              )}
             </div>
           </div>
         </div>

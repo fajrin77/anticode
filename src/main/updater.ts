@@ -149,24 +149,57 @@ async function fetchText(url: string): Promise<string> {
 /** The newest build the source offers for this machine, or null when it has none. */
 export async function findLatest(source: UpdateSource, platform: Platform): Promise<UpdateAsset | null> {
   if (source.kind === 'github') {
-    const release = JSON.parse(await fetchText(`https://api.github.com/repos/${source.repo}/releases/latest`)) as {
+    // Every release is read and the highest version wins, rather than asking
+    // GitHub for "latest": that endpoint skips releases marked as pre-release
+    // and ignores the order they were tagged in, so a newer build can sit
+    // invisible while the app keeps offering the one it already has.
+    const releases = JSON.parse(await fetchText(`https://api.github.com/repos/${source.repo}/releases?per_page=30`)) as {
       tag_name?: string
+      draft?: boolean
       body?: string
       assets?: { name: string; browser_download_url: string }[]
+    }[]
+    interface Candidate {
+      version: string
+      body: string | null
+      asset: { name: string; browser_download_url: string }
+      feed: { name: string; browser_download_url: string } | undefined
     }
-    const assets = release.assets ?? []
-    const name = pickAssetName(assets.map((asset) => asset.name), platform)
-    const asset = assets.find((entry) => entry.name === name)
-    if (asset === undefined || typeof release.tag_name !== 'string') return null
-    // The feed file, when the release carries one, is where the checksum is.
-    const feed = assets.find((entry) => entry.name === feedName(platform))
-    let sha512: string | null = null
-    if (feed !== undefined) {
-      try {
-        sha512 = parseFeed(await fetchText(feed.browser_download_url)).files.find((file) => file.url === asset.name)?.sha512 ?? null
-      } catch { /* A release without a readable feed still installs, unchecked. */ }
+    let best: UpdateAsset | null = null
+    for (const release of releases) {
+      if (release.draft === true || typeof release.tag_name !== 'string') continue
+      const tag = release.tag_name.replace(/^v/, '')
+      const assets = release.assets ?? []
+      // The feed the build itself wrote names the file for this platform and
+      // carries its checksum, so the version reported and the binary offered
+      // always describe the same build — a release that still holds an older
+      // installer beside the new one can no longer hand out the wrong one.
+      const feedAsset = assets.find((entry) => entry.name === feedName(platform))
+      let chosen: { version: string; asset: { name: string; browser_download_url: string }; sha512: string | null } | null = null
+      if (feedAsset !== undefined) {
+        try {
+          const feed = parseFeed(await fetchText(feedAsset.browser_download_url))
+          const picked = pickAssetName(feed.files.map((file) => path.basename(file.url)), platform)
+          const file = feed.files.find((entry) => path.basename(entry.url) === picked)
+          const upload = file === undefined ? undefined : assets.find((entry) => entry.name === path.basename(file.url))
+          if (feed.version !== '' && file !== undefined && upload !== undefined) {
+            chosen = { version: feed.version, asset: upload, sha512: file.sha512 }
+          }
+        } catch { /* A release with no readable feed falls back to asset names. */ }
+      }
+      if (chosen === null) {
+        // Only assets whose own name carries this tag's version: a stale build
+        // in the same release is skipped rather than picked by list order.
+        const named = assets.filter((entry) => BUILD_NAME.exec(entry.name)?.[1] === tag)
+        const picked = pickAssetName(named.map((entry) => entry.name), platform)
+        const upload = named.find((entry) => entry.name === picked)
+        if (upload !== undefined) chosen = { version: tag, asset: upload, sha512: null }
+      }
+      if (chosen === null) continue
+      if (best !== null && compareVersions(chosen.version, best.version) <= 0) continue
+      best = { version: chosen.version, location: chosen.asset.browser_download_url, name: chosen.asset.name, sha512: chosen.sha512, notes: release.body ?? null }
     }
-    return { version: release.tag_name.replace(/^v/, ''), location: asset.browser_download_url, name: asset.name, sha512, notes: release.body ?? null }
+    return best
   }
 
   if (source.kind === 'feed') {

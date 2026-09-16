@@ -19,15 +19,11 @@ function when(timestamp: number | null): string {
  */
 export function Updates(): JSX.Element {
   const [state, setState] = useState<UpdateState | null>(null)
-  const [source, setSource] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
-    void window.anticode.getUpdateState().then((next) => {
-      setState(next)
-      setSource(next.source)
-    })
+    void window.anticode.getUpdateState().then(setState)
     return window.anticode.onUpdateState(setState)
   }, [])
 
@@ -67,26 +63,7 @@ export function Updates(): JSX.Element {
       <div className="glass-surface mb-6 overflow-hidden rounded-xl border border-line">
         <div className="border-b border-line-soft px-5 py-4">
           <div className="text-[13.5px] text-text">Update source</div>
-          <div className="flex gap-2">
-            <input
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void act(() => window.anticode.configureUpdates({ source }))
-              }}
-              placeholder="owner/repo, https://…, or /path/to/release"
-              spellCheck={false}
-              className="glass-field min-w-0 flex-1 rounded-lg border px-3 py-1.5 font-mono text-[12.5px] text-text outline-none placeholder:text-faint"
-            />
-            <button
-              type="button"
-              disabled={source === (state?.source ?? '')}
-              onClick={() => void act(() => window.anticode.configureUpdates({ source }))}
-              className="glass-control rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors enabled:hover:text-brand disabled:text-faint"
-            >
-              Save
-            </button>
-          </div>
+          <div className="mt-1 font-mono text-[12.5px] text-dim">{state?.source ?? ''}</div>
         </div>
         <SettingRow title="Check automatically" hint="At start-up and every six hours, while a source is set">
           <Toggle
@@ -127,7 +104,7 @@ export function Updates(): JSX.Element {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            disabled={busy || state?.source === ''}
+            disabled={busy}
             onClick={() => void act(() => window.anticode.checkForUpdates())}
             className="glass-control rounded-lg border px-3 py-1.5 text-[12.5px] text-text transition-colors enabled:hover:text-brand disabled:text-faint"
           >

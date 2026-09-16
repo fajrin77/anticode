@@ -6,6 +6,12 @@ directories:
 files:
   - out/**
   - package.json
+  # A build is the app and nothing else: local credentials, notes, and any
+  # stray environment file stay on the machine that made it.
+  - '!**/.env'
+  - '!**/.env.*'
+  - '!**/*.local'
+  - '!**/.anticode/**'
 # sharp ships platform-specific binaries that cannot be loaded from inside asar.
 asarUnpack:
   - '**/node_modules/sharp/**'

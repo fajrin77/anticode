@@ -7,10 +7,10 @@ ini menjelaskan cara menyiapkan sisi distribusinya supaya update dari jauh benar
 
 ## Cara kerjanya
 
-1. **Sumber.** User mengisi Settings -> Updates dengan salah satu dari:
-   - repository GitHub (`owner/repo` atau URL-nya) — release terbaru beserta asetnya;
-   - URL feed electron-builder (folder, atau langsung `latest-mac.yml`/`latest.yml`/`latest-linux.yml`);
-   - folder lokal berisi build, misalnya `release/` project ini.
+1. **Sumber.** Tetap: repository `fajrin77/anticode`, dipatok di `src/main/updates.ts`
+   (`OFFICIAL_REPO`) dan tidak bisa diubah dari Settings. Updater membaca daftar
+   release repo itu dan memilih versi tertinggi — bukan tag "latest" GitHub —
+   supaya release yang ditandai pre-release pun tetap terlihat.
 2. **Pemeriksaan.** `initUpdates()` menjadwalkan cek pertama 20 detik setelah start-up,
    lalu tiap 6 jam. `checkForUpdates()` memanggil `findLatest()`, yang membaca release GitHub,
    feed YAML, atau nama berkas `anticode-<versi>-<arch>.<ext>` di folder, lalu membandingkan
@@ -51,9 +51,11 @@ versi, nama berkas, dan sha512 — inilah yang dibaca updater.
    ```
    gh release create v0.0.31 release/*.dmg release/*.zip release/*.exe release/*.blockmap release/latest*.yml
    ```
-4. Di app yang sudah terpasang, isi Settings -> Updates dengan `fajrin77/anticode`
-   sekali saja. Setelah itu update dari jauh berjalan sendiri: cek tiap 6 jam, dan **Check
-   automatically** / **Download automatically** mengatur apakah unduhan dilakukan otomatis.
+4. Tidak ada yang perlu diisi di app terpasang: sumbernya sudah dipatok. Update
+   berjalan sendiri — cek tiap 6 jam — dan **Check automatically** /
+   **Download automatically** mengatur apakah unduhan dilakukan otomatis.
+   Saat menyusun release, tandai rilis sebagai **pre-release** pun tetap terbaca,
+   karena updater membandingkan nomor versi, bukan label "latest".
 
 Catatan: app harus berada di folder yang bisa ditulis (mis. `/Applications`) agar bisa
 mengganti dirinya sendiri. Dev run tidak bisa memasang apa pun.

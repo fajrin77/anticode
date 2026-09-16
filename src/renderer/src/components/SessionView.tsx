@@ -153,14 +153,29 @@ function useSessionBusy(sessionId: string): boolean {
   )
 }
 
-/** The live run's phase label — "Thinking", "Browsing" — or null when idle. */
+/**
+ * A sticky version of the live phase: a label holds on for 900 ms before it
+ * changes, so Thinking → Running command → Thinking on consecutive steps
+ * does not flash the line through a new phrase each time.
+ */
 function useSessionPhase(sessionId: string): string | null {
-  return useSessionStore((state) => {
+  const raw = useSessionStore((state) => {
     const run =
       Object.values(state.activeRuns).find((entry) => entry.sessionId === sessionId) ??
       Object.values(state.mirrorRuns).find((entry) => entry.sessionId === sessionId)
     return run?.phase === undefined ? null : PHASE_LABEL[run.phase]
   })
+  const [held, setHeld] = useState(raw)
+  useEffect(() => {
+    if (raw === null) {
+      setHeld(null)
+      return
+    }
+    if (raw === held) return
+    const timer = setTimeout(() => setHeld(raw), 900)
+    return () => clearTimeout(timer)
+  }, [raw, held])
+  return raw === null ? null : held ?? raw
 }
 
 function errorText(failure: unknown): string {
