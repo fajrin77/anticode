@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -167,6 +167,57 @@ export async function stageAttachmentData(name: string, data: Buffer): Promise<s
  * Reads the file once at attach time to build the model-facing preview. The
  * original is left where it is; nothing is copied into the workspace.
  */
+/** The folders a repo never means when it is attached as a whole. */
+const SKIPPED_DIRECTORIES = new Set([
+  '.git', 'node_modules', '.anticode', '.venv', 'venv', '__pycache__',
+  'dist', 'build', 'out', 'target', '.next', '.cache', 'Pods', 'vendor'
+])
+
+/** A folder this size, in files, is a repo; beyond it the drop is a mistake. */
+const MAX_FOLDER_FILES = 400
+
+/** Walks one level of a folder, skipping dependencies and hidden caches. */
+async function listFolderFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const files: string[] = []
+  for (const entry of entries) {
+    const full = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.')) continue
+      files.push(...(await listFolderFiles(full)))
+      if (files.length > MAX_FOLDER_FILES) throw new AttachmentError(
+        `${directory} holds too many files to attach as a folder — pick the files you need`
+      )
+      continue
+    }
+    if (!entry.isFile()) continue
+    files.push(full)
+  }
+  return files
+}
+
+/**
+ * Folders cannot ride along as one attachment: the composer asks for files.
+ * A repo folder is flattened into its text files so the run reads the code
+ * without the user picking file by file. Binary kinds and dependency folders
+ * are skipped — the model cannot read them anyway.
+ */
+export async function expandFolder(
+  folderPath: string,
+  known: AttachmentInfo[]
+): Promise<AttachmentInfo[]> {
+  const files = (await listFolderFiles(folderPath)).filter((file) => classify(path.extname(file).toLowerCase()) === 'text')
+  if (files.length === 0) throw new AttachmentError(`No readable text files in ${path.basename(folderPath)}`)
+  const seen = new Set(known.map((item) => item.path))
+  const fresh: AttachmentInfo[] = []
+  for (const file of files) {
+    if (seen.has(file)) continue // A folder re-attached over single files adds nothing.
+    seen.add(file)
+    fresh.push(await prepareAttachment(file, null))
+  }
+  return fresh
+}
+
 export async function prepareAttachment(
   filePath: string,
   workspaceRoot: string | null

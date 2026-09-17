@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { stat } from 'node:fs/promises'
 import type { AttachmentInfo, AttachmentRef } from '@shared/ipc'
 import type { ContentBlock } from '../providers/types'
 import { getStatus, sessionFileRoot, sessionMode } from '../runtime'
@@ -7,6 +8,7 @@ import {
   placeInWorkspace,
   UPLOADS_DIR,
   prepareAttachment,
+  expandFolder,
   stageAttachmentData,
   toContentBlocks,
   toRef
@@ -36,8 +38,21 @@ async function keep(paths: string[]): Promise<AttachmentInfo[]> {
   return prepared
 }
 
-export function registerAttachments(paths: string[]): Promise<AttachmentInfo[]> {
-  return keep(paths)
+export async function registerAttachments(paths: string[]): Promise<AttachmentInfo[]> {
+  // A folder in the batch expands to its text files first; the folder path
+  // itself never reaches the stage, since the composer hands over files.
+  const folders: string[] = []
+  const files: string[] = []
+  for (const entry of paths) {
+    const info = await stat(entry).catch(() => null)
+    if (info?.isDirectory() === true) folders.push(entry)
+    else files.push(entry)
+  }
+  const known = [...staged.values()]
+  for (const folder of folders) known.push(...(await expandFolder(folder, known)))
+  const fresh = await keep(files)
+  const added = new Set(fresh.map((item) => item.path))
+  return [...fresh, ...known.filter((item) => !added.has(item.path))]
 }
 
 /** For bytes with no file of their own: a pasted screenshot, a phone upload. */

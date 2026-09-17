@@ -489,7 +489,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.ATTACH_CHOOSE, async (event): Promise<AttachmentInfo[]> => {
     const window = BrowserWindow.fromWebContents(event.sender)
-    const options = { properties: ['openFile', 'multiSelections'] as const }
+    const options = { properties: ['openFile', 'openDirectory', 'multiSelections'] as const }
     const result = window
       ? await dialog.showOpenDialog(window, { properties: [...options.properties] })
       : await dialog.showOpenDialog({ properties: [...options.properties] })
