@@ -960,9 +960,13 @@ try {
   await composer().fill('slow first'); await composer().press('Enter')
   await window.waitForTimeout(700)
   check('follow-up: an empty box offers pause', await window.getByRole('button',{name:'Pause',exact:true}).count(), 1)
+  // Steer is the arrow button (it reads "Steer" while a run is live); Enter
+  // queues, so the instruction goes across with the button, not the keyboard.
   await composer().fill('tambah ini')
-  check('follow-up: typing turns pause into send', await window.getByRole('button',{name:'Send',exact:true}).count(), 1)
-  await composer().press('Enter'); await window.waitForTimeout(500)
+  check('follow-up: typing turns pause into steer',
+    await window.getByRole('button',{name:'Steer',exact:true}).count()
+      + await window.getByRole('button',{name:'Send',exact:true}).count(), 1)
+  await window.getByRole('button',{name:'Steer',exact:true}).click(); await window.waitForTimeout(500)
   check('follow-up: the box empties at once', await composer().inputValue(), '')
   const followMarker = window.getByText('Follow-up added.')
   check('follow-up: the marker is written', await followMarker.count() > 0 ? 'said' : 'silent', 'said')
@@ -1007,8 +1011,10 @@ try {
     }), 'between')
   await copyButton.click(); await window.waitForTimeout(300)
   const clipped = await window.evaluate(() => navigator.clipboard.readText())
-  check('copying yields the reply and its cost',
-    clipped.includes('Fixture reply: ringkasan') && /\d+ tokens/.test(clipped) ? 'both' : clipped.slice(0,40), 'both')
+  // Since a332fdd the copy carries the reply only — model, duration, and the
+  // token count stay on the closing line, out of what gets pasted.
+  check('copying yields the reply without its stats',
+    clipped.trim() === 'Fixture reply: ringkasan' ? 'reply-only' : clipped.slice(0,40), 'reply-only')
   await shot('22-closing-line')
 
   // Selecting part of a reply offers to answer that passage: the quote rides
