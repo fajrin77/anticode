@@ -1882,16 +1882,18 @@ export function SettingsView({
         </svg>
       )
     },
-    {
-      id: 'auth',
-      label: 'Auth provider',
-      icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-          <circle cx="8" cy="5.5" r="2.5" />
-          <path d="M3 13.5c.8-2.2 2.8-3.5 5-3.5s4.2 1.3 5 3.5" strokeLinecap="round" />
-        </svg>
-      )
-    },
+    // Auth provider stays out of the menu until the OAuth flows are solid;
+    // the section still renders for anyone already on it.
+    // {
+    //   id: 'auth',
+    //   label: 'Auth provider',
+    //   icon: (
+    //     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+    //       <circle cx="8" cy="5.5" r="2.5" />
+    //       <path d="M3 13.5c.8-2.2 2.8-3.5 5-3.5s4.2 1.3 5 3.5" strokeLinecap="round" />
+    //     </svg>
+    //   )
+    // },
     {
       id: 'models',
       label: 'Models',
