@@ -369,6 +369,14 @@ function mapMessage(
   }
 }
 
+/** Matches a rebuilt reply to the one the window already showed: role, shape, and words. */
+function summarySignature(message: Message): string {
+  const texts = message.parts
+    .flatMap((part) => (part.kind === 'text' || part.kind === 'notice' || part.kind === 'error' ? [part.text] : []))
+    .join('\n')
+  return `${message.role}|${message.parts.length}|${texts.slice(0, 500)}|${texts.length}`
+}
+
 export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   readPositions: {},
   drafts: {},
@@ -662,6 +670,17 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     set((state) => ({
       sessions: state.sessions.map((session) => {
         if (session.id !== sessionId) return session
+        // Closing lines the window already stamped stay put: a short or
+        // shifted archive must never strip a summary the user has seen.
+        // Keyed by content signature, consumed oldest first.
+        const kept = new Map<string, RunSummary[]>()
+        for (const existing of session.messages) {
+          if (existing.role !== 'assistant' || existing.summary === undefined) continue
+          const key = summarySignature(existing)
+          const list = kept.get(key)
+          if (list === undefined) kept.set(key, [existing.summary])
+          else list.push(existing.summary)
+        }
         const converted: Message[] = []
         const results = new Map(messages.flatMap((message) => message.blocks.filter((block) => block.type === 'tool_result').map((block) => [block.toolUseId, block] as const)))
         // An assistant turn followed by an instruction the run took in did not
@@ -747,7 +766,13 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         const offset = turns.length - summaries.length
         turns.forEach((message, index) => {
           const summary = summaries[index - offset]
-          if (summary !== undefined) message.summary = summary
+          if (summary !== undefined) {
+            message.summary = summary
+            return
+          }
+          // The archive has no line for this reply: keep the one it wore.
+          const restored = kept.get(summarySignature(message))?.shift()
+          if (restored !== undefined) message.summary = restored
         })
         return { ...session, messages: converted }
       })

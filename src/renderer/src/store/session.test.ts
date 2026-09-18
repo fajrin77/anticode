@@ -1,5 +1,6 @@
 import { beforeEach, expect, it } from 'vitest'
 import { useSessionStore } from './session'
+import type { SnapshotMessage } from '@shared/ipc'
 import { FOLLOW_UP_LABEL } from '../labels'
 beforeEach(() => useSessionStore.setState({ sessions: [], activeRuns: {}, mirrorRuns: {}, activeSessionId: null, planOpenBySession: {} }))
 
@@ -100,6 +101,28 @@ it('restores a follow-up with its marker, and keeps closing lines on the turns t
   // Two runs, two closing lines: the first answer and the reply after the
   // follow-up. The turn the follow-up interrupted has none.
   expect(messages.map((message) => message.summary?.durationMs ?? null)).toEqual([null, 1, null, null, null, null, 2])
+})
+
+it('keeps closing lines stamped live when a re-import carries fewer summaries', () => {
+  const store = useSessionStore.getState()
+  const id = store.openSession('chat', null)
+  const snapshot: SnapshotMessage[] = [
+    { role: 'user', blocks: [{ type: 'text', text: 'pertama' }] },
+    { role: 'assistant', blocks: [{ type: 'text', text: 'jawaban satu' }] },
+    { role: 'user', blocks: [{ type: 'text', text: 'kedua' }] },
+    { role: 'assistant', blocks: [{ type: 'text', text: 'jawaban dua' }] }
+  ]
+  store.importSnapshot(id, snapshot, [
+    { model: 'm', durationMs: 1, inputTokens: 1, outputTokens: 1 },
+    { model: 'm', durationMs: 2, inputTokens: 2, outputTokens: 2 }
+  ])
+  // A re-import whose archive lost the old lines (trimmed, shifted) must not
+  // strip the closing lines the window already stamped.
+  store.importSnapshot(id, snapshot, [
+    { model: 'm', durationMs: 2, inputTokens: 2, outputTokens: 2 }
+  ])
+  const durations = useSessionStore.getState().sessions[0]!.messages.map((message) => message.summary?.durationMs ?? null)
+  expect(durations).toEqual([null, 1, null, 2])
 })
 
 it('takes the colour the main process settled on for a session it already knows', () => {
