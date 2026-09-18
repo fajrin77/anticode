@@ -151,6 +151,11 @@ export class CodexProvider implements LLMProvider {
 
     if (!response.ok || response.body === null) {
       const detail = await response.text().catch(() => '')
+      if (/not supported when using codex/i.test(detail)) {
+        throw new Error(
+          `Model "${this.model}" is not available on this ChatGPT plan. Pick another Codex model from the model picker and retry.`
+        )
+      }
       throw new Error(`Codex returned ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 200)}`}`)
     }
 
