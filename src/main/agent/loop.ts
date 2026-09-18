@@ -1181,6 +1181,7 @@ export class AgentSession {
       '- Use search_files to locate code instead of reading files one by one.',
       '- Read a file before changing it; never guess its contents.',
       '- For partial changes use edit_file, not write_file.',
+      '- After editing code, run check_problems and fix what it reports before replying done.',
       '- Work in as few model turns as possible. Before every tool response, list what can already be done ' +
         'without another result and issue those independent tool calls together in that same response. ' +
         'When two or more independent actions are known, do not send them one tool at a time.',

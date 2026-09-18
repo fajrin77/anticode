@@ -30,6 +30,7 @@ import type { Tool } from './types'
 import { todoWriteTool } from './todoWrite'
 import { webSearchTool } from './webSearch'
 import { askQuestionTool } from './askQuestion'
+import { checkProblemsTool } from './checkProblems'
 import { taskTool } from './task'
 import { screenshotTool } from './screenshot'
 import { generateImageTool } from './generateImage'
@@ -38,6 +39,7 @@ export const tools: Tool[] = [
   todoWriteTool,
   taskTool,
   askQuestionTool,
+  checkProblemsTool,
   readFileTool,
   writeFileTool,
   editFileTool,
@@ -78,6 +80,7 @@ const SUBAGENT_TOOL_NAMES = new Set([
   'read_file',
   'list_directory',
   'search_files',
+  'check_problems',
   'read_excel',
   'read_docx',
   'read_pdf',

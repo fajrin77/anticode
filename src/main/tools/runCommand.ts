@@ -23,7 +23,7 @@ function localServerUrl(output: string): string | null {
   return found.replace(/[.,;:'")\]]+$/, '').replace('0.0.0.0', 'localhost')
 }
 
-interface CommandOutcome {
+export interface CommandOutcome {
   stdout: string
   stderr: string
   code: number | null
@@ -43,7 +43,7 @@ function collect(chunks: string[], limit: number): string {
  * running as orphans. The child gets its own process group (POSIX) so one
  * signal reaches everything it spawned; Windows walks the tree via taskkill.
  */
-function execute(
+export function execute(
   command: string,
   cwd: string,
   timeoutMs: number,
