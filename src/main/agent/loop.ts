@@ -791,6 +791,7 @@ export class AgentSession {
       workspaceRoot: this.workspaceRoot,
       signal: params.signal,
       sessionId: this.scope,
+      runId,
       ...(this.provider.generateImage !== undefined
         ? { generateImage: (input: Parameters<NonNullable<LLMProvider['generateImage']>>[0]) => this.provider.generateImage!(input) }
         : {}),
@@ -1194,6 +1195,9 @@ export class AgentSession {
       '- Check that a tool or dependency already exists before installing or re-running it.',
       '- For a library, API, error message, or release you are not sure of, call web_search and then ' +
         'read the result with fetch_url instead of guessing a URL or answering from memory.',
+      '- When the work genuinely cannot proceed without the user\u2019s preference — which approach, ' +
+        'which scope, which destination — call ask_question with 2-4 clickable options instead of ' +
+        'guessing. Never use it for progress reports or for what the files already say.',
       '- When the user asks to create an image, call generate_image and return its file card.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',

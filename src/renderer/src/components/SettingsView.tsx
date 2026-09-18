@@ -119,6 +119,7 @@ function General({
             ['complete', 'A run finishes', 'With the session name and how long it took'],
             ['error', 'A run fails', 'With the error it stopped on'],
             ['approval', 'A tool waits for approval', 'The session stays paused on it until you decide'],
+            ['question', 'The agent asks a question', 'Its options wait for your click'],
             ['update', 'An update is available', 'From the source in Settings → Updates'],
             ['sound', 'Play a sound', 'The system notification sound'],
             ['background', 'Only when anticode is in the background', 'Off, they show even while you are looking at anticode']

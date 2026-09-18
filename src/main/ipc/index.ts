@@ -23,6 +23,7 @@ import type {
   AuthKind,
   ExportOptions,
   ApprovalResponse,
+  QuestionAnswer,
   FilePreview,
   ModelCatalogue,
   ModelPrice,
@@ -74,6 +75,8 @@ import {
 } from '../auth'
 import { resolveInWorkspace } from '../tools/workspace'
 import { ApprovalCoordinator } from '../approval/coordinator'
+import { QuestionCoordinator } from '../question'
+import { setQuestionGateway } from '../question-gateway'
 import {
   registerAttachmentData,
   registerAttachments,
@@ -129,6 +132,18 @@ export { approvals }
 export function focusApprovalTarget(sender: WebContents): void {
   lastSender = sender
 }
+
+const questions = new QuestionCoordinator(() => lastSender && !lastSender.isDestroyed() ? lastSender : mainWindow()?.webContents ?? null, (requestId) => {
+  for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IpcChannel.QUESTION_DISMISSED, requestId)
+}, (request) => notify('question', {
+  title: 'anticode has a question',
+  body: request.question,
+  sessionId: request.sessionId
+}))
+setQuestionGateway((input) => questions.ask(input))
+
+/** The phone answers questions through the same coordinator. */
+export { questions }
 
 /** Produced files are named relative to the session folder; resolving them
  * here keeps the renderer from ever handling an absolute path of its own. */
@@ -599,6 +614,14 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.APPROVAL_RESPOND, (_event, response: ApprovalResponse): void => {
     approvals.resolve(response.requestId, response.decision)
+  })
+
+  ipcMain.handle(IpcChannel.QUESTION_PENDING, () => questions.listPending())
+
+  ipcMain.handle(IpcChannel.QUESTION_RESPOND, (_event, answer: QuestionAnswer): void => {
+    const pending = questions.listPending().find((request) => request.requestId === answer.requestId)
+    if (pending === undefined) return
+    questions.resolve(answer.requestId, { optionId: answer.optionId, text: answer.text })
   })
 
   ipcMain.handle(IpcChannel.SESSION_CREATE, (_event, spec: SessionSpec): SessionSpec =>

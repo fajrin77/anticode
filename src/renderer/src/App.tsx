@@ -10,6 +10,7 @@ import { SettingsView } from './components/SettingsView'
 import { ScheduleView } from './components/ScheduleView'
 import { CONTINUE_PROMPT, PAUSE_LABEL, RESUME_LABEL } from './components/Composer'
 import { ApprovalModal } from './components/ApprovalModal'
+import { QuestionModal } from './components/QuestionModal'
 import { useSessionStore } from './store/session'
 import { useWebSession, useWebStore } from './store/web'
 import { WebPanel } from './components/WebPanel'
@@ -22,6 +23,8 @@ import type {
   ApprovalRequest,
   ProviderId,
   ProviderInfo,
+  QuestionAnswer,
+  QuestionRequest,
   RoutedAgentEvent,
   SessionStatus,
   UpdateState
@@ -47,6 +50,7 @@ export function App(): JSX.Element {
   // the gear dropped the user into a session view that may not exist.
   const viewBeforeSettings = useRef<View>('dashboard')
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+  const [questions, setQuestions] = useState<QuestionRequest[]>([])
 
   // The updater checks on its own; this is where the window says so, so the
   // user does not have to open Settings and press Check now.
@@ -213,6 +217,20 @@ export function App(): JSX.Element {
     return window.anticode.onApprovalRequest((request) => {
       setApprovals((queue) => [...queue, request])
     })
+  }, [])
+
+  // The agent's questions wait for a clicked answer the same way approvals
+  // wait for a decision; answering from the phone removes the card here too.
+  useEffect(() => {
+    return window.anticode.onQuestionRequest((request) => {
+      setQuestions((queue) => [...queue, request])
+    })
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.anticode.onQuestionDismissed((id) => setQuestions((queue) => queue.filter((request) => request.requestId !== id)))
+    void window.anticode.pendingQuestions().then((pending) => setQuestions((queue) => [...queue, ...pending.filter((request) => !queue.some((entry) => entry.requestId === request.requestId))]))
+    return unsubscribe
   }, [])
 
   // The browser panes are owned by the main process — the agent opens pages,
@@ -537,6 +555,11 @@ export function App(): JSX.Element {
     })
   }, [])
 
+  const answerQuestion = useCallback((requestId: string, answer: Omit<QuestionAnswer, 'requestId'>) => {
+    setQuestions((queue) => queue.filter((request) => request.requestId !== requestId))
+    void window.anticode.respondToQuestion({ ...answer, requestId })
+  }, [])
+
   // With a session id only that session changes model; the pick also becomes
   // what new sessions start on. Settings and the dashboard pass none.
   const selectProvider = useCallback((provider: ProviderId, model: string, sessionId?: string | null) => {
@@ -554,13 +577,14 @@ export function App(): JSX.Element {
   }, [])
 
   const pending = approvals[0]
+  const pendingQuestion = questions[0]
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId)
   )
   const isFreshSession =
     activeSession !== undefined && activeSession.messages.length === 0
   const web = useWebSession(activeSessionId)
-  const swipeRoot = useSessionSwipe(view === 'session' && approvals.length === 0, openExistingSession)
+  const swipeRoot = useSessionSwipe(view === 'session' && approvals.length === 0 && questions.length === 0, openExistingSession)
 
   // An update the user has not closed the banner on. Ready means it has been
   // downloaded and waits for a restart; available means it waits for the click.
@@ -708,6 +732,7 @@ export function App(): JSX.Element {
         </div>
       )}
       {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
+      {pendingQuestion !== undefined && <QuestionModal key={pendingQuestion.requestId} request={pendingQuestion} onAnswer={(answer) => answerQuestion(pendingQuestion.requestId, answer)} />}
     </div>
   )
 }

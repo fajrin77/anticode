@@ -316,6 +316,8 @@
   }
   #fileTabs button.on { color: #ededed; border-color: var(--glass-border); background: var(--glass-control); }
   #fileTabs button:active { color: #d1fa22; }
+  /* A pressed control turns lime while the finger is on it. */
+  #questionPanel .qopt:active { color: #d1fa22; border-color: #d1fa22; }
   #fileNote { flex: none; padding: 0 16px 8px; color: #8a8a8a; font-size: 12px; }
   #fileNote:empty { display: none; }
   #fileBody { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
@@ -740,6 +742,7 @@
   </section>
 </main>
 <div id="approvalPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:calc(var(--composer-height, 130px) + 22px);max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
+<div id="questionPanel" class="hidden" style="position:fixed;left:12px;right:12px;bottom:calc(var(--composer-height, 130px) + 22px);max-height:55vh;overflow:auto;background:#222;border:1px solid #555;border-radius:12px;padding:16px;z-index:30"></div>
 <div id="imgViewer" class="hidden">
   <div class="vhead">
     <span class="vname" id="imgName"></span>
@@ -963,6 +966,52 @@ async function pollApprovals() {
   } catch { /* Poll again after a transient connection failure. */ }
 }
 setInterval(() => { void pollApprovals(); }, 1000);
+
+/* A question the agent asked: options answer with a tap, like approvals. */
+let questionRequestId = null;
+async function pollQuestions() {
+  const panel = document.getElementById('questionPanel');
+  if (!currentSession) { panel.classList.add('hidden'); questionRequestId = null; return; }
+  const id = currentSession;
+  try {
+    const { requests } = await jfetch('/api/questions?sessionId=' + encodeURIComponent(id));
+    if (currentSession !== id) return;
+    const request = requests[0];
+    if (!request) { panel.classList.add('hidden'); questionRequestId = null; return; }
+    if (request.requestId === questionRequestId) return;
+    questionRequestId = request.requestId;
+    panel.replaceChildren();
+    const title = document.createElement('strong'); title.textContent = 'Pertanyaan';
+    const body = document.createElement('p'); body.textContent = request.question;
+    panel.append(title, body);
+    const answer = async (optionId, text) => {
+      try { await jfetch('/api/answer', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId,optionId,text})}); panel.classList.add('hidden'); questionRequestId=null; }
+      catch (error) { showError(error); }
+    };
+    for (const option of request.options) {
+      const button = document.createElement('button');
+      button.className = 'qopt'; button.style.cssText = 'display:block;width:100%;text-align:left;margin:6px 0;padding:10px 12px;background:#2a2a2a;border:1px solid #555;border-radius:10px;color:#ededed';
+      const label = document.createElement('div'); label.textContent = option.label;
+      button.append(label);
+      if (option.hint) { const hint = document.createElement('div'); hint.style.cssText = 'font-size:12px;color:#9a9a9a'; hint.textContent = option.hint; button.append(hint); }
+      button.onclick = () => { void answer(option.id, ''); };
+      panel.append(button);
+    }
+    if (request.allowCustom) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:6px';
+      const input = document.createElement('input');
+      input.placeholder = 'Atau jawab sendiri…'; input.style.cssText = 'flex:1;background:#1a1a1a;border:1px solid #555;border-radius:10px;padding:10px 12px;color:#ededed';
+      const send = document.createElement('button'); send.textContent = 'Kirim';
+      send.onclick = () => { if (input.value.trim() !== '') void answer(null, input.value.trim()); };
+      row.append(input, send); panel.append(row);
+    }
+    const skip = document.createElement('button'); skip.textContent = 'Lewati'; skip.style.cssText = 'margin-top:8px';
+    skip.onclick = () => { void answer(null, ''); };
+    panel.append(skip);
+    panel.classList.remove('hidden');
+  } catch { /* Poll again after a transient connection failure. */ }
+}
+setInterval(() => { void pollQuestions(); }, 1000);
 
 /* ---------- Navigation: one dropdown behind the session title ---------- */
 

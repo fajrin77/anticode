@@ -44,6 +44,7 @@ import { mcpSecrets } from '../mcp/manager'
 import {
   addProvider,
   approvals,
+  questions,
   enableRotation,
   pickModel,
   removeProvider,
@@ -449,6 +450,27 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       const pending = approvals.listPending().find((request) => request.requestId === body.requestId)
       if (!pending) throw new Error('This approval is no longer pending')
       approvals.resolve(body.requestId, body.decision as 'approve' | 'reject' | 'always')
+      return json(res, 200, { ok: true })
+    }
+
+    // A question the agent asked, answered by tapping an option on the phone.
+    if (req.method === 'GET' && url.pathname === '/api/questions') {
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      return json(res, 200, {
+        requests: questions.listPending().filter((request) => sessionId === '' || request.sessionId === sessionId)
+      })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/answer') {
+      if (typeof body.requestId !== 'string') throw new Error('Invalid question answer')
+      const pending = questions.listPending().find((request) => request.requestId === body.requestId)
+      if (!pending) throw new Error('This question is no longer pending')
+      const optionId = body.optionId === null || body.optionId === undefined
+        ? null
+        : String(body.optionId)
+      if (optionId !== null && !pending.options.some((option) => option.id === optionId)) {
+        throw new Error('Unknown option for this question')
+      }
+      questions.resolve(body.requestId, { optionId, text: typeof body.text === 'string' ? body.text : '' })
       return json(res, 200, { ok: true })
     }
 

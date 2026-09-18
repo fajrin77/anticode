@@ -73,6 +73,10 @@ export const IpcChannel = {
   ATTACH_RELEASE: 'attachment:release',
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_RESPOND: 'approval:respond',
+  QUESTION_REQUEST: 'question:request',
+  QUESTION_RESPOND: 'question:respond',
+  QUESTION_PENDING: 'question:pending',
+  QUESTION_DISMISSED: 'question:dismissed',
   PROVIDER_ADD: 'provider:add',
   PROVIDER_REMOVE: 'provider:remove',
   PROVIDER_UPDATE: 'provider:update',
@@ -379,6 +383,36 @@ export interface ApprovalResponse {
   decision: ApprovalDecision
 }
 
+/** One clickable answer the agent offers for its question. */
+export interface QuestionOption {
+  id: string
+  label: string
+  hint?: string
+}
+
+/**
+ * The agent is genuinely blocked on a user preference and asks instead of
+ * guessing. Answered by clicking an option (or typing a custom answer),
+ * never by free text in the transcript.
+ */
+export interface QuestionRequest {
+  requestId: string
+  runId: string
+  sessionId: string
+  question: string
+  options: QuestionOption[]
+  /** Whether a custom typed answer is accepted alongside the options. */
+  allowCustom: boolean
+}
+
+export interface QuestionAnswer {
+  requestId: string
+  /** The clicked option, or null for a custom answer / skip. */
+  optionId: string | null
+  /** Custom text, or '' when an option was clicked or the question skipped. */
+  text: string
+}
+
 /**
  * Chat uses a private per-session workspace and needs no folder selection.
  * Code binds the same tools to a selected project folder for the session.
@@ -665,7 +699,7 @@ export interface PricedModel extends ProviderSelection {
 }
 
 /** App-wide choices from Settings → General. */
-export type NotificationKind = 'complete' | 'error' | 'approval' | 'update'
+export type NotificationKind = 'complete' | 'error' | 'approval' | 'question' | 'update'
 
 /** Which system notifications show, and how. Clicking one opens its session. */
 export interface NotificationSettings extends Record<NotificationKind, boolean> {
@@ -1171,6 +1205,11 @@ export interface AnticodeApi {
   /** Fires when a session's history changed on the phone (a turn was reverted). */
   onSessionHistory: (listener: (sessionId: string) => void) => () => void
   respondToApproval: (response: ApprovalResponse) => Promise<void>
+  /** Questions the agent asked that no window has answered yet. */
+  pendingQuestions: () => Promise<QuestionRequest[]>
+  /** Answers a question by clicking an option (or custom text / skip). */
+  respondToQuestion: (answer: QuestionAnswer) => Promise<void>
+  onQuestionDismissed: (listener: (requestId: string) => void) => () => void
   addProvider: (input: CustomProviderInput) => Promise<ProviderInfo[]>
   removeProvider: (id: ProviderId) => Promise<ProviderInfo[]>
   updateProvider: (id: ProviderId, edit: ProviderEdit) => Promise<ProviderInfo[]>
@@ -1191,4 +1230,5 @@ export interface AnticodeApi {
   onAuthLogin: (listener: (state: AuthLoginState) => void) => () => void
   onAgentEvent: (listener: (event: RoutedAgentEvent) => void) => () => void
   onApprovalRequest: (listener: (request: ApprovalRequest) => void) => () => void
+  onQuestionRequest: (listener: (request: QuestionRequest) => void) => () => void
 }

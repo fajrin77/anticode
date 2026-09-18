@@ -29,6 +29,7 @@ import {
 import type { Tool } from './types'
 import { todoWriteTool } from './todoWrite'
 import { webSearchTool } from './webSearch'
+import { askQuestionTool } from './askQuestion'
 import { taskTool } from './task'
 import { screenshotTool } from './screenshot'
 import { generateImageTool } from './generateImage'
@@ -36,6 +37,7 @@ import { generateImageTool } from './generateImage'
 export const tools: Tool[] = [
   todoWriteTool,
   taskTool,
+  askQuestionTool,
   readFileTool,
   writeFileTool,
   editFileTool,

@@ -11,6 +11,8 @@ export interface DelegatedTask {
 
 export interface ToolContext {
   sessionId?: string
+  /** The run asking — present on live runs, absent in unit tests. */
+  runId?: string
   workspaceRoot: string
   signal: AbortSignal
   /** Runs a sub-agent and resolves to its report; absent inside a sub-agent. */

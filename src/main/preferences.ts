@@ -12,7 +12,7 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
 const DEFAULTS: AppPreferences = {
   tray: true,
   instructions: '',
-  notifications: { enabled: true, complete: true, error: true, approval: true, update: true, sound: true, background: true }
+  notifications: { enabled: true, complete: true, error: true, approval: true, question: true, update: true, sound: true, background: true }
 }
 
 type Listener = (next: AppPreferences, previous: AppPreferences) => void

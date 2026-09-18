@@ -25,6 +25,8 @@ import type {
   ProviderInfo,
   ProviderSelection,
   QueuedPrompt,
+  QuestionAnswer,
+  QuestionRequest,
   RotationEntry,
   RotationGroupInput,
   SessionPause,
@@ -211,9 +213,16 @@ const api: AnticodeApi = {
   onSessionHistory: (listener) => subscribe<string>(IpcChannel.SESSION_HISTORY, listener),
   respondToApproval: (response: ApprovalResponse) =>
     ipcRenderer.invoke(IpcChannel.APPROVAL_RESPOND, response) as Promise<void>,
+  pendingQuestions: () =>
+    ipcRenderer.invoke(IpcChannel.QUESTION_PENDING) as Promise<QuestionRequest[]>,
+  respondToQuestion: (answer: QuestionAnswer) =>
+    ipcRenderer.invoke(IpcChannel.QUESTION_RESPOND, answer) as Promise<void>,
+  onQuestionDismissed: (listener) => subscribe<string>(IpcChannel.QUESTION_DISMISSED, listener),
   onAgentEvent: (listener) => subscribe<RoutedAgentEvent>(IpcChannel.AGENT_EVENT, listener),
   onApprovalRequest: (listener) =>
     subscribe<ApprovalRequest>(IpcChannel.APPROVAL_REQUEST, listener),
+  onQuestionRequest: (listener) =>
+    subscribe<QuestionRequest>(IpcChannel.QUESTION_REQUEST, listener),
   listSchedules: () => ipcRenderer.invoke(IpcChannel.SCHEDULE_LIST) as Promise<ScheduleEntry[]>,
   addSchedule: (input: ScheduleInput) =>
     ipcRenderer.invoke(IpcChannel.SCHEDULE_ADD, input) as Promise<ScheduleEntry>,
