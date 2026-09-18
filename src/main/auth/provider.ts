@@ -31,11 +31,11 @@ const REFRESH_AHEAD_MS = 5 * 60 * 1000
  * entry is what a session starts on.
  */
 export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
-  // The Codex backend serves Codex models to ChatGPT plans, but not every
-  // name: 'gpt-5-codex', 'gpt-5.1-codex-max' and non-Codex 'gpt-5' are refused
-  // with a 400, so none of them is listed. The first entry is what a session
-  // starts on.
-  codex: ['gpt-5.1-codex', 'gpt-5.1-codex-mini'],
+  // Model names that work on ChatGPT plans follow what routers serving the
+  // same Codex backend publish (9router's cx/ list): plain 'gpt-5-codex',
+  // suffixed '-max'/'-mini' and non-Codex 'gpt-5' are refused with a 400, so
+  // none of them is listed. The first entry is what a session starts on.
+  codex: ['gpt-5.3-codex', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2-codex'],
   claude: [
     'claude-sonnet-4-5',
     'claude-opus-4-5',

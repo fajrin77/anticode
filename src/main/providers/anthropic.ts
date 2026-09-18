@@ -9,6 +9,7 @@ import type {
   StopReason,
   ToolDefinition
 } from './types'
+import { dropInvalidToolCalls } from './history'
 
 const PROVIDER_NAME = 'anthropic'
 
@@ -44,7 +45,8 @@ function toBlockParam(block: ContentBlock): Anthropic.ContentBlockParam | null {
 }
 
 function toMessageParams(messages: Message[]): Anthropic.MessageParam[] {
-  return messages.flatMap((message) => {
+  // Anthropic rejects tool_use names over 200 chars, even deep in history.
+  return dropInvalidToolCalls(messages, 200).flatMap((message) => {
     const content = message.content
       .map(toBlockParam)
       .filter((block): block is Anthropic.ContentBlockParam => block !== null)

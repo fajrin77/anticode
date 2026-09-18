@@ -8,6 +8,7 @@ import type {
   StopReason,
   ToolDefinition
 } from './types'
+import { dropInvalidToolCalls } from './history'
 
 /*
  * ChatGPT (Codex) over an OAuth account. The subscription is reached through
@@ -33,7 +34,7 @@ type ResponsesContent =
 
 function toInput(messages: Message[]): ResponsesInput[] {
   const out: ResponsesInput[] = []
-  for (const message of messages) {
+  for (const message of dropInvalidToolCalls(messages, 64)) {
     const parts: ResponsesContent[] = []
     for (const block of message.content) {
       if (block.type === 'text' && block.text !== '') {

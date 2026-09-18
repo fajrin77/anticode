@@ -11,6 +11,7 @@ import type {
   StopReason,
   ToolDefinition
 } from './types'
+import { dropInvalidToolCalls } from './history'
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam
 
@@ -26,7 +27,8 @@ export const STREAM_INACTIVITY_MS = 180_000
 function toChatMessages(system: string, messages: Message[]): ChatMessage[] {
   const out: ChatMessage[] = [{ role: 'system', content: system }]
 
-  for (const message of messages) {
+  // OpenAI caps function names at 64 chars, including in replayed history.
+  for (const message of dropInvalidToolCalls(messages, 64)) {
     if (message.role === 'assistant') {
       const text = message.content
         .filter((block) => block.type === 'text')

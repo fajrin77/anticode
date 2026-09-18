@@ -11,6 +11,7 @@ import type {
   StopReason,
   ToolDefinition
 } from './types'
+import { dropInvalidToolCalls } from './history'
 
 /** Ids we invent for calls Gemini returned without one; never sent back. */
 const SYNTHETIC_PREFIX = 'gen-'
@@ -80,9 +81,10 @@ function mapCallNames(messages: Message[]): Map<string, string> {
 }
 
 function toContents(messages: Message[]): Content[] {
-  const names = mapCallNames(messages)
+  const clean = dropInvalidToolCalls(messages, 64)
+  const names = mapCallNames(clean)
 
-  return messages.flatMap((message): Content[] => {
+  return clean.flatMap((message): Content[] => {
     const parts: Part[] = []
 
     for (const block of message.content) {
