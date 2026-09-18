@@ -1001,9 +1001,45 @@ export function SessionView(): JSX.Element {
   const following = useRef(true)
   const promptCount = messages.filter(message => message.role === 'user').length
   const seenPrompts = useRef(promptCount)
-  // Only the latest finished reply stays open: everything before it folds to
-  // its closing line, so a long session reads as its prompts plus its answer.
-  const lastFinishedId = messages.filter((message) => message.role === 'assistant' && message.summary !== undefined).at(-1)?.id
+  // Turns: one user prompt plus everything that answered it. Only the latest
+  // turn stays open; older turns keep their prompt, their closing lines, and
+  // the files they changed, with the narration folded away.
+  interface Turn { prompt: Message | null; replies: Message[] }
+  const prelude: Message[] = []
+  const turns: Turn[] = []
+  for (const message of messages) {
+    const startsTurn =
+      message.role === 'user' &&
+      message.parts.some((part) => part.kind === 'text' && part.text.trim() !== '')
+    if (startsTurn) {
+      turns.push({ prompt: message, replies: [] })
+    } else {
+      const current = turns.at(-1)
+      if (current === undefined) prelude.push(message)
+      else current.replies.push(message)
+    }
+  }
+  const lastFinishedId = messages
+    .filter((message) => message.role === 'assistant' && message.summary !== undefined)
+    .at(-1)?.id
+  const latestTurnIndex = (() => {
+    const found = turns.findIndex(
+      (turn) =>
+        turn.prompt?.id === lastFinishedId || turn.replies.some((reply) => reply.id === lastFinishedId)
+    )
+    return found === -1 ? turns.length - 1 : found
+  })()
+  const renderMessage = (message: Message, compact: boolean): JSX.Element => (
+    <div key={message.id} className="message-visibility">
+      <MessageView
+        message={message}
+        sessionId={session?.id ?? ''}
+        lastAnswer={message.id === lastAnswerId}
+        paused={pausedIds.has(message.id)}
+        compact={compact}
+      />
+    </div>
+  )
   useLayoutEffect(() => {
     const box = scrollRef.current
     const id = session?.id
@@ -1098,18 +1134,23 @@ export function SessionView(): JSX.Element {
         className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
-          {messages.map((message) => (
-            <div key={message.id} className="message-visibility">
-              <MessageView
-                message={message}
-                sessionId={session?.id ?? ''}
-                lastAnswer={message.id === lastAnswerId}
-                paused={pausedIds.has(message.id)}
-                compact={message.role === 'assistant' && message.summary !== undefined && message.id !== lastFinishedId}
-              />
-            </div>
-          ))}
-          <SessionChangedFiles messages={messages} />
+          {prelude.map((message) => renderMessage(message, false))}
+          {turns.map((turn, turnIndex) => {
+            const old = turnIndex < latestTurnIndex
+            const turnMessages = turn.prompt !== null ? [turn.prompt, ...turn.replies] : turn.replies
+            return (
+              <div key={turn.prompt?.id ?? `turn-${turnIndex}`}>
+                {turn.prompt !== null && renderMessage(turn.prompt, false)}
+                {turn.replies.map((reply) =>
+                  renderMessage(
+                    reply,
+                    old && reply.role === 'assistant' && reply.summary !== undefined
+                  )
+                )}
+                {old && <SessionChangedFiles messages={turnMessages} />}
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>
