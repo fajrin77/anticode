@@ -915,6 +915,7 @@ function RotateUsage({
   const [adding, setAdding] = useState<Adding | null>(null)
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [naming, setNaming] = useState(false)
   const [confirming, setConfirming] = useState<'delete-group' | 'reset-counts' | null>(null)
   const enabled = status?.rotationEnabled === true
@@ -968,11 +969,45 @@ function RotateUsage({
   }
 
   function savePool(next: RotationEntry[]): Promise<boolean> {
-    return settle(window.anticode.setRotation(next.map(plainEntry)))
+    return settle(window.anticode.setRotation(dropUnknown(next).map(plainEntry)))
   }
 
   function saveGroups(next: RotationGroupInput[]): Promise<boolean> {
-    return settle(window.anticode.setRotationGroups(next))
+    return settle(window.anticode.setRotationGroups(dropUnknownGroups(next)))
+  }
+
+  /**
+   * Entries of providers that are gone must not brick the save: they are left
+   * out, and the notice says so. Entries merely missing a key stay, they only
+   * wait for one.
+   */
+  function dropUnknown(next: RotationEntry[]): RotationEntry[] {
+    const known = new Set(providers.map((entry) => entry.id))
+    const kept = next.filter((entry) => known.has(entry.provider))
+    const dropped = next.length - kept.length
+    if (dropped > 0) {
+      setNotice(
+        `Removed ${dropped} stale ${dropped === 1 ? 'entry' : 'entries'}: its provider is gone.`
+      )
+    }
+    return kept
+  }
+
+  function dropUnknownGroups(next: RotationGroupInput[]): RotationGroupInput[] {
+    const known = new Set(providers.map((entry) => entry.id))
+    let dropped = 0
+    const cleaned = next.map((group) => {
+      const entries = group.entries.filter((entry) => known.has(entry.provider))
+      const providers = (group.providers ?? []).filter((id) => known.has(id))
+      dropped += group.entries.length - entries.length + (group.providers ?? []).length - providers.length
+      return { ...group, entries, providers }
+    })
+    if (dropped > 0) {
+      setNotice(
+        `Removed ${dropped} stale ${dropped === 1 ? 'entry' : 'entries'}: its provider is gone.`
+      )
+    }
+    return cleaned
   }
 
   /**
@@ -1009,6 +1044,7 @@ function RotateUsage({
     setNaming(false)
     setConfirming(null)
     setError(null)
+    setNotice(null)
   }
 
   function useGroup(id: string | null): void {
@@ -1351,6 +1387,7 @@ function RotateUsage({
                         {entry.model}
                       </span>
                       {!entry.ready && <Tag>needs key</Tag>}
+                      {!providers.some((info) => info.id === entry.provider) && <Tag>provider gone</Tag>}
                       {spent !== null && (
                         <span
                           data-out-of-usage={entry.model}
@@ -1487,6 +1524,18 @@ function RotateUsage({
           </div>
 
           {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+          {notice !== null && (
+            <p className="mt-2 text-[12px] text-dim">
+              {notice}{' '}
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="text-faint transition-colors hover:text-brand"
+              >
+                Dismiss
+              </button>
+            </p>
+          )}
 
           <div className="mt-3 flex items-center gap-4">
             {adding === null && (

@@ -24,6 +24,7 @@ import type {
   ExportOptions,
   ApprovalResponse,
   QuestionAnswer,
+  RotationGroupInput,
   FilePreview,
   ModelCatalogue,
   ModelPrice,
@@ -250,10 +251,13 @@ export function removeProvider(id: string): ProviderInfo[] {
 export function setRotation(entries: unknown): SessionStatus {
   if (!Array.isArray(entries)) throw new Error('Expected a list of models')
   const providers = listProviders()
-  for (const entry of entries as RotationEntry[]) {
-    if (!providers.some((provider) => provider.id === entry?.provider)) throw new Error('Unknown provider in Rotate usage')
-  }
-  applyRotation(entries as RotationEntry[])
+  // Entries of providers that are gone do not brick the save: they are left
+  // out, and the screens notice the pool came back shorter. Throwing here
+  // once made adding any model impossible after a provider was removed.
+  const kept = (entries as RotationEntry[]).filter(
+    (entry) => providers.some((provider) => provider.id === entry?.provider)
+  )
+  applyRotation(kept)
   announceStatus()
   return getStatus()
 }
@@ -276,22 +280,26 @@ export function resetRotation(): SessionStatus {
 export function setRotationGroups(groups: unknown): SessionStatus {
   if (!Array.isArray(groups)) throw new Error('Expected a list of groups')
   const providers = listProviders()
+  const known = (id: unknown): boolean => providers.some((provider) => provider.id === id)
   const names = new Set<string>()
+  const cleaned: RotationGroupInput[] = []
   for (const group of groups as { name?: unknown; entries?: unknown; providers?: unknown }[]) {
     const name = typeof group?.name === 'string' ? group.name.trim() : ''
     if (name === '') throw new Error('Give every group a name')
     if (names.has(name.toLowerCase())) throw new Error(`There is already a group called “${name}”`)
     names.add(name.toLowerCase())
     if (!Array.isArray(group.entries)) throw new Error('Expected a list of models')
-    for (const entry of group.entries as RotationEntry[]) {
-      if (!providers.some((provider) => provider.id === entry?.provider)) throw new Error('Unknown provider in Rotate usage')
-    }
     if (group.providers !== undefined && !Array.isArray(group.providers)) throw new Error('Expected a list of providers')
-    for (const linked of (group.providers ?? []) as unknown[]) {
-      if (!providers.some((provider) => provider.id === linked)) throw new Error('Unknown provider in Rotate usage')
-    }
+    // Same tolerance as the pool: entries and links of providers that are
+    // gone are left out instead of bricking the save.
+    cleaned.push({
+      ...(typeof group === 'object' && group !== null ? (group as Record<string, unknown>) : {}),
+      name,
+      entries: (group.entries as RotationEntry[]).filter((entry) => known(entry?.provider)),
+      providers: ((group.providers ?? []) as unknown[]).filter((linked) => known(linked))
+    } as RotationGroupInput)
   }
-  applyRotationGroups(groups)
+  applyRotationGroups(cleaned)
   announceStatus()
   return getStatus()
 }
@@ -464,6 +472,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.AUTH_REMOVE, (_event, id: string) => {
     removeAuthAccount(id)
     forgetCatalogue(id as ProviderId)
+    // Like any other provider removal: sessions, the default, and Rotate
+    // usage let go of it, or its pool entries brick every later save.
+    forgetProvider(id as ProviderId)
     announceStatus()
     return listProviders()
   })
