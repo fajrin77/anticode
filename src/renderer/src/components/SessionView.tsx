@@ -364,8 +364,7 @@ function MessageView({
   message,
   sessionId,
   lastAnswer,
-  paused = false,
-  compact = false
+  paused = false
 }: {
   message: Message
   sessionId: string
@@ -376,16 +375,7 @@ function MessageView({
    * line or retry, a resume carries the same work on.
    */
   paused?: boolean
-  /**
-   * An older finished reply: folded to its closing line so the transcript
-   * shows only the latest answer in full. Unfolds in place on click; a step
-   * that failed stays visible even folded.
-   */
-  compact?: boolean
 }): JSX.Element {
-  if (compact && message.role === 'assistant' && message.summary !== undefined && !paused) {
-    return <CompactReply message={message} sessionId={sessionId} lastAnswer={lastAnswer} paused={paused} />
-  }
   const [stepsOpen, setStepsOpen] = useState(false)
   const busy = useSessionBusy(sessionId)
   const phaseLabel = useSessionPhase(sessionId)
@@ -508,59 +498,115 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * An older finished reply, folded to its closing line: model, duration,
- * tokens. Unfolds to the full reply in place; failures and errors stay
- * visible even folded, so a step that did not happen never looks done.
+ * A solved problem, folded: its prompt, its closing answer, its closing
+ * line, and the files it changed stay visible, while the earlier narration
+ * folds behind the closing line. A run spans several assistant messages
+ * (narration, tool calls, closing text), so the fold works on the whole turn,
+ * not on one message. Unfolds in place; failures and errors stay visible even
+ * folded, so a step that did not happen never looks done.
  */
-function CompactReply({
-  message,
+function OldTurn({
+  prompt,
+  replies,
   sessionId,
-  lastAnswer,
-  paused
+  lastAnswerId,
+  pausedIds
 }: {
-  message: Message
+  prompt: Message | null
+  replies: Message[]
   sessionId: string
-  lastAnswer: boolean
-  paused: boolean
+  lastAnswerId: string | undefined
+  pausedIds: Set<string>
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  const summary = message.summary
-  if (expanded || summary === undefined) {
-    return <MessageView message={message} sessionId={sessionId} lastAnswer={lastAnswer} paused={paused} compact={false} />
-  }
-  const tokens = summary.inputTokens + summary.outputTokens
-  return (
-    <div className="group my-3 flex flex-col items-center">
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        title="Show this reply"
-        className="flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-colors hover:text-brand"
-      >
-        <span>{summary.model === '' ? 'done' : summary.model}</span>
-        <span aria-hidden>·</span>
-        <span>{formatDuration(summary.durationMs)}</span>
-        {tokens > 0 && (
-          <>
-            <span aria-hidden>·</span>
-            <span>{formatNumber(tokens)} tokens</span>
-          </>
-        )}
-      </button>
-      {groupBlocks(message.parts).map((block, index) => {
-        if (block.kind === 'error') {
-          return (
-            <div key={`error-${index}`} role="alert" className="my-1 whitespace-pre-wrap text-[14px] text-del">
-              {block.text}
-            </div>
-          )
-        }
-        if (block.kind === 'tools' && block.parts.some((part) => part.status === 'error')) {
-          return <ToolGroup key={block.parts[0]?.toolUseId ?? `tools-${index}`} parts={block.parts} />
-        }
-        return null
-      })}
+  const renderFull = (message: Message): JSX.Element => (
+    <div key={message.id} className="message-visibility">
+      <MessageView
+        message={message}
+        sessionId={sessionId}
+        lastAnswer={message.id === lastAnswerId}
+        paused={pausedIds.has(message.id)}
+      />
     </div>
+  )
+  if (expanded) {
+    return (
+      <>
+        {prompt !== null && renderFull(prompt)}
+        {replies.map((reply) => renderFull(reply))}
+        <SessionChangedFiles messages={prompt !== null ? [prompt, ...replies] : replies} />
+      </>
+    )
+  }
+  const allParts = replies.flatMap((reply) => reply.parts)
+  const texts = allParts.flatMap((part) => (part.kind === 'text' ? [part.text] : []))
+  const written = texts.filter((text) => text.trim() !== '')
+  const closing = written.at(-1)
+  const foldedCount = written.length - (closing === undefined ? 0 : 1)
+  const summary = [...replies].reverse().find((reply) => reply.summary !== undefined)?.summary
+  const tokens = summary !== undefined ? summary.inputTokens + summary.outputTokens : 0
+  return (
+    <>
+      {prompt !== null && renderFull(prompt)}
+      <div className="py-4 text-[15px] leading-relaxed text-text">
+        {foldedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            title="Show the full reply"
+            className="mb-1 block max-w-full truncate text-left text-[13px] text-faint transition-colors hover:text-brand"
+          >
+            {written[0]!.split('\n')[0]!.slice(0, 120)} · tampilkan
+          </button>
+        )}
+        {closing !== undefined && (
+          <div className="my-2">
+            <RichText text={closing} />
+          </div>
+        )}
+        {groupBlocks(allParts).map((block, index) => {
+          if (block.kind === 'error') {
+            return (
+              <div key={`error-${index}`} role="alert" className="my-1 whitespace-pre-wrap text-[14px] text-del">
+                {block.text}
+              </div>
+            )
+          }
+          if (block.kind === 'notice') {
+            return (
+              <div key={`notice-${index}`} className="my-1 text-[14px] text-dim">
+                {block.text}
+              </div>
+            )
+          }
+          if (block.kind === 'tools' && block.parts.some((part) => part.status === 'error')) {
+            return <ToolGroup key={block.parts[0]?.toolUseId ?? `tools-${index}`} parts={block.parts} />
+          }
+          return null
+        })}
+        {summary !== undefined && (
+          <div className="group my-1 flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              title="Show the full reply"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-colors hover:text-brand"
+            >
+              <span>{summary.model === '' ? 'done' : summary.model}</span>
+              <span aria-hidden>·</span>
+              <span>{formatDuration(summary.durationMs)}</span>
+              {tokens > 0 && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>{formatNumber(tokens)} tokens</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+      <SessionChangedFiles messages={prompt !== null ? [prompt, ...replies] : replies} />
+    </>
   )
 }
 
@@ -1029,14 +1075,13 @@ export function SessionView(): JSX.Element {
     )
     return found === -1 ? turns.length - 1 : found
   })()
-  const renderMessage = (message: Message, compact: boolean): JSX.Element => (
+  const renderMessage = (message: Message): JSX.Element => (
     <div key={message.id} className="message-visibility">
       <MessageView
         message={message}
         sessionId={session?.id ?? ''}
         lastAnswer={message.id === lastAnswerId}
         paused={pausedIds.has(message.id)}
-        compact={compact}
       />
     </div>
   )
@@ -1134,21 +1179,26 @@ export function SessionView(): JSX.Element {
         className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
-          {prelude.map((message) => renderMessage(message, false))}
+          {prelude.map((message) => renderMessage(message))}
           {turns.map((turn, turnIndex) => {
             const old = turnIndex < latestTurnIndex
-            const turnMessages = turn.prompt !== null ? [turn.prompt, ...turn.replies] : turn.replies
+            if (!old) {
+              return (
+                <div key={turn.prompt?.id ?? `turn-${turnIndex}`}>
+                  {turn.prompt !== null && renderMessage(turn.prompt)}
+                  {turn.replies.map((reply) => renderMessage(reply))}
+                </div>
+              )
+            }
             return (
-              <div key={turn.prompt?.id ?? `turn-${turnIndex}`}>
-                {turn.prompt !== null && renderMessage(turn.prompt, false)}
-                {turn.replies.map((reply) =>
-                  renderMessage(
-                    reply,
-                    old && reply.role === 'assistant' && reply.summary !== undefined
-                  )
-                )}
-                {old && <SessionChangedFiles messages={turnMessages} />}
-              </div>
+              <OldTurn
+                key={turn.prompt?.id ?? `turn-${turnIndex}`}
+                prompt={turn.prompt}
+                replies={turn.replies}
+                sessionId={session?.id ?? ''}
+                lastAnswerId={lastAnswerId}
+                pausedIds={pausedIds}
+              />
             )
           })}
         </div>
