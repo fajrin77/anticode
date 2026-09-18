@@ -54,6 +54,32 @@ export async function summarisePdf(filePath: string): Promise<string> {
   return `PDF · ${pages} pages\n\n${text}`
 }
 
+/**
+ * The first PDF read pays a multi-second cold load (pdfjs module graph plus
+ * worker init). Run one tiny throwaway parse once startup has settled, so a
+ * real read later feels instant. Best effort: a failure here must never
+ * surface — the real read will report its own error.
+ */
+export function warmPdfParser(): void {
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const PDFParse = await loadPdfParse()
+        const document = await PDFDocument.create()
+        document.addPage([100, 100]).drawText('warm', { x: 10, y: 50, size: 12 })
+        const parser = new PDFParse({ data: Buffer.from(await document.save()) })
+        try {
+          await parser.getText()
+        } finally {
+          await parser.destroy()
+        }
+      } catch {
+        // The first real read retries everything from scratch.
+      }
+    })()
+  }, 20_000)
+}
+
 async function loadForm(filePath: string): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(await readFile(filePath))

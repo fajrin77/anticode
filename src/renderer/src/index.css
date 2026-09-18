@@ -202,6 +202,14 @@ body {
   padding-bottom: calc(var(--desktop-composer-height, 112px) + var(--approval-height, 0px) + 24px);
 }
 
+/* Long transcripts render hundreds of messages at once; skipping layout and
+   paint for the off-screen ones keeps tab switches and hydration cheap.
+   The intrinsic estimate only reserves space — real size wins on scroll. */
+.message-visibility {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
 /* A scroll area that starts under the 48px header, so what scrolls up passes
    through the header's fading blur rather than being cut off at its edge. */
 .under-header {

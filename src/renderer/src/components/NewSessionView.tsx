@@ -123,6 +123,11 @@ function DashboardComposer({
     setDraft(fill.text)
   }, [fill.pulse, fill.text])
 
+  // The blocked-provider notice below is stale the moment a key arrives.
+  useEffect(() => {
+    if (status?.providerReady === true) setError(null)
+  }, [status?.providerReady])
+
   // Blocked send with anticode and no folder: shake the composer and glow the
   // Choose folder button until a folder is picked.
   function flagMissingFolder(): void {
@@ -162,6 +167,9 @@ function DashboardComposer({
     if (!canSend) {
       if (status?.providerReady === true && mode === 'code' && folder === null) {
         flagMissingFolder()
+      } else if (prompt !== '' && status?.blockedReason !== undefined) {
+        // A silent rejection reads as a broken Enter key; say why, in place.
+        setError(status.blockedReason)
       }
       return
     }

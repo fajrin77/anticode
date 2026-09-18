@@ -5,7 +5,7 @@ import { registerIpcHandlers } from './ipc'
 import { startScheduler } from './scheduler'
 import { loadEnvFile } from './config'
 import { cancelAllRuns } from './runs'
-import { initPersistedState, persistSessions } from './runtime'
+import { initPersistedState, flushPersistedSessions } from './runtime'
 import { restoreRemoteServer } from './remote/server'
 import { closeBrowser } from './browser'
 import { initUpdates } from './updates'
@@ -14,6 +14,7 @@ import { applyTray, configureQuickCapture, QUICK_CAPTURE_SHORTCUT, showQuickCapt
 import { onPreferences, preferences } from './preferences'
 import { closeMcp, initMcp, mcpTools } from './mcp/manager'
 import { setExternalTools } from './tools'
+import { warmPdfParser } from './tools/pdf'
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -94,7 +95,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   app.on('second-instance', () => {
     showMainWindow()
   })
@@ -113,7 +114,7 @@ void app.whenReady().then(() => {
     if (!icon.isEmpty()) app.dock?.setIcon(icon)
   }
   loadEnvFile()
-  initPersistedState()
+  await initPersistedState()
   registerIpcHandlers()
   startScheduler()
   void restoreRemoteServer()
@@ -129,6 +130,9 @@ void app.whenReady().then(() => {
   })
   createWindow()
   applyTray()
+  // The PDF stack cold-loads for seconds; warm it once startup has settled
+  // so the first real read does not stall the session that asked for it.
+  warmPdfParser()
   onPreferences((next, previous) => {
     if (next.tray !== previous.tray) applyTray()
   })
@@ -156,7 +160,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   globalShortcut.unregisterAll()
   cancelAllRuns()
-  persistSessions()
+  flushPersistedSessions()
   void closeBrowser()
   void closeMcp()
 })

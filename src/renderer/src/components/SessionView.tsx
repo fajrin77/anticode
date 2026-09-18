@@ -945,13 +945,14 @@ export function SessionView(): JSX.Element {
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
           {messages.map((message) => (
-            <MessageView
-              key={message.id}
-              message={message}
-              sessionId={session?.id ?? ''}
-              lastAnswer={message.id === lastAnswerId}
-              paused={pausedIds.has(message.id)}
-            />
+            <div key={message.id} className="message-visibility">
+              <MessageView
+                message={message}
+                sessionId={session?.id ?? ''}
+                lastAnswer={message.id === lastAnswerId}
+                paused={pausedIds.has(message.id)}
+              />
+            </div>
           ))}
         </div>
       </div>

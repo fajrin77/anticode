@@ -147,31 +147,38 @@ export function App(): JSX.Element {
         return
       }
       for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
-      for (const spec of specs) {
-        // One poisoned snapshot must not abort the whole restore or the app
-        // half-hydrates; each session stands on its own.
-        try {
-          store.addExternalSession(spec)
-          // Saved before the main process kept colours: hand over the one this
-          // window has been showing, so the phone matches it from now on.
-          if (spec.colour === undefined) {
-            const shown = useSessionStore.getState().sessions.find((entry) => entry.id === spec.sessionId)?.colour
-            if (shown !== undefined) void window.anticode.setSessionColour(spec.sessionId, shown)
+      // Snapshots arrive at their own pace: four concurrent restores keep a
+      // heavy archive from serialising startup while capping IPC pressure.
+      // Each session still stands on its own — one poisoned snapshot must not
+      // abort the whole restore or leave the app half-hydrated.
+      const queue = [...specs]
+      const restoreOne = async (): Promise<void> => {
+        while (active) {
+          const spec = queue.shift()
+          if (spec === undefined) return
+          try {
+            store.addExternalSession(spec)
+            // Saved before the main process kept colours: hand over the one this
+            // window has been showing, so the phone matches it from now on.
+            if (spec.colour === undefined) {
+              const shown = useSessionStore.getState().sessions.find((entry) => entry.id === spec.sessionId)?.colour
+              if (shown !== undefined) void window.anticode.setSessionColour(spec.sessionId, shown)
+            }
+            const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
+            if (active && snapshot !== null) {
+              store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
+              revisions.set(spec.sessionId, snapshot.revision)
+              for (const event of snapshot.events) receiveEvent.current(event)
+              if (snapshot.paused) store.pauseSession(spec.sessionId)
+              else store.resumeSession(spec.sessionId)
+              store.setQueue(spec.sessionId, snapshot.queue ?? [])
+            }
+          } catch (error) {
+            console.error(`[anticode] restore failed for session ${spec.sessionId}:`, error)
           }
-          const snapshot = await window.anticode.getSessionSnapshot(spec.sessionId)
-          if (active && snapshot !== null) {
-            store.importSnapshot(spec.sessionId, snapshot.messages, snapshot.summaries)
-            revisions.set(spec.sessionId, snapshot.revision)
-            for (const event of snapshot.events) receiveEvent.current(event)
-            if (snapshot.paused) store.pauseSession(spec.sessionId)
-            else store.resumeSession(spec.sessionId)
-            store.setQueue(spec.sessionId, snapshot.queue ?? [])
-          }
-        } catch (error) {
-          console.error(`[anticode] restore failed for session ${spec.sessionId}:`, error)
         }
-        if (!active) return
       }
+      await Promise.all([restoreOne(), restoreOne(), restoreOne(), restoreOne()])
       if (!active) return
       hydrating.current = false
       const pending = bufferedEvents.current.splice(0)

@@ -1,5 +1,5 @@
-import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { cpSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { cancelSessionRuns, clearPause, isPaused, isPausedForRetry, restorePausedSession, runForSession } from './runs'
 import { app } from 'electron'
@@ -145,11 +145,14 @@ export function setWorkspaceRoot(root: string): void {
 /**
  * Restores what the user left behind: the approval mode and the last
  * provider/model, guarded against providers whose credentials have since
- * disappeared. Called once after the env file is loaded.
+ * disappeared. Called once after the env file is loaded. Async so a large
+ * archive (tens of megabytes) is read off the event loop instead of
+ * freezing startup behind a synchronous disk read.
  */
-export function initPersistedState(): void {
+export async function initPersistedState(): Promise<void> {
   try {
-    const saved = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; paused?: boolean; pausedForRetry?: boolean }[]
+    const raw = await readFile(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')
+    const saved = JSON.parse(raw) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; paused?: boolean; pausedForRetry?: boolean }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
@@ -1088,7 +1091,37 @@ export function createRemoteSession(mode: SessionMode, workspaceRoot: string | n
 }
 
 /** Atomic snapshots at turn completion and shutdown; never save credentials here. */
+/**
+ * Serialising the whole archive on every mutation blocks the main process
+ * for hundreds of milliseconds once it reaches tens of megabytes — right in
+ * the middle of agent runs, which mutate constantly. Mutations therefore
+ * schedule one trailing write; quitting flushes it synchronously. The write
+ * itself stays atomic (tmp + rename), so a crash can only lose the trailing
+ * window, never tear the file.
+ */
+let persistTimer: NodeJS.Timeout | null = null
+const PERSIST_DELAY_MS = 1500
+
 export function persistSessions(): void {
+  if (persistTimer !== null) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    writeSessions()
+  }, PERSIST_DELAY_MS)
+  // A stray timer must not keep tests or the app alive on its own.
+  if (typeof persistTimer.unref === 'function') persistTimer.unref()
+}
+
+/** Write the archive now; used on quit so no scheduled write is lost. */
+export function flushPersistedSessions(): void {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  writeSessions()
+}
+
+function writeSessions(): void {
   const directory = app.getPath('userData')
   const target = path.join(directory, 'sessions.json')
   const data = [...sessions.values()].map((live) => ({
