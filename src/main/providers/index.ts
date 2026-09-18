@@ -133,9 +133,9 @@ export function createProvider(id: ProviderId, model: string): LLMProvider {
     case 'clinepass': {
       const { apiKey, baseURL, removed } = clinepassConfig()
       if (removed) throw new Error('Clinepass was removed in Settings')
-      if (apiKey === null) throw new Error('Clinepass has no API key — set one in Settings → Providers')
+      if (apiKey === null) throw new Error('Clinepass has no API key. Set one in Settings → Providers')
       // No default URL is guessed: the gateway endpoint is deployment-specific.
-      if (baseURL === null) throw new Error('Clinepass has no base URL — set one in Settings → Providers')
+      if (baseURL === null) throw new Error('Clinepass has no base URL. Set one in Settings → Providers')
       return new OpenAICompatibleProvider('clinepass', model, {
         apiKey,
         baseURL,

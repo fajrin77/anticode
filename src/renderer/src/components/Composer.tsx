@@ -125,8 +125,8 @@ export function Composer({  status: sharedStatus,
   const layerRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
 
-  // Standing by: the composer takes the caret as soon as it appears — a new
-  // tab, a slide to another tab, a fresh session — so typing starts without
+  // Standing by: the composer takes the caret as soon as it appears, a new
+  // tab, a slide to another tab, a fresh session, so typing starts without
   // a click first. The search field steals focus when it opens; the textarea
   // does not fight it, because that field re-renders on top afterwards.
   useEffect(() => {
@@ -171,7 +171,7 @@ export function Composer({  status: sharedStatus,
   const steering = isStreaming && !isPaused && draft.trim() !== ''
   /**
    * Paused, with nothing typed: the button picks the work back up. It wears a
-   * play mark of its own — as a send arrow it read as sending an empty prompt.
+   * play mark of its own, as a send arrow it read as sending an empty prompt.
    * Paused with something typed, it sends that instead.
    */
   const resuming = isPaused && !isStreaming && draft.trim() === ''
@@ -288,7 +288,7 @@ export function Composer({  status: sharedStatus,
     function onOutside(event: MouseEvent): void {
       const target = event.target as HTMLElement | null
       // The Balas button lives outside the composer, and its own mousedown is
-      // what created this quote — it must not also dismiss it.
+      // what created this quote, it must not also dismiss it.
       if (target?.closest('[data-reply-button]') != null) return
       if (!boxRef.current?.contains(target)) clearQuote()
     }
@@ -313,7 +313,7 @@ export function Composer({  status: sharedStatus,
     const messageId = crypto.randomUUID()
     addNotice(session.id, RESUME_LABEL)
     // The resumed turn streams into a fresh pending reply at the bottom, where
-    // the eye already is — the same shape a resume from the phone takes. The
+    // the eye already is, the same shape a resume from the phone takes. The
     // old approach re-opened the previous assistant message, which lit the
     // working dot far up the transcript (or nowhere, once the view had been
     // scrolled past it), reading as "nothing is happening".
@@ -453,7 +453,7 @@ export function Composer({  status: sharedStatus,
     const shown = quoted
     const attachmentIds = attached.map((item) => item.id)
     // entry and goes out as its own run when this one finishes. Steering is
-    // a separate, deliberate act — the arrow button beside the send button.
+    // a separate, deliberate act, the arrow button beside the send button.
     if (isStreaming) {
       const kept = { text: draft, attachments: attached, quote }
       setDraft('')
@@ -749,7 +749,7 @@ export function Composer({  status: sharedStatus,
               </button>
 
               {/* Once a code session has messages the hero is gone, and with it
-                  the only way to attach a folder — a session that reached this
+                  the only way to attach a folder, a session that reached this
                   state had no way out. The button lives here too. */}
               {folderMissing && !hero && session !== undefined && (
                 <button
@@ -777,7 +777,7 @@ export function Composer({  status: sharedStatus,
               )}
 
               {/* Under Rotate usage the model is not picked per session, but the
-                  group every session rotates over is — so with groups made,
+                  group every session rotates over is, so with groups made,
                   the chip opens on that choice. */}
               <Chip disabled={status?.rotationEnabled === true && (status.rotationGroups ?? []).length === 0} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">{shortModel}</span>

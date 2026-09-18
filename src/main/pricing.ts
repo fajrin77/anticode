@@ -6,7 +6,7 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
  * the run footer, the usage popover, and Settings → Pricing. Three sources, in
  * the order they win: a price the user typed, one the gateway publishes in its
  * own model list, and the built-in list below. A model none of them knows has
- * no estimate — it is shown as unknown, never guessed.
+ * no estimate, it is shown as unknown, never guessed.
  */
 
 /** When the built-in prices were taken from Anthropic's published rates. */

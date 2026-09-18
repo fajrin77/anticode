@@ -45,7 +45,7 @@ export function sessionSnapshot(sessionId: string): SessionSnapshot | null {
 /**
  * What each live run has spent so far. Every event already passes through
  * here, whoever started the run, so this is the one place that sees a whole
- * run from prompt to end — desktop and phone alike.
+ * run from prompt to end, desktop and phone alike.
  */
 const tallies = new Map<
   string,
@@ -70,7 +70,7 @@ function tally(runId: string): {
 
 /**
  * A run that never got a response leaves no assistant turn behind, so it must
- * leave no summary either — that one-to-one is what lets a viewer line the
+ * leave no summary either, that one-to-one is what lets a viewer line the
  * summaries up with the turns without any bookkeeping of its own. A run
  * stopped mid-reply is the exception: the words it wrote so far stay as a
  * turn, with no usage ever reported, and that turn needs its summary too or

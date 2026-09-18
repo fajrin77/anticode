@@ -9,7 +9,7 @@ import { secureStorageAvailable } from './secrets'
  * Keys typed into Settings are sealed with the OS keychain; keys in the .env
  * file are the user's own plaintext file, and anticode never rewrites it on
  * its own. What it can do is say so: which secrets that file holds, whether
- * other accounts can read it, and — when asked — move the keys it uses into
+ * other accounts can read it, and, when asked, move the keys it uses into
  * sealed storage and take them out of the file.
  */
 
@@ -58,8 +58,8 @@ function openToOthers(file: string): boolean {
 }
 
 /**
- * Every secret value this app holds — keys typed in Settings, the Clinepass
- * key, secret-looking environment variables, MCP tokens — so an export can
+ * Every secret value this app holds, keys typed in Settings, the Clinepass
+ * key, secret-looking environment variables, MCP tokens, so an export can
  * mask them wherever they turn up in a transcript.
  */
 export function knownSecrets(extra: string[] = []): string[] {

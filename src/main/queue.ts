@@ -3,8 +3,8 @@ import type { AttachmentRef, QueuedPrompt } from '@shared/ipc'
 
 /**
  * Prompts waiting for the session's run to finish, oldest first. Kept here,
- * not by a viewer, so a prompt queued on the phone is shown — and can be
- * taken out — on the desktop, and the next one starts with no screen open.
+ * not by a viewer, so a prompt queued on the phone is shown, and can be
+ * taken out, on the desktop, and the next one starts with no screen open.
  */
 interface Entry extends QueuedPrompt {
   /** Staged attachments; released when the entry is sent or dropped. */

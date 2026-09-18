@@ -88,7 +88,7 @@ export class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
             {error.message}
             {error.stack !== undefined ? `\n\n${error.stack.split('\n').slice(0, 6).join('\n')}` : null}
           </pre>
-          {looping ? <p className="text-[12px] text-faint">Tiga kali gagal dalam 30 detik — recover mode menyala.</p> : null}
+          {looping ? <p className="text-[12px] text-faint">Tiga kali gagal dalam 30 detik, recover mode menyala.</p> : null}
         </div>
         <div className="flex items-center gap-2">
           <button

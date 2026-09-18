@@ -71,7 +71,7 @@ interface LiveSession {
    * a pick made in another tab never moves it.
    */
   choice?: ProviderSelection
-  /** What the agent is actually talking to — under rotation, this run's entry. */
+  /** What the agent is actually talking to, under rotation, this run's entry. */
   selection?: ProviderSelection
   /** Rotation only: prompts sent to `selection` since the session moved onto it. */
   promptsOnEntry?: number
@@ -100,7 +100,7 @@ function validColour(value: unknown): value is number {
 function current(): ProviderSelection {
   if (selection === null) {
     // Credentials alone decide the provider. A missing model name is not a
-    // reason to skip it — the catalogue fills that in a moment later.
+    // reason to skip it, the catalogue fills that in a moment later.
     const providers = listProviders()
     const chosen =
       providers.find((p) => p.configured && p.defaultModel !== '') ??
@@ -239,8 +239,8 @@ function chosenFor(provider: ProviderId): string[] {
 
 /**
  * What a choice amounts to. Only models switched on in Settings → Models are
- * offered, so only those are used: a session left on any other model — a
- * provider's listed default, one switched off since — moves to the first one
+ * offered, so only those are used: a session left on any other model, a
+ * provider's listed default, one switched off since, moves to the first one
  * chosen for its provider, or to none, which asks for a pick. The stored
  * choice is kept, so switching its model back on brings it back.
  */
@@ -258,7 +258,7 @@ function effective(choice: ProviderSelection): ProviderSelection {
  * A model picked in a session is that session's alone: every other session
  * keeps the one it has, and a run already going in this one keeps its model
  * until it ends (getSession never swaps a working session's provider). The
- * pick also becomes the default new sessions start on — with no session id,
+ * pick also becomes the default new sessions start on, with no session id,
  * that is all it changes.
  */
 export function selectProvider(next: ProviderSelection, sessionId?: string | null): void {
@@ -269,8 +269,8 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     throw new Error('Turn off Rotate usage before choosing a model')
   }
   if (next.provider === ROTATE_PROVIDER) {
-    if (!rotationEnabled()) throw new Error('Rotate usage is off — turn it on in Settings → Providers')
-    if (activeRotationEntries().length === 0) throw new Error('Rotate usage has no models yet — add them in Settings → Providers')
+    if (!rotationEnabled()) throw new Error('Rotate usage is off. Turn it on in Settings → Providers')
+    if (activeRotationEntries().length === 0) throw new Error('Rotate usage has no models yet. Add them in Settings → Providers')
     chosen = { provider: ROTATE_PROVIDER, model: '' }
   } else {
     const providerInfo = listProviders().find((provider) => provider.id === next.provider && provider.credentialAvailable)
@@ -336,7 +336,7 @@ export function applyRotation(entries: RotationEntry[]): void {
 
 /**
  * A rotating session that is not working lets go of the model it was on, so
- * its next prompt is placed afresh — and its chip stops naming a model the
+ * its next prompt is placed afresh, and its chip stops naming a model the
  * rotation may no longer offer. One that is working keeps its model until its
  * run ends.
  */
@@ -449,7 +449,7 @@ function specOf(live: LiveSession): SessionSpec {
 }
 
 /**
- * Tells every viewer the session's current name if it changed — called once a
+ * Tells every viewer the session's current name if it changed, called once a
  * prompt is in its history, and after a turn is taken back out of it.
  */
 export function announceTitle(sessionId: string): void {
@@ -657,23 +657,23 @@ function readiness(
     const where = group === undefined ? 'Rotate usage' : `The “${group.name}” group`
     blockedReason =
       !rotationEnabled()
-        ? 'Rotate usage is off — turn it on in Settings → Providers, or pick a model'
+        ? 'Rotate usage is off. Turn it on in Settings → Providers, or pick a model'
         : pool.length === 0
-          ? `${where} has no models yet — add them in Settings → Providers`
+          ? `${where} has no models yet. Add them in Settings → Providers`
           : !pool.some((entry) => entryReady(entry, providers))
-            ? `No model in ${group === undefined ? 'Rotate usage' : `“${group.name}”`} is ready — check their providers in Settings → Providers`
+            ? `No model in ${group === undefined ? 'Rotate usage' : `“${group.name}”`} is ready. Check their providers in Settings → Providers`
             : null
   } else {
     const info = providers.find((p) => p.id === choice.provider)
     // Every provider's credentials can be set in Settings now, so that is where
-    // the hint points — the env file still works, but it is not the only way.
+    // the hint points, the env file still works, but it is not the only way.
     blockedReason =
       info === undefined
-        ? 'No provider set up — add one in Settings → Providers'
+        ? 'No provider set up. Add one in Settings → Providers'
         : !info.credentialAvailable
-          ? `${info.label} has no ${info.credentialHint} yet — add it in Settings → Providers`
+          ? `${info.label} has no ${info.credentialHint} yet. Add it in Settings → Providers`
           : choice.model === ''
-            ? 'No model selected — choose one in Settings → Models'
+            ? 'No model selected. Choose one in Settings → Models'
             : null
   }
   return { providerReady: blockedReason === null, blockedReason }
@@ -700,7 +700,7 @@ function rotationStatus(providers: Providers): RotationEntryStatus[] {
 }
 
 /**
- * The default model at the top — what a new session starts on — and every
+ * The default model at the top, what a new session starts on, and every
  * session's own model under `sessions`. With a session id, the top half is
  * that session's model instead, for callers about to prompt it.
  */
@@ -921,7 +921,7 @@ export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null
 /**
  * Undoes the last exchange in a session and returns the prompt that started
  * it, so a wrong prompt can be corrected instead of argued with. The run's
- * summary goes with it — the turn it described no longer exists.
+ * summary goes with it, the turn it described no longer exists.
  */
 export function revertLastTurn(sessionId: string): string | null {
   const live = sessions.get(sessionId)
@@ -970,15 +970,15 @@ export function revertLastTurn(sessionId: string): string | null {
 
 export interface TakenPrompt {
   prompt: string
-  /** The rest of that turn as the model read it — attachment headers, images. */
+  /** The rest of that turn as the model read it, attachment headers, images. */
   blocks: ContentBlock[]
   /** The files it carried, as viewers draw them. */
   attachments: AttachmentRef[]
 }
 
 /**
- * Takes back the `count`-th typed prompt from the end and all that followed —
- * replies, later prompts, their summaries, and the files their runs changed —
+ * Takes back the `count`-th typed prompt from the end and all that followed,
+ * replies, later prompts, their summaries, and the files their runs changed,
  * and hands that prompt back to be edited or sent again. Works on a session
  * reopened since, whose agent has not been built yet, the same way.
  */
@@ -1024,7 +1024,7 @@ export function takeBackPrompt(sessionId: string, count: number): TakenPrompt | 
 }
 
 /**
- * Folds everything before the latest prompt into one memory, on request —
+ * Folds everything before the latest prompt into one memory, on request,
  * the same compaction a run does on its own near the context ceiling. The
  * session's current agent does it, so a rotating session is not moved on.
  */
@@ -1093,7 +1093,7 @@ export function createRemoteSession(mode: SessionMode, workspaceRoot: string | n
 /** Atomic snapshots at turn completion and shutdown; never save credentials here. */
 /**
  * Serialising the whole archive on every mutation blocks the main process
- * for hundreds of milliseconds once it reaches tens of megabytes — right in
+ * for hundreds of milliseconds once it reaches tens of megabytes, right in
  * the middle of agent runs, which mutate constantly. Mutations therefore
  * schedule one trailing write; quitting flushes it synchronously. The write
  * itself stays atomic (tmp + rename), so a crash can only lose the trailing

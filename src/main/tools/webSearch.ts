@@ -15,7 +15,7 @@ import { searchScope, withPage } from '../browser'
  *
  * 1. Brave's Search API, when BRAVE_SEARCH_API_KEY is set. A real search API:
  *    fast, rate-limited by the key rather than by a bot check.
- * 2. A SearXNG instance at SEARXNG_URL — the self-hosted option, no key.
+ * 2. A SearXNG instance at SEARXNG_URL, the self-hosted option, no key.
  * 3. Otherwise the app's own headless Chromium, on a search page. It needs no
  *    setting up at all, which is the point, but it is scraping: slower than an
  *    API, and it is the engine's markup that decides whether it keeps working.
@@ -218,8 +218,8 @@ export const webSearchTool = defineTool({
   description:
     'Search the web and get back ranked results with their titles, URLs and snippets. ' +
     'Use it whenever the answer depends on something current, external, or that you cannot ' +
-    'recall exactly — documentation, releases, error messages, prices, news, anyone’s public ' +
-    'facts — rather than guessing a URL. The snippets are a summary, not the page: read the ' +
+    'recall exactly, documentation, releases, error messages, prices, news, anyone’s public ' +
+    'facts, rather than guessing a URL. The snippets are a summary, not the page: read the ' +
     'result itself with fetch_url or browser_navigate before relying on its details.',
   // The fallback drives a browser page, which is shared state, so a search may
   // not run alongside the other tools of its turn.
@@ -271,7 +271,7 @@ export const webSearchTool = defineTool({
     // make the next search work, rather than letting the model read "no
     // results" as "this does not exist".
     throw new ToolError(
-      `No results for "${query}". Tried — ${failures.join('; ')}. ` +
+      `No results for "${query}". Tried: ${failures.join('; ')}. ` +
         'A search engine may be blocking the built-in browser; setting BRAVE_SEARCH_API_KEY ' +
         '(or SEARXNG_URL for a self-hosted instance) in the .env file makes searching reliable.'
     )

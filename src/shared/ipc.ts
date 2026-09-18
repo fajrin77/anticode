@@ -170,7 +170,7 @@ export interface AppInfo {
 }
 
 /**
- * Built-in ids plus `custom:<uuid>` entries the user adds in Settings — any
+ * Built-in ids plus `custom:<uuid>` entries the user adds in Settings, any
  * OpenAI-compatible endpoint (cloud gateway or a local server like Ollama).
  */
 export type ProviderId = string
@@ -272,7 +272,7 @@ export interface AuthAccountSummary {
   /** Epoch ms the account was added. */
   createdAt: number
   /**
-   * False when the sealed tokens cannot be opened — the keychain is locked or
+   * False when the sealed tokens cannot be opened, the keychain is locked or
    * the file was written by another machine. The account is listed, but it
    * cannot answer a turn until it is signed in again.
    */
@@ -318,7 +318,7 @@ export interface OutOfUsage {
 }
 
 /**
- * A named part of the Rotate usage pool — "code only", "media only" — for
+ * A named part of the Rotate usage pool, "code only", "media only", for
  * models that suit one kind of work. Whichever group is in use is what every
  * session rotates over; none in use means the whole pool.
  */
@@ -327,7 +327,7 @@ export interface RotationGroup {
   name: string
   /**
    * Every model the group rotates over: the ones picked by hand, then each
-   * model switched on for a linked provider — so readers never expand links.
+   * model switched on for a linked provider, so readers never expand links.
    */
   entries: RotationEntry[]
   /**
@@ -349,7 +349,7 @@ export interface RotationGroupInput {
   providers?: string[]
 }
 
-/** A session's own model — each tab keeps the one it was given. */
+/** A session's own model, each tab keeps the one it was given. */
 export interface ModelChoice extends ProviderSelection {
   providerReady: boolean
   blockedReason: string | null
@@ -430,7 +430,7 @@ export interface SessionSpec {
    */
   colour?: number
   /**
-   * The session's name, filled in by the main process on the way out — a
+   * The session's name, filled in by the main process on the way out, a
    * folder's name, or antichat's first prompt. Viewers show it, never derive it.
    */
   title?: string
@@ -485,7 +485,7 @@ export interface SessionStatus {
   /** The folder last picked in the Projects screen, not a per-session binding. */
   workspaceRoot: string | null
   /**
-   * The model new sessions start on — the one picked last, anywhere. A
+   * The model new sessions start on, the one picked last, anywhere. A
    * session that exists has its own in `sessions`; statusFor reads it.
    */
   provider: ProviderId
@@ -495,7 +495,7 @@ export interface SessionStatus {
   defaultModel: string
   autoApprove: boolean
   /** What a prompt sent while a run works does: add to it or line it up. One
-   * source for both screens — the desktop chip and the phone chip read this. */
+   * source for both screens, the desktop chip and the phone chip read this. */
   followUpMode: 'steer' | 'queue'
   /** Whether the selected provider has credentials and a model name. */
   providerReady: boolean
@@ -618,7 +618,7 @@ export interface ExportOptions {
   format: 'markdown' | 'json'
   /** Typed prompts from..to, 0-based and inclusive; null is the whole session. */
   range: { from: number; to: number } | null
-  /** Mask API keys, tokens, and passwords — the ones anticode knows and ones that look like them. */
+  /** Mask API keys, tokens, and passwords, the ones anticode knows and ones that look like them. */
   redact: boolean
   /** Copy attachments and produced documents into a folder beside the export. */
   assets: boolean
@@ -761,7 +761,7 @@ export interface QueuedPrompt {
   attachments: AttachmentRef[]
   /**
    * Staged attachment IDs. Present only on the answer to an unqueue that asked
-   * to keep them — a steer moves the same files into the running turn, so they
+   * to keep them, a steer moves the same files into the running turn, so they
    * must not be released the way a plain pull-back releases them.
    */
   attachmentIds?: string[]
@@ -835,7 +835,7 @@ export interface ScheduleInput {
 
 export type AgentEvent =
   /** Emitted by the routing layer before the run starts, so every viewer sees
-   * the prompt the moment it is sent — never only after the turn ends. */
+   * the prompt the moment it is sent, never only after the turn ends. */
   | {
       type: 'prompt'
       runId: string
@@ -854,7 +854,7 @@ export type AgentEvent =
   | { type: 'steer_taken'; runId: string }
   | { type: 'text_delta'; runId: string; text: string }
   | { type: 'tool_start'; runId: string; toolUseId: string; name: string; input: unknown }
-  /** A line of progress from a tool still running — a sub-agent's steps. */
+  /** A line of progress from a tool still running, a sub-agent's steps. */
   | { type: 'tool_progress'; runId: string; toolUseId: string; text: string }
   | {
       type: 'tool_end'
@@ -878,7 +878,7 @@ export type AgentEvent =
       /** Estimated dollars, set by the main process; null when the model has no price. */
       costUsd?: number | null
       /**
-       * Spent on a side request — a sub-agent, or the memory written when the
+       * Spent on a side request, a sub-agent, or the memory written when the
        * context is compacted. It counts toward the run's cost, but that request
        * is not the session's context, so the context meter ignores it.
        */
@@ -886,11 +886,11 @@ export type AgentEvent =
       /** The stream ended before the provider's final usage chunk. */
       estimated?: boolean
     }
-  /** A line the app writes about the run itself — the context was compacted. */
-  /** A line the app writes about the run itself — the context was compacted. */
+  /** A line the app writes about the run itself, the context was compacted. */
+  /** A line the app writes about the run itself, the context was compacted. */
   | { type: 'notice'; runId: string; text: string }
-  /** What the run is doing between model replies — "Thinking", "Running
-   * command", "Browsing" — so a wait feels like progress, not a hang. The
+  /** What the run is doing between model replies, "Thinking", "Running
+   * command", "Browsing", so a wait feels like progress, not a hang. The
    * label is already the words shown to the user. */
   | { type: 'phase'; runId: string; phase: RunPhase }
   | {
@@ -948,8 +948,8 @@ export interface WebTab {
 }
 
 /**
- * anticode's own browser, one per session. The agent drives a single page —
- * its Playwright page — which is always the active tab; the tabs beside it are
+ * anticode's own browser, one per session. The agent drives a single page,
+ * its Playwright page, which is always the active tab; the tabs beside it are
  * the user's own, opened from the pane.
  */
 export interface WebSession {
@@ -990,7 +990,7 @@ export interface SnapshotMessage {
 
 /**
  * What one finished run cost. Recorded in the main process so the desktop and
- * the phone close a run with the same line, and so it survives a restart —
+ * the phone close a run with the same line, and so it survives a restart,
  * both used to lose it the moment the transcript was reloaded.
  *
  * One summary per assistant turn, in order: a run that never got a response
@@ -1011,7 +1011,7 @@ export interface AnticodeApi {
   /** Every session that has a browser pane, hidden ones included. */
   listWebSessions: () => Promise<WebSession[]>
   /**
-   * Points a tab at a URL and shows the pane — the user asked for it. Without
+   * Points a tab at a URL and shows the pane, the user asked for it. Without
    * a tab id the active one is navigated. Guest navigation and title events
    * use reportWebTab so background pages cannot change the user's selection.
    */
@@ -1035,15 +1035,15 @@ export interface AnticodeApi {
   setRemoteEnabled: (enabled: boolean) => Promise<RemoteStatus>
   /** Issues a fresh pairing token; every previously shared link stops working. */
   regenerateRemoteToken: () => Promise<RemoteStatus>
-  /** Fires for sessions created anywhere — desktop or remote phone. */
+  /** Fires for sessions created anywhere, desktop or remote phone. */
   onSessionCreated: (listener: (spec: SessionSpec) => void) => () => void
   /** Fires when a session is deleted from the remote phone. */
   onSessionClosed: (listener: (sessionId: string) => void) => () => void
-  /** Fires when the main process renames a session — antichat's first prompt. */
+  /** Fires when the main process renames a session, antichat's first prompt. */
   onSessionTitle: (listener: (change: SessionTitle) => void) => () => void
   /**
    * Takes back the `count`-th typed prompt from the end and everything after
-   * it — replies, later prompts, and the files their runs changed — and
+   * it, replies, later prompts, and the files their runs changed, and
    * returns that prompt and its files, to edit and send again.
    */
   takeBackPrompt: (
@@ -1088,7 +1088,7 @@ export interface AnticodeApi {
   setWorkspace: (root: string) => Promise<SessionStatus>
   listProviders: () => Promise<ProviderInfo[]>
   /**
-   * With a session id, that session changes model — no other one does, and a
+   * With a session id, that session changes model, no other one does, and a
    * run it has going keeps its model until it ends. The pick also becomes the
    * model new sessions start on; without an id that is all it changes.
    */
@@ -1121,7 +1121,7 @@ export interface AnticodeApi {
   closeSession: (sessionId: string) => Promise<void>
   chooseAttachments: () => Promise<AttachmentInfo[]>
   addAttachments: (paths: string[]) => Promise<AttachmentInfo[]>
-  /** Attaches bytes that have no file of their own — a pasted screenshot. */
+  /** Attaches bytes that have no file of their own, a pasted screenshot. */
   addAttachmentData: (name: string, base64: string) => Promise<AttachmentInfo[]>
   /** Opens an attachment in whatever app the OS associates with it. */
   openAttachment: (path: string) => Promise<string | null>
@@ -1139,7 +1139,7 @@ export interface AnticodeApi {
   previewFile: (sessionId: string | null, target: string) => Promise<FilePreview>
   pathForFile: (file: File) => string
   /**
-   * Starts a run, or — when this session already has one working — hands the
+   * Starts a run, or, when this session already has one working, hands the
    * prompt to that run as a follow-up. `steered` says which happened; a steer
    * answers with the run that was already going.
    */
@@ -1177,7 +1177,7 @@ export interface AnticodeApi {
   getPreferences: () => Promise<AppPreferences>
   setPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
   onPreferences: (listener: (preferences: AppPreferences) => void) => () => void
-  /** The main process asks for a session to be shown — tray, quick capture, a notification. */
+  /** The main process asks for a session to be shown, tray, quick capture, a notification. */
   onSessionFocus: (listener: (sessionId: string) => void) => () => void
   /** Quick capture: starts a new session with the prompt; resolves to its id. */
   sendQuickCapture: (capture: QuickCapture) => Promise<string>
@@ -1196,7 +1196,7 @@ export interface AnticodeApi {
   cancelRun: (runId: string) => Promise<void>
   /**
    * Pauses the session's run for every viewer. False when nothing was running
-   * — the run had already finished, so there is nothing to resume.
+   *, the run had already finished, so there is nothing to resume.
    */
   pauseSession: (sessionId: string) => Promise<boolean>
   /** Sessions paused right now, from whichever screen. */

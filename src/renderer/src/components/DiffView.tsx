@@ -30,8 +30,8 @@ const SIGN: Record<DiffLine['kind'], JSX.Element> = {
 }
 
 /**
- * Tokens for every line of a hunk. Each side is read in file order — old is
- * context plus removals, new is context plus additions — so a comment or a
+ * Tokens for every line of a hunk. Each side is read in file order, old is
+ * context plus removals, new is context plus additions, so a comment or a
  * string that spans lines is coloured the way the file itself reads.
  */
 function tokensOf(hunk: Hunk, language: string | null): Map<DiffLine, Token[]> {

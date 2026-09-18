@@ -3,8 +3,8 @@ import { IpcChannel } from '@shared/ipc'
 
 /*
  * The app has two kinds of window now: the main one, and the small quick
- * capture panel. Anything that means "the app's window" — approvals, the
- * global shortcut, a notification being clicked — means the main one, so it
+ * capture panel. Anything that means "the app's window", approvals, the
+ * global shortcut, a notification being clicked, means the main one, so it
  * is named here instead of being taken as the first window in the list.
  */
 

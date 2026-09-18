@@ -90,7 +90,7 @@ async function readPreview(kind: AttachmentInfo['kind'], filePath: string): Prom
     case 'image':
       return '(image sent as a visual attachment)'
     case 'binary':
-      return '(binary file — contents not read)'
+      return '(binary file, contents not read)'
   }
 }
 
@@ -186,7 +186,7 @@ async function listFolderFiles(directory: string): Promise<string[]> {
       if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.')) continue
       files.push(...(await listFolderFiles(full)))
       if (files.length > MAX_FOLDER_FILES) throw new AttachmentError(
-        `${directory} holds too many files to attach as a folder — pick the files you need`
+        `${directory} holds too many files to attach as a folder. Pick the files you need`
       )
       continue
     }
@@ -200,7 +200,7 @@ async function listFolderFiles(directory: string): Promise<string[]> {
  * Folders cannot ride along as one attachment: the composer asks for files.
  * A repo folder is flattened into its text files so the run reads the code
  * without the user picking file by file. Binary kinds and dependency folders
- * are skipped — the model cannot read them anyway.
+ * are skipped, the model cannot read them anyway.
  */
 export async function expandFolder(
   folderPath: string,
@@ -285,16 +285,16 @@ export async function toContentBlocks(
   const location =
     mode === 'chat'
       ? attachment.workspacePath !== null
-        ? `copied into this conversation's own folder at \`${attachment.workspacePath}\` — ` +
+        ? `copied into this conversation's own folder at \`${attachment.workspacePath}\`, ` +
           'your document tools can read and edit it there, and what you write is offered as a download'
         : 'sent to antichat, but no copy could be made: the preview below is all you can see of it'
       : attachment.workspacePath !== null
-        ? `inside the workspace at \`${attachment.workspacePath}\` — tools can read it directly`
+        ? `inside the workspace at \`${attachment.workspacePath}\`, tools can read it directly`
         : 'outside the workspace, so tools cannot open it; copy it into the project folder if it needs editing'
 
   const header = `Attachment: ${attachment.name} (${attachment.kind}, ${attachment.size} bytes), ${location}.`
   // The reference travels with the header block, which no history-condensing
-  // pass ever drops — so the chat can still draw the card turns later.
+  // pass ever drops, so the chat can still draw the card turns later.
   const ref = toRef(attachment)
 
   if (attachment.kind === 'image') {

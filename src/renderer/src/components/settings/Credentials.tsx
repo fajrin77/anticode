@@ -9,7 +9,7 @@ function errorText(failure: unknown): string {
 /**
  * Where the keys live. Settings keys are sealed with the keychain; keys in the
  * .env file are plaintext in a file the user owns, so this shows which ones
- * are there and offers — never forces — moving them into sealed storage.
+ * are there and offers, never forces, moving them into sealed storage.
  */
 export function Credentials({ onChanged }: { onChanged: () => void }): JSX.Element | null {
   const [status, setStatus] = useState<CredentialStatus | null>(null)

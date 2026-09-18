@@ -10,7 +10,7 @@ import { getStatus, listSessionSpecs, rememberedSpec, recreateSession, createSes
 import type { SessionMode, ScheduleEntry, ScheduleInput } from '../shared/ipc'
 
 /**
- * Cron for the rest of us: a schedule is "run this prompt every N" — daily
+ * Cron for the rest of us: a schedule is "run this prompt every N", daily
  * summaries, nightly review. One entry owns one session; when its time comes
  * the scheduler reuses the session (its model, its folder), sends the prompt
  * through the same gate a keystroke would take, and records the outcome. The
@@ -77,7 +77,7 @@ async function busForward(event: unknown): Promise<void> {
   bus.forward(event as never)
 }
 
-/** A fire reuses the session's own model and folder — nothing to re-pick. */
+/** A fire reuses the session's own model and folder, nothing to re-pick. */
 async function fire(entry: ScheduleEntry): Promise<void> {
   entry.lastRunAt = Date.now()
   entry.nextRunAt = nextOccurrence(entry, Date.now())
@@ -120,7 +120,7 @@ function tick(): void {
     try {
       for (const entry of [...entries.values()]) {
         if (!entry.enabled || entry.nextRunAt === null) continue
-        // A missed call still runs once — two minutes late beats never.
+        // A missed call still runs once, two minutes late beats never.
         if (entry.nextRunAt <= now && now - entry.nextRunAt < 120_000) await fire(entry)
         else if (entry.nextRunAt <= now - 120_000) {
           // The Mac slept through it: skip this slot, aim at the next one.

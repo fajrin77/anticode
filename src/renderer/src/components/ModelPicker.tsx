@@ -33,7 +33,7 @@ export function ModelPicker({
   const pool = status?.rotation ?? []
   // The models switched on in Settings → Models for this provider are the
   // whole list: a catalogue of hundreds is chosen from there, not from here.
-  // Until something is switched on the list is empty — and the session's model
+  // Until something is switched on the list is empty, and the session's model
   // is always one of these (or none), so nothing else ever shows.
   const configured = pool.filter((entry) => entry.provider === viewing).map((entry) => entry.model)
   const activeModel = viewing === provider ? status?.model ?? '' : ''
@@ -100,7 +100,7 @@ export function ModelPicker({
                   key={choice.id ?? ''}
                   type="button"
                   data-picker-group={choice.name}
-                  title={choice.id === (group?.id ?? null) ? `${choice.name} — in use` : `Rotate over ${choice.name}`}
+                  title={choice.id === (group?.id ?? null) ? `${choice.name}, in use` : `Rotate over ${choice.name}`}
                   onClick={() => {
                     if (choice.id === (group?.id ?? null)) return
                     setGroupError(null)

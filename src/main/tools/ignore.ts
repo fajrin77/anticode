@@ -1,7 +1,7 @@
 /**
  * Entries that are build output, dependency caches, or VCS internals. Scanning
  * or listing them floods the model's context with noise it never asked for.
- * Ambiguous names (`build`, `out`) are deliberately NOT here — some projects
+ * Ambiguous names (`build`, `out`) are deliberately NOT here, some projects
  * keep real sources in them.
  */
 const IGNORED_DIRECTORIES = new Set([

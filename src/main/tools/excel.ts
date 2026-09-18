@@ -32,7 +32,7 @@ function cellText(value: ExcelJS.CellValue): string {
 
 /**
  * A workbook the tools may load whole. ExcelJS and SheetJS both hold every
- * cell as an object, so a 75 MB sheet can want gigabytes of RAM — enough to
+ * cell as an object, so a 75 MB sheet can want gigabytes of RAM, enough to
  * take the whole app down. Past this bound the file is refused with a clear
  * message instead: the app survives, the user splits the file.
  */
@@ -117,7 +117,7 @@ function colourOf(colour: Partial<ExcelJS.Color> | undefined): string | null {
 
 /**
  * The formatting a person would notice: background, text colour, weight.
- * Black text — as argb or as the default theme text colour — is left out, or
+ * Black text, as argb or as the default theme text colour, is left out, or
  * every cell of every sheet would carry it.
  */
 function styleOf(cell: ExcelJS.Cell): string {
@@ -137,7 +137,7 @@ function styleOf(cell: ExcelJS.Cell): string {
 
 /**
  * Formatting as ranges rather than cells: runs of alike cells within a row,
- * then identical rows folded together — so a blue header reads as one line,
+ * then identical rows folded together, so a blue header reads as one line,
  * which is what a request like "make the blue header red" needs to see.
  */
 function describeStyles(sheet: ExcelJS.Worksheet, rowCount: number, columnCount: number): string[] {
@@ -478,7 +478,7 @@ export const formatExcelCellsTool = defineTool({
 
     for (const cell of cellsOf(sheet, areas)) {
       // A whole new style object per cell. exceljs hands cells that were
-      // loaded alike one shared style, and `cell.fill = …` writes into it —
+      // loaded alike one shared style, and `cell.fill = …` writes into it,
       // which would repaint every other cell that happened to look the same.
       const style: Partial<ExcelJS.Style> = { ...cell.style }
       if (input.fill === 'none') style.fill = { type: 'pattern', pattern: 'none' }

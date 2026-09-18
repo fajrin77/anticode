@@ -13,7 +13,7 @@ import { isIgnoredEntry } from './tools/ignore'
  *
  * Two ways in. A tool that names its target (edit, write, delete, Excel, Word,
  * PDF) is captured before it runs. A shell command names nothing, so the
- * workspace is scanned before and after it and whatever differs is recorded —
+ * workspace is scanned before and after it and whatever differs is recorded,
  * the before-images come from a mirror kept up to date with copy-on-write
  * clones, so an unchanged project costs a stat per file, not a copy.
  */
@@ -134,7 +134,7 @@ export class CheckpointStore {
 
   /**
    * A run starts at this transcript index. Nothing is written until the run
-   * actually changes something — most turns never do.
+   * actually changes something, most turns never do.
    */
   begin(turn: number): void {
     this.current = null
@@ -349,7 +349,7 @@ export class CheckpointStore {
 
     const manifest = this.open()
     // Restores run newest-first, so new folders go in first: they are removed
-    // last, after the files inside them are gone — deepest first.
+    // last, after the files inside them are gone, deepest first.
     for (const folder of created.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length)) {
       if (!this.has(folder)) manifest.entries.push({ path: folder, kind: 'new-dir' })
     }

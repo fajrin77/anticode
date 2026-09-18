@@ -56,7 +56,7 @@ function span(ms: number): string {
 
 /**
  * What an account says about its token, beside its name. Short enough to sit
- * on one line next to the label — the long version is the `title`, because
+ * on one line next to the label, the long version is the `title`, because
  * the only thing that must never be cut off is whether the account still
  * works. A token that renews itself needs no attention; one that cannot be
  * renewed has to say so before a turn fails mid-answer.

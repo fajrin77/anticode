@@ -4,7 +4,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 /*
  * A Model Context Protocol client, just big enough for tools: the initialize
  * handshake, tools/list (paged), tools/call, ping, and the list_changed
- * notification. Two transports — a local process spoken to over stdio, one
+ * notification. Two transports, a local process spoken to over stdio, one
  * JSON message per line, and a remote server over Streamable HTTP, whose
  * answers come back as plain JSON or as a short server-sent-event stream.
  */
@@ -160,7 +160,7 @@ export class HttpTransport implements Transport {
     if (response.status === 202 || response.status === 204) return
     const body = await response.text()
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}${response.status === 401 ? ' — the server wants credentials; add them as a header' : ''}: ${body.slice(0, 200)}`)
+      throw new Error(`HTTP ${response.status}${response.status === 401 ? '. The server wants credentials; add them as a header' : ''}: ${body.slice(0, 200)}`)
     }
     const type = response.headers.get('content-type') ?? ''
     const messages = type.includes('text/event-stream')

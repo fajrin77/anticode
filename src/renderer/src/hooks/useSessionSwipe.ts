@@ -16,7 +16,7 @@ import {
  * The tab changes on release, not while the fingers are still moving: the
  * gesture only records a direction and how far it travelled, and the swap
  * happens once the momentum has clearly eased. The session and its composer
- * never slide — content stays centred and only fades back in, so a switch
+ * never slide, content stays centred and only fades back in, so a switch
  * reads as a change of state rather than a sideways motion. */
 export function useSessionSwipe(enabled: boolean, select: (id: string) => void) {
   const root = useRef<HTMLDivElement>(null)
@@ -54,8 +54,8 @@ export function useSessionSwipe(enabled: boolean, select: (id: string) => void) 
       tailPeak = 0
       try {
         if (!reduced.matches) {
-          // The old session dims out first — a real fade, not a one-frame
-          // blink — then the swap happens while the pane is dark, and the
+          // The old session dims out first, a real fade, not a one-frame
+          // blink, then the swap happens while the pane is dark, and the
           // new session eases back in. The pane itself never slides.
           const pane = content()
           if (pane !== null) {

@@ -110,7 +110,7 @@ export function Attachments({
 
 /**
  * Opens an attachment the way the transcript does, always inside the app: a
- * picture at full size, anything else — a workbook, a document, a PDF — in
+ * picture at full size, anything else, a workbook, a document, a PDF, in
  * the file viewer. Shared by the transcript and the composer, so a staged
  * file can be checked before it is sent.
  */

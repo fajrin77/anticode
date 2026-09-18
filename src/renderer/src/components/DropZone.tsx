@@ -7,8 +7,8 @@ function carriesFiles(event: DragEvent): boolean {
 }
 
 /**
- * The whole session is a place to drop a file — the transcript, the empty
- * space around it, the composer — not only the text box. Whatever lands is
+ * The whole session is a place to drop a file, the transcript, the empty
+ * space around it, the composer, not only the text box. Whatever lands is
  * staged on this session's draft, exactly as the + button would stage it.
  */
 export function DropZone({ sessionId, children }: { sessionId: string; children: ReactNode }): JSX.Element {

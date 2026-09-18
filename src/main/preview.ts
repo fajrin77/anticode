@@ -8,8 +8,8 @@ import type { FilePreview, PreviewPage } from '@shared/ipc'
 import { columnName, open as openWorkbook } from './tools/excel'
 
 /**
- * Files are looked at inside the app — the transcript's file cards and the
- * phone's alike — instead of being downloaded to be opened somewhere else.
+ * Files are looked at inside the app, the transcript's file cards and the
+ * phone's alike, instead of being downloaded to be opened somewhere else.
  * Documents become self-contained HTML here, so both screens draw the same
  * page; pictures and PDFs are left to the viewer's own renderer.
  */
@@ -66,7 +66,7 @@ export async function previewFile(target: string, withBytes: boolean): Promise<F
   }
   const text = bytes.subarray(0, MAX_TEXT).toString('utf8')
   const note = bytes.byteLength > MAX_TEXT ? `First ${formatBytes(MAX_TEXT)} of ${formatBytes(bytes.byteLength)}` : undefined
-  // A page is drawn as the page it is — in a sandbox, so its scripts never run.
+  // A page is drawn as the page it is, in a sandbox, so its scripts never run.
   if (extension === '.html' || extension === '.htm') {
     return { kind: 'pages', name, pages: [{ label: name, html: text, ...(note !== undefined ? { note } : {}) }] }
   }
@@ -98,8 +98,8 @@ pre{margin:0;padding:16px 18px;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menl
 
 /**
  * A sheet drawn the way Excel draws it: white paper, grey row and column
- * headings, and the cell formatting the file carries — fills, font colours,
- * weight, alignment, borders and merges — so a request like "turn the red
+ * headings, and the cell formatting the file carries, fills, font colours,
+ * weight, alignment, borders and merges, so a request like "turn the red
  * header green" can be checked by looking.
  */
 const SHEET_STYLE = `

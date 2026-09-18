@@ -60,7 +60,7 @@ export function editClinepass(edit: ProviderEdit): void {
 
 /**
  * Takes Clinepass out of every list and forgets what Settings saved for it.
- * A key in the env file is left alone — that file is the user's — so a
+ * A key in the env file is left alone, that file is the user's, so a
  * restore picks it back up.
  */
 export function removeClinepass(): void {

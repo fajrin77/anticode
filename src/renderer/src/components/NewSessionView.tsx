@@ -65,7 +65,7 @@ function DashboardComposer({
   onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   extra: JSX.Element
-  /** { text, pulse } — a pulse bump re-applies the same preset text. */
+  /** { text, pulse }, a pulse bump re-applies the same preset text. */
   fill: { text: string; pulse: number }
 }): JSX.Element {
   const savedDraft = useSessionStore(state => state.drafts[DASHBOARD_DRAFT])
@@ -183,7 +183,7 @@ function DashboardComposer({
         ]
       : [{ kind: 'text', text: prompt }]
 
-    // This is the moment the session comes into existence — bound straight to
+    // This is the moment the session comes into existence, bound straight to
     // the mode and folder chosen here.
     const sessionId = openSession(mode, folder)
 
@@ -338,7 +338,7 @@ function DashboardComposer({
               </button>
 
               {/* Under Rotate usage the model is not picked per session, but the
-                  group every session rotates over is — so with groups made,
+                  group every session rotates over is, so with groups made,
                   the chip opens on that choice. */}
               <Chip disabled={status?.rotationEnabled === true && (status.rotationGroups ?? []).length === 0} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">
@@ -353,7 +353,7 @@ function DashboardComposer({
               <div className="flex-1" />
 
               {/* Right of the spacer: appearing as words are typed, it pushes
-                  nothing but itself — the chips on the left stay put. */}
+                  nothing but itself, the chips on the left stay put. */}
               {draft.trim() !== '' && (
                 <button
                   type="button"
@@ -562,7 +562,7 @@ export function NewSessionView({
     setFillPulse((value) => value + 1)
   }
 
-  // Only sessions that actually have a conversation are listed — fresh
+  // Only sessions that actually have a conversation are listed, fresh
   // drafts (zero messages) never appear here. The previously active session
   // must stay visible: viewing the dashboard does not deselect it.
   const listed = useMemo(

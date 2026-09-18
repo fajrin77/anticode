@@ -12,7 +12,7 @@ function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
 }
 
-/** Per-session usage only — an icon that unfolds the totals on demand. */
+/** Per-session usage only, an icon that unfolds the totals on demand. */
 function UsageButton({ session }: { session: Session }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -59,7 +59,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
   }, [open])
 
   const totalTokens = session.inputTokens + session.outputTokens
-  // The same ceiling the loop compacts against — a 1M-window model is not
+  // The same ceiling the loop compacts against, a 1M-window model is not
   // "85% full" at 85k tokens.
   const budget = historyBudgetFor(session.model ?? '')
   const contextPercent = Math.min(100, Math.round((session.lastInputTokens / budget) * 100))
@@ -104,7 +104,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
             </div>
             <div
               className="col-span-2 flex items-baseline justify-between gap-4 py-1.5"
-              title={session.costPartial === true ? 'Some requests used a model with no price — set one in Settings → Pricing' : 'From the prices in Settings → Pricing'}
+              title={session.costPartial === true ? 'Some requests used a model with no price. Set one in Settings → Pricing' : 'From the prices in Settings → Pricing'}
             >
               <span className="text-[12px] text-faint">Estimated cost</span>
               <span className="text-[12.5px] tabular-nums text-text">
@@ -142,7 +142,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
               <InstructionsField
                 value={session.instructions ?? ''}
                 rows={4}
-                placeholder="Only for this session — e.g. focus on the payment module; reply briefly."
+                placeholder="Only for this session, e.g. focus on the payment module; reply briefly."
                 onSave={(text) =>
                   window.anticode
                     .setSessionInstructions(session.id, text)
@@ -160,7 +160,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
           >
             <span>{compacting ? 'Compacting…' : 'Compact context'}</span>
             <span className={`truncate text-[11px] tabular-nums text-faint ${compacted === null ? 'invisible' : ''}`}>
-              {compacted ?? '—'}
+              {compacted ?? '·'}
             </span>
           </button>
           <button
@@ -182,18 +182,18 @@ interface TabBarProps {
   onOpenSchedule: () => void
   onNewTab: () => void
   onSelectSession: (id: string) => void
-  /** True while the dashboard view is on screen — lights the grid icon lime. */
+  /** True while the dashboard view is on screen, lights the grid icon lime. */
   dashboardActive: boolean
-  /** True while Settings is on screen — lights the gear the same way. */
+  /** True while Settings is on screen, lights the gear the same way. */
   settingsActive: boolean
-  /** True while Schedule is on screen — lights the clock the same way. */
+  /** True while Schedule is on screen, lights the clock the same way. */
   scheduleActive: boolean
 }
 
 /**
  * Shows and hides the browser pane for the session on screen. Hiding is sticky
- * for the rest of that session — a page the agent opens later updates the pane
- * quietly instead of pushing it back on screen — so this button is the only
+ * for the rest of that session, a page the agent opens later updates the pane
+ * quietly instead of pushing it back on screen, so this button is the only
  * way back. A session with no page at all gets a blank pane with an address
  * bar, which is the other half of "anticode has a browser of its own".
  */
@@ -254,12 +254,12 @@ export function TabBar({
   )
 
   // Closing a tab archives the session (still editable from the dashboard)
-  // and stops its run — otherwise the agent keeps burning tokens with no way
+  // and stops its run, otherwise the agent keeps burning tokens with no way
   // to stop it. The main-process session stays alive so history survives.
   // The stop is a pause, the same one the pause button makes: the work it
   // cut short can be resumed from the reopened tab or from the phone.
   // A draft that was never prompted cannot be reopened from the dashboard, so
-  // closing its tab deletes it outright — everywhere, including the phone.
+  // closing its tab deletes it outright, everywhere, including the phone.
   function close(sessionId: string): void {
     void window.anticode.pauseSession(sessionId)
     const session = sessions.find((entry) => entry.id === sessionId)
@@ -303,7 +303,7 @@ export function TabBar({
       <div
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
         data-session-tabs
-        aria-label="Session tabs — swipe with two fingers to switch"
+        aria-label="Session tabs, swipe with two fingers to switch"
       >
         {sessions.filter((session) => !session.closed).map((session) => {
           const isActive = session.id === activeSessionId
@@ -383,7 +383,7 @@ export function TabBar({
         </button>
       </div>
 
-      {/* Usage and settings sit on the same row as the session tabs — outside
+      {/* Usage and settings sit on the same row as the session tabs, outside
           the scrolling strip, whose overflow would clip the usage popover. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}

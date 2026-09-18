@@ -1,5 +1,5 @@
 /*
- * Auth provider accounts — OAuth logins that back a chat provider, the way
+ * Auth provider accounts, OAuth logins that back a chat provider, the way
  * the Codex/Claude/Cline/CodeBuddy CLIs do it. One account holds the tokens;
  * a provider id like `auth:codex` reads them and talks to the vendor API.
  *
@@ -12,7 +12,7 @@ export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy'
 
 /** Live state of an account as the Settings UI needs it. */
 export interface AuthAccount {
-  /** Stable id, e.g. `auth/codex` — what rotation entries point at. */
+  /** Stable id, e.g. `auth/codex`, what rotation entries point at. */
   id: string
   kind: AuthKind
   /** Free-form label the user sees; defaults to the vendor name. */
@@ -65,7 +65,7 @@ export interface AuthLoginCallbacks {
   promptForCode: PromptForCode
   /**
    * Aborted the moment the user presses Cancel. Every flow must pass it to
-   * its listener, its polls, and its fetches — otherwise a cancelled login
+   * its listener, its polls, and its fetches, otherwise a cancelled login
    * keeps port 1455 bound, or keeps polling the vendor for five minutes.
    */
   signal: AbortSignal

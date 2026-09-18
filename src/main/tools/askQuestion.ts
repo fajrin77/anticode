@@ -10,8 +10,8 @@ const optionSchema = z.object({
 
 /**
  * The one tool that talks back to the user mid-run: the question pops up with
- * clickable options and the run waits for the click. For genuine forks only —
- * a preference the work cannot proceed without — never for status updates.
+ * clickable options and the run waits for the click. For genuine forks only,
+ * a preference the work cannot proceed without, never for status updates.
  */
 export const askQuestionTool = defineTool({
   name: 'ask_question',
@@ -45,7 +45,7 @@ export const askQuestionTool = defineTool({
   execute: async (input, context) => {
     // A sub-agent has no window to click in; it must decide on its own.
     if (context.delegate === undefined) {
-      return 'The question cannot be asked here — proceed with your best judgement and say what you assumed.'
+      return 'The question cannot be asked here. Proceed with your best judgement and say what you assumed.'
     }
     const options = input.options.map((option, index) => ({
       id: option.id ?? `option-${index + 1}`,
@@ -54,7 +54,7 @@ export const askQuestionTool = defineTool({
     }))
     const seen = new Set<string>()
     for (const option of options) {
-      if (seen.has(option.id)) throw new ToolError(`Duplicate option id "${option.id}" — give each option its own id.`)
+      if (seen.has(option.id)) throw new ToolError(`Duplicate option id "${option.id}". Give each option its own id.`)
       seen.add(option.id)
     }
     const answer = await askUserQuestion({
@@ -66,7 +66,7 @@ export const askQuestionTool = defineTool({
       signal: context.signal
     })
     if (answer.optionId === null && answer.text === '') {
-      return 'The user did not answer — proceed with your best judgement and say what you assumed.'
+      return 'The user did not answer. Proceed with your best judgement and say what you assumed.'
     }
     if (answer.optionId !== null) {
       const picked = options.find((option) => option.id === answer.optionId)

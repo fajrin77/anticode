@@ -13,7 +13,7 @@
   --color-dim: #9a9a9a;
   --color-faint: #6d6d6d;
 
-  /* anticode lime — the one accent. Named so it never collides with
+  /* anticode lime, the one accent. Named so it never collides with
      Tailwind's own lime-* scale. */
   --color-brand: #d1fa22;
   --color-brand-strong: #c4ef1f;
@@ -77,7 +77,7 @@ body {
   backdrop-filter: blur(26px) saturate(125%);
 }
 
-/* Menus that open over the transcript — the model picker, the mode menu. The
+/* Menus that open over the transcript (the model picker, the mode menu). The
    composer's recipe, a little more opaque: their text is small, and a menu
    that lets the reply behind it read through is a menu nobody can read. Only
    works outside another backdrop-filter (see Composer). */
@@ -126,7 +126,7 @@ body {
 
 /* The chrome floats over the page, and the transcript scrolls underneath it.
    Its blur is progressive: heaviest at the window's top edge and thinning to
-   nothing at the header's bottom, so there is no line where the chrome ends —
+   nothing at the header's bottom, so there is no line where the chrome ends,
    text just goes soft as it rises. Four stacked layers stand in for a true
    variable blur; each blurs what the one before already blurred and stops
    higher up. They sit in their own element so the masks never touch the tabs. */
@@ -204,7 +204,7 @@ body {
 
 /* Long transcripts render hundreds of messages at once; skipping layout and
    paint for the off-screen ones keeps tab switches and hydration cheap.
-   The intrinsic estimate only reserves space — real size wins on scroll. */
+   The intrinsic estimate only reserves space. Real size wins on scroll. */
 .message-visibility {
   content-visibility: auto;
   contain-intrinsic-size: auto 240px;

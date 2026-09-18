@@ -26,8 +26,8 @@ export function SessionRow({
   onDuplicate?: (id: string) => void
   spinning?: boolean
 }): JSX.Element {
-  // Deleting a session also deletes its checkpoints and chat files — there is
-  // no undo — so the first click only arms the button, the second confirms.
+  // Deleting a session also deletes its checkpoints and chat files, there is
+  // no undo, so the first click only arms the button, the second confirms.
   const [confirming, setConfirming] = useState(false)
   return (
     <div className="group relative flex w-full items-start">
@@ -77,7 +77,7 @@ export function SessionRow({
         <button
           type="button"
           aria-label={confirming ? `Confirm deleting this session` : 'Delete session'}
-          title={confirming ? 'Click again — deleting also removes its checkpoints and files' : 'Delete session'}
+          title={confirming ? 'Click again, deleting also removes its checkpoints and files' : 'Delete session'}
           onClick={() => (confirming ? onDelete(session.id) : setConfirming(true))}
           onBlur={() => setConfirming(false)}
           className={`absolute top-2.5 right-2 text-[13px] leading-none opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-del ${

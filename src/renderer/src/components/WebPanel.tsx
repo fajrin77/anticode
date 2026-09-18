@@ -74,7 +74,7 @@ const IDLE: GuestState = { loading: false, back: false, forward: false, failure:
 
 /**
  * One tab's page. Background tabs stay mounted but unpainted, the way a
- * browser keeps them — switching back must not reload what was already there.
+ * browser keeps them, switching back must not reload what was already there.
  */
 function Guest({
   tab,
@@ -92,7 +92,7 @@ function Guest({
   const [element, setElement] = useState<WebviewElement | null>(null)
 
   // The guest appears only once there is a page to show, which is later than
-  // this component mounts — so its listeners hang on the element arriving.
+  // this component mounts, so its listeners hang on the element arriving.
   const attach = useCallback(
     (node: HTMLElement | null) => {
       const guest = node as WebviewElement | null
@@ -112,7 +112,7 @@ function Guest({
     const onNavigate = (event: Event): void => {
       const url = String((event as Event & { url?: string }).url ?? element.getURL())
       push({ failure: null, back: element.canGoBack(), forward: element.canGoForward() })
-      // A page the guest reached on its own — a link, a redirect — is still
+      // A page the guest reached on its own, a link, a redirect, is still
       // this tab's page, so the record follows it and a restart returns here.
       // A move inside the same document keeps its title; a new document has
       // not announced one yet, and page-title-updated will.
@@ -424,7 +424,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <span className="text-[13px] text-dim">Browser</span>
               <span className="text-[12px] text-faint">
-                Type an address above, or let the agent open a page — a dev server it
+                Type an address above, or let the agent open a page, a dev server it
                 starts lands here by itself.
               </span>
             </div>

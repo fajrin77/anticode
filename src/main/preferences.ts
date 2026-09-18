@@ -5,7 +5,7 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
 
 /*
  * Small app-wide choices made in Settings → General. Each one is applied by
- * whoever owns it — the tray, notifications — through a listener, so this
+ * whoever owns it, the tray, notifications, through a listener, so this
  * module only keeps and announces them.
  */
 

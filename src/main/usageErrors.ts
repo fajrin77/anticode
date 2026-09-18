@@ -3,7 +3,7 @@
 
 /**
  * Spent credit and exhausted plans, as opposed to a per-minute rate limit:
- * 402 Payment Required, or the words providers use for it — OpenAI's
+ * 402 Payment Required, or the words providers use for it, OpenAI's
  * insufficient_quota, Moonshot's exceeded_current_quota, Anthropic's credit
  * balance, OpenRouter's and DeepSeek's insufficient credits or balance, Z.ai's
  * usage limit. A plain "rate limit reached" is not one: that passes in a minute.

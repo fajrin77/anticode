@@ -73,7 +73,7 @@ async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> 
  *
  * `force` is the 401 path: the token we hold was rejected, so the old one is
  * known bad and a failed renewal has to surface as the error the user sees.
- * On the ordinary path a failed renewal is swallowed — the token in hand may
+ * On the ordinary path a failed renewal is swallowed, the token in hand may
  * still have minutes left on it, and one flaky network call should not end a
  * conversation.
  */
@@ -81,15 +81,15 @@ async function ensureFresh(id: string, kind: AuthKind, force = false): Promise<A
   const tokens = readAuthTokens(id)
   if (tokens === null) {
     throw new Error(
-      `The account ${id} could not be read — sign in again in Settings → Auth provider`
+      `The account ${id} could not be read. Sign in again in Settings → Auth provider`
     )
   }
   if (!force && !isStale(tokens)) return tokens
   if (tokens.refreshToken === undefined) {
     if (!force) return tokens
     throw new Error(
-      `${AUTH_KIND_NAMES[kind]} turned the account token down and it cannot be renewed — ` +
-        'sign in again in Settings → Auth provider'
+      `${AUTH_KIND_NAMES[kind]} turned the account token down and it cannot be renewed. ` +
+        'Sign in again in Settings → Auth provider'
     )
   }
   try {
@@ -98,7 +98,7 @@ async function ensureFresh(id: string, kind: AuthKind, force = false): Promise<A
     return next
   } catch (error) {
     if (force) throw error
-    // A failed refresh is not fatal — the old token may still work.
+    // A failed refresh is not fatal, the old token may still work.
     return tokens
   }
 }
@@ -136,7 +136,7 @@ class AuthProvider implements LLMProvider {
     switch (this.kind) {
       case 'codex':
         // The Codex backend wants the numeric ChatGPT account id from the id
-        // token — `account.account` is the email, which it does not accept.
+        // token, `account.account` is the email, which it does not accept.
         return new CodexProvider(tokens.accessToken, model, tokens.meta?.accountId)
       case 'claude':
         return new AnthropicProvider('', model, undefined, {
@@ -185,7 +185,7 @@ class AuthProvider implements LLMProvider {
 
 /**
  * Whether the vendor turned the account token down. Each of the four says it
- * differently — a bare 401, an `invalid_token` body, or the word itself — so
+ * differently, a bare 401, an `invalid_token` body, or the word itself, so
  * all three shapes count.
  */
 function isExpiredToken(error: unknown): boolean {
@@ -207,7 +207,7 @@ export function isAuthProvider(id: string): boolean {
 export function authProvider(id: string, model: string): LLMProvider {
   const account = getAuthAccount(id)
   if (account === undefined) {
-    throw new Error('This OAuth account is gone — sign in again in Settings → Auth provider')
+    throw new Error('This OAuth account is gone. Sign in again in Settings → Auth provider')
   }
   return new AuthProvider(id, account.kind, model)
 }

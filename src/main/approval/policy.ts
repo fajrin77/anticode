@@ -57,7 +57,7 @@ export class ApprovalPolicy {
 
   /**
    * Auto means unattended execution: the run answers to nobody, so no card at
-   * any risk tier — destructive work included. The guard that matters is the
+   * any risk tier, destructive work included. The guard that matters is the
    * mode itself being a deliberate choice. Default still runs low-risk tools
    * freely and asks for other calls unless that exact tool was explicitly
    * allowed for the session.

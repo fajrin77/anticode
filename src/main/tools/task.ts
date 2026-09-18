@@ -11,7 +11,7 @@ export const taskTool = defineTool({
   name: 'task',
   description:
     'Delegate a self-contained, read-only investigation to a sub-agent. It starts with a fresh context and ' +
-    'can read files, list folders, search the workspace, read Excel/Word/PDF, and fetch URLs — but cannot ' +
+    'can read files, list folders, search the workspace, read Excel/Word/PDF, and fetch URLs, but cannot ' +
     'edit, run commands, or ask the user. Only its final report returns to you. Give it everything it needs ' +
     'in the prompt and say what the report should contain. Issue several task calls in one turn to explore ' +
     'independent questions in parallel. Prefer it for broad searches across many files.',

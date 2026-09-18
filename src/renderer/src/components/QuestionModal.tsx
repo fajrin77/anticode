@@ -9,7 +9,7 @@ interface QuestionModalProps {
 }
 
 /**
- * The agent's question, answered by clicking — an option, a custom reply, or
+ * The agent's question, answered by clicking, an option, a custom reply, or
  * a skip. Floats above the composer exactly like the approval card, so the
  * conversation that led to the question stays visible and nothing moves.
  * Answering is not destructive, so nothing here is red: options light lime.
@@ -19,7 +19,7 @@ export function QuestionModal({ request, onAnswer }: QuestionModalProps): JSX.El
   const firstRef = useRef<HTMLButtonElement>(null)
 
   // Escape outside the custom field skips the question; inside it, Escape
-  // only leaves the field. A skip is an answer too — the run proceeds on its
+  // only leaves the field. A skip is an answer too, the run proceeds on its
   // own judgement instead of hanging.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {

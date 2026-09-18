@@ -126,8 +126,8 @@ export async function refreshAuthAccount(id: string): Promise<void> {
   if (account === undefined) throw new Error('That account is no longer stored.')
   if (!canRefreshAuthAccount(account.kind)) {
     throw new Error(
-      `${AUTH_KIND_LABELS[account.kind]} issues a long-lived token and has no renewal — ` +
-        'sign in again when it stops working.'
+      `${AUTH_KIND_LABELS[account.kind]} issues a long-lived token and has no renewal. ` +
+        'Sign in again when it stops working.'
     )
   }
   const tokens = readAuthTokens(id)

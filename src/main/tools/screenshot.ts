@@ -18,7 +18,7 @@ export const screenshotTool = defineTool({
     'Requires Screen Recording permission for anticode (or the terminal launching a development build); ' +
     'macOS shows a prompt the first time.',
   /**
-   * A screenshot copies private pixels — mail, messages, passwords — off the
+   * A screenshot copies private pixels, mail, messages, passwords, off the
    * screen and into the model's context. It is bounded like a browser
    * screenshot, but what it reads is the user's whole display, so it asks.
    */
@@ -57,7 +57,7 @@ export const screenshotTool = defineTool({
       const raw = await readFile(target)
       if (raw.byteLength === 0) {
         throw new ToolError(
-          'screencapture produced an empty file — grant anticode Screen Recording ' +
+          'screencapture produced an empty file, grant anticode Screen Recording ' +
             'permission in System Settings → Privacy & Security, then retry'
         )
       }

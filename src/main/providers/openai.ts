@@ -201,7 +201,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const usage = { inputTokens: 0, outputTokens: 0 }
     const calls = new Map<number, { id: string; name: string; args: string }>()
     const stalled = (): Error => received
-      ? new Error('Provider stream stalled mid-turn — run stopped so nothing is duplicated')
+      ? new Error('Provider stream stalled mid-turn. The run stopped so nothing is duplicated')
       : Object.assign(new Error('Provider stream stalled before any data arrived'), { status: 503 })
 
     try {

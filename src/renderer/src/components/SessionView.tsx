@@ -50,11 +50,11 @@ function ToolGroup({
   parts: ToolPart[]
   /**
    * The run's newest group, with nothing after it yet. It stays "working"
-   * between two steps too — the gap while the model picks its next tool —
+   * between two steps too, the gap while the model picks its next tool,
    * or the line would flip to "ran" and back on every step.
    */
   live?: boolean
-  /** What the loop says it is doing right now — "Browsing", "Thinking"... */
+  /** What the loop says it is doing right now, "Browsing", "Thinking"... */
   phaseLabel?: string | null
   /** Given while this is the live run: the working line folds it. */
   open?: boolean
@@ -144,7 +144,7 @@ export function breakdownOf(parts: MessagePart[]): string {
   return bits.length > 0 ? ` · ${bits.join(' · ')}` : ''
 }
 
-/** True while a run — this window's or one it mirrors — works in the session. */
+/** True while a run, this window's or one it mirrors, works in the session. */
 function useSessionBusy(sessionId: string): boolean {
   return useSessionStore(
     (state) =>
@@ -192,8 +192,8 @@ function messageText(message: Message): string {
 void messageText
 
 /**
- * Takes a prompt back to be edited: it and everything after it — replies,
- * later prompts, and the file changes their runs made — come out of the
+ * Takes a prompt back to be edited: it and everything after it, replies,
+ * later prompts, and the file changes their runs made, come out of the
  * session, and the prompt goes back in the composer with its files. Two
  * clicks, because what goes with it cannot be brought back.
  */
@@ -302,7 +302,7 @@ function EditPrompt({ sessionId, message }: { sessionId: string; message: Messag
 }
 
 /**
- * Copies the prompt's own text — no model, duration, or token cost — to the
+ * Copies the prompt's own text, no model, duration, or token cost, to the
  * clipboard. Drawn at the bubble's edge, visible only while hovered, and it
  * never shifts the transcript: the badge it swaps to occupies the same spot.
  */
@@ -372,7 +372,7 @@ function MessageView({
   lastAnswer: boolean
   /**
    * The run was paused, not finished: its steps stay in view, with no closing
-   * line or retry — a resume carries the same work on.
+   * line or retry, a resume carries the same work on.
    */
   paused?: boolean
 }): JSX.Element {
@@ -434,7 +434,7 @@ function MessageView({
           )
         }
         // The app talking about itself, in the same grey voice a tool group
-        // uses — never a bubble, because nobody said it.
+        // uses, never a bubble, because nobody said it.
         // A failure in the app's voice, and in red: never mistaken for an answer.
         if (block.kind === 'error') {
           return (
@@ -655,7 +655,7 @@ function RunSummaryCard({
   const { model, durationMs } = summary
   const tokens = summary.inputTokens + summary.outputTokens
 
-  // A faint, centred footnote rather than a card — always visible with just
+  // A faint, centred footnote rather than a card, always visible with just
   // the essentials the user asked for: model, copy, duration, tokens. The
   // step breakdown and file counts stay in the unfolded detail (the toggle
   // still opens the changed files), out of the one-line summary.
@@ -814,7 +814,7 @@ function isNotice(message: Message | undefined, text: string): boolean {
 
 /**
  * Replies whose run a pause stopped: the pause or resume marker follows them,
- * or — in a session paused right now, the marker not drawn yet — they are the
+ * or, in a session paused right now, the marker not drawn yet, they are the
  * latest reply of all.
  */
 function pausedTurns(messages: Message[], sessionPaused: boolean): Set<string> {
@@ -860,7 +860,7 @@ export function SessionView(): JSX.Element {
       Object.values(runs.activeRuns).some((run) => run.sessionId === id) ||
       Object.values(runs.mirrorRuns).some((run) => run.sessionId === id)
     // A working session has no "where I stopped": its end moves every second.
-    // Coming back to the tab lands on the live tail — the saved top belongs
+    // Coming back to the tab lands on the live tail, the saved top belongs
     // to an idle session only.
     following.current = busy || (saved?.following ?? true)
     seenPrompts.current = saved?.prompts ?? promptCount
@@ -885,7 +885,7 @@ export function SessionView(): JSX.Element {
   }, [messages, promptCount])
 
   // The composer floats above the transcript, so anything that grows it
-  // upward — attachments, the plan, a queued prompt — silently eats into the
+  // upward, attachments, the plan, a queued prompt, silently eats into the
   // gap the working line sits in. Watching the layer's box keeps the tail
   // anchored to the same distance instead of drifting up the page.
   useLayoutEffect(() => {

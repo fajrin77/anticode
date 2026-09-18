@@ -17,7 +17,7 @@ const SYNTHETIC_PREFIX = 'gen-'
 
 /**
  * Gemini omits tool-call ids far more often than it includes them, so ids are
- * synthesised per call instead of per response — two turns that both get
+ * synthesised per call instead of per response, two turns that both get
  * unnamed calls must not collide when names are looked up from history later.
  */
 function syntheticId(): string {
@@ -135,8 +135,8 @@ export class GoogleProvider implements LLMProvider {
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
-    // Gemini rejects an empty functionDeclarations array, so chat mode — which
-    // is offered no tools at all — must not send the tools key.
+    // Gemini rejects an empty functionDeclarations array, so chat mode, which
+    // is offered no tools at all, must not send the tools key.
     const tools =
       params.tools.length > 0 ? [{ functionDeclarations: toDeclarations(params.tools) }] : undefined
 

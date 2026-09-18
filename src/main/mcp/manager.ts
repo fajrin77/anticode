@@ -200,7 +200,7 @@ function clean(record: unknown): Record<string, string> {
 }
 
 /**
- * Adds or changes a server. A secret left blank keeps the one saved — the
+ * Adds or changes a server. A secret left blank keeps the one saved, the
  * values never travel to a window, so the form cannot show them back.
  */
 export async function saveMcp(input: McpServerInput): Promise<McpServerStatus[]> {
@@ -254,9 +254,9 @@ export async function reconnectMcp(id: string): Promise<McpServerStatus[]> {
 }
 
 /**
- * Servers from the JSON other MCP clients use —
+ * Servers from the JSON other MCP clients use,
  * `{ "mcpServers": { "name": { "command", "args", "env" } | { "url", "headers" } } }`
- * — or a bare map of them. Answers how many were added.
+ *, or a bare map of them. Answers how many were added.
  */
 export async function importMcp(json: string): Promise<number> {
   let parsed: unknown
@@ -306,7 +306,7 @@ export function mcpTools(): Tool[] {
         readOnly: false,
         prepare: (raw) => {
           if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) {
-            throw new ToolError('Invalid input — expected an object of arguments')
+            throw new ToolError('Invalid input: expected an object of arguments')
           }
           return {
             risk: mcpRisk(server.trust, info),

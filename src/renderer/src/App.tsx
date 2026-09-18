@@ -67,7 +67,7 @@ export function App(): JSX.Element {
   // the dashboard and only bound to the main-process session on first send.
   const startSession = useCallback(() => {
     const sessionId = openSession('code', null)
-    // Asked for here, so shown here — even from Settings, which a session
+    // Asked for here, so shown here, even from Settings, which a session
     // made elsewhere (the phone) is not allowed to leave on its own.
     setView('session')
     // The colour this window just painted is offered to the main process,
@@ -97,7 +97,7 @@ export function App(): JSX.Element {
   }, [startSession])
 
   // Clicking the tab of the already-active session changes no store state, so
-  // the effect below never fires — the view switch happens here explicitly.
+  // the effect below never fires, the view switch happens here explicitly.
   // Reopening from the dashboard also un-archives the session's tab.
   const openExistingSession = useCallback(
     (id: string) => {
@@ -153,7 +153,7 @@ export function App(): JSX.Element {
       for (const old of store.sessions) if (!specs.some((spec) => spec.sessionId === old.id)) store.deleteSession(old.id)
       // Snapshots arrive at their own pace: four concurrent restores keep a
       // heavy archive from serialising startup while capping IPC pressure.
-      // Each session still stands on its own — one poisoned snapshot must not
+      // Each session still stands on its own, one poisoned snapshot must not
       // abort the whole restore or leave the app half-hydrated.
       const queue = [...specs]
       const restoreOne = async (): Promise<void> => {
@@ -233,8 +233,8 @@ export function App(): JSX.Element {
     return unsubscribe
   }, [])
 
-  // The browser panes are owned by the main process — the agent opens pages,
-  // and the phone has to see the same ones — so the renderer only mirrors them.
+  // The browser panes are owned by the main process, the agent opens pages,
+  // and the phone has to see the same ones, so the renderer only mirrors them.
   useEffect(() => {
     const setSessions = useWebStore.getState().setSessions
     void window.anticode.listWebSessions().then(setSessions)
@@ -332,7 +332,7 @@ export function App(): JSX.Element {
   }, [activeSessionId, view])
 
   // Names come from the main process, wherever the prompt that earned one
-  // was typed — the phone included.
+  // was typed, the phone included.
   useEffect(() => {
     return window.anticode.onSessionTitle(({ sessionId, title }) => {
       useSessionStore.getState().setSessionTitle(sessionId, title)
@@ -353,7 +353,7 @@ export function App(): JSX.Element {
     })
   }, [])
 
-  /** A snapshot import must never race a live run on the same session — it
+  /** A snapshot import must never race a live run on the same session, it
    * would wipe the streamed transcript and the just-typed prompt. */
   const sessionBusy = (sessionId: string): boolean => {
     const state = useSessionStore.getState()
@@ -368,7 +368,7 @@ export function App(): JSX.Element {
       }
       const store = useSessionStore.getState()
       // A session that is only archived, not deleted, has to come back the
-      // moment it moves — otherwise work started on the phone lands in a tab
+      // moment it moves, otherwise work started on the phone lands in a tab
       // nobody can see, and the session reads as gone.
       store.surfaceSession(event.sessionId)
       const run = store.activeRuns[event.runId]
@@ -430,7 +430,7 @@ export function App(): JSX.Element {
             break
           case 'end': {
             const pausedNow = useSessionStore.getState().pausedSessions[run.sessionId] === true
-            // A deliberate pause is not a failure — no [cancelled] scar.
+            // A deliberate pause is not a failure, no [cancelled] scar.
             if (event.reason !== 'complete' && !(event.reason === 'cancelled' && pausedNow)) {
               store.appendText(run.sessionId, run.messageId, `\n[${event.reason}]`)
             }
@@ -457,7 +457,7 @@ export function App(): JSX.Element {
           }
           break
         case 'steer':
-          // A follow-up to a run this window only watches — from the phone,
+          // A follow-up to a run this window only watches, from the phone,
           // or joined before this window caught the run's start.
           store.mirrorStart(event.runId, event.sessionId)
           store.steerRun(event.runId, event.sessionId, event.text, event.attachments)
@@ -520,7 +520,7 @@ export function App(): JSX.Element {
     })
   }, [])
 
-  // With no session left the dashboard is the view — it creates nothing on
+  // With no session left the dashboard is the view, it creates nothing on
   // its own; a session only comes into existence via "+" or a first prompt.
   // A session appearing or vanishing (the phone can do either) must not yank
   // the user out of Settings mid-edit.
@@ -686,7 +686,7 @@ export function App(): JSX.Element {
         // the point of watching a page the agent is working on.
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
           {/* Full size hands the whole window to the page. The transcript is
-              only set aside, not unmounted — its scroll and draft are where
+              only set aside, not unmounted, its scroll and draft are where
               they were when the pane shrinks back. */}
           <div
             data-session-swipe

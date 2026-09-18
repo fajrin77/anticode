@@ -11,7 +11,7 @@ export interface DelegatedTask {
 
 export interface ToolContext {
   sessionId?: string
-  /** The run asking — present on live runs, absent in unit tests. */
+  /** The run asking, present on live runs, absent in unit tests. */
   runId?: string
   workspaceRoot: string
   signal: AbortSignal
@@ -33,14 +33,14 @@ export interface ToolImage {
 }
 
 /**
- * Images cannot ride inside a tool result portably — OpenAI's tool messages are
- * text-only — so the loop appends them to the same user turn instead.
+ * Images cannot ride inside a tool result portably, OpenAI's tool messages are
+ * text-only, so the loop appends them to the same user turn instead.
  */
 export interface ToolOutput {
   isError?: boolean
   text: string
   images: ToolImage[]
-  /** The change as a unified diff, for viewers only — the model never reads it. */
+  /** The change as a unified diff, for viewers only, the model never reads it. */
   diff?: string
 }
 
@@ -57,8 +57,8 @@ export interface Tool {
   inputSchema: Record<string, unknown>
   /**
    * True means the call touches nothing shared, so it may run concurrently
-   * with other such calls in one turn. Tools that mutate shared state — the
-   * browser page, the network log — must be false even when read-only.
+   * with other such calls in one turn. Tools that mutate shared state, the
+   * browser page, the network log, must be false even when read-only.
    */
   readOnly: boolean
   prepare: (rawInput: unknown) => PreparedCall
@@ -99,7 +99,7 @@ export function defineTool<S extends z.ZodType>(spec: ToolSpec<S>): Tool {
         const detail = parsed.error.issues
           .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
           .join('; ')
-        throw new ToolError(`Invalid input — ${detail}`)
+        throw new ToolError(`Invalid input: ${detail}`)
       }
 
       const input = parsed.data as z.output<S>

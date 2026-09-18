@@ -11,7 +11,7 @@ export interface DiffLine {
 }
 
 export interface Hunk {
-  /** What follows the second @@ — often the enclosing function. */
+  /** What follows the second @@, often the enclosing function. */
   header: string
   oldStart: number
   newStart: number

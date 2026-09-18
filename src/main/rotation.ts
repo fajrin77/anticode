@@ -7,8 +7,8 @@ import { isOutOfUsage } from './usageErrors'
 export { isOutOfUsage }
 
 /**
- * Rotate usage: several models — usually the same gateway under different
- * accounts, or different gateways — share the token load of every session set
+ * Rotate usage: several models, usually the same gateway under different
+ * accounts, or different gateways, share the token load of every session set
  * to rotate. A session stays on an entry for a couple of prompts (runtime's
  * PROMPTS_PER_MODEL), then moves to the one that has used the fewest tokens,
  * so no one account's quota is drained while the others sit idle.
@@ -20,12 +20,12 @@ export { isOutOfUsage }
  * It runs only while switched on in Settings. Off, the pool is just the
  * models the composer offers: nothing rotates and nothing is counted.
  *
- * Groups name parts of the pool — models for code, for media, for reasoning.
+ * Groups name parts of the pool, models for code, for media, for reasoning.
  * The group in use is what every session rotates over; with none in use, the
  * whole pool is. A group only ever holds pool models: one it names joins the
  * pool, and one that leaves the pool leaves every group.
  *
- * A group can also take a provider whole — "nvidia", rotating over every
+ * A group can also take a provider whole, "nvidia", rotating over every
  * nvidia model switched on. It is a link, not a copy: a model switched on for
  * that provider later joins the group, one switched off leaves it.
  */
@@ -56,7 +56,7 @@ let activeGroup: string | null = null
 const usage = new Map<string, Tally>()
 const cooling = new Map<string, number>()
 const exhausted = new Map<string, OutOfUsage>()
-/** Told when something changes on its own, mid-run — a quota running out. */
+/** Told when something changes on its own, mid-run, a quota running out. */
 let changeSink: (() => void) | null = null
 
 export function rotationKey(entry: RotationEntry): string {
@@ -94,7 +94,7 @@ function load(): RotationEntry[] {
 /**
  * Named, each id once, and holding only pool models. A group made just now
  * gets its id here. A group left with no models stays: it is being filled.
- * One sent without `providers` — an older client — keeps the links it had,
+ * One sent without `providers`, an older client, keeps the links it had,
  * and entries a link covers are dropped: the link brings them in anyway.
  */
 function cleanGroups(list: unknown[], inPool: Set<string>, previous: StoredGroup[]): StoredGroup[] {
@@ -222,7 +222,7 @@ export function setRotationEnabled(on: boolean): void {
 
 /**
  * Replaces the pool. An entry joining late starts level with the least-used
- * one already there, not at zero — otherwise it would take every prompt until
+ * one already there, not at zero, otherwise it would take every prompt until
  * it had caught up with accounts that have been working for weeks.
  */
 export function setRotationEntries(next: unknown[]): RotationEntry[] {
@@ -327,7 +327,7 @@ function total(tally: Tally): number {
 
 /**
  * The models in use, best first: ones whose quota ran out go last, behind
- * even the resting ones — they are only worth trying once nothing else is
+ * even the resting ones, they are only worth trying once nothing else is
  * left. Then resting ones, then the ones fewer running sessions are on (so
  * prompts sent together spread out before any of them has reported a token),
  * then the fewest tokens, then pool order.
@@ -356,7 +356,7 @@ export function rankRotation(options: {
 
 /**
  * Every provider a session talks to goes through this, so the tokens it
- * spends land on its pool entry when it has one — and a quota that runs out
+ * spends land on its pool entry when it has one, and a quota that runs out
  * is marked on it, whichever session found out.
  */
 export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMProvider {

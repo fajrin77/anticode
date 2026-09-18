@@ -1,7 +1,7 @@
 import type { DetailedHTMLProps, HTMLAttributes } from 'react'
 
 /**
- * Electron's <webview> — the browser pane's guest — is not in React's element
+ * Electron's <webview>, the browser pane's guest, is not in React's element
  * table, and its own typings live in the `electron` package, which the
  * renderer deliberately does not import. This is the shape the pane uses.
  */

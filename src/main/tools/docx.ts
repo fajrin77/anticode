@@ -15,8 +15,8 @@ const convertToMarkdown = (
 ).convertToMarkdown
 
 /**
- * Mammoth escapes punctuation aggressively — plain prose comes back as
- * `paragraf\.` — which only matters when re-rendering the markdown. This output
+ * Mammoth escapes punctuation aggressively, plain prose comes back as
+ * `paragraf\.`, which only matters when re-rendering the markdown. This output
  * is read by a model, so the escapes are noise and get removed.
  */
 function unescapePunctuation(markdown: string): string {

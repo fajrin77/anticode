@@ -2,7 +2,7 @@ import { CONTINUE_PROMPT } from '@shared/ipc'
 import type { Message } from '../providers/types'
 
 /** Opens the memory a compaction leaves in place of the turns it folded. */
-export const MEMORY_HEADER = '[Automatic context compaction — durable memory from earlier turns]'
+export const MEMORY_HEADER = '[Automatic context compaction, durable memory from earlier turns]'
 
 /**
  * A prompt somebody typed: not tool results, not only follow-ups, and not the

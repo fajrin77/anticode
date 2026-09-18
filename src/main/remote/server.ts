@@ -342,7 +342,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
 
     // Exports the transcript to the Mac's Downloads and streams the file to
-    // the phone — the OS save dialog has no place on a phone screen.
+    // the phone, the OS save dialog has no place on a phone screen.
     const exportMatch = /\/api\/session\/([\w-]+)\/export$/.exec(url.pathname)
     if (req.method === 'POST' && exportMatch !== null) {
       return streamPhoneExport(res, exportMatch[1] ?? '', body)
@@ -371,7 +371,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     // The picture itself, so the phone can open an attachment rather than
     // squint at its thumbnail. Only paths the session's own history names are
-    // served — the allowlist is the transcript, not the filesystem.
+    // served, the allowlist is the transcript, not the filesystem.
     if (req.method === 'GET' && url.pathname === '/api/attachment') {
       const sessionId = url.searchParams.get('sessionId') ?? ''
       if (loadSessionMessages(sessionId) === null) return json(res, 404, { error: 'Unknown session' })
@@ -437,7 +437,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       const sessionId = url.searchParams.get('sessionId') ?? ''
       const runId = runForSession(sessionId)
       // The phone polls this every second while a session is open, so it also
-      // serves as the heartbeat telling it the session is still there — a
+      // serves as the heartbeat telling it the session is still there, a
       // delete on the desktop would otherwise leave it on a dead screen.
       return json(res, 200, {
         exists: sessionId === '' || loadSessionMessages(sessionId) !== null,
@@ -569,7 +569,7 @@ function webPayload(): { web: ReturnType<typeof listWeb>; history: Record<string
 
 function deny(res: http.ServerResponse): void {
   res.writeHead(401, { 'content-type': 'application/json' })
-  res.end(JSON.stringify({ error: 'Unauthorised — open the pairing URL' }))
+  res.end(JSON.stringify({ error: 'Unauthorised. Open the pairing URL' }))
 }
 
 async function readBody(
@@ -607,7 +607,7 @@ function providerEdit(body: Record<string, unknown>): ProviderEdit {
 
 /**
  * Provider list plus the catalogue of the provider in use, for the phone
- * picker — the open session's, or the default when no session is open.
+ * picker, the open session's, or the default when no session is open.
  */
 async function modelsPayload(sessionId: string | null = null): Promise<{
   provider: string
@@ -661,7 +661,7 @@ function createPhoneSession(body: Record<string, unknown>): { sessionId: string 
   if (mode === 'chat') return { sessionId: createRemoteSession('chat', null) }
 
   if (folder === null || !existsSync(folder) || !statSync(folder).isDirectory()) {
-    throw new Error('Folder not found on the Mac — check the path')
+    throw new Error('Folder not found on the Mac, check the path')
   }
   return { sessionId: createRemoteSession('code', folder) }
 }
@@ -775,7 +775,7 @@ const MIME_TYPES: Record<string, string> = {
   '.zip': 'application/zip'
 }
 
-/** Streams a file inline — for looking at, not for saving. */
+/** Streams a file inline, for looking at, not for saving. */
 function sendFile(res: http.ServerResponse, target: string): void {
   const info = statSync(target)
   if (!info.isFile()) throw new Error('Not a file')
@@ -794,7 +794,7 @@ function sendFile(res: http.ServerResponse, target: string): void {
 
 /**
  * An attached file, by the absolute path its card names. Only paths the
- * session's own history names are served — the allowlist is the transcript,
+ * session's own history names are served, the allowlist is the transcript,
  * not the filesystem.
  */
 function attachmentPath(sessionId: string, target: string): string {

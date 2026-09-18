@@ -85,7 +85,7 @@ function sanitizeModelFetchError(error: unknown): string {
   const noTags = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   const clipped = noTags.length > 160 ? `${noTags.slice(0, 160)}…` : noTags
   const code = typeof status === 'number' ? `HTTP ${status}` : 'Request failed'
-  const hint = status === 404 ? ' — the Base URL is usually missing /v1' : ''
+  const hint = status === 404 ? ' (the Base URL is usually missing /v1)' : ''
   return `${code}: ${clipped}${hint}`
 }
 
@@ -98,7 +98,7 @@ export async function fetchModels(id: ProviderId): Promise<string[]> {
 }
 
 async function fetchModelList(id: ProviderId): Promise<string[]> {
-  // An OAuth account has no /models endpoint to ask — the plan decides the
+  // An OAuth account has no /models endpoint to ask, the plan decides the
   // catalogue, and it is written down next to the adapter that uses it.
   if (id.startsWith('auth:')) {
     const account = getAuthAccount(id)

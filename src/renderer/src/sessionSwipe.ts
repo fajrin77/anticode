@@ -36,7 +36,7 @@ export function canRearmSwipe(
   if (previousDirection !== 0 && Math.sign(delta) !== previousDirection) return true
   if (gapMs > SWIPE_REARM_MS) return true
   // A flick in the same direction as the dying momentum used to wait for the
-  // residue to stop — up to a second of dead swipes. Momentum only weakens,
+  // residue to stop, up to a second of dead swipes. Momentum only weakens,
   // so an event clearly out-punching everything the tail has produced is a
   // deliberate flick, not residue.
   return Math.abs(delta) >= tailPeak * SWIPE_TAIL_ESCAPE_RATIO + SWIPE_REARM_DELTA

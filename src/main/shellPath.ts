@@ -4,7 +4,7 @@ import path from 'node:path'
 
 /*
  * An app opened from the Dock or Finder inherits launchd's short PATH, not the
- * one the user's shell builds — so `npx`, `uvx`, and anything from Homebrew or
+ * one the user's shell builds, so `npx`, `uvx`, and anything from Homebrew or
  * nvm are not found. The login shell is asked once for its PATH; if it cannot
  * answer, the usual install locations are added to what there is.
  */

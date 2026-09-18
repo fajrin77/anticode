@@ -214,7 +214,7 @@ export async function addProvider(input: CustomProviderInput): Promise<ProviderI
 }
 
 /**
- * A provider changed in Settings — its name, where it lives, its key, or the
+ * A provider changed in Settings, its name, where it lives, its key, or the
  * model ids it offers (for gateways whose /models is missing or short). The
  * picker lists the new ids at once, and a provider in use with no model yet
  * starts on the first one. A run already going keeps the connection it has.
@@ -319,8 +319,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.SCHEDULE_ADD, (_event, input: ScheduleInput) => addSchedule(input))
   ipcMain.handle(IpcChannel.SCHEDULE_UPDATE, (_event, id: string, patch: Partial<ScheduleEntry>) => updateSchedule(id, patch))
   ipcMain.handle(IpcChannel.SCHEDULE_REMOVE, (_event, id: string) => removeSchedule(id))
-  // The pane's state is owned by the main process — the agent is what opens
-  // pages — so every window is told about a change rather than asked for one.
+  // The pane's state is owned by the main process, the agent is what opens
+  // pages, so every window is told about a change rather than asked for one.
   setWebSink((sessions) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IpcChannel.WEB_UPDATED, sessions)
@@ -524,7 +524,7 @@ export function registerIpcHandlers(): void {
   )
 
   // Opening is by absolute path because an attachment may well sit outside any
-  // project folder — the picture the user dragged in from their desktop.
+  // project folder, the picture the user dragged in from their desktop.
   // Pictures open in the app, not in Preview: leaving anticode to look at a
   // screenshot the user just sent is a round trip nobody asked for.
   ipcMain.handle(
@@ -556,7 +556,7 @@ export function registerIpcHandlers(): void {
     return failure === '' ? null : failure
   })
 
-  // Reveal in Finder — the middle ground between "open the file" (which hands
+  // Reveal in Finder, the middle ground between "open the file" (which hands
   // it to another app) and "Save a copy" (which asks for a destination).
   ipcMain.handle(
     IpcChannel.ARTIFACT_REVEAL,

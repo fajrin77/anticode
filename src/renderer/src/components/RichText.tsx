@@ -2,8 +2,8 @@ import { useState } from 'react'
 import type { JSX, ReactNode } from 'react'
 
 /**
- * A deliberately small markdown subset — fenced code, tables, headings, bullets,
- * numbered lists, quotes, rules and inline emphasis — covering what the models
+ * A deliberately small markdown subset, fenced code, tables, headings, bullets,
+ * numbered lists, quotes, rules and inline emphasis, covering what the models
  * actually emit. A full parser would be far more surface area than the output
  * warrants. The phone page (src/main/remote/public/index.html) carries the
  * same rules in plain DOM; the two should read alike.
@@ -84,8 +84,8 @@ function CopyButton({ text, label }: { text: string; label: string }): JSX.Eleme
 }
 
 /**
- * Text the model wrote to be used elsewhere — a prompt it drafted, a block of
- * code — set apart from its own prose: the same mono face the model name wears
+ * Text the model wrote to be used elsewhere, a prompt it drafted, a block of
+ * code, set apart from its own prose: the same mono face the model name wears
  * in the composer, in a panel with a copy control at each end, so a long block
  * can be copied without scrolling back to find the button.
  */

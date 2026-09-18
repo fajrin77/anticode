@@ -4,12 +4,12 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal'
 
 /**
  * `opaque` carries provider-native blocks that must be replayed verbatim to the
- * same provider — Anthropic thinking blocks are signed and rejected if altered.
+ * same provider, Anthropic thinking blocks are signed and rejected if altered.
  * Blocks from a different provider are dropped rather than translated.
  */
 export type ContentBlock =
   /**
-   * `attachment` is carried for the UI only — providers read `text` and ignore
+   * `attachment` is carried for the UI only, providers read `text` and ignore
    * the rest. It rides on the header block of a user attachment so a reopened
    * transcript can redraw the file card, even after the image itself was
    * elided from the replayed history.
@@ -86,7 +86,7 @@ export interface GeneratedImage {
 
 export interface LLMProvider {
   readonly name: string
-  /** The provider id this talks through, when known — the name is only a label. */
+  /** The provider id this talks through, when known, the name is only a label. */
   readonly id?: string
   readonly model: string
   chat(params: ChatParams): AsyncIterable<ProviderEvent>

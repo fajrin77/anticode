@@ -107,7 +107,7 @@ function visit(tabId: string, typed: string): void {
 }
 
 /**
- * Writes a record back and tells everyone, unless nothing actually changed —
+ * Writes a record back and tells everyone, unless nothing actually changed,
  * the pane reports its own navigations back here, and an echo must not loop.
  */
 function commit(sessionId: string, record: WebRecord): void {
@@ -150,8 +150,8 @@ export function webHistoryOf(sessionId: string): { back: boolean; forward: boole
 
 /**
  * The agent opened a page. It drives one page per session, so what it opens is
- * always the active tab. A pane the user has hidden stays hidden — that is the
- * whole point of hiding it — but its tab keeps up to date, so unhiding lands on
+ * always the active tab. A pane the user has hidden stays hidden, that is the
+ * whole point of hiding it, but its tab keeps up to date, so unhiding lands on
  * the page the agent is actually looking at.
  */
 export function noteWebUrl(sessionId: string | undefined, url: string, title = ''): void {
@@ -171,7 +171,7 @@ export function noteWebUrl(sessionId: string | undefined, url: string, title = '
 }
 
 /**
- * The user asked for this page — from the pane's address bar, or by pressing
+ * The user asked for this page, from the pane's address bar, or by pressing
  * the browser icon on a session that has none yet. An empty URL opens the pane
  * blank, waiting for an address.
  */
@@ -239,7 +239,7 @@ export function reportWebTab(sessionId: string, tabId: string, url: string, titl
 }
 
 /**
- * Closing the last tab closes the browser, as it does everywhere else — but
+ * Closing the last tab closes the browser, as it does everywhere else, but
  * hiding it rather than forgetting it, so the sticky hide still holds and the
  * icon is what brings it back.
  */
@@ -307,7 +307,7 @@ export function activeWebUrl(sessionId: string): string | null {
 }
 
 /**
- * Restores a pane from disk at startup, silently — nobody is listening yet.
+ * Restores a pane from disk at startup, silently, nobody is listening yet.
  * Panes saved before tabs existed carry a single `url`, and become one tab.
  */
 export function restoreWeb(sessionId: string, record: unknown): void {

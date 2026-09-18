@@ -3,7 +3,7 @@ import type { JSX } from 'react'
 import type { MessagePart } from '../store/session'
 import { usePreviewStore } from '../store/preview'
 
-/** Files a person opens rather than reads as code — worth offering to save. */
+/** Files a person opens rather than reads as code, worth offering to save. */
 const DOCUMENT_EXTENSIONS = [
   '.pdf', '.xlsx', '.xlsm', '.docx', '.csv', '.pptx', '.zip',
   '.png', '.jpg', '.jpeg', '.webp', '.gif'
@@ -16,7 +16,7 @@ function extensionOf(target: string): string {
 
 /**
  * The documents a run produced, read back from its own tool calls. Only
- * successful writes count, and only of the kinds someone would want to keep —
+ * successful writes count, and only of the kinds someone would want to keep,
  * source files stay where they belong, in the diff. antichat has no project
  * to keep them in, so there every file it writes is one to hand back. A file
  * the agent passed to `share_file` always counts: it was handed over on

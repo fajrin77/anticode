@@ -14,7 +14,7 @@ function pad(value: number): string {
   return value < 10 ? `0${value}` : String(value)
 }
 
-/** "8:00 AM" — the row's clock, matching the modal's Time field. */
+/** "8:00 AM", the row's clock, matching the modal's Time field. */
 function clockLabel(hour: number, minute: number): string {
   const suffix = hour < 12 ? 'AM' : 'PM'
   const h = hour % 12 === 0 ? 12 : hour % 12
@@ -30,9 +30,9 @@ function cadence(entry: ScheduleEntry): string {
   return `Daily · ${clockLabel(entry.hour, entry.minute)}`
 }
 
-/** "in 3h", "in 2d", or "—" when a schedule is paused. */
+/** "in 3h", "in 2d", or "·" when a schedule is paused. */
 function untilLabel(at: number | null): string {
-  if (at === null) return '—'
+  if (at === null) return '·'
   const delta = at - Date.now()
   if (delta <= 0) return 'due'
   const minutes = Math.round(delta / 60_000)
@@ -42,7 +42,7 @@ function untilLabel(at: number | null): string {
   return `in ${Math.round(hours / 24)}d`
 }
 
-/** The modal's draft — one shape whether adding or editing. */
+/** The modal's draft, one shape whether adding or editing. */
 interface Draft {
   name: string
   frequency: 'daily' | 'weekly'
@@ -344,7 +344,7 @@ function ScheduleModal({
                 ))}
               </select>
               <p className="mb-4 text-[12px] text-faint">
-                The run uses this session's model and folder — nothing to pick again.
+                The run uses this session's model and folder, nothing to pick again.
               </p>
             </>
           )}
@@ -486,8 +486,8 @@ export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.
                 </div>
                 <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[12.5px] text-dim">{entry.prompt}</p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">
-                  <span>Last run: {entry.lastRunAt !== null ? new Date(entry.lastRunAt).toLocaleString() : '—'}</span>
-                  <span>Result: {entry.lastError ?? entry.lastResult ?? '—'}</span>
+                  <span>Last run: {entry.lastRunAt !== null ? new Date(entry.lastRunAt).toLocaleString() : '·'}</span>
+                  <span>Result: {entry.lastError ?? entry.lastResult ?? '·'}</span>
                   <span>Next run: {untilLabel(entry.nextRunAt)}</span>
                 </div>
               </div>

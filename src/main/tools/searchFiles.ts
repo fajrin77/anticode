@@ -82,7 +82,7 @@ export const searchFilesTool = defineTool({
     glob: z
       .string()
       .optional()
-      .describe('File name filter, e.g. "*.ts" — only files with that extension'),
+      .describe('File name filter, e.g. "*.ts", only files with that extension'),
     is_regex: z
       .boolean()
       .default(false)

@@ -38,7 +38,7 @@
   }
   /* No edge under the header: the page scrolls beneath it, and the blur over
      it thins out downward until the last few pixels are the page itself.
-     Four stacked layers stand in for a true variable blur — each blurs what
+     Four stacked layers stand in for a true variable blur, each blurs what
      the one before already blurred, and each stops higher up. The layers
      run a little past the header so the fade finishes below the title. */
   header .hfade {
@@ -187,7 +187,7 @@
     padding: 8px 12px; max-width: 85%;
   }
   .msg .tool { color: #9a9a9a; font-size: 13.5px; font-family: ui-monospace, Menlo, monospace; }
-  /* A run of tool calls collapses to one line — "ran 5 steps" — exactly as on
+  /* A run of tool calls collapses to one line, "ran 5 steps", exactly as on
      the desktop; the individual steps live behind the disclosure. */
   .tgroup { margin: 12px 0; }
   .tgroup > summary {
@@ -223,7 +223,7 @@
     font: 12.5px/1.6 ui-monospace, Menlo, monospace; color: #9a9a9a;
     white-space: pre-wrap; word-break: break-word;
   }
-  /* A line the app writes about itself — pausing, resuming. Left, grey, no
+  /* A line the app writes about itself, pausing, resuming. Left, grey, no
      bubble, exactly like a tool-group line. */
   .notice { padding: 8px 0; color: #9a9a9a; font-size: 14px; transition: color .15s; }
   .notice:hover, .notice:active { color: #d1fa22; }
@@ -238,8 +238,8 @@
     color: #6d6d6d; padding: 2px 4px; font-size: 12.5px; line-height: 1;
   }
   .runsum .copy:active, .runsum:hover .copy:hover { color: #d1fa22; }
-  /* Text the model wrote to be used elsewhere — a drafted prompt, a block of
-     code — in the same mono face the model name wears, with a copy control at
+  /* Text the model wrote to be used elsewhere, a drafted prompt, a block of
+     code, in the same mono face the model name wears, with a copy control at
      each end so a long block needs no scrolling back. */
   .promptblock { margin: 12px 0; }
   .promptblock .pbar { display: flex; align-items: center; gap: 8px; padding: 0 2px 4px; }
@@ -286,7 +286,7 @@
   #quoteRow .qx { flex: none; background: none; border: none; color: #6d6d6d; font-size: 16px; line-height: 1; padding: 0 2px; }
   /* A picture opens over the conversation. The page itself cannot zoom (the
      viewport is pinned so controls do not jump), so the viewer carries its own
-     fit / actual-size toggle — a dense screenshot has to be readable. */
+     fit / actual-size toggle, a dense screenshot has to be readable. */
   #imgViewer { position: fixed; inset: 0; z-index: 60; background: rgba(26,26,26,.97); display: flex; flex-direction: column; }
   #imgViewer .vhead {
     flex: none; display: flex; align-items: center; gap: 10px;
@@ -298,8 +298,8 @@
   #imgViewer .vbody { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
   #imgViewer .vbody img { display: block; margin: auto; max-width: 100%; }
   #imgViewer.zoomed .vbody img { max-width: none; width: 200%; margin: 0; }
-  /* A file opens over the conversation too, rendered by the Mac — a workbook
-     with its colours, a document as paper — instead of leaving as a download. */
+  /* A file opens over the conversation too, rendered by the Mac, a workbook
+     with its colours, a document as paper, instead of leaving as a download. */
   #fileViewer { position: fixed; inset: 0; z-index: 60; background: #1a1a1a; display: flex; flex-direction: column; }
   #fileViewer .vhead {
     flex: none; display: flex; align-items: center; gap: 6px;
@@ -512,7 +512,7 @@
   /* Layar sentuh tidak punya hover; ditekan adalah padanannya, dan lime. */
   .actions button:active:not(:disabled) { color: #d1fa22; }
   /* Appears only once a model id has been typed, so it reads as the thing to
-     press next — same box as Start, its own colour. */
+     press next, same box as Start, its own colour. */
   .actions button.alt { background: #d1fa22; color: #1a1a1a; border-color: #d1fa22; }
   .actions button:disabled { color: #6d6d6d; border-color: #262626; }
   .hidden { display: none !important; }
@@ -596,7 +596,7 @@
   .ssec .mode { margin-bottom: 6px; }
   .mode button:active { color: #d1fa22; }
   /* The new-session page: the mode pill floats centred just under the blurred
-     header, and the page it titles is an empty chat — nothing else. The
+     header, and the page it titles is an empty chat, nothing else. The
      provider/folder details are tucked away until anticode is picked. */
   #newSessionCard { padding-top: 4px; }
   #newSessionCard .mode { margin: 2px auto 0; }
@@ -632,7 +632,7 @@
   .switch:active::after { background: #d1fa22; }
   .switch.on { background: #d1fa22; border-color: #d1fa22; }
   .switch.on::after { transform: translateX(18px); background: #1a1a1a; }
-  /* A provider's model ids, typed one per line — for gateways with no /models. */
+  /* A provider's model ids, typed one per line, for gateways with no /models. */
   textarea.models {
     width: 100%; min-height: 84px; background: var(--glass-field); border: 1px solid var(--glass-border);
     border-radius: 8px; color: #ededed; padding: 8px 10px; margin: 8px 0;
@@ -716,7 +716,7 @@
         <button onclick="refreshWebShot(true).catch(showError)">Reload</button>
         <button id="webHideBtn" onclick="toggleWebHidden().catch(showError)">Hide</button>
       </div>
-      <div class="crumb" id="webNote" style="margin-bottom:0">No page yet — the agent opens one, or type an address.</div>
+      <div class="crumb" id="webNote" style="margin-bottom:0">No page yet. The agent opens one, or type an address.</div>
     </div>
     <div id="webFrame" class="hidden">
       <div id="webLoading" class="hidden">Loading…</div>
@@ -782,7 +782,7 @@
   <div id="chipRow">
     <button id="modelChip" onclick="openSettings(modelInfo?.rotationEnabled === true ? 'rotation' : 'model')" title="Model"><span class="modelText">…</span></button>
     <button id="modeChip" onclick="openSettings('mode')" title="Approval mode">Default</button>
-    <button id="planChip" onclick="togglePhonePlan()" title="Build: execute now — Plan: prepare only, nothing runs yet">build</button>
+    <button id="planChip" onclick="togglePhonePlan()" title="Build: execute now, Plan: prepare only, nothing runs yet">build</button>
     <span class="grow"></span>
     <button id="revertBtn" class="hidden" onclick="revertTurn()" title="Take back the last prompt and edit it">&#8630; Revert</button>
   </div>
@@ -817,7 +817,7 @@
     <div class="ssec" id="secProviders">
       <div class="muted">Providers</div>
       <div id="providerList"></div>
-      <input class="path" id="provLabel" placeholder="Name — OpenRouter, LM Studio, …" />
+      <input class="path" id="provLabel" placeholder="Name: OpenRouter, LM Studio, …" />
       <select class="wide" id="provKind" aria-label="Provider kind" onchange="onPhoneProviderKind()">
         <option value="openai">OpenAI-compatible (cloud)</option>
         <option value="ollama">Local server (Ollama, LM Studio)</option>
@@ -1024,7 +1024,7 @@ function setMenuTitle(text, subtitle = '', canGoBack = false) {
   document.getElementById('headerBack').classList.toggle('placeholder', !canGoBack);
 }
 
-/** The open session's name over its kind — antichat, or the folder it works in. */
+/** The open session's name over its kind, antichat, or the folder it works in. */
 function showSessionHeader(id) {
   const spec = lastSessions.find((entry) => entry.id === id);
   const subtitle = spec?.mode === 'code'
@@ -1057,7 +1057,7 @@ async function switchHeaderSession(step) {
 /**
  * A sideways swipe changes session. `canStart` turns away a touch that means
  * something else where it lands; `canFinish` one that turned out to be
- * something else — a text selection — by the time the finger lifts.
+ * something else, a text selection, by the time the finger lifts.
  */
 function addSessionSwipe(area, minDistance, canStart = () => true, canFinish = () => true) {
   let start = null;
@@ -1088,7 +1088,7 @@ function inSidewaysScroller(target) {
 }
 
 // The title is hard to reach one-handed, so the conversation itself swipes
-// too — the whole chat area, the empty room under a short one included.
+// too, the whole chat area, the empty room under a short one included.
 addSessionSwipe(document.querySelector('header .headcopy'), 48);
 addSessionSwipe(
   document.querySelector('main'),
@@ -1109,7 +1109,7 @@ function toggleMenu(event) {
 }
 
 /** Pulls the export the Mac wrote (into its Downloads) as a normal download.
- * Redaction is on by default — a phone should not carry raw keys. */
+ * Redaction is on by default, a phone should not carry raw keys. */
 async function exportSession() {
   closeMenu();
   if (currentSession === null) return;
@@ -1266,7 +1266,7 @@ async function loadOverview() {
   renderSessionList();
 }
 
-/** The folders sessions already use, offered when a new one is started — the
+/** The folders sessions already use, offered when a new one is started, the
  * phone's stand-in for the desktop's folder picker and project list. */
 function fillKnownFolders(sessions) {
   const list = document.getElementById('knownFolders');
@@ -1287,7 +1287,7 @@ function renderSessionList() {
   const list = document.getElementById('sessionList');
   list.innerHTML = '<div class="muted" style="padding:4px 2px">Sessions</div>';
   if (sessions.length === 0) {
-    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet — start one from the menu.</div>';
+    list.innerHTML += '<div class="faint" style="padding:4px 2px">No sessions yet, start one from the menu.</div>';
   } else if (shown.length === 0) {
     list.innerHTML += '<div class="faint" style="padding:4px 2px">No session matches.</div>';
   }
@@ -1373,7 +1373,7 @@ function fillModelPickers(providerId, modelId) {
       ? 'rotate: ' + (group === null ? '' : group.name + ' · ') + count + (count === 1 ? ' model' : ' models')
       : 'model: ' + (modelInfo.model || modelInfo.provider);
     select.appendChild(current);
-    // The models chosen in desktop Settings → Models are the whole list — the
+    // The models chosen in desktop Settings → Models are the whole list, the
     // same short list the desktop composer offers. None chosen, none listed.
     const picked = (modelInfo.rotation ?? []).filter((item) => item.provider === modelInfo.provider).map((item) => item.model);
     for (const m of picked) {
@@ -1395,7 +1395,7 @@ function fillModelPickers(providerId, modelId) {
 async function pickProvider(provider) {
   await pickModel(provider + '|');
 }
-/** Nothing typed, nothing to apply — the button stays out of the way. */
+/** Nothing typed, nothing to apply, the button stays out of the way. */
 function updateModelIdBtn() {
   const typed = document.getElementById('customModelId').value.trim();
   document.getElementById('useModelBtn').classList.toggle('hidden', typed === '');
@@ -1843,14 +1843,14 @@ function stepCount(count) {
   return count + (count === 1 ? ' step' : ' steps');
 }
 
-/* A run of tool calls folds into one line — the desktop's ToolGroup, verbatim:
+/* A run of tool calls folds into one line, the desktop's ToolGroup, verbatim:
  * "ran 5 steps" while it is history, "working · 5 steps" while it runs. */
 function toolGroupEl(items, live = false) {
   const details = document.createElement('details');
   details.className = 'tgroup';
   const summary = document.createElement('summary');
   // The live group says "working" between steps too, while the model picks
-  // its next tool — otherwise it flips to "ran" and back on every step.
+  // its next tool, otherwise it flips to "ran" and back on every step.
   const running = live || items.some((item) => item.result === undefined);
   const failed = items.filter((item) => item.result?.isError === true).length;
   const dot = document.createElement('span');
@@ -1858,7 +1858,7 @@ function toolGroupEl(items, live = false) {
   const label = document.createElement('span');
   label.className = 'tlabel';
   // The step count is kept on the element so a `phase` event can rewrite the
-  // header in place — one line naming both the phase and the count, as the
+  // header in place, one line naming both the phase and the count, as the
   // desktop draws it, instead of a second "working" line under the group.
   const count = stepCount(items.length);
   label.dataset.count = count;
@@ -1875,7 +1875,7 @@ function toolGroupEl(items, live = false) {
   details.addEventListener('toggle', () => {
     chev.textContent = details.open ? '\u2303' : '\u2304';
     // While this group is the live run, the working line mirrors it: expanded
-    // hides "working", collapsed shows it — so either line collapses the steps.
+    // hides "working", collapsed shows it, so either line collapses the steps.
     if (running && workingEl !== null) {
       workingEl.style.display = details.open ? 'none' : '';
     }
@@ -1956,7 +1956,7 @@ function renderTranscript(messages, summaries) {
   const el = document.getElementById('transcript');
   el.innerHTML = '';
   tailRunning = false;
-  // One summary per assistant turn, oldest first — the main process drops the
+  // One summary per assistant turn, oldest first, the main process drops the
   // ones whose run never answered, so the two lists line up from the end.
   const list = Array.isArray(summaries) ? summaries : [];
   const turnCount = foldTurns(messages).filter((turn) => turn.role === 'assistant' && !turn.continued).length;
@@ -2087,7 +2087,7 @@ async function applyStreamEvent(id, event) {
       }
     }
     else if (event.type === 'title') {
-      // Named by the main process once its first prompt is in — from here or the desktop.
+      // Named by the main process once its first prompt is in, from here or the desktop.
       const spec = lastSessions.find((entry) => entry.id === id);
       if (spec !== undefined) spec.title = event.title;
       // Made here a moment ago, so not in the last overview yet.
@@ -2121,7 +2121,7 @@ async function applyStreamEvent(id, event) {
     }
     else if (event.type === 'text_delta') {
       currentRunId = event.runId; settleLiveGroup(); liveGroup = null; appendLive(event.text);
-      // Under the text as it streams, as on the desktop — not taken away the
+      // Under the text as it streams, as on the desktop, not taken away the
       // moment words arrive, which dropped the transcript by a line.
       showWorking();
     }
@@ -2155,8 +2155,8 @@ async function applyStreamEvent(id, event) {
 }
 
 /* The transcript follows new output only while the reader is at its end.
- * Scrolling up to read stops it — the page used to be pulled back down on
- * every word — and scrolling back down, sending a prompt, or opening a
+ * Scrolling up to read stops it, the page used to be pulled back down on
+ * every word, and scrolling back down, sending a prompt, or opening a
  * session starts it again. */
 const FOLLOW_SLACK = 80;
 let following = true;
@@ -2169,7 +2169,7 @@ function followBottom(force) {
 }
 
 let workingEl = null;
-/** What the run says it is doing — set by `phase` events, shown on the line. */
+/** What the run says it is doing, set by `phase` events, shown on the line. */
 let runPhaseLabel = null;
 const PHASE_LABELS = {
   thinking: 'Thinking',
@@ -2179,8 +2179,8 @@ const PHASE_LABELS = {
   'follow-up': 'Processing follow-up'
 };
 function showWorking() {
-  // A running step group already names its phase in its own header — the one
-  // line the desktop draws — so the working line steps aside while it is up.
+  // A running step group already names its phase in its own header, the one
+  // line the desktop draws, so the working line steps aside while it is up.
   if (document.getElementById('transcript').querySelector('.tdot.live') !== null) {
     hideWorking();
     return;
@@ -2194,7 +2194,7 @@ function showWorking() {
     const label = document.createElement('span');
     workingEl.appendChild(dot);
     workingEl.appendChild(label);
-    // Tapping "working" folds the live steps back up — no scrolling up to find
+    // Tapping "working" folds the live steps back up, no scrolling up to find
     // the "ran N steps" header, and back down again to continue watching.
     workingEl.addEventListener('click', () => {
       if (liveGroup?.el !== null && liveGroup?.el !== undefined && document.contains(liveGroup.el)) {
@@ -2218,7 +2218,7 @@ function hideWorking() {
 
 /* The run of tool calls currently streaming. It is one element, rebuilt as
  * steps arrive, so the phone reads "working · 5 steps" mid-run and settles to
- * "ran 5 steps" — the same live group the desktop draws. */
+ * "ran 5 steps", the same live group the desktop draws. */
 let liveGroup = null;
 
 function liveToolStart(toolUseId, name, input) {
@@ -2269,7 +2269,7 @@ function redrawLiveGroup() {
   followBottom();
 }
 
-/* Something came after the live group — text, or a follow-up taken in — so
+/* Something came after the live group, text, or a follow-up taken in, so
  * it is history now and reads "ran N steps", still open if it was. */
 function settleLiveGroup() {
   const el = document.getElementById('transcript');
@@ -2282,9 +2282,9 @@ function settleLiveGroup() {
 
 let liveEl = null;
 
-/* One run's output, drawn the way the settled transcript draws it — one
+/* One run's output, drawn the way the settled transcript draws it, one
  * assistant message holding its text and its step groups, the working line
- * last — so the redraw when the run ends puts everything where it already is. */
+ * last, so the redraw when the run ends puts everything where it already is. */
 let liveRun = null;
 function liveRunEl() {
   const el = document.getElementById('transcript');
@@ -2548,7 +2548,7 @@ function attachmentsEl(items) {
   return wrap;
 }
 
-/* Documents a run produced, offered as downloads — the same rule the desktop
+/* Documents a run produced, offered as downloads, the same rule the desktop
  * uses: a successful write of something a person opens rather than reads. In
  * antichat every file it writes counts; it has no project to leave them in.
  * A file passed to share_file always counts, whatever its kind. */
@@ -2711,7 +2711,7 @@ const RESUME_GLYPH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="curr
 
 function updateSendBtn() {
   // The new-session page is a chat that has not started: currentSession is
-  // null there, but the composer must stay — it is where the first prompt is
+  // null there, but the composer must stay, it is where the first prompt is
   // typed. Only the sessions list (and the web/files views) put it away.
   const onNewPage = !document.getElementById('newSessionCard').classList.contains('hidden');
   document.getElementById('inputRow').classList.toggle('hidden', (!currentSession && !onNewPage)
@@ -2722,7 +2722,7 @@ function updateSendBtn() {
   btn.disabled = submitting || (currentRunId !== null && pausedSessions.has(currentSession));
   btn.classList.toggle('lime', state === 'resume');
   // Same glyphs as the desktop: an arrow to send, a square to pause, a play
-  // mark to resume — never the send arrow, which read as sending nothing.
+  // mark to resume, never the send arrow, which read as sending nothing.
   const glyph = state === 'running' ? PAUSE_GLYPH : state === 'resume' ? RESUME_GLYPH + '<span>Continue</span>' : SEND_GLYPH;
   if (btn.dataset.glyph !== state) { btn.innerHTML = glyph; btn.dataset.glyph = state; }
   const label = state === 'resume' ? 'Continue' : state === 'running' ? 'Pause' : 'Send';
@@ -2749,8 +2749,8 @@ function onSendBtn() {
   else void sendPrompt();
 }
 
-/* The Mac pauses whichever run is working in the session — started here or on
- * the desktop — and tells both screens; the marker arrives on the stream. When
+/* The Mac pauses whichever run is working in the session, started here or on
+ * the desktop, and tells both screens; the marker arrives on the stream. When
  * nothing was running, the run had already finished without this screen
  * hearing of it: there is nothing to resume, so it catches up instead of
  * offering a Continue that would start the work over. */
@@ -2817,7 +2817,7 @@ function hideReplyBtn() {
 /**
  * What was selected when the button appeared. iOS collapses the selection as
  * soon as the button is tapped, so reading it back inside the tap handler finds
- * nothing — the text has to be kept from the moment it was selected.
+ * nothing, the text has to be kept from the moment it was selected.
  */
 let pendingSelection = '';
 
@@ -2863,7 +2863,7 @@ document.addEventListener('pointerdown', (event) => {
   clearQuote();
 });
 
-/* The box empties the moment the prompt goes, not when the server answers —
+/* The box empties the moment the prompt goes, not when the server answers,
  * waiting left the sent words sitting there as if nothing had happened, and
  * the iOS keyboard could commit a pending word back into the cleared box. A
  * refused send puts the words back. */
@@ -3054,7 +3054,7 @@ function renderWeb() {
   document.getElementById('webBackBtn').disabled = nav.back !== true;
   document.getElementById('webFwdBtn').disabled = nav.forward !== true;
   if (entry === null) {
-    note.textContent = 'No page open yet — start one from a session, or type an address.';
+    note.textContent = 'No page open yet. Start one from a session, or type an address.';
     frame.classList.add('hidden');
     return;
   }
@@ -3073,7 +3073,7 @@ async function refreshWebList() {
 }
 
 /* What the picture on screen shows, so a poll only re-renders when the page
- * actually moved — a tall page that reloads under your thumb loses your place. */
+ * actually moved, a tall page that reloads under your thumb loses your place. */
 let shownWebKey = null;
 let webShotRequest = 0;
 
@@ -3103,7 +3103,7 @@ async function refreshWebShot(reload) {
   };
   next.onerror = () => {
     if (request !== webShotRequest) return;
-    loading.textContent = 'The page could not be rendered — tap Reload.';
+    loading.textContent = 'The page could not be rendered. Tap Reload.';
     shownWebKey = null;
   };
   loading.textContent = 'Loading…';
@@ -3250,7 +3250,7 @@ async function renderListing() {
       currentPath = joinPath(currentPath, entry);
       void renderListing().catch(showError);
     };
-    // Anything the agent produced — a PDF, a workbook — leaves the Mac here.
+    // Anything the agent produced, a PDF, a workbook, leaves the Mac here.
     if (!isFolder) {
       const link = document.createElement('a');
       link.className = 'dl';
@@ -3377,13 +3377,13 @@ function noteStatus(status) {
   updateChips();
 }
 
-/** The group in use, or null for the whole pool — the desktop's activeRotationGroup. */
+/** The group in use, or null for the whole pool, the desktop's activeRotationGroup. */
 function activeRotationGroup(info) {
   if (!info || info.rotationGroup === null || info.rotationGroup === undefined) return null;
   return (info.rotationGroups ?? []).find((group) => group.id === info.rotationGroup) ?? null;
 }
 
-/** What the model chip says — the desktop's modelLabel. */
+/** What the model chip says, the desktop's modelLabel. */
 function modelLabel(info) {
   if (!info) return '';
   if (info.provider === ROTATE) {
@@ -3546,7 +3546,7 @@ function renderRotation() {
   toggle.setAttribute('aria-checked', String(enabled));
   document.getElementById('rotationBody').classList.toggle('hidden', !enabled);
   // Groups are made on the Mac; here one is put in use. The list below is
-  // the one in use — the group's models, or the whole pool.
+  // the one in use, the group's models, or the whole pool.
   const groups = modelInfo?.rotationGroups ?? [];
   const group = activeRotationGroup(modelInfo);
   const picker = document.getElementById('rotGroup');
@@ -3589,7 +3589,7 @@ function renderRotation() {
       const spent = document.createElement('div');
       spent.className = 'pdetail';
       spent.style.color = '#e06c6c';
-      spent.textContent = 'out of usage — replace it, or it is tried only when nothing else is left';
+      spent.textContent = 'out of usage. Replace it, or it is tried only when nothing else is left.';
       spent.title = entry.outOfUsage.reason;
       text.appendChild(spent);
     }

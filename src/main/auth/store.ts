@@ -9,7 +9,7 @@ import type { AuthAccount, AuthTokens } from './types'
  * label, account, expiresAt) is plaintext so the UI can list accounts before
  * the keychain is unlocked; the tokens themselves are sealed with the OS
  * secure storage. Without a keychain we refuse to write tokens rather than
- * leave them in the clear — same rule as Settings → Providers.
+ * leave them in the clear, same rule as Settings → Providers.
  */
 
 interface StoreShape {
@@ -95,8 +95,8 @@ export function saveAuthAccount(account: AuthAccount, tokens: AuthTokens): void 
 
 /**
  * Rewrites only the tokens of an existing account, keeping its public half.
- * The two facts the Settings list reads off the public half — when the token
- * dies and whether it can be renewed — are kept in step here, so a refresh
+ * The two facts the Settings list reads off the public half, when the token
+ * dies and whether it can be renewed, are kept in step here, so a refresh
  * that drops the refresh token does not leave the UI promising one.
  */
 export function updateAuthTokens(id: string, tokens: AuthTokens): void {

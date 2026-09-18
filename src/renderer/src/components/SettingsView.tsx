@@ -76,11 +76,11 @@ function General({
         <SettingRow title="Provider" hint="The gateway new sessions talk to">
           {status?.provider === ROTATE_PROVIDER
             ? 'Rotate usage'
-            : (providers.find((entry) => entry.id === status?.provider)?.label ?? status?.provider ?? '—')}
+            : (providers.find((entry) => entry.id === status?.provider)?.label ?? status?.provider ?? '·')}
         </SettingRow>
         <SettingRow
           title="Model"
-          hint="New sessions start on the model picked last. Each session keeps its own — changing it in one tab leaves the others alone."
+          hint="New sessions start on the model picked last. Each session keeps its own, changing it in one tab leaves the others alone."
         >
           <span className="font-mono text-[12.5px]">{status === null || status.model !== '' || status.provider === ROTATE_PROVIDER ? modelLabel(status) : 'not set'}</span>
         </SettingRow>
@@ -146,7 +146,7 @@ function modelIds(text: string): string[] {
   return [...new Set(text.split(/[\n,]/).map((id) => id.trim()).filter((id) => id !== ''))]
 }
 
-/** "api.example.com/v1" from "https://api.example.com/v1" — for reading, not for use. */
+/** "api.example.com/v1" from "https://api.example.com/v1", for reading, not for use. */
 function hostOf(baseURL: string | undefined): string {
   if (baseURL === undefined || baseURL === '') return ''
   try {
@@ -299,7 +299,7 @@ function ProviderForm({
             type="password"
             value={values.apiKey}
             onChange={(event) => set({ apiKey: event.target.value })}
-            placeholder={hasKey ? 'Saved — leave empty to keep it' : values.kind === 'anthropic' ? 'sk-ant-…' : 'sk-…'}
+            placeholder={hasKey ? 'Saved. Leave empty to keep it.' : values.kind === 'anthropic' ? 'sk-ant-…' : 'sk-…'}
             autoComplete="off"
             className={inputClass}
           />
@@ -699,7 +699,7 @@ function ProviderDropdown({
 
 /**
  * The model id field, its suggestions in the app's own menu rather than the
- * OS's datalist — that one floats loose over the window in its own bold
+ * OS's datalist, that one floats loose over the window in its own bold
  * white. The menu is drawn in the body, under the field, because the card
  * holding the field clips anything that leaves it.
  */
@@ -892,12 +892,12 @@ function ModelCombo({
  * The Rotate usage pool: models that share the token load of every session
  * set to Rotate. A session stays on one for 2 prompts, then moves to the one
  * that has used the fewest tokens; one that fails hands the turn to the next
- * and rests for a minute. It runs only while switched on here — off, Rotate
+ * and rests for a minute. It runs only while switched on here, off, Rotate
  * is not offered and nothing is counted. Changes reach every window through
  * the status broadcast.
  *
  * Groups name parts of the pool for one kind of work. The tabs pick which one
- * is shown here; the one in use — marked lime — is what every session rotates
+ * is shown here; the one in use, marked lime, is what every session rotates
  * over, and putting another in use moves every composer with it.
  */
 function RotateUsage({
@@ -977,7 +977,7 @@ function RotateUsage({
 
   /**
    * Every group as the main process takes it back: the models picked by hand,
-   * and the providers linked whole — not the models those links bring in, or
+   * and the providers linked whole, not the models those links bring in, or
    * unlinking one would leave its models behind as picked ones.
    */
   function plainGroups(): RotationGroupInput[] {
@@ -989,7 +989,7 @@ function RotateUsage({
     }))
   }
 
-  /** Every group as it is, one of them rewritten — or, for null, removed. */
+  /** Every group as it is, one of them rewritten, or, for null, removed. */
   function groupsWith(id: string, change: (group: RotationGroupInput) => RotationGroupInput | null): RotationGroupInput[] {
     return plainGroups().flatMap((group) => {
       if (group.id !== id) return [group]
@@ -1135,7 +1135,7 @@ function RotateUsage({
       saved = await saveGroups(groupsWith(viewed.id, (group) => ({ ...group, entries: swapped(group.entries) })))
     } else if (replacing !== undefined) {
       // Replaced in the whole pool, it is replaced in every group it was in
-      // too — the groups first, so the pool can then let the spent one go.
+      // too, the groups first, so the pool can then let the spent one go.
       saved =
         (await saveGroups(plainGroups().map((group) => ({ ...group, entries: swapped(group.entries) })))) &&
         (await savePool(swapped(pool)))
@@ -1194,7 +1194,7 @@ function RotateUsage({
                 key={tab.id ?? ''}
                 type="button"
                 data-rotation-group={tab.name}
-                title={tab.id === inUseId ? `${tab.name} — in use` : tab.name}
+                title={tab.id === inUseId ? `${tab.name}, in use` : tab.name}
                 onClick={() => view(tab.id)}
                 className={tabClass(tab.id === (viewed?.id ?? null))}
               >
@@ -1288,7 +1288,7 @@ function RotateUsage({
                 ) : (
                   <button
                     type="button"
-                    title={`Delete the ${viewed.name} group — its models stay in the pool`}
+                    title={`Delete the ${viewed.name} group. Its models stay in the pool.`}
                     onClick={() => setConfirming('delete-group')}
                     className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-del"
                   >
@@ -1315,7 +1315,7 @@ function RotateUsage({
                     <div className="truncate text-[13px] text-text">All {label} models</div>
                     <div className="mt-0.5 truncate text-[11.5px] text-faint">
                       {count === 0
-                        ? 'None switched on yet — switch some on in Settings → Models'
+                        ? 'None switched on yet. Switch some on in Settings → Models.'
                         : `${providerReady}/${count} ready in Settings → Models · ones switched on later join too`}
                     </div>
                   </div>
@@ -1367,7 +1367,7 @@ function RotateUsage({
                     >
                       {entry.label} ·{' '}
                       {spent !== null
-                        ? `ran out ${sinceLabel(spent.since)} — replace it, or it is tried only when nothing else is left`
+                        ? `ran out ${sinceLabel(spent.since)}. Replace it, or it is tried only when nothing else is left.`
                         : `${compactTokens(entry.inputTokens)} in · ${compactTokens(entry.outputTokens)} out`}
                     </div>
                   </div>
@@ -1387,7 +1387,7 @@ function RotateUsage({
                   {viaLink ? (
                     <span
                       className="shrink-0 px-2 py-0.5 text-[11.5px] text-faint"
-                      title={`In ${viewed.name} with every ${entry.label} model — switch it off in Settings → Models to leave`}
+                      title={`In ${viewed.name} with every ${entry.label} model, switch it off in Settings → Models to leave`}
                     >
                       via {entry.label}
                     </span>
@@ -1534,7 +1534,7 @@ function RotateUsage({
   )
 }
 
-/** The model being added — in place of a spent one, when `replacing` is set. */
+/** The model being added, in place of a spent one, when `replacing` is set. */
 interface Adding {
   provider: ProviderId | null
   model: string
@@ -1745,7 +1745,7 @@ function Models({
             {catalogue === null
               ? 'Loading models…'
               : pickedOnly
-                ? 'Nothing picked from this provider yet — the composer offers none of its models.'
+                ? 'Nothing picked from this provider yet, so the composer offers none of its models.'
                 : catalogue.error !== null
                   ? `Could not load the model list: ${catalogue.error}. Type an id above and press Enter.`
                   : 'No models match.'}
@@ -1811,7 +1811,7 @@ function Remote(): JSX.Element {
               )}
               <div className="min-w-0 flex-1">
                 <div className="mb-2 text-[12px] text-faint">
-                  Scan the QR code with the phone camera, or open this URL — then use “Add to
+                  Scan the QR code with the phone camera, or open this URL, then use “Add to
                   Home Screen” for an app-like icon:
                 </div>
                 <div className="glass-field mb-3 break-all rounded-lg border px-3 py-2 font-mono text-[12px] text-text select-all">

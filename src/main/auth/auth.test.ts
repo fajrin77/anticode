@@ -114,7 +114,7 @@ it('lists an account whose seal will not open as unusable rather than hiding it'
 it('turns a renewal the vendor cannot do into advice instead of a bare failure', async () => {
   resetAuthStoreForTests()
   saveAuthAccount(account('auth:codebuddy', 'codebuddy'), { accessToken: 'a' })
-  await expect(refreshAuthAccount('auth:codebuddy')).rejects.toThrow(/sign in again/)
+  await expect(refreshAuthAccount('auth:codebuddy')).rejects.toThrow(/Sign in again/)
   await expect(refreshAuthAccount('auth:nothing')).rejects.toThrow(/no longer stored/)
 
   saveAuthAccount(account('auth:claude', 'claude'), { accessToken: 'a' })

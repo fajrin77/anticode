@@ -69,7 +69,7 @@ function createWindow(): BrowserWindow {
   }
   setMainWindow(window, createWindow)
   // Without a tray icon to come back through, closing the window on Windows
-  // and Linux means quitting — the hidden capture panel must not keep it alive.
+  // and Linux means quitting, the hidden capture panel must not keep it alive.
   window.on('closed', () => {
     if (process.platform !== 'darwin' && !preferences().tray) app.quit()
   })
@@ -136,13 +136,13 @@ void app.whenReady().then(async () => {
   onPreferences((next, previous) => {
     if (next.tray !== previous.tray) applyTray()
   })
-  // Taken already by another app, the tray menu still opens the panel — but
+  // Taken already by another app, the tray menu still opens the panel, but
   // say so, or the shortcut silently never works and nobody knows why.
   if (!globalShortcut.register('CommandOrControl+Shift+Space', () => showMainWindow())) {
-    console.warn('[anticode] CommandOrControl+Shift+Space is taken by another app — the tray menu still opens the window.')
+    console.warn('[anticode] CommandOrControl+Shift+Space is taken by another app, the tray menu still opens the window.')
   }
   if (!globalShortcut.register(QUICK_CAPTURE_SHORTCUT, () => showQuickCapture())) {
-    console.warn(`[anticode] ${QUICK_CAPTURE_SHORTCUT} is taken by another app — quick capture is still reachable from the tray.`)
+    console.warn(`[anticode] ${QUICK_CAPTURE_SHORTCUT} is taken by another app, quick capture is still reachable from the tray.`)
   }
   // Test harnesses have no menu bar to click; they open the panel through this.
   if (process.env['ANTICODE_TEST_HOOKS'] === '1') Object.assign(globalThis, { anticodeTest: { showQuickCapture } })

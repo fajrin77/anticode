@@ -9,7 +9,7 @@ import { noteWebUrl } from '../web'
 const MAX_STREAM_CHARS = 10_000
 
 /**
- * Dev servers announce themselves — "Local: http://localhost:5173/" — and that
+ * Dev servers announce themselves, "Local: http://localhost:5173/", and that
  * line is the whole reason the browser pane exists, so it is picked out of the
  * output and opened without anyone having to ask for it.
  */
@@ -39,7 +39,7 @@ function collect(chunks: string[], limit: number): string {
 }
 
 /**
- * Killing only the shell leaves its children — dev servers, test runners —
+ * Killing only the shell leaves its children, dev servers, test runners,
  * running as orphans. The child gets its own process group (POSIX) so one
  * signal reaches everything it spawned; Windows walks the tree via taskkill.
  */

@@ -1,7 +1,7 @@
 import * as electron from 'electron'
 
 /*
- * Secrets typed into Settings — API keys, an MCP server's tokens — are sealed
+ * Secrets typed into Settings, API keys, an MCP server's tokens, are sealed
  * with the OS's secure storage (Keychain on macOS, DPAPI on Windows) before
  * they touch disk. Without secure storage nothing is written: the secret
  * works for this run and has to be entered again after a restart.

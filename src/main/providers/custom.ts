@@ -143,7 +143,7 @@ export function checkedBaseURL(input: string): string {
 
 /**
  * Model ids as typed: commas or new lines between them, surrounding blanks
- * and repeats dropped, order kept — the first is the one a provider starts on.
+ * and repeats dropped, order kept, the first is the one a provider starts on.
  */
 export function cleanModelIds(input: unknown): string[] {
   const raw = Array.isArray(input) ? input.join('\n') : typeof input === 'string' ? input : ''

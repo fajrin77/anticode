@@ -47,7 +47,7 @@ const COMPACTION_TIMEOUT_MS = 120_000
 const COMPACTION_SYSTEM = [
   'You compact the earlier part of a working session between a user and anticode, a coding agent, so the ' +
     'agent can carry on without the full history.',
-  'Write the memory in one language only — the language the user mostly writes in. Never mix languages in ' +
+  'Write the memory in one language only, the language the user mostly writes in. Never mix languages in ' +
     'one sentence, never insert words from another language for terms that have an everyday word in the ' +
     "user's language. Keep code identifiers, file paths, commands, and model names exactly as they appear.",
   'Structure it under short headings:',
@@ -77,7 +77,7 @@ const MAX_IDENTICAL_TOOL_ROUNDS = 3
  * state the model published at its first step.
  */
 const FINISH_PLAN_PROMPT =
-  '[The checklist for this run still has unfinished items. Call todo_write first — mark every item whose work ' +
+  '[The checklist for this run still has unfinished items. Call todo_write first, mark every item whose work ' +
   'is already done as completed, keep exactly one item in_progress, then keep working. Do not stop at a stage ' +
   'boundary, do not ask the user to type continue, and do not only describe the next step. When the last item ' +
   'is done, verify the complete result before your final answer.]'
@@ -104,21 +104,21 @@ export type ProviderFallback = (error: unknown) => LLMProvider | null
 /** A prompt taken back out of the session, ready to be edited or sent again. */
 export interface TakenBack {
   prompt: string
-  /** Everything else in that turn — attachment headers, images, folded follow-ups. */
+  /** Everything else in that turn, attachment headers, images, folded follow-ups. */
   attachments: ContentBlock[]
   /** The part of the record that went, for callers that keep per-turn tallies. */
   removed: Message[]
 }
 
 export interface AgentOptions {
-  /** Replaces the mode's tool set — a sub-agent gets the read-only kit. */
+  /** Replaces the mode's tool set, a sub-agent gets the read-only kit. */
   tools?: Tool[]
   /** Answers one question for a parent run, then stops; it has a step ceiling. */
   subagent?: boolean
   /** Where this session's file checkpoints live, so Revert survives a restart. */
   checkpointDir?: string
   /**
-   * The user's own instructions — for every session, then for this one —
+   * The user's own instructions, for every session, then for this one,
    * read on every request, so a change in Settings applies from the next step.
    */
   instructions?: () => { global: string; session: string }
@@ -162,7 +162,7 @@ function describeError(error: unknown, provider?: LLMProvider): string {
   // the wording asks for a retry rather than sending the user to settings.
   if (/^(terminated|fetch failed|connection error|socket hang up|other side closed)$/i.test(message.trim())) {
     const name = provider?.name === undefined ? 'the provider' : provider.name
-    return `Connection to ${name} dropped (${message.trim()}). The run was stopped; press Continue to pick it up — if it keeps failing, check your internet connection, not the provider settings.`
+    return `Connection to ${name} dropped (${message.trim()}). The run was stopped; press Continue to pick it up. If it keeps failing, check your internet connection, not the provider settings.`
   }
   // Retrying a spent quota only fails again; name the way out.
   if (isOutOfUsage(error)) {
@@ -180,7 +180,7 @@ function truncate(output: string): string {
 
 function stubOutput(content: string): string {
   return (
-    `[earlier tool output elided — ${content.length} characters total]\n` +
+    `[earlier tool output elided, ${content.length} characters total]\n` +
     content.slice(-STUB_CHARS)
   )
 }
@@ -312,7 +312,7 @@ export class AgentSession {
     this.fallback = fallback
   }
 
-  /** What the model is offered now — MCP servers may have come or gone since the last step. */
+  /** What the model is offered now, MCP servers may have come or gone since the last step. */
   private toolset(): Tool[] {
     return this.fixedTools ?? toolsFor(this.mode)
   }
@@ -333,15 +333,15 @@ export class AgentSession {
       this.activePlan = false
       // A pause can land between an instruction arriving and the run taking it
       // in. It was sent, and the user saw it sent, so it goes into the history
-      // rather than vanishing — the next run (a resume) reads it there.
+      // rather than vanishing, the next run (a resume) reads it there.
       this.settleFollowUps()
     }
   }
 
   /**
    * Hands an instruction to the run that is working now. It is taken in at
-   * the run's next step — after the tools in flight return, or once the model
-   * finishes the reply it is writing — and the run carries on with both. False
+   * the run's next step, after the tools in flight return, or once the model
+   * finishes the reply it is writing, and the run carries on with both. False
    * when there is no run to hand it to, or the one there is already stopping.
    */
   steer(text: string, attachments: ContentBlock[] = []): boolean {
@@ -462,7 +462,7 @@ export class AgentSession {
         // them: the model reads what its tools did, then what was added.
         const added = signal.aborted ? [] : takeIn()
         const limit: ContentBlock[] = steps >= stepLimit
-          ? [{ type: 'text', text: '[Step limit reached. Do not call any more tools — write your final report now.]' }]
+          ? [{ type: 'text', text: '[Step limit reached. Do not call any more tools. Write your final report now.]' }]
           : steps >= stepLimit - 4
             ? [{ type: 'text', text: '[Approaching the step limit. Finish the remaining plan items without detours.]' }]
             : []
@@ -548,12 +548,12 @@ export class AgentSession {
         return await this.streamTurn(params)
       } catch (error) {
         if (params.signal.aborted) throw error
-        // Words already shown cannot be taken back: another attempt — or
-        // another model — would write its whole reply after them. The run
+        // Words already shown cannot be taken back: another attempt, or
+        // another model, would write its whole reply after them. The run
         // stops instead; the words are kept and Continue carries on from them.
         if (this.streamed !== '') throw error
-        // Under rotation a provider that fails — rate limited, out of quota,
-        // down — hands the turn to the next one at once rather than being
+        // Under rotation a provider that fails, rate limited, out of quota,
+        // down, hands the turn to the next one at once rather than being
         // waited out. Only once every one has failed do the retries below run.
         const next = this.fallback?.(error) ?? null
         if (next !== null) {
@@ -607,7 +607,7 @@ export class AgentSession {
   }
 
   /**
-   * Squashes tool outputs from older turns to stubs — only the newest few tool
+   * Squashes tool outputs from older turns to stubs, only the newest few tool
    * turns stay verbatim. Every request replays the whole history, so without
    * this each step gets slower as the session grows. Prompts, narration, and
    * errors (short by nature) are left untouched.
@@ -638,14 +638,14 @@ export class AgentSession {
 
   /**
    * Once the replayed history would blow past the context budget, the oldest
-   * prompt turns are replaced by a memory the model writes of them — goals,
+   * prompt turns are replaced by a memory the model writes of them, goals,
    * decisions, files, results, state. The cut lands on plain user prompts only,
    * never between an assistant tool_use and its tool_result, which providers
    * reject; and it leaves headroom, so the next steps do not compact again.
    */
   private async compactHistory(params: RunParams): Promise<void> {
     // The budget is the model's own window when it is known (Gemini 1M, GLM
-    // 200k...), and the shared default otherwise — so big-window models stop
+    // 200k...), and the shared default otherwise, so big-window models stop
     // compacting long before their real limit.
     const budget = historyBudgetFor(this.provider.model)
     const compactTarget = Math.floor(budget * 0.72)
@@ -721,7 +721,7 @@ export class AgentSession {
   /**
    * The memory of the dropped turns, written by the session's own model. A
    * provider that fails, stalls, or answers nothing gets the deterministic
-   * digest instead — compaction must never be what stops a run.
+   * digest instead, compaction must never be what stops a run.
    */
   private async writeMemory(removed: Message[], signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<string> {
     const digest = summariseMessages(removed)
@@ -850,7 +850,7 @@ export class AgentSession {
    * Runs one `task` in a child session: same model, same folder, a fresh
    * history, read-only tools. Its steps are reported as progress on the call
    * that started it and its tokens count toward this run, but only its final
-   * report comes back — that is what keeps the parent's context small.
+   * report comes back, that is what keeps the parent's context small.
    */
   private async runSubagent(task: DelegatedTask, toolUseId: string, params: RunParams): Promise<string> {
     const child = new AgentSession(this.provider, this.gate, 'code', this.workspaceRoot, [], this.scope, {
@@ -910,8 +910,8 @@ export class AgentSession {
   /**
    * Stopped while the model was writing: what it wrote so far stays, as its
    * turn, so a resume continues it rather than starting it over. A tool call
-   * it was halfway through spelling out cannot be kept — its arguments are cut
-   * off — but the words before it are.
+   * it was halfway through spelling out cannot be kept, its arguments are cut
+   * off, but the words before it are.
    */
   private keepInterruptedReply(): string | null {
     const said = this.streamed.trim()
@@ -986,8 +986,8 @@ export class AgentSession {
   get messageCount(): number { return this.transcript.length }
 
   /**
-   * Drops the most recent exchange — the last typed prompt and everything the
-   * run made of it — and hands the prompt back so it can be corrected and sent
+   * Drops the most recent exchange, the last typed prompt and everything the
+   * run made of it, and hands the prompt back so it can be corrected and sent
    * again. Only meaningful between runs; the caller cancels first.
    */
   revertLastTurn(): string | null {
@@ -1008,7 +1008,7 @@ export class AgentSession {
 
   /**
    * Takes back the `count`-th typed prompt from the end and everything after
-   * it — replies, later prompts, and the files their runs changed — and hands
+   * it, replies, later prompts, and the files their runs changed, and hands
    * that prompt back whole, attachments included, to edit or send again.
    * Follow-ups and resumes are not typed prompts: they ride with the prompt
    * before them. Null when there are not that many prompts.
@@ -1057,8 +1057,8 @@ export class AgentSession {
 
   /**
    * Keeps what a mutating tool is about to change, once per run: the paths it
-   * names (edit, write, delete, Excel, Word, PDF), or — for a shell command,
-   * which names none — a scan of the workspace to compare against afterwards.
+   * names (edit, write, delete, Excel, Word, PDF), or, for a shell command,
+   * which names none, a scan of the workspace to compare against afterwards.
    */
   private async captureCheckpoint(tool: Tool, call: ToolUseBlock): Promise<WorkspaceScan | null> {
     if (this.checkpoints === null || tool.readOnly) return null
@@ -1100,7 +1100,7 @@ export class AgentSession {
       ...(given !== undefined && given.session.trim() !== '' ? [`Instructions from the user, for this session:\n\n${given.session.trim()}`] : [])
     ]
     // One prompt turned on plan mode for this run: the model prepares the
-    // work and stops. The flag lives on the run, not on the session — the
+    // work and stops. The flag lives on the run, not on the session, the
     // next prompt goes back to building, whichever way the button sits.
     if (this.activePlan === true) {
       sections.push(
@@ -1130,7 +1130,7 @@ export class AgentSession {
         '- Every path is relative to the workspace root. Search before reading; issue independent calls together.',
         '- Nobody can answer questions from you. Make reasonable assumptions and note them.',
         '- Stop as soon as you can answer. Your final reply is your report, and it is all the main agent sees: ' +
-          'it cannot see the files you read. Make it self-contained and concise — findings, file paths with line ' +
+          'it cannot see the files you read. Make it self-contained and concise, findings, file paths with line ' +
           'numbers, relevant snippets, and anything you could not confirm.',
         '- Do not use emojis or decorative symbols.'
       ]
@@ -1152,15 +1152,15 @@ export class AgentSession {
         'Use browser and internet tools whenever current or externally verifiable information would ' +
           'improve the answer. Browser state belongs to this session.',
         'To find something you do not already know the address of, call web_search first, then read ' +
-          'the result you chose with fetch_url or browser_navigate — the snippets are a summary, not ' +
+          'the result you chose with fetch_url or browser_navigate, the snippets are a summary, not ' +
           'the page. Never guess a URL, and never answer from memory when the user asks about ' +
           'anything current, released, priced, or otherwise checkable.',
         'When the user asks to create an image, call generate_image and return its file card.',
-        'To change an attached file, read it first, then edit that copy in place — or write a ' +
+        'To change an attached file, read it first, then edit that copy in place, or write a ' +
           'new file next to it when the user wants a separate one. You can also create new ' +
           'documents there. Every document you write is offered to the user as a download on ' +
           'the desktop and the phone, so say what you changed instead of pasting the file back. ' +
-          'To hand back a file you did not write — an attachment as it is — call share_file on it.',
+          'To hand back a file you did not write, an attachment as it is, call share_file on it.',
         'If the user refers to a specific local file that is not attached, ask them to attach it. ' +
           'You may still create new files or use terminal, browser, and internet tools without an attachment.',
         'Use search_files to locate workspace content instead of reading files one by one. Read a file ' +
@@ -1190,13 +1190,13 @@ export class AgentSession {
       '- Use todo_write only when the user gives three or more distinct prompts/outcomes to complete together. ' +
         'Each checklist item must represent one complete user outcome, not an internal phase such as inspect, edit, or test. ' +
         'Finish every checklist item in this same run, keep the checklist current, and never stop between items or ask the user to type continue.',
-      '- For broad exploration across many files, delegate to the task tool — several task calls in one turn ' +
-        'run in parallel — and keep your own context for the work itself.',
+      '- For broad exploration across many files, delegate to the task tool, several task calls in one turn ' +
+        'run in parallel, and keep your own context for the work itself.',
       '- Check that a tool or dependency already exists before installing or re-running it.',
       '- For a library, API, error message, or release you are not sure of, call web_search and then ' +
         'read the result with fetch_url instead of guessing a URL or answering from memory.',
-      '- When the work genuinely cannot proceed without the user\u2019s preference — which approach, ' +
-        'which scope, which destination — call ask_question with 2-4 clickable options instead of ' +
+      '- When the work genuinely cannot proceed without the user\u2019s preference, which approach, ' +
+        'which scope, which destination, call ask_question with 2-4 clickable options instead of ' +
         'guessing. Never use it for progress reports or for what the files already say.',
       '- When the user asks to create an image, call generate_image and return its file card.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
@@ -1205,7 +1205,7 @@ export class AgentSession {
         'To change one, work on that copy.',
       '- A file reaches the user as a downloadable card only in two ways: a document ' +
         '(.pdf, .xlsx, .xlsm, .docx, .csv, .pptx, .zip) written successfully by one of your tools, or a ' +
-        'share_file call. Anything else — source files, files copied or built with run_command — is ' +
+        'share_file call. Anything else, source files, files copied or built with run_command, is ' +
         'invisible to the user until you call share_file on it. ' +
         'When the user wants to get or open a file, call share_file; never say a file is shown or ' +
           'downloadable unless one of those calls succeeded in this turn. Download cards render below your reply, ' +
@@ -1224,7 +1224,7 @@ export class AgentSession {
 
 /**
  * What the user typed first. Attachment headers ride ahead of the prompt in
- * the same turn, so the first text block is not enough — it would name the
+ * the same turn, so the first text block is not enough, it would name the
  * session after a file.
  */
 export function titleOf(messages: Message[]): string {

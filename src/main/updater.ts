@@ -13,7 +13,7 @@ import type { UpdateSettings, UpdateState } from '@shared/ipc'
  * anticode's own updater. The builds are personal and unsigned, which rules
  * out Squirrel (macOS refuses to swap an unsigned bundle through it), so this
  * does the three steps itself: find the newest build at a source the user set,
- * download it — checking its sha512 when the source lists one — and, only when
+ * download it, checking its sha512 when the source lists one, and, only when
  * the user says so, swap it in through a small helper that waits for the app
  * to quit. A source is a GitHub repository, an electron-builder feed URL, or a
  * local folder such as a project's own `release/`.
@@ -87,7 +87,7 @@ export function feedName(platform: Platform): string {
 /**
  * The installer that fits this machine, by name: a zip or dmg on macOS (for
  * this CPU, or universal), an exe on Windows, an AppImage on Linux. A zip is
- * preferred on macOS — it unpacks without mounting anything.
+ * preferred on macOS, it unpacks without mounting anything.
  */
 export function pickAssetName(names: string[], platform: Platform): string | null {
   const fits = (name: string): boolean => {
@@ -166,14 +166,14 @@ export async function findLatest(source: UpdateSource, platform: Platform): Prom
       const assets = release.assets ?? []
       // The feed the build itself wrote names the file for this platform and
       // carries its checksum, so the version reported and the binary offered
-      // always describe the same build — a release that still holds an older
+      // always describe the same build, a release that still holds an older
       // installer beside the new one can no longer hand out the wrong one.
       const feedAsset = assets.find((entry) => entry.name === feedName(platform))
       let chosen: { version: string; asset: { name: string; browser_download_url: string }; sha512: string | null } | null = null
       /** GitHub normalises spaces and some punctuation to dots in asset names,
        * while the feed keeps them as the builder wrote them, so the match
        * ignores everything that is not a letter, digit, or dot-delimited
-       * version — "anticode-Setup-0.0.32.exe", "anticode.Setup.0.0.32.exe",
+       * version, "anticode-Setup-0.0.32.exe", "anticode.Setup.0.0.32.exe",
        * and "anticode Setup 0.0.32.exe" are one and the same installer. */
       const loose = (value: string): string => value.toLowerCase().replace(/[-_. ]+/g, '.')
       if (feedAsset !== undefined) {

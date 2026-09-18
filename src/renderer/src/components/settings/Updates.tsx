@@ -14,7 +14,7 @@ function when(timestamp: number | null): string {
 
 /**
  * Where updates come from and what happens with them. Checking and
- * downloading may run on their own; installing never does — it quits the app,
+ * downloading may run on their own; installing never does, it quits the app,
  * so it waits for the button.
  */
 export function Updates(): JSX.Element {

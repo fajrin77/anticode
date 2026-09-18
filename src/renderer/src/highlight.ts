@@ -1,7 +1,7 @@
 /*
  * A small line tokenizer for the diff viewer. It knows comments, strings,
  * numbers, keywords, types, and calls for the languages a coding session
- * mostly touches — enough to read a diff at a glance, nothing like a parser.
+ * mostly touches, enough to read a diff at a glance, nothing like a parser.
  * State (a block comment or a multi-line string) carries from line to line,
  * so feed it the lines of one side of a file in order.
  */

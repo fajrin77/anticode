@@ -58,7 +58,7 @@ export const editFileTool = defineTool({
       return {
         kind: 'text',
         subject: input.path,
-        detail: `old_string appears ${occurrences} times — expand the context to make it unique. Nothing was changed.`
+        detail: `old_string appears ${occurrences} times: expand the context to make it unique. Nothing was changed.`
       }
     }
     return {
@@ -82,7 +82,7 @@ export const editFileTool = defineTool({
     }
 
     if (input.old_string === input.new_string) {
-      throw new ToolError('old_string and new_string are identical — nothing to change')
+      throw new ToolError('old_string and new_string are identical: nothing to change')
     }
 
     const occurrences = original.split(input.old_string).length - 1

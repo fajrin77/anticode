@@ -103,7 +103,7 @@ export async function loginClaude(callbacks: AuthLoginCallbacks): Promise<AuthTo
       code_verifier: verifier
     })
   })
-  if (!response.ok) throw new Error(`Claude token exchange failed — ${await reason(response)}`)
+  if (!response.ok) throw new Error(`Claude token exchange failed: ${await reason(response)}`)
   const tokens = toTokens((await response.json()) as TokenResponse)
   callbacks.onUpdate({ message: 'Signed in', done: true })
   return tokens
@@ -120,7 +120,7 @@ export async function refreshClaude(tokens: AuthTokens): Promise<AuthTokens> {
       client_id: CLIENT_ID
     })
   })
-  if (!response.ok) throw new Error(`Claude refresh failed — ${await reason(response)}`)
+  if (!response.ok) throw new Error(`Claude refresh failed: ${await reason(response)}`)
   return toTokens((await response.json()) as TokenResponse, tokens)
 }
 

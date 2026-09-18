@@ -70,7 +70,7 @@ export const tools: Tool[] = [
 
 /**
  * A sub-agent's kit: reading only. No editing, no terminal, no browser page
- * (it is shared with the parent), and no `task` of its own — one level deep.
+ * (it is shared with the parent), and no `task` of its own, one level deep.
  * Searching is reading too, and a sub-agent sent to find something out is the
  * one that needs it most; it runs on a page of its own, not the parent's.
  */
@@ -86,7 +86,7 @@ const SUBAGENT_TOOL_NAMES = new Set([
 ])
 
 /**
- * Tools from outside the app — MCP servers — registered by whoever runs them.
+ * Tools from outside the app, MCP servers, registered by whoever runs them.
  * Asked on every request, since servers connect and change their lists while
  * sessions are open.
  */

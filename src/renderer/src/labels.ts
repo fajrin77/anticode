@@ -1,5 +1,5 @@
 /**
- * The app's own voice in a transcript — lines it writes about itself rather
+ * The app's own voice in a transcript, lines it writes about itself rather
  * than anything the model or the user said. The phone page carries the same
  * words (it cannot import this); a unit test holds the two together.
  */

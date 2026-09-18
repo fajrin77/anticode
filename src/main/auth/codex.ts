@@ -48,7 +48,7 @@ function claims(idToken: string | undefined): IdTokenClaims {
 
 /**
  * Carries the id token's claims forward. The Codex backend wants the numeric
- * ChatGPT account id in its own header — not the email — and a refresh grant
+ * ChatGPT account id in its own header, not the email, and a refresh grant
  * does not always return a new id token, so whatever the login learned is
  * kept alongside the tokens.
  */
@@ -132,7 +132,7 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
       state: result.state
     })
   })
-  if (!response.ok) throw new Error(`ChatGPT token exchange failed — ${await reason(response)}`)
+  if (!response.ok) throw new Error(`ChatGPT token exchange failed: ${await reason(response)}`)
   const tokens = toTokens((await response.json()) as TokenResponse)
   callbacks.onUpdate({ message: 'Signed in', done: true })
   return tokens
@@ -151,7 +151,7 @@ export async function refreshCodex(tokens: AuthTokens): Promise<AuthTokens> {
       scope: SCOPES
     })
   })
-  if (!response.ok) throw new Error(`ChatGPT refresh failed — ${await reason(response)}`)
+  if (!response.ok) throw new Error(`ChatGPT refresh failed: ${await reason(response)}`)
   return toTokens((await response.json()) as TokenResponse, tokens)
 }
 

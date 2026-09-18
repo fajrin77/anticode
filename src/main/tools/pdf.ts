@@ -15,7 +15,7 @@ const MAX_TEXT_CHARS = 20_000
  * @napi-rs/canvas is present. Missing there, startup died with
  * "ReferenceError: DOMMatrix is not defined" on Windows. The geometry part
  * of that package is plain JavaScript, so we install the three classes
- * ourselves before the PDF stack is imported — and the import itself is lazy
+ * ourselves before the PDF stack is imported, and the import itself is lazy
  * so a future failure degrades to a failed PDF read, not a dead app.
  */
 type PdfParseModule = typeof import('pdf-parse')
@@ -58,7 +58,7 @@ export async function summarisePdf(filePath: string): Promise<string> {
  * The first PDF read pays a multi-second cold load (pdfjs module graph plus
  * worker init). Run one tiny throwaway parse once startup has settled, so a
  * real read later feels instant. Best effort: a failure here must never
- * surface — the real read will report its own error.
+ * surface, the real read will report its own error.
  */
 export function warmPdfParser(): void {
   setTimeout(() => {

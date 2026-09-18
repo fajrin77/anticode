@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { JSX } from 'react'
 
 /**
- * The anticode wordmark. The lime `<X` mark is fixed — it never changes. The
+ * The anticode wordmark. The lime `<X` mark is fixed, it never changes. The
  * "anticode" letters rest as flat grey; as the cursor comes close they turn
  * into frosted glass: a pale translucent white with a thin rim and a soft
  * outer glow, so the letters read as a pane rather than as paint.

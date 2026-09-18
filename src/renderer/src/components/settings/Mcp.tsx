@@ -101,7 +101,7 @@ function Editor({ initial, onDone }: { initial: Draft; onDone: () => void }): JS
   return (
     <div className="flex flex-col gap-2.5 border-t border-line-soft px-5 py-4">
       <div className="flex gap-2">
-        <input value={draft.name} onChange={(event) => set({ name: event.target.value })} placeholder="Name — github, filesystem, …" className={field} />
+        <input value={draft.name} onChange={(event) => set({ name: event.target.value })} placeholder="Name: github, filesystem, …" className={field} />
         <div className="flex shrink-0 items-center gap-0.5">
           {(['stdio', 'http'] as const).map((option) => (
             <button
@@ -160,7 +160,7 @@ function Editor({ initial, onDone }: { initial: Draft; onDone: () => void }): JS
       <div className="flex items-center gap-3">
         <label className="flex items-center gap-2 text-[12.5px] text-dim">
           <Toggle on={draft.trust} onChange={(value) => set({ trust: value })} label="Trust this server" />
-          Trust — run its tools without asking
+          Trust: run its tools without asking
         </label>
         <div className="flex-1" />
         <button type="button" onClick={onDone} className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:text-brand">

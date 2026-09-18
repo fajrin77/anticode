@@ -10,8 +10,8 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * The only way a file the agent did not write with a document tool — a build
- * output, something a command produced, a copy — reaches the user as a file
+ * The only way a file the agent did not write with a document tool, a build
+ * output, something a command produced, a copy, reaches the user as a file
  * card. The transcript draws the card from this call itself, so the agent
  * cannot say a file is there without it actually being there.
  */
@@ -20,7 +20,7 @@ export const shareFileTool = defineTool({
   description:
     'Show an existing file to the user as a file card in the conversation, with Preview and Download, ' +
     'on the desktop and the phone. Use it whenever the user wants to get, open, or download a file ' +
-    'that you did not write with an Excel/Word/PDF tool — for example a build output or a file made ' +
+    'that you did not write with an Excel/Word/PDF tool, for example a build output or a file made ' +
     'by a command. The file stays where it is; nothing is copied.',
   readOnly: true,
   risk: 'low',

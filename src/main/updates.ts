@@ -16,8 +16,8 @@ const FIRST_CHECK_MS = 20_000
 
 /**
  * Updates come from exactly one place: the repository this app is released
- * from. It is not a setting, so nothing typed into an older build — or into
- * this one — can point the updater somewhere else.
+ * from. It is not a setting, so nothing typed into an older build, or into
+ * this one, can point the updater somewhere else.
  */
 const OFFICIAL_REPO = 'fajrin77/anticode'
 
@@ -38,7 +38,7 @@ function workDirectory(): string {
 }
 
 /**
- * Old builds pile up here — one download per version the app ever pulled.
+ * Old builds pile up here, one download per version the app ever pulled.
  * Keeping only what the current state needs, the rest goes: a staging copy
  * is tens or hundreds of megabytes the user never asked to keep.
  */
@@ -141,7 +141,7 @@ export async function checkForUpdates(): Promise<UpdateState> {
     publish({ status: same ? 'ready' : 'available', latest: found.version, notes: found.notes, checkedAt, progress: null })
     if (announcedVersion !== found.version) {
       announcedVersion = found.version
-      notify('update', { title: 'anticode', body: `Version ${found.version} is available — Settings → Updates.` })
+      notify('update', { title: 'anticode', body: `Version ${found.version} is available in Settings → Updates.` })
     }
     if (!same && updateState().autoDownload) return downloadUpdate()
     return updateState()
@@ -175,7 +175,7 @@ export async function downloadUpdate(): Promise<UpdateState> {
 
 /**
  * Swaps the downloaded build in and quits; the helper opens the new version.
- * Only ever on the user's say-so — nothing calls this on its own.
+ * Only ever on the user's say-so, nothing calls this on its own.
  */
 export async function installUpdate(): Promise<void> {
   const current = updateState()

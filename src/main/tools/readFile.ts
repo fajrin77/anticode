@@ -51,7 +51,7 @@ export const readFileTool = defineTool({
 
     const omitted = lines.length - end
     return omitted > 0
-      ? `${numbered}\n… ${omitted} more lines not shown — read again with offset ${end + 1} to continue`
+      ? `${numbered}\n… ${omitted} more lines not shown, read again with offset ${end + 1} to continue`
       : numbered
   }
 })

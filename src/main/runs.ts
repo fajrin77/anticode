@@ -5,7 +5,7 @@ const runs = new Map<string, { sessionId: string; controller: AbortController; s
 /**
  * Sessions whose run was paused. Kept here rather than in either viewer, so a
  * pause pressed on the phone is resumed from the desktop and the other way
- * round — each viewer used to keep its own and never heard of the other's.
+ * round, each viewer used to keep its own and never heard of the other's.
  */
 const paused = new Set<string>()
 /** The paused sessions no one paused: their run lost its connection. */

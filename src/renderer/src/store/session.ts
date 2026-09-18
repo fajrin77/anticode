@@ -21,12 +21,12 @@ export type MessagePart =
   /** Files sent with a prompt, drawn as pictures and cards above its text. */
   | { kind: 'attachments'; items: AttachmentRef[] }
   /**
-   * A line the app writes about itself — pausing, resuming — rather than
+   * A line the app writes about itself, pausing, resuming, rather than
    * anything the model or the user said. Drawn like a tool-group line: on the
    * left, grey, no bubble.
    */
   | { kind: 'notice'; text: string }
-  /** Why a run stopped short — a provider or connection failure. Drawn in red. */
+  /** Why a run stopped short, a provider or connection failure. Drawn in red. */
   | { kind: 'error'; text: string }
   | {
       kind: 'tool'
@@ -65,7 +65,7 @@ export interface Message {
 }
 
 /**
- * A prompt somebody typed — the main process counts the same ones, from the
+ * A prompt somebody typed, the main process counts the same ones, from the
  * end, when a prompt is taken back to be edited.
  */
 export function isTypedPrompt(message: Message): boolean {
@@ -93,7 +93,7 @@ export interface Session {
   /** Provider and model of the most recent turn, for the usage panel. */
   provider: string | null
   model: string | null
-  /** Input tokens of the latest request — the closest measure of context size. */
+  /** Input tokens of the latest request, the closest measure of context size. */
   lastInputTokens: number
   /** Estimated dollars so far; requests on a model with no price add nothing. */
   costUsd?: number
@@ -128,7 +128,7 @@ export interface ActiveRun {
   /** Tokens seen so far, so the closing line can be drawn the moment it ends. */
   inputTokens?: number
   outputTokens?: number
-  /** What the loop says it is doing between replies — the status dot's words. */
+  /** What the loop says it is doing between replies, the status dot's words. */
   phase?: RunPhase
 }
 
@@ -214,7 +214,7 @@ interface SessionState {
   /** Branches a new session from the transcript up to and including one message. */
   forkSession: (id: string, uptoMessageId: string) => string | null
   /**
-   * Brings an archived session's tab back because something happened in it —
+   * Brings an archived session's tab back because something happened in it,
    * a run from the phone, or from another window. The active tab is left
    * alone on purpose: a background session must not steal the view.
    */
@@ -271,9 +271,9 @@ interface SessionState {
   addNotice: (sessionId: string, text: string) => void
   /** Drops the transcript back to before the last typed prompt. */
   dropLastTurn: (sessionId: string) => void
-  /** Drops a message and everything after it — a prompt taken back to edit. */
+  /** Drops a message and everything after it, a prompt taken back to edit. */
   dropFrom: (sessionId: string, messageId: string) => void
-  /** Keeps a message and drops everything after it — the reply being retried. */
+  /** Keeps a message and drops everything after it, the reply being retried. */
   dropAfter: (sessionId: string, messageId: string) => void
   appendText: (sessionId: string, messageId: string, text: string) => void
   startTool: (
@@ -303,7 +303,7 @@ interface SessionState {
     /** Estimated dollars from the main process; null when the model has no price. */
     costUsd?: number | null
   ) => void
-  /** A running tool reported a step — a sub-agent reading a file. */
+  /** A running tool reported a step, a sub-agent reading a file. */
   progressTool: (sessionId: string, toolUseId: string, text: string) => void
   /** The app noted something about a run in progress. */
   noticeInRun: (sessionId: string, messageId: string, text: string) => void
@@ -497,7 +497,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     return newId
   },
 
-  /** Replays a transcript's prefix into a fresh session — a branch from the past. */
+  /** Replays a transcript's prefix into a fresh session, a branch from the past. */
   forkSession: (id, uptoMessageId) => {
     let newId = ''
     set((state) => {
@@ -630,7 +630,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       return state
     }),
 
-  // "Thinking", "Browsing", ... — shown by the status dot while the run lives;
+  // "Thinking", "Browsing", ..., shown by the status dot while the run lives;
   // the closing line never repeats it, so nothing needs clearing at the end.
   setRunPhase: (runId, phase) =>
     set((state) => {
@@ -839,7 +839,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     }),
 
   // Closing a tab archives the session instead of deleting it, and lands on
-  // another open tab — or on none, which sends the view back to the dashboard.
+  // another open tab, or on none, which sends the view back to the dashboard.
   closeSession: (id) =>
     set((state) => {
       const sessions = state.sessions.map((session) =>
@@ -945,7 +945,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         sessions: mapSession(state, sessionId, (session) => ({
           ...session,
           messages: [
-            // An empty placeholder — nothing streamed yet — has nothing to keep.
+            // An empty placeholder, nothing streamed yet, has nothing to keep.
             ...session.messages.flatMap((message) =>
               message.id !== current
                 ? [message]

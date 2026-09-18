@@ -67,7 +67,7 @@ async function admit(
   const blocks = prepared?.blocks ?? (await blocksOf(req.sessionId, sent))
   const refs = prepared?.attachments ?? refsOf(sent)
   // Preparation can outlive a deletion, model change, or a finishing run.
-  // Recheck the current main-process state after that asynchronous work —
+  // Recheck the current main-process state after that asynchronous work,
   // this session's own model, not whichever was picked last elsewhere.
   const status = getStatus(req.sessionId)
   if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
@@ -75,7 +75,7 @@ async function admit(
   const existing = runForSession(req.sessionId)
   if (existing !== null) {
     // A session the user paused is not really working: a prompt typed now is
-    // next in line, not a mid-flight instruction — steer would refuse it with
+    // next in line, not a mid-flight instruction, steer would refuse it with
     // "finish stopping". Line it up so the send never dead-ends.
     if (isPaused(req.sessionId)) {
       const queued = await queuePrompt(req, gate)
@@ -118,14 +118,14 @@ async function admit(
     if (ended.type === 'end' && ended.reason === 'complete') sendNextQueued(req.sessionId, gate)
   })
   // The run records its prompt before its first await, so the history already
-  // holds it here — and an antichat's first prompt is what names it.
+  // holds it here, and an antichat's first prompt is what names it.
   announceTitle(req.sessionId)
   return { runId: req.runId, steered: false }
 }
 
 /**
  * Answers the last prompt again: the reply, and the files its run changed,
- * are taken back, and the same prompt — attachments and all — goes out as a
+ * are taken back, and the same prompt, attachments and all, goes out as a
  * new run, on another model when one is named. The viewer that asked has
  * already drawn the retry; everyone else redraws from the main process.
  */
@@ -176,7 +176,7 @@ export async function queuePrompt(req: AgentRequest, gate: ApprovalGate): Promis
 }
 
 /**
- * Takes a queued prompt out. Files are let go by default — a pull-back gets
+ * Takes a queued prompt out. Files are let go by default, a pull-back gets
  * their paths back to re-stage them. `keep` is what a steer needs: the same
  * staged files ride into the running turn, so they stay alive and their IDs
  * come back with the prompt.
@@ -204,7 +204,7 @@ function sendNextQueued(sessionId: string, gate: ApprovalGate): void {
   if (next === undefined) return
   const { attachmentIds, ...shown } = next
   void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds, plan: next.plan }, gate).catch(() => {
-    // It could not start — the model is not ready, the files are gone. It
+    // It could not start, the model is not ready, the files are gone. It
     // waits at the front of the line rather than vanishing.
     requeue(sessionId, { ...shown, attachmentIds })
   })

@@ -40,7 +40,7 @@ function nextId(kind: AuthKind): string {
 /**
  * Starts the login and returns the opening state at once; the rest of the
  * flow reports through onAuthLogin. A second call while one is in flight for
- * the same kind is refused — the browser tab is already open.
+ * the same kind is refused, the browser tab is already open.
  */
 export function startAuthLogin(kind: AuthKind): AuthLoginState {
   for (const entry of running.values()) {

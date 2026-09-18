@@ -79,8 +79,8 @@ export function requirePage(scope = 'default'): Page {
   return page
 }
 /**
- * The phone cannot embed the page the desktop embeds — every `localhost` the
- * agent serves lives on the Mac — so it gets a picture instead. The picture is
+ * The phone cannot embed the page the desktop embeds, every `localhost` the
+ * agent serves lives on the Mac, so it gets a picture instead. The picture is
  * taken in a phone-shaped page of its own rather than the agent's: the site
  * lays itself out for a phone, the whole scrollable height is captured, and
  * the agent's own page is never resized or navigated out from under it.
@@ -105,8 +105,8 @@ export async function closePhonePage(sessionId: string): Promise<void> {
 
 /**
  * Where web_search runs its queries. A search must never land on the page the
- * agent is reading — browser_navigate followed by browser_get_text would come
- * back with a result list instead of the page it opened — so a search engine
+ * agent is reading, browser_navigate followed by browser_get_text would come
+ * back with a result list instead of the page it opened, so a search engine
  * gets a page of its own, for the same reason the phone mirror does.
  */
 export function searchScope(sessionId = 'default'): string {

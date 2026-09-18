@@ -58,7 +58,7 @@ export class ApprovalCoordinator implements ApprovalGate {
     if (signal.aborted || target?.isDestroyed()) return Promise.resolve('reject')
 
     return new Promise((resolve) => {
-      // A closed window must not leave the run waiting forever — on macOS the
+      // A closed window must not leave the run waiting forever, on macOS the
       // app keeps living after its last window closes.
       const onDestroyed = (): void => settle('reject')
       const settle = (decision: ApprovalDecision): void => {

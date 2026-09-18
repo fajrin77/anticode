@@ -17,7 +17,7 @@ import {
 /**
  * Files staged for a prompt that has not been sent yet, from the desktop or
  * the phone. An entry lives until its run starts, or until the composer drops
- * it — nothing here survives a restart, and none of it is a copy of the file.
+ * it, nothing here survives a restart, and none of it is a copy of the file.
  */
 const staged = new Map<string, AttachmentInfo>()
 
@@ -70,7 +70,7 @@ export function releaseAttachments(ids: string[]): void {
 /**
  * Resolves staged ids against the folder this session works in, so the model
  * is told the truth about which files its tools can reach. A file from outside
- * that folder is copied into it first — here, in the main process, so the
+ * that folder is copied into it first, here, in the main process, so the
  * desktop and the phone get the same copy. For antichat the folder is its own
  * private one, so attaching a file is all it takes to have it edited.
  */

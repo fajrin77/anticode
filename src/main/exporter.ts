@@ -5,11 +5,11 @@ import type { AttachmentRef, ExportOptions, RunSummary, SessionSpec, SnapshotBlo
 
 /*
  * A transcript saved to a file: the whole session or a stretch of its
- * prompts, as Markdown or JSON, with secrets masked, and — when asked — the
+ * prompts, as Markdown or JSON, with secrets masked, and, when asked, the
  * files it carried and produced copied into a folder beside it.
  */
 
-/** Documents the agent produced, by extension — the same kinds the transcript offers as downloads. */
+/** Documents the agent produced, by extension, the same kinds the transcript offers as downloads. */
 const PRODUCED = /\.(pdf|xlsx|xlsm|xls|docx|csv|pptx|zip|png|jpe?g|webp|gif)$/i
 const PRODUCING_TOOLS = new Set([
   'write_file',
@@ -28,7 +28,7 @@ export function isTypedSnapshotPrompt(message: SnapshotMessage): boolean {
   return message.blocks.some((block) => block.type === 'text' && block.followUp === undefined && block.text !== CONTINUE_PROMPT)
 }
 
-/** Runs that got an answer — one summary each, lined up from the end. */
+/** Runs that got an answer, one summary each, lined up from the end. */
 function answered(messages: SnapshotMessage[]): number {
   let runs = 0
   messages.forEach((message, index) => {
