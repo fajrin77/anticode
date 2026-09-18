@@ -364,7 +364,8 @@ function MessageView({
   message,
   sessionId,
   lastAnswer,
-  paused = false
+  paused = false,
+  compact = false
 }: {
   message: Message
   sessionId: string
@@ -375,7 +376,16 @@ function MessageView({
    * line or retry, a resume carries the same work on.
    */
   paused?: boolean
+  /**
+   * An older finished reply: folded to its closing line so the transcript
+   * shows only the latest answer in full. Unfolds in place on click; a step
+   * that failed stays visible even folded.
+   */
+  compact?: boolean
 }): JSX.Element {
+  if (compact && message.role === 'assistant' && message.summary !== undefined && !paused) {
+    return <CompactReply message={message} sessionId={sessionId} lastAnswer={lastAnswer} paused={paused} />
+  }
   const [stepsOpen, setStepsOpen] = useState(false)
   const busy = useSessionBusy(sessionId)
   const phaseLabel = useSessionPhase(sessionId)
@@ -497,6 +507,63 @@ function formatDuration(ms: number): string {
   return `${Math.floor(total / 60)}m ${total % 60}s`
 }
 
+/**
+ * An older finished reply, folded to its closing line: model, duration,
+ * tokens. Unfolds to the full reply in place; failures and errors stay
+ * visible even folded, so a step that did not happen never looks done.
+ */
+function CompactReply({
+  message,
+  sessionId,
+  lastAnswer,
+  paused
+}: {
+  message: Message
+  sessionId: string
+  lastAnswer: boolean
+  paused: boolean
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const summary = message.summary
+  if (expanded || summary === undefined) {
+    return <MessageView message={message} sessionId={sessionId} lastAnswer={lastAnswer} paused={paused} compact={false} />
+  }
+  const tokens = summary.inputTokens + summary.outputTokens
+  return (
+    <div className="group my-3 flex flex-col items-center">
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        title="Show this reply"
+        className="flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-colors hover:text-brand"
+      >
+        <span>{summary.model === '' ? 'done' : summary.model}</span>
+        <span aria-hidden>·</span>
+        <span>{formatDuration(summary.durationMs)}</span>
+        {tokens > 0 && (
+          <>
+            <span aria-hidden>·</span>
+            <span>{formatNumber(tokens)} tokens</span>
+          </>
+        )}
+      </button>
+      {groupBlocks(message.parts).map((block, index) => {
+        if (block.kind === 'error') {
+          return (
+            <div key={`error-${index}`} role="alert" className="my-1 whitespace-pre-wrap text-[14px] text-del">
+              {block.text}
+            </div>
+          )
+        }
+        if (block.kind === 'tools' && block.parts.some((part) => part.status === 'error')) {
+          return <ToolGroup key={block.parts[0]?.toolUseId ?? `tools-${index}`} parts={block.parts} />
+        }
+        return null
+      })}
+    </div>
+  )
+}
+
 interface FileStat {
   path: string
   added: number
@@ -534,6 +601,24 @@ function fileStats(parts: MessagePart[]): FileStat[] {
       existing.added += stat.added
       existing.removed += stat.removed
       existing.diffs.push(...stat.diffs)
+    }
+  }
+  return [...files.values()]
+}
+
+/** Every file the session touched, across all its runs. */
+function sessionFileStats(messages: Message[]): FileStat[] {
+  const files = new Map<string, FileStat>()
+  for (const message of messages) {
+    for (const stat of fileStats(message.parts)) {
+      const existing = files.get(stat.path)
+      if (existing === undefined) {
+        files.set(stat.path, { ...stat, diffs: [...stat.diffs] })
+      } else {
+        existing.added += stat.added
+        existing.removed += stat.removed
+        existing.diffs.push(...stat.diffs)
+      }
     }
   }
   return [...files.values()]
@@ -834,6 +919,72 @@ function pausedTurns(messages: Message[], sessionPaused: boolean): Set<string> {
 /** How close to the end still counts as reading the end, in pixels. */
 const FOLLOW_SLACK = 80
 
+/**
+ * Everything the session changed, in one place: each file with its line
+ * counts, unfolding to the diffs. The per-run closing lines stay folded
+ * above; this is the record that stays visible.
+ */
+function SessionChangedFiles({ messages }: { messages: Message[] }): JSX.Element | null {
+  const files = sessionFileStats(messages)
+  const [open, setOpen] = useState(files.length <= 12)
+  const [shownFile, setShownFile] = useState<string | null>(null)
+  if (files.length === 0) return null
+  const added = files.reduce((total, file) => total + file.added, 0)
+  const removed = files.reduce((total, file) => total + file.removed, 0)
+  return (
+    <div className="mx-auto max-w-3xl py-2" data-changed-files>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="group flex w-full items-baseline gap-2 rounded-md px-1 py-1 text-left"
+      >
+        <span className="text-[13px] text-text transition-colors group-hover:text-brand">
+          {files.length} Changed files
+        </span>
+        {added > 0 && <span className="text-[12.5px] text-add">+{formatNumber(added)}</span>}
+        {removed > 0 && <span className="text-[12.5px] text-del">−{formatNumber(removed)}</span>}
+        <span className="ml-auto shrink-0 text-[12px] text-faint transition-colors group-hover:text-brand" aria-hidden>
+          {open ? '▾' : '›'}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-col">
+          {files.map((file) => (
+            <div key={file.path}>
+              <button
+                type="button"
+                disabled={file.diffs.length === 0}
+                onClick={() => setShownFile(shownFile === file.path ? null : file.path)}
+                title={file.diffs.length > 0 ? 'Show what changed' : undefined}
+                className="group/file flex w-full items-baseline gap-2 rounded px-1 py-1 text-left text-[12.5px] enabled:cursor-pointer"
+              >
+                <span
+                  className={`min-w-0 flex-1 truncate font-mono transition-colors ${
+                    file.diffs.length > 0 ? 'text-dim group-hover/file:text-brand' : 'text-faint'
+                  } ${shownFile === file.path ? 'text-text' : ''}`}
+                >
+                  {file.path}
+                </span>
+                {file.added > 0 && <span className="shrink-0 text-add">+{formatNumber(file.added)}</span>}
+                {file.removed > 0 && <span className="shrink-0 text-del">−{formatNumber(file.removed)}</span>}
+                <span className="shrink-0 text-faint transition-colors group-hover/file:text-brand" aria-hidden>›</span>
+              </button>
+              {shownFile === file.path && (
+                <div className="my-1.5 flex flex-col gap-2">
+                  {file.diffs.map((diff, index) => (
+                    <DiffView key={index} patch={diff} path={file.path} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function SessionView(): JSX.Element {
   const session = useActiveSession()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -850,6 +1001,9 @@ export function SessionView(): JSX.Element {
   const following = useRef(true)
   const promptCount = messages.filter(message => message.role === 'user').length
   const seenPrompts = useRef(promptCount)
+  // Only the latest finished reply stays open: everything before it folds to
+  // its closing line, so a long session reads as its prompts plus its answer.
+  const lastFinishedId = messages.filter((message) => message.role === 'assistant' && message.summary !== undefined).at(-1)?.id
   useLayoutEffect(() => {
     const box = scrollRef.current
     const id = session?.id
@@ -951,9 +1105,11 @@ export function SessionView(): JSX.Element {
                 sessionId={session?.id ?? ''}
                 lastAnswer={message.id === lastAnswerId}
                 paused={pausedIds.has(message.id)}
+                compact={message.role === 'assistant' && message.summary !== undefined && message.id !== lastFinishedId}
               />
             </div>
           ))}
+          <SessionChangedFiles messages={messages} />
         </div>
       </div>
     </div>
