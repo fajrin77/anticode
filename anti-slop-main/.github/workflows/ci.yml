@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      # The rules antislop applies to other repos, applied to this one.
+      - name: Repo guardrails
+        run: node scripts/check-repo.mjs
+
+      # The contrast table is a set of claims about a formula; recompute every row.
+      - name: Contrast table matches the formula
+        run: python3 skills/antislop-human/contrast-check.py --selftest
+
+      # skills/antislop/SKILL.md is generated from antislop.md, so an unsynced
+      # core edit would ship a skill that disagrees with it.
+      - name: Generated core skill is in sync with antislop.md
+        run: |
+          node cli/scripts/sync-skills.mjs
+          git diff --exit-code -- skills/
+
+      # The smoke test starts the picker, so its dependencies have to exist first.
+      # Without this the picker dies on an import error and never reaches the
+      # no-terminal guard the smoke test is checking for.
+      - name: Install cli dependencies
+        working-directory: cli
+        run: npm ci
+
+      - name: Installer smoke test
+        run: node cli/scripts/smoke-test.mjs

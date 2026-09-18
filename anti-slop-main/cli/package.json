@@ -1,0 +1,41 @@
+{
+  "name": "antislop-ai",
+  "version": "3.2.9",
+  "description": "Interactive installer for the antislop skills. Anti Slop: Rules for AI Coding Agents.",
+  "type": "module",
+  "bin": {
+    "antislop-ai": "index.mjs"
+  },
+  "license": "MIT",
+  "author": "antislop",
+  "homepage": "https://github.com/miqdadbadjuber/anti-slop",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miqdadbadjuber/anti-slop.git"
+  },
+  "keywords": [
+    "ai-slop",
+    "design-rules",
+    "copy-rules",
+    "agent-skills",
+    "ui",
+    "accessibility"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "index.mjs",
+    "lib/",
+    "skills/"
+  ],
+  "scripts": {
+    "test": "node scripts/smoke-test.mjs",
+    "sync-skills": "node scripts/sync-skills.mjs",
+    "prepublishOnly": "npm run sync-skills"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "picocolors": "^1.1.1"
+  }
+}
