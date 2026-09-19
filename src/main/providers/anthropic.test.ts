@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { AnthropicProvider, anthropicBaseURL } from './anthropic'
+import { AnthropicProvider, CLAUDE_CODE_HEADERS, anthropicBaseURL } from './anthropic'
 import { chatModelsOnly } from './models'
 import type { ProviderEvent } from './types'
 
@@ -31,6 +31,25 @@ const stub = createServer(async (req, res) => {
   const body = JSON.parse(raw) as { model: string; max_tokens: number }
   seen.maxTokens.push(body.max_tokens)
   seen.bodies.push(body as unknown as Record<string, unknown>)
+  if (body.model === 'missing-model') {
+    res.writeHead(404, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: 'model: missing-model' } }))
+    return
+  }
+  if (body.model === 'limited-model') {
+    res.writeHead(429, {
+      'content-type': 'application/json',
+      'anthropic-ratelimit-requests-reset': '2026-09-19T00:01:00Z',
+      'request-id': 'req_test123'
+    })
+    res.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }))
+    return
+  }
+  if (body.model === 'locked-model') {
+    res.writeHead(401, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid_token' } }))
+    return
+  }
   res.writeHead(200, { 'content-type': 'text/event-stream' })
   const send = (event: string, data: unknown): void => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) }
   send('message_start', { type: 'message_start', message: {
@@ -113,4 +132,80 @@ it('puts a cache breakpoint on the system prompt and the last tool', async () =>
   expect(body.system.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
   expect(body.tools[0]?.cache_control).toBeUndefined()
   expect(body.tools.at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
+})
+
+async function failsWith(model: string): Promise<string> {
+  const provider = new AnthropicProvider('sk-ant-test', model, baseURL)
+  try {
+    for await (const _ of provider.chat({
+      system: '', messages: [{ role: 'user', content: [{ type: 'text', text: 'halo' }] }],
+      tools: [], maxTokens: 100, signal: new AbortController().signal
+    })) {
+      // consume
+    }
+  } catch (error) {
+    return (error as Error).message
+  }
+  throw new Error('chat did not fail')
+}
+
+it('names a usable model when the id does not exist', async () => {
+  expect(await failsWith('missing-model')).toMatch(/does not exist on this account/)
+})
+
+it('quota errors say to wait or rotate, not JSON', async () => {
+  expect(await failsWith('limited-model')).toMatch(/rate limited/)
+})
+
+it('rate-limit wording never trips the spent-quota detector', async () => {
+  const { isOutOfUsage } = await import('../usageErrors')
+  expect(isOutOfUsage(new Error(await failsWith('limited-model')))).toBe(false)
+})
+
+it('carries the vendor reset timestamps so the transcript settles quota vs throttle', async () => {
+  expect(await failsWith('limited-model')).toMatch(/limits reset requests=.*req_test123/)
+})
+
+it('leaves 401s alone so the OAuth wrapper can retry them', async () => {
+  expect(await failsWith('locked-model')).toMatch(/401/)
+})
+
+it('sends the CLI identity headers OAuth traffic needs', async () => {
+  const seen: Record<string, string | string[] | undefined>[] = []
+  const srv = createServer((req, res) => {
+    seen.push({ ...req.headers })
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    const send = (event: string, data: unknown): void => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) }
+    send('message_start', { type: 'message_start', message: {
+      id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-sonnet-5', content: [],
+      stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 }
+    } })
+    send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+    send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } })
+    send('content_block_stop', { type: 'content_block_stop', index: 0 })
+    send('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } })
+    send('message_stop', { type: 'message_stop' })
+    res.end()
+  })
+  await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
+  try {
+    const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`
+    const provider = new AnthropicProvider('', 'claude-sonnet-5', base, {
+      authToken: 'oauth-at',
+      defaultHeaders: CLAUDE_CODE_HEADERS
+    })
+    for await (const _ of provider.chat({
+      system: '', messages: [{ role: 'user', content: [{ type: 'text', text: 'halo' }] }],
+      tools: [], maxTokens: 10, signal: new AbortController().signal
+    })) {
+      // consume
+    }
+  } finally {
+    srv.close()
+  }
+  const headers = seen.at(-1) ?? {}
+  expect(headers['authorization']).toBe('Bearer oauth-at')
+  for (const [name, value] of Object.entries(CLAUDE_CODE_HEADERS)) {
+    expect(String(headers[name] ?? '')).toBe(value)
+  }
 })
