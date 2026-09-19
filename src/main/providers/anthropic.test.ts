@@ -45,6 +45,11 @@ const stub = createServer(async (req, res) => {
     res.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }))
     return
   }
+  if (body.model === 'limited-noreset-model') {
+    res.writeHead(429, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Error' } }))
+    return
+  }
   if (body.model === 'locked-model') {
     res.writeHead(401, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid_token' } }))
@@ -155,6 +160,10 @@ it('names a usable model when the id does not exist', async () => {
 
 it('quota errors say to wait or rotate, not JSON', async () => {
   expect(await failsWith('limited-model')).toMatch(/rate limited/)
+})
+
+it('a 429 with no reset time says the plan does not serve the model', async () => {
+  expect(await failsWith('limited-noreset-model')).toMatch(/does not serve|haiku-4-5/i)
 })
 
 it('rate-limit wording never trips the spent-quota detector', async () => {

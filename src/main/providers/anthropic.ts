@@ -226,8 +226,14 @@ function friendlyError(model: string, error: unknown): Error {
     // like spent quota; otherwise it would mislead and trip the detector.
     const vendor = vendorDetail(error)
     const reset = ratelimitReset(error)
+    // No reset timestamps at all means this is not a standard throttle: the
+    // plan itself does not serve this model over OAuth (a smaller model on
+    // the same account works). Say so instead of sending the user to wait
+    // out a reset that is not coming.
     const friendly = new Error(
-      `Claude rate limited this request (429). ${wait} — or put this account in Rotate usage with another model as backup.${vendor === '' ? '' : ` Vendor says: ${vendor}`}${reset === '' ? '' : ` ${reset}`}`
+      reset === ''
+        ? `Claude refused "${model}" over OAuth (429, no reset time given). This plan serves other models — try claude-haiku-4-5 or a Codex model instead.${vendor === '' ? '' : ` Vendor says: ${vendor}`}`
+        : `Claude rate limited this request (429). ${wait} — or put this account in Rotate usage with another model as backup.${vendor === '' ? '' : ` Vendor says: ${vendor}`} ${reset}`
     )
     // Keep the status so the agent loop still sees this as transient and
     // retries automatically instead of failing the turn at once.
