@@ -217,4 +217,6 @@ it('sends the CLI identity headers OAuth traffic needs', async () => {
   for (const [name, value] of Object.entries(CLAUDE_CODE_HEADERS)) {
     expect(String(headers[name] ?? '')).toBe(value)
   }
+  // Never impersonate a CLI build: a stale pinned version reads as retired.
+  expect(String(headers['user-agent'] ?? '')).not.toContain('claude-cli')
 })
