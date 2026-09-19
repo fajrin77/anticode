@@ -187,7 +187,8 @@ export class AnthropicProvider implements LLMProvider {
         stopReason: toStopReason(final.stop_reason),
         usage: {
           inputTokens: final.usage.input_tokens,
-          outputTokens: final.usage.output_tokens
+          outputTokens: final.usage.output_tokens,
+          cachedTokens: (final.usage.cache_read_input_tokens ?? 0) + (final.usage.cache_creation_input_tokens ?? 0)
         }
       }
       yield { type: 'response', response }

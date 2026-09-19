@@ -4,6 +4,7 @@ import { IpcChannel } from '@shared/ipc'
 import type { AgentEvent, QueuedPrompt, SessionPause, SessionQueue, SessionSnapshot, SessionTitle, RoutedAgentEvent, RunSummary } from '@shared/ipc'
 import { listQueue } from '../queue'
 import { costOf } from '../pricing'
+import { recordUsage } from '../usageLog'
 import { getStatus, recordRunSummary, loadSessionMessages, loadSessionSummaries, sessionTitle } from '../runtime'
 import { clearPause, isPaused, isPausedForRetry, pauseForRetry, runForSession } from '../runs'
 
@@ -115,6 +116,27 @@ export function forward(event: AgentEvent): void {
   // show the same estimate.
   if (routed.type === 'usage') {
     routed.costUsd = costOf(routed.providerId ?? routed.provider, routed.model, routed.inputTokens, routed.outputTokens)
+    // Persistent per-request log for Settings → Usage. Real vendor tokens
+    // with the priced cost attached, so the analytics page reads history
+    // instead of re-deriving it from live tallies.
+    try {
+      recordUsage({
+        ts: Date.now(),
+        sessionId,
+        runId: routed.runId,
+        provider: routed.providerId ?? routed.provider,
+        providerLabel: routed.provider,
+        model: routed.model,
+        inputTokens: routed.inputTokens,
+        outputTokens: routed.outputTokens,
+        cachedTokens: routed.cachedTokens ?? 0,
+        costUsd: routed.costUsd,
+        estimated: routed.estimated === true,
+        subagent: routed.subagent === true
+      })
+    } catch {
+      // Analytics must never break a run.
+    }
   }
 
   if (event.type === 'prompt') {

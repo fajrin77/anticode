@@ -155,13 +155,14 @@ export class GoogleProvider implements LLMProvider {
 
     let text = ''
     let finishReason: string | undefined
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }
     const calls: ContentBlock[] = []
 
     for await (const chunk of stream) {
       if (chunk.usageMetadata) {
         usage.inputTokens = chunk.usageMetadata.promptTokenCount ?? usage.inputTokens
         usage.outputTokens = chunk.usageMetadata.candidatesTokenCount ?? usage.outputTokens
+        usage.cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? usage.cachedTokens
       }
 
       const candidate = chunk.candidates?.[0]

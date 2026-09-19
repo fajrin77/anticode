@@ -51,6 +51,9 @@ export const IpcChannel = {
   MCP_UPDATED: 'mcp:updated',
   PRICING_LIST: 'pricing:list',
   PRICING_SET: 'pricing:set',
+  USAGE_SUMMARY: 'usage:summary',
+  USAGE_RECENT: 'usage:recent',
+  USAGE_CLEAR: 'usage:clear',
   PREFERENCES_GET: 'preferences:get',
   PREFERENCES_SET: 'preferences:set',
   PREFERENCES_UPDATED: 'preferences:updated',
@@ -129,32 +132,134 @@ export const FOLLOW_UP_LABEL = 'Follow-up added.'
 /**
  * Replay budget the agent trims its history against; the UI shows the same
  * number as the context ceiling so both sides agree on "how full am I".
+ * This is the floor for models whose real window is unknown (custom endpoints,
+ * Ollama locals, future ids): compaction stays early rather than risking the
+ * provider's cliff.
  */
 export const HISTORY_TOKEN_BUDGET = 100_000
+
+/** When the built-in context table below was last reviewed. */
+export const CONTEXT_WINDOWS_AS_OF = '2026-09-19'
 
 /** Headroom for the model's own reply and the next tool results. */
 const REPLY_HEADROOM = 24_000
 
-/** The default context budget stays put for models whose real window is
- * unknown; a known bigger window (Gemini 1M, GLM 200k) lets the history run
- * longer before compaction replaces old turns with a memory. */
-const KNOWN_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
+/**
+ * Full context windows by model family, longest prefix first at match time.
+ * Exact ids are never relied on: gateways prefix (`cline-pass/glm-5.3-flash`),
+ * vendors append dates (`claude-sonnet-4-5-20250929`), variants (`:free`,
+ * `-latest`, `@20260101`). Matching normalises all of that away, so a new
+ * snapshot of a known family still gets its real window instead of the 100k
+ * floor. Values are the vendors' documented windows, conservative where a
+ * family ships several sizes.
+ */
+const KNOWN_CONTEXT_WINDOWS: ReadonlyArray<readonly [string, number]> = [
+  // Gemini: 1M on 1.5/2.x/3.x pro + flash.
   ['gemini-2.5-pro', 1_000_000],
   ['gemini-2.5-flash', 1_000_000],
   ['gemini-2.0-flash', 1_000_000],
+  ['gemini-1.5-pro', 1_000_000],
+  ['gemini-1.5-flash', 1_000_000],
+  ['gemini-3-pro', 1_000_000],
+  ['gemini-flash', 1_000_000],
+  ['gemini-pro', 1_000_000],
+  ['gemini', 1_000_000],
+  // GPT / Codex backend: GPT-5 family ships 400k; 4o/4.1 family 128k-1M.
+  // 400k is the safe common denominator for the `gpt-5*` prefix.
+  ['gpt-5.6', 400_000],
+  ['gpt-5.5', 400_000],
+  ['gpt-5.4', 400_000],
+  ['gpt-5.3', 400_000],
+  ['gpt-5-codex', 400_000],
+  ['gpt-5', 400_000],
+  ['gpt-4.1', 1_000_000],
+  ['gpt-4o', 128_000],
+  ['o3', 200_000],
+  ['o4-mini', 200_000],
+  // Claude: 200k standard across Sonnet/Opus/Haiku 4.x-5.x (+ fable/mythos).
+  ['claude-fable-5', 200_000],
+  ['claude-mythos-5', 200_000],
+  ['claude-opus-5', 200_000],
+  ['claude-opus-4', 200_000],
+  ['claude-sonnet-5', 200_000],
+  ['claude-sonnet-4', 200_000],
+  ['claude-haiku-4', 200_000],
+  ['claude-haiku', 200_000],
+  ['claude-3-7-sonnet', 200_000],
+  ['claude-3-5-sonnet', 200_000],
+  ['claude-opus', 200_000],
+  ['claude-sonnet', 200_000],
+  // GLM (Zhipu / Cline pass-through): 128k-200k by generation.
+  ['glm-5', 200_000],
   ['glm-4.6', 200_000],
   ['glm-4.5', 128_000],
-  ['glm-5.3-flash', 200_000]
-])
+  ['glm-4', 128_000],
+  ['glm', 128_000],
+  // Common open families reachable via custom providers / Ollama.
+  ['deepseek-v3', 128_000],
+  ['deepseek-r1', 128_000],
+  ['deepseek', 128_000],
+  ['qwen3-max', 256_000],
+  ['qwen3', 128_000],
+  ['qwen', 128_000],
+  ['kimi-k2', 200_000],
+  ['kimi', 200_000],
+  ['llama-3.3', 128_000],
+  ['llama-3.2', 128_000],
+  ['llama-3.1', 128_000],
+  ['llama-4', 1_000_000],
+  ['llama', 128_000],
+  ['mistral-large', 128_000],
+  ['mistral', 128_000],
+  ['auto-chat', 200_000]
+]
 
-/** Model ids arrive prefixed by their gateway (`cline-pass/glm-5.3-flash`),
- * so match on the tail as well as the whole id. */
+/**
+ * A model id as the table above spells it: no gateway vendor prefix
+ * (`anthropic/…`, `cline-pass/…`), no variant suffix (`:free`, `-latest`,
+ * `@20260101`), dots kept, trailing snapshot date (`-20250929`, eight digits)
+ * stripped. Mirrors pricing.familyOf so both tables agree on "which family".
+ */
+export function contextFamilyOf(model: string): string {
+  return model
+    .toLowerCase()
+    .split('/')
+    .at(-1)!
+    .replace(/[:@].*$/, '')
+    .replace(/-(latest|preview|thinking|instruct|chat|codex.*|spark|sol|terra|luna)$/, '')
+    .replace(/-\d{8}$/, '')
+}
+
+/** The vendor's documented window for this model, before reply headroom. */
+export function contextWindowFor(model: string): number {
+  const family = contextFamilyOf(model)
+  // Longest prefix first, so `gpt-5.6-sol` reads as the 5.6 row, not `gpt-5`.
+  const match = [...KNOWN_CONTEXT_WINDOWS]
+    .sort((a, b) => b[0].length - a[0].length)
+    .find(([prefix]) => family === prefix || family.startsWith(`${prefix}-`) || family.startsWith(prefix))
+  return match?.[1] ?? HISTORY_TOKEN_BUDGET
+}
+
+/** Model ids arrive prefixed by their gateway (`cline-pass/glm-5.3-flash`) and
+ * suffixed by snapshot dates and variants, so match on the normalised family
+ * as well as the whole id. Never drops below the shared default: an unknown
+ * model compacts early rather than overflowing mid-run. */
 export function historyBudgetFor(model: string): number {
-  const base =
-    KNOWN_CONTEXT_WINDOWS.get(model) ??
-    [...KNOWN_CONTEXT_WINDOWS.entries()].find(([id]) => model.endsWith(`/${id}`))?.[1]
-  if (base === undefined) return HISTORY_TOKEN_BUDGET
-  return Math.max(HISTORY_TOKEN_BUDGET, base - REPLY_HEADROOM)
+  const window = contextWindowFor(model)
+  if (window <= HISTORY_TOKEN_BUDGET) return HISTORY_TOKEN_BUDGET
+  return Math.max(HISTORY_TOKEN_BUDGET, window - REPLY_HEADROOM)
+}
+
+/**
+ * Largest single reply worth asking for. Small/local models reject a 32k
+ * `max_tokens`; asking less from them is not a downgrade, it is what keeps
+ * the request inside what the endpoint accepts.
+ */
+export function maxOutputFor(model: string): number {
+  const family = contextFamilyOf(model)
+  if (/^(gemini|gpt-5|gpt-4\.1|claude-(opus|sonnet|fable|mythos)|o3|qwen3-max|llama-4)/.test(family)) return 32_000
+  if (/^(gpt-4o|glm|deepseek|qwen|kimi|llama|mistral|auto-chat|claude)/.test(family)) return 16_000
+  return 16_000
 }
 
 export interface AppInfo {
@@ -873,6 +978,8 @@ export type AgentEvent =
       model: string
       inputTokens: number
       outputTokens: number
+      /** Prompt tokens served from cache, when the vendor reports it. */
+      cachedTokens?: number
       /** The provider id behind `provider` (which is its display name), for pricing. */
       providerId?: string
       /** Estimated dollars, set by the main process; null when the model has no price. */
@@ -1005,6 +1112,72 @@ export interface RunSummary {
   costUsd?: number
   /** Some request's model had no price, so the estimate is short of the truth. */
   costPartial?: boolean
+}
+
+/**
+ * One priced provider request, as the persistent usage log keeps it. Written
+ * by the main process for every `usage` event the agent emits — real
+ * provider-reported tokens, never the chars/4 replay estimate. `costUsd` is
+ * the estimate at write time (null when the model has no price); readers that
+ * need today's price re-price from the model id instead.
+ */
+export interface UsageRecord {
+  /** Epoch ms the response arrived. */
+  ts: number
+  sessionId: string
+  runId: string
+  /** Provider id when known (`auth:codex`, `custom:…`), else the display name. */
+  provider: string
+  /** Display name of the provider behind the request. */
+  providerLabel: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  /** Prompt tokens served from cache, 0 when the vendor does not report it. */
+  cachedTokens: number
+  costUsd: number | null
+  /** True when the tokens are a pause-time estimate, not a vendor report. */
+  estimated: boolean
+  /** True for sub-agent and compaction side-requests. */
+  subagent: boolean
+}
+
+/** Tokens and cost for one model inside a usage summary. */
+export interface UsageByModel {
+  provider: string
+  model: string
+  requests: number
+  inputTokens: number
+  cachedTokens: number
+  outputTokens: number
+  costUsd: number
+  costPartial: boolean
+}
+
+/** Tokens and cost for one calendar day (local time) inside a summary. */
+export interface UsageByDay {
+  /** `YYYY-MM-DD`, local time. */
+  day: string
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+}
+
+/** What Settings → Usage renders: totals plus per-day and per-model splits. */
+export interface UsageSummary {
+  /** Entries counted. */
+  requests: number
+  inputTokens: number
+  cachedTokens: number
+  outputTokens: number
+  costUsd: number
+  /** True when some request had no price, so the cost is short of the truth. */
+  costPartial: boolean
+  /** Oldest entry counted, epoch ms, null when the log is empty. */
+  since: number | null
+  byDay: UsageByDay[]
+  byModel: UsageByModel[]
 }
 
 export interface AnticodeApi {
@@ -1174,6 +1347,16 @@ export interface AnticodeApi {
   listPrices: (models: ProviderSelection[]) => Promise<PricedModel[]>
   /** A price for a model id, typed in Settings; null goes back to the built-in or published one. */
   setPrice: (model: string, price: ModelPrice | null) => Promise<void>
+  /**
+   * Aggregated token usage over a time range, from the persistent per-request
+   * log. Real provider-reported tokens, not estimates — every `usage` event
+   * the agent emits is recorded with its timestamp, model, and priced cost.
+   */
+  getUsageSummary: (rangeMs: number | null) => Promise<UsageSummary>
+  /** Newest requests first, capped by `limit`. Same source as the summary. */
+  listUsageRecent: (limit: number) => Promise<UsageRecord[]>
+  /** Drops the whole usage log. Answers how many entries were removed. */
+  clearUsage: () => Promise<number>
   getPreferences: () => Promise<AppPreferences>
   setPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
   onPreferences: (listener: (preferences: AppPreferences) => void) => () => void

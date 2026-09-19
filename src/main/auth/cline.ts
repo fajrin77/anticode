@@ -4,72 +4,48 @@ import { waitForCallback } from './server'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
 
 /*
- * Cline login. The Cline app talks to WorkOS for the account and to
- * api.cline.bot for the chat. We mirror the SDK flow: an authorize URL with
- * a localhost callback, then a token exchange at api.cline.bot. The chat
- * endpoint itself is api.cline.bot/v1/chat/completions with a Bearer token.
+ * Cline login, mirroring the official extension SDK flow (sdk/packages/core/
+ * src/auth/cline.ts): an authorize URL on the API host with a localhost
+ * callback, then a token exchange at the same host. The chat endpoint itself
+ * is api.cline.bot/v1/chat/completions with a Bearer token.
  */
 
-const APP_BASE = 'https://app.cline.bot'
 const API_BASE = 'https://api.cline.bot'
-const WORKOS_BASE = 'https://api.workos.com'
-const WORKOS_CLIENT_ID = 'client_01K6XQAY7JK6T5HXVSZW2S5VYK'
 const CALLBACK_PATH = '/auth'
 
-interface WorkosTokens {
-  access_token: string
+interface TokenData {
+  accessToken?: string
+  access_token?: string
+  refreshToken?: string
   refresh_token?: string
-  token_type?: string
+  tokenType?: string
+  expiresAt?: string
+  userInfo?: { email?: string }
 }
 
-async function exchangeWorkos(
-  code: string,
-  callbackUrl: string,
-  signal: AbortSignal
-): Promise<WorkosTokens> {
-  const response = await fetch(`${WORKOS_BASE}/user_management/authenticate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      grant_type: 'authorization_code',
-      code,
-      client_id: WORKOS_CLIENT_ID,
-      redirect_uri: callbackUrl
-    })
-  })
-  if (!response.ok) throw new Error(`WorkOS token exchange failed: ${response.status}`)
-  const payload = (await response.json()) as WorkosTokens
-  if (payload.access_token === undefined) throw new Error('WorkOS returned no access token')
-  return payload
+interface TokenResponse {
+  success: boolean
+  data?: TokenData
 }
 
-/** Trades the WorkOS access token for a Cline session token. */
-async function exchangeCline(workos: WorkosTokens, signal: AbortSignal): Promise<AuthTokens> {
-  const response = await fetch(`${API_BASE}/api/v1/auth/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-      subject_token: workos.access_token,
-      subject_token_type: 'urn:ietf:params:oauth:token-type:access_token'
-    })
-  })
-  if (!response.ok) throw new Error(`Cline token exchange failed: ${response.status}`)
-  const payload = (await response.json()) as { accessToken?: string; refreshToken?: string }
-  const refreshToken = payload.refreshToken ?? workos.refresh_token
+function toTokens(data: TokenData, previous?: AuthTokens): AuthTokens {
+  const accessToken = data.accessToken ?? data.access_token ?? ''
+  if (accessToken === '') throw new Error('Token exchange returned no access token')
+  const refreshToken = data.refreshToken ?? data.refresh_token ?? previous?.refreshToken
+  if (refreshToken === undefined) throw new Error('Token exchange returned no refresh token')
+  const expiresAt = data.expiresAt !== undefined ? Date.parse(data.expiresAt) : NaN
   return {
-    accessToken: payload.accessToken ?? workos.access_token,
-    ...(refreshToken !== undefined ? { refreshToken } : {}),
-    expiresAt: 0
+    accessToken,
+    refreshToken,
+    expiresAt: Number.isNaN(expiresAt) ? 0 : expiresAt,
+    meta: { email: data.userInfo?.email ?? previous?.meta?.email ?? '' }
   }
 }
 
 export async function loginCline(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   const state = makeState()
-  // WorkOS checks that the exchange repeats the redirect URI the browser was
-  // sent to, so the callback the listener actually bound is what is sent.
+  // The authorize page lives on the API host (app.cline.bot 404s); the
+  // exchange repeats the redirect URI the browser was sent to.
   let callbackUrl = ''
   const callback = waitForCallback({
     ports: Array.from({ length: 11 }, (_, i) => 48801 + i),
@@ -77,9 +53,10 @@ export async function loginCline(callbacks: AuthLoginCallbacks): Promise<AuthTok
     signal: callbacks.signal,
     onListening: (port) => {
       callbackUrl = `http://127.0.0.1:${port}${CALLBACK_PATH}`
-      const url = new URL('/api/v1/auth/authorize', APP_BASE)
+      const url = new URL('/api/v1/auth/authorize', API_BASE)
       url.searchParams.set('client_type', 'extension')
       url.searchParams.set('callback_url', callbackUrl)
+      url.searchParams.set('redirect_uri', callbackUrl)
       url.searchParams.set('state', state)
       callbacks.onUpdate({ message: 'Sign in to your Cline account', url: url.toString() })
       void shell.openExternal(url.toString())
@@ -92,8 +69,23 @@ export async function loginCline(callbacks: AuthLoginCallbacks): Promise<AuthTok
   if (result.code === '') throw new Error('Login did not return a code')
 
   callbacks.onUpdate({ message: 'Exchanging the Cline session' })
-  const workos = await exchangeWorkos(result.code, callbackUrl, callbacks.signal)
-  const tokens = await exchangeCline(workos, callbacks.signal)
+  const response = await fetch(`${API_BASE}/api/v1/auth/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    signal: callbacks.signal,
+    body: JSON.stringify({
+      grant_type: 'authorization_code',
+      code: result.code,
+      client_type: 'extension',
+      redirect_uri: callbackUrl
+    })
+  })
+  if (!response.ok) throw new Error(`Cline token exchange failed: ${response.status}`)
+  const payload = (await response.json()) as TokenResponse
+  if (!payload.success || payload.data === undefined) {
+    throw new Error('Cline token exchange returned no tokens')
+  }
+  const tokens = toTokens(payload.data)
   callbacks.onUpdate({ message: 'Signed in', done: true })
   return tokens
 }
@@ -103,14 +95,14 @@ export async function refreshCline(tokens: AuthTokens): Promise<AuthTokens> {
   const response = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refresh_token: tokens.refreshToken })
+    body: JSON.stringify({ refreshToken: tokens.refreshToken, grantType: 'refresh_token' })
   })
   if (!response.ok) throw new Error(`Cline refresh failed: ${response.status}`)
-  const payload = (await response.json()) as { accessToken?: string; access_token?: string }
-  return {
-    ...tokens,
-    accessToken: payload.accessToken ?? payload.access_token ?? tokens.accessToken
+  const payload = (await response.json()) as TokenResponse
+  if (!payload.success || payload.data === undefined) {
+    throw new Error('Cline refresh returned no tokens')
   }
+  return toTokens(payload.data, tokens)
 }
 
 export function accountLabel(_tokens: AuthTokens): string | undefined {

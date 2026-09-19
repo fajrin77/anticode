@@ -19,6 +19,7 @@ import type {
 import { compactTokens } from './ModelPicker'
 import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
+import { Usage } from './settings/Usage'
 import { Mcp } from './settings/Mcp'
 import { Capabilities } from './settings/Capabilities'
 import { Auth } from './settings/Auth'
@@ -34,7 +35,7 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'auth' | 'models' | 'mcp' | 'remote' | 'updates'
+type Section = 'general' | 'providers' | 'auth' | 'models' | 'usage' | 'mcp' | 'remote' | 'updates'
 
 function Tag({ children }: { children: string }): JSX.Element {
   return (
@@ -1932,22 +1933,35 @@ export function SettingsView({
         </svg>
       )
     },
-    {
-      id: 'auth',
-      label: 'Auth provider',
-      icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-          <circle cx="8" cy="5.5" r="2.5" />
-          <path d="M3 13.5c.8-2.2 2.8-3.5 5-3.5s4.2 1.3 5 3.5" strokeLinecap="round" />
-        </svg>
-      )
-    },
+    // Auth provider stays out of the menu until the OAuth flows are solid;
+    // the section still renders for anyone already on it.
+    // {
+    //   id: 'auth',
+    //   label: 'Auth provider',
+    //   icon: (
+    //     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+    //       <circle cx="8" cy="5.5" r="2.5" />
+    //       <path d="M3 13.5c.8-2.2 2.8-3.5 5-3.5s4.2 1.3 5 3.5" strokeLinecap="round" />
+    //     </svg>
+    //   )
+    // },
     {
       id: 'models',
       label: 'Models',
       icon: (
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
           <path d="M8 1.8l1.4 3.6 3.8.2-3 2.4 1 3.7L8 9.6l-3.2 2.1 1-3.7-3-2.4 3.8-.2z" strokeLinejoin="round" />
+        </svg>
+      )
+    },
+    {
+      id: 'usage',
+      label: 'Usage',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+          <rect x="2" y="9" width="3" height="5" rx="1" />
+          <rect x="6.5" y="5" width="3" height="9" rx="1" />
+          <rect x="11" y="2" width="3" height="12" rx="1" />
         </svg>
       )
     },
@@ -2020,7 +2034,7 @@ export function SettingsView({
       {/* The scrollbar's room is kept whether or not a page needs it, so a
           short page and a long one line up to the pixel. */}
       <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10 [scrollbar-gutter:stable]">
-        <div className="mx-auto max-w-2xl">
+        <div className={`mx-auto ${section === 'usage' ? 'max-w-4xl' : 'max-w-2xl'}`}>
           {section === 'general' && (
             <General status={status} providers={providers} onToggleAutoApprove={onToggleAutoApprove} />
           )}
@@ -2036,6 +2050,7 @@ export function SettingsView({
           {section === 'models' && (
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
           )}
+          {section === 'usage' && <Usage />}
           {section === 'mcp' && <Mcp />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}

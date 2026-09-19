@@ -109,6 +109,7 @@ import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updat
 import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
 import { pricedModels, setCustomPrice } from '../pricing'
+import { clearUsage as clearUsageLog, recentUsage, summarizeUsage } from '../usageLog'
 import { importMcp, listMcp, mcpSecrets, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
 import { credentialStatus, knownSecrets, moveEnvKeys, restrictEnvFile } from '../credentials'
 import { writeExport } from '../exporter'
@@ -772,6 +773,13 @@ export function registerIpcHandlers(): void {
     if (typeof model !== 'string') throw new Error('Name the model')
     setCustomPrice(model, price === null ? null : (price as ModelPrice))
   })
+  ipcMain.handle(IpcChannel.USAGE_SUMMARY, (_event, rangeMs: unknown) =>
+    summarizeUsage(typeof rangeMs === 'number' ? rangeMs : null)
+  )
+  ipcMain.handle(IpcChannel.USAGE_RECENT, (_event, limit: unknown) =>
+    recentUsage(typeof limit === 'number' ? limit : 50)
+  )
+  ipcMain.handle(IpcChannel.USAGE_CLEAR, () => clearUsageLog())
   ipcMain.handle(IpcChannel.PREFERENCES_GET, () => preferences())
   ipcMain.handle(IpcChannel.PREFERENCES_SET, (_event, patch: unknown) =>
     setPreferences(typeof patch === 'object' && patch !== null ? (patch as Record<string, unknown>) : {})

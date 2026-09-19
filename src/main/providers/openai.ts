@@ -200,7 +200,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     let text = ''
     let finishReason: string | null = null
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }
     const calls = new Map<number, { id: string; name: string; args: string }>()
     const stalled = (): Error => received
       ? new Error('Provider stream stalled mid-turn. The run stopped so nothing is duplicated')
@@ -223,6 +223,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
         if (chunk.usage) {
           usage.inputTokens = chunk.usage.prompt_tokens
           usage.outputTokens = chunk.usage.completion_tokens
+          const cached = (chunk.usage as { prompt_tokens_details?: { cached_tokens?: unknown } })
+            .prompt_tokens_details?.cached_tokens
+          if (typeof cached === 'number' && Number.isFinite(cached)) usage.cachedTokens = cached
         }
 
         const choice = chunk.choices[0]

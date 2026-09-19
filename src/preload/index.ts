@@ -192,6 +192,11 @@ const api: AnticodeApi = {
   onMcpServers: (listener) => subscribe<McpServerStatus[]>(IpcChannel.MCP_UPDATED, listener),
   listPrices: (models) => ipcRenderer.invoke(IpcChannel.PRICING_LIST, models) as Promise<PricedModel[]>,
   setPrice: (model, price) => ipcRenderer.invoke(IpcChannel.PRICING_SET, model, price) as Promise<void>,
+  getUsageSummary: (rangeMs) =>
+    ipcRenderer.invoke(IpcChannel.USAGE_SUMMARY, rangeMs ?? null) as ReturnType<AnticodeApi['getUsageSummary']>,
+  listUsageRecent: (limit) =>
+    ipcRenderer.invoke(IpcChannel.USAGE_RECENT, limit) as ReturnType<AnticodeApi['listUsageRecent']>,
+  clearUsage: () => ipcRenderer.invoke(IpcChannel.USAGE_CLEAR) as Promise<number>,
   getPreferences: () => ipcRenderer.invoke(IpcChannel.PREFERENCES_GET) as Promise<AppPreferences>,
   setPreferences: (patch) => ipcRenderer.invoke(IpcChannel.PREFERENCES_SET, patch) as Promise<AppPreferences>,
   onPreferences: (listener) => subscribe<AppPreferences>(IpcChannel.PREFERENCES_UPDATED, listener),

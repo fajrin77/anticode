@@ -133,6 +133,7 @@ export class CodexProvider implements LLMProvider {
         accept: 'text/event-stream',
         'openai-beta': 'responses=experimental',
         originator: 'codex_cli_rs',
+        'user-agent': 'codex_cli_rs/0.154.0',
         ...(this.accountId !== undefined && this.accountId !== ''
           ? { 'chatgpt-account-id': this.accountId }
           : {})
@@ -157,13 +158,18 @@ export class CodexProvider implements LLMProvider {
           `Model "${this.model}" is not available on this ChatGPT plan. Pick another Codex model from the model picker and retry.`
         )
       }
+      if (response.status === 429) {
+        throw new Error(
+          'Codex rate limited this request (429). Wait a minute and retry, or put this account in Rotate usage with another model as backup.'
+        )
+      }
       throw new Error(`Codex returned ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 200)}`}`)
     }
 
     let text = ''
     const calls = new Map<string, { name: string; args: string }>()
     const order: string[] = []
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage: { inputTokens: number; outputTokens: number; cachedTokens?: number } = { inputTokens: 0, outputTokens: 0 }
     let reason: string | null = null
 
     for await (const event of sse(response.body)) {
@@ -193,10 +199,12 @@ export class CodexProvider implements LLMProvider {
         }
       } else if (type === 'response.completed') {
         const completed = event.response as
-          | { usage?: { input_tokens?: number; output_tokens?: number }; incomplete_details?: { reason?: string } }
+          | { usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }; incomplete_details?: { reason?: string } }
           | undefined
         usage.inputTokens = completed?.usage?.input_tokens ?? usage.inputTokens
         usage.outputTokens = completed?.usage?.output_tokens ?? usage.outputTokens
+        const cached = completed?.usage?.input_tokens_details?.cached_tokens
+        if (typeof cached === 'number' && Number.isFinite(cached)) usage.cachedTokens = cached
         reason = completed?.incomplete_details?.reason ?? reason
       }
     }

@@ -165,12 +165,22 @@ it('keeps the old Claude refresh token when the grant omits a new one', async ()
 })
 
 it('runs the Cline WorkOS login end to end against mocks', async () => {
+  let authorizeHost = ''
   stubFetch(async (url: string) => {
-    if (url.includes('api.workos.com')) {
-      return new Response(JSON.stringify({ access_token: 'workos-at', refresh_token: 'workos-rt' }), { status: 200 })
-    }
-    if (url.includes('api.cline.bot/api/v1/auth/token')) {
-      return new Response(JSON.stringify({ accessToken: 'cline-session', refreshToken: 'cline-rt' }), { status: 200 })
+    if (url.includes('/api/v1/auth/token')) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            accessToken: 'cline-session',
+            refreshToken: 'cline-rt',
+            tokenType: 'Bearer',
+            expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+            userInfo: { email: 'cline@example.com' }
+          }
+        }),
+        { status: 200 }
+      )
     }
     throw new Error(`unexpected fetch ${url}`)
   })
@@ -179,6 +189,7 @@ it('runs the Cline WorkOS login end to end against mocks', async () => {
       onUpdate: (u) => {
         if (u.url !== undefined) {
           const parsed = new URL(u.url)
+          authorizeHost = parsed.host
           const state = parsed.searchParams.get('state') ?? ''
           const callback = new URL(parsed.searchParams.get('callback_url') ?? '')
           void realFetch(`http://127.0.0.1:${callback.port}/auth?${new URLSearchParams({ code: 'cline-code', state })}`)
@@ -186,12 +197,23 @@ it('runs the Cline WorkOS login end to end against mocks', async () => {
       }
     })
   )
+  // The authorize page lives on the API host; app.cline.bot 404s.
+  expect(authorizeHost).toBe('api.cline.bot')
   expect(tokens.accessToken).toBe('cline-session')
   expect(tokens.refreshToken).toBe('cline-rt')
+  expect(tokens.expiresAt).toBeGreaterThan(Date.now())
 })
 
 it('renews a Cline session token and keeps the old one as fallback', async () => {
-  stubFetch(async () => new Response(JSON.stringify({ accessToken: 'cline-fresh' }), { status: 200 }))
+  stubFetch(async () =>
+    new Response(
+      JSON.stringify({
+        success: true,
+        data: { accessToken: 'cline-fresh', tokenType: 'Bearer', expiresAt: new Date(Date.now() + 3600_000).toISOString(), userInfo: { email: '' } }
+      }),
+      { status: 200 }
+    )
+  )
   const next = await refreshCline({ accessToken: 'old', refreshToken: 'rt' })
   expect(next.accessToken).toBe('cline-fresh')
   expect(next.refreshToken).toBe('rt')

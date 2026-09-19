@@ -5,7 +5,7 @@ import { refreshCline } from './cline'
 import type { AuthKind, AuthTokens } from './types'
 import type { LLMProvider, ChatParams, ProviderEvent } from '../providers/types'
 import { CodexProvider } from '../providers/codex'
-import { AnthropicProvider } from '../providers/anthropic'
+import { AnthropicProvider, CLAUDE_CODE_HEADERS } from '../providers/anthropic'
 import { OpenAICompatibleProvider } from '../providers/openai'
 
 /*
@@ -32,16 +32,16 @@ const REFRESH_AHEAD_MS = 5 * 60 * 1000
  */
 export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   // Model names that work on ChatGPT plans follow what routers serving the
-  // same Codex backend publish (9router's cx/ list): plain 'gpt-5-codex',
-  // suffixed '-max'/'-mini' and non-Codex 'gpt-5' are refused with a 400, so
-  // none of them is listed. The first entry is what a session starts on.
-  codex: ['gpt-5.3-codex', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2-codex'],
+  // same Codex backend publish: gpt-5.5 is confirmed live, the rest are their
+  // documented cx/ set. Names refused with a 400 stay out. The first entry is
+  // what a session starts on.
+  codex: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex-spark', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
   claude: [
-    'claude-sonnet-4-5',
-    'claude-opus-4-5',
-    'claude-haiku-4-5',
-    'claude-opus-4-1',
-    'claude-3-5-haiku-latest'
+    'claude-sonnet-5',
+    'claude-opus-5',
+    'claude-fable-5-1',
+    'claude-fable-5',
+    'claude-haiku-4-5'
   ],
   cline: ['claude-sonnet-4-5', 'claude-opus-4-5', 'gpt-5-codex', 'gemini-2.5-pro'],
   codebuddy: ['auto-chat', 'claude-sonnet-4.5', 'gpt-5']
@@ -143,9 +143,12 @@ class AuthProvider implements LLMProvider {
         // token, `account.account` is the email, which it does not accept.
         return new CodexProvider(tokens.accessToken, model, tokens.meta?.accountId)
       case 'claude':
+        // OAuth traffic without the CLI identity headers gets throttled: the
+        // same header set the official client sends (mirrored from working
+        // router setups against this backend).
         return new AnthropicProvider('', model, undefined, {
           authToken: tokens.accessToken,
-          defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' }
+          defaultHeaders: CLAUDE_CODE_HEADERS
         })
       case 'cline':
         return new OpenAICompatibleProvider('cline', model, {

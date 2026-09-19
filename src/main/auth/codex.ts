@@ -105,6 +105,10 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
       url.searchParams.set('code_challenge', challenge)
       url.searchParams.set('code_challenge_method', 'S256')
       url.searchParams.set('state', state)
+      // The official client sends these; entitlements follow them.
+      url.searchParams.set('id_token_add_organizations', 'true')
+      url.searchParams.set('codex_cli_simplified_flow', 'true')
+      url.searchParams.set('originator', 'codex_cli_rs')
       callbacks.onUpdate({
         message: 'Open the browser and sign in to ChatGPT',
         url: url.toString()

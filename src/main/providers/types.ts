@@ -50,6 +50,8 @@ export interface ToolDefinition {
 export interface Usage {
   inputTokens: number
   outputTokens: number
+  /** Prompt tokens served from cache, when the vendor reports it. */
+  cachedTokens?: number
 }
 
 export interface LLMResponse {

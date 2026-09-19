@@ -38,3 +38,8 @@ it('keeps the raw backend error for anything else', async () => {
   vi.stubGlobal('fetch', async () => new Response('{"detail":"boom"}', { status: 500 }))
   await expect(drain(new CodexProvider('at', 'gpt-5.1-codex', 'acct_9'))).rejects.toThrow(/Codex returned 500/)
 })
+
+it('quota errors say to wait or rotate, not JSON', async () => {
+  vi.stubGlobal('fetch', async () => new Response('{"detail":"quota"}', { status: 429 }))
+  await expect(drain(new CodexProvider('at', 'gpt-5.5', 'acct_9'))).rejects.toThrow(/rate limited/)
+})

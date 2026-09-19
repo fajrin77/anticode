@@ -14,7 +14,7 @@ function phaseForTool(name: string): RunPhase {
   if (name.startsWith('browser_') || name === 'openWebUrl' || name === 'web_search') return 'browsing'
   return 'thinking'
 }
-import { HISTORY_TOKEN_BUDGET, historyBudgetFor as sharedHistoryBudgetFor } from '@shared/ipc'
+import { HISTORY_TOKEN_BUDGET, historyBudgetFor as sharedHistoryBudgetFor, maxOutputFor } from '@shared/ipc'
 import { isTypedPrompt, MEMORY_HEADER } from './turns'
 import type { ContentBlock, LLMProvider, LLMResponse, Message, ProviderEvent, Usage } from '../providers/types'
 import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
@@ -23,7 +23,7 @@ import type { DelegatedTask } from '../tools/types'
 import type { ApprovalGate } from '../approval/types'
 import { isOutOfUsage } from '../usageErrors'
 
-const MAX_TOKENS = 32_000
+const DEFAULT_MAX_TOKENS = 32_000
 const MAX_TOOL_OUTPUT = 10_000
 /** Rough ceiling for replayed history; keeps long sessions off the context cliff. */
 const MAX_HISTORY_TOKENS = HISTORY_TOKEN_BUDGET
@@ -143,15 +143,18 @@ interface FollowUp {
 
 /**
  * The default context budget stays put for models whose real window is
- * unknown; a known bigger window (Gemini 1M, GLM 200k) lets the history run
- * longer before compaction replaces old turns with a memory. The table lives
- * in @shared/ipc next to HISTORY_TOKEN_BUDGET, so the UI's context meter and
- * the loop's compaction always agree on the ceiling.
+ * unknown; a known bigger window (Claude 200k, GPT-5 400k, Gemini 1M, GLM
+ * 128-200k…) lets the history run longer before compaction replaces old
+ * turns with a memory. The table lives in @shared/ipc next to
+ * HISTORY_TOKEN_BUDGET, so the UI's context meter and the loop's compaction
+ * always agree on the ceiling.
  */
 
 export function historyBudgetFor(model: string): number {
   return sharedHistoryBudgetFor(model)
 }
+
+export { maxOutputFor }
 
 const isToolUse = (block: ContentBlock): block is ToolUseBlock => block.type === 'tool_use'
 
@@ -422,7 +425,10 @@ export class AgentSession {
           ...(this.provider.id !== undefined ? { providerId: this.provider.id } : {}),
           model: this.provider.model,
           inputTokens: response.usage.inputTokens,
-          outputTokens: response.usage.outputTokens
+          outputTokens: response.usage.outputTokens,
+          ...(response.usage.cachedTokens !== undefined && response.usage.cachedTokens > 0
+            ? { cachedTokens: response.usage.cachedTokens }
+            : {})
         })
 
         if (signal.aborted) break
@@ -574,7 +580,8 @@ export class AgentSession {
     const iterator = this.provider.chat({
       system: this.systemPrompt(), messages: this.history,
       tools: definitionsOf(this.toolset()),
-      maxTokens: MAX_TOKENS, signal: params.signal
+      // Small endpoints reject a 32k ask; the cap follows the model's family.
+      maxTokens: Math.min(DEFAULT_MAX_TOKENS, maxOutputFor(this.provider.model)), signal: params.signal
     })[Symbol.asyncIterator]()
     let rejectAbort: (reason: unknown) => void = () => {}
     const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
@@ -644,9 +651,9 @@ export class AgentSession {
    * reject; and it leaves headroom, so the next steps do not compact again.
    */
   private async compactHistory(params: RunParams): Promise<void> {
-    // The budget is the model's own window when it is known (Gemini 1M, GLM
-    // 200k...), and the shared default otherwise, so big-window models stop
-    // compacting long before their real limit.
+    // The budget is the model's own window when it is known (Claude 200k,
+    // GPT-5 400k, Gemini 1M…), and the shared default otherwise, so
+    // big-window models stop compacting long before their real limit.
     const budget = historyBudgetFor(this.provider.model)
     const compactTarget = Math.floor(budget * 0.72)
     const before = replayCost(this.history)
@@ -677,6 +684,7 @@ export class AgentSession {
       model: this.provider.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      ...(usage.cachedTokens !== undefined && usage.cachedTokens > 0 ? { cachedTokens: usage.cachedTokens } : {}),
       subagent: true
     }))
     // Automatic compaction is maintenance, not a conversation event. Keep it

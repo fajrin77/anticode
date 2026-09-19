@@ -4,7 +4,7 @@ import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
 import { Badge } from './Badge'
-import { historyBudgetFor } from '@shared/ipc'
+import { contextWindowFor, historyBudgetFor } from '@shared/ipc'
 import { formatUsd } from '../money'
 import { InstructionsField } from './InstructionsField'
 
@@ -60,9 +60,14 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
 
   const totalTokens = session.inputTokens + session.outputTokens
   // The same ceiling the loop compacts against, a 1M-window model is not
-  // "85% full" at 85k tokens.
+  // "85% full" at 85k tokens. `budget` is the replay ceiling (window minus
+  // reply headroom); `window` is the vendor's documented size, shown so the
+  // number reads as "used of total" instead of a mystery denominator.
   const budget = historyBudgetFor(session.model ?? '')
-  const contextPercent = Math.min(100, Math.round((session.lastInputTokens / budget) * 100))
+  const modelWindow = contextWindowFor(session.model ?? '')
+  const used = session.lastInputTokens
+  const contextPercent = Math.min(100, Math.round((used / budget) * 100))
+  const remaining = Math.max(0, budget - used)
 
   return (
     <div className="region-no-drag relative" ref={boxRef}>
@@ -116,7 +121,9 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
           <div className="mt-2 border-t border-line-soft pt-3">
             <div className="mb-1.5 flex items-center justify-between text-[11.5px]">
               <span className="text-faint">Current context</span>
-              <span className={contextPercent >= 85 ? 'text-del' : 'text-dim'}>{contextPercent}%</span>
+              <span className={`tabular-nums ${contextPercent >= 85 ? 'text-del' : contextPercent >= 70 ? 'text-text' : 'text-dim'}`}>
+                {formatNumber(used)} / {formatNumber(budget)} · {contextPercent}%
+              </span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-raised">
               <div
@@ -125,7 +132,11 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
               />
             </div>
             <div className="mt-1.5 text-[10.5px] text-faint">
-              Latest request against {formatNumber(budget)} token replay budget
+              {contextPercent >= 85
+                ? `Nearly full — ${formatNumber(remaining)} left. Compact now or start a fresh session.`
+                : contextPercent >= 70
+                  ? `${formatNumber(remaining)} tokens left before auto-compaction (window ${formatNumber(modelWindow)}).`
+                  : `Latest request against ${formatNumber(budget)} token budget · window ${formatNumber(modelWindow)}`}
             </div>
           </div>
           <button
