@@ -1042,6 +1042,33 @@ describe('sub-agents', () => {
     const offered = new AgentSession(new FakeProvider([]), allowAll, 'chat', root)
     expect((offered as unknown as { toolset: () => { name: string }[] }).toolset().some((tool) => tool.name === 'task')).toBe(true)
   })
+
+  it('hands the user instructions down to the sub-agent', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'x')
+    const childSystems: string[] = []
+    const provider: LLMProvider = { name: 'script', model: 'script-model', async *chat(params) {
+      if (params.system.includes('sub-agent of anticode')) {
+        childSystems.push(params.system)
+        yield { type: 'response', response: turn([{ type: 'text', text: 'child report' }], 'end_turn') }
+        return
+      }
+      const answered = params.messages.at(-1)?.content.some((block) => block.type === 'tool_result') === true
+      yield {
+        type: 'response',
+        response: answered
+          ? turn([{ type: 'text', text: 'merged' }], 'end_turn')
+          : turn([{ type: 'tool_use', id: 'task-1', name: 'task', input: { description: 'one', prompt: 'alpha' } }], 'tool_use')
+      }
+    } }
+    const given = { global: 'Answer in Indonesian.', session: 'Focus on billing.' }
+    await new AgentSession(provider, allowAll, 'code', root, [], 'scope', { instructions: () => given })
+      .run({ runId: 'run-1', prompt: 'go', signal: new AbortController().signal, emit: () => {} })
+    expect(childSystems.length).toBeGreaterThan(0)
+    for (const system of childSystems) {
+      expect(system).toContain('for every session:\n\nAnswer in Indonesian.')
+      expect(system).toContain('for this session:\n\nFocus on billing.')
+    }
+  })
 })
 
 describe('titleOf', () => {

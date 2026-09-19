@@ -863,7 +863,10 @@ export class AgentSession {
   private async runSubagent(task: DelegatedTask, toolUseId: string, params: RunParams): Promise<string> {
     const child = new AgentSession(this.provider, this.gate, 'code', this.workspaceRoot, [], this.scope, {
       tools: subagentTools(),
-      subagent: true
+      subagent: true,
+      // A delegated investigation answers the user's question, so it follows
+      // the same global and session instructions as the run that sent it.
+      ...(this.options.instructions !== undefined ? { instructions: this.options.instructions } : {})
     })
     child.projectInstructions = this.loadProjectInstructions()
     let calls = 0
