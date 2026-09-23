@@ -17,7 +17,10 @@ export const AUTH_PKCE_NOTE = 'browser'
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize'
 const TOKEN_URL = 'https://auth.openai.com/oauth/token'
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
-const SCOPES = 'openid profile email offline_access'
+// The exact scope string the official Codex client sends; the backend ties
+// entitlements to it, so a token minted without the connector scopes can log
+// in fine and then fail when it tries to chat.
+const SCOPES = 'openid profile email offline_access api.connectors.read api.connectors.invoke'
 const REDIRECT_PORT = 1455
 const CALLBACK_PATH = '/auth/callback'
 
@@ -145,14 +148,15 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
 /** Swaps the refresh token for a fresh access token. */
 export async function refreshCodex(tokens: AuthTokens): Promise<AuthTokens> {
   if (tokens.refreshToken === undefined) throw new Error('No refresh token')
+  // JSON body with exactly these three fields, the shape the official
+  // Codex client posts; anything else risks a refused grant.
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: tokens.refreshToken,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
       client_id: CLIENT_ID,
-      scope: SCOPES
+      grant_type: 'refresh_token',
+      refresh_token: tokens.refreshToken
     })
   })
   if (!response.ok) throw new Error(`ChatGPT refresh failed: ${await reason(response)}`)
