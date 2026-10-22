@@ -3,6 +3,9 @@ import type { JSX } from 'react'
 import type { AuthKind, SubscriptionQuota } from '@shared/ipc'
 import { quotaResetLabel, quotaWindowLabel } from './subscriptionUsageFormat'
 
+/** Which quota groups the user left open; kept across leaving and reopening Settings. */
+let openState: Record<string, boolean> = {}
+
 const LABELS: Record<AuthKind, string> = { claude: 'Claude Code', codex: 'ChatGPT', cline: 'Cline Free', clinepass: 'ClinePass', codebuddy: 'CodeBuddy', 'opencode-go': 'OpenCode Go', 'minimax-plan': 'MiniMax Token Plan', kilo: 'Kilo', openrouter: 'OpenRouter' }
 
 export function SubscriptionUsage(): JSX.Element {
@@ -10,6 +13,8 @@ export function SubscriptionUsage(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
+  // A group starts closed, unless it was open before (it survives remounts).
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(openState)
   const mounted = useRef(false)
   const loading = useRef(false)
   const refresh = useCallback(async () => {
@@ -44,7 +49,7 @@ export function SubscriptionUsage(): JSX.Element {
     {error && <p role="status" className="px-4 pb-3 text-[12px] text-amber-400">{error}</p>}
     {quotas === null && !error && <p className="px-4 pb-4 text-[12px] text-faint">Membaca kuota paket…</p>}
     {quotas?.length === 0 && <p className="px-4 pb-4 text-[12px] text-faint">Belum ada akun subscription terhubung. Tambahkan akun melalui Auth provider.</p>}
-    {[...groups].sort(([, a], [, b]) => Number(b.accounts.some(q => q.status !== 'unsupported')) - Number(a.accounts.some(q => q.status !== 'unsupported'))).map(([id, group]) => <details key={id} open={group.accounts.some(q => q.status !== 'unsupported')} className="border-t border-line-soft" data-quota-group={id}>
+    {[...groups].sort(([, a], [, b]) => Number(b.accounts.some(q => q.status !== 'unsupported')) - Number(a.accounts.some(q => q.status !== 'unsupported'))).map(([id, group]) => <details key={id} open={openGroups[id] === true} onToggle={(event) => { const isOpen = event.currentTarget.open; openState = { ...openState, [id]: isOpen }; setOpenGroups(state => state[id] === isOpen ? state : { ...state, [id]: isOpen }) }} className="border-t border-line-soft" data-quota-group={id}>
       <summary className="cursor-pointer px-4 py-3 text-[13px] text-text">{group.label}<span className="ml-2 text-[12px] text-faint">{group.accounts.length} akun</span></summary>
       <div className="space-y-3 px-4 pb-4">{group.accounts.map(quota => <div key={quota.provider} className="rounded-lg border border-line-soft bg-surface/30 px-4 py-3" data-quota-account={quota.provider}>
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
