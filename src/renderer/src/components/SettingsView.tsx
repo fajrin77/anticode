@@ -2046,7 +2046,7 @@ export function SettingsView({
         </svg>
       )
     }
-  ]
+  ].filter((item) => item.id !== 'mcp') // MCP hidden for now; the section code is kept
 
   return (
     <div className="flex min-h-0 flex-1">
