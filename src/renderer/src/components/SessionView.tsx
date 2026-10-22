@@ -1065,6 +1065,9 @@ export function SessionView(): JSX.Element {
       index > lastPrompt && message.role === 'assistant' && message.summary !== undefined && !pausedIds.has(message.id)
   )?.id
   const following = useRef(true)
+  // After a tab switch, content-visibility rows measure late and move the end;
+  // until this time, layout growth must not be mistaken for the user scrolling up.
+  const settleUntil = useRef(0)
   const promptCount = messages.filter(message => message.role === 'user').length
   const seenPrompts = useRef(promptCount)
   // Turns: one user prompt plus everything that answered it. Only the latest
@@ -1120,13 +1123,19 @@ export function SessionView(): JSX.Element {
     following.current = busy || (saved?.following ?? true)
     seenPrompts.current = saved?.prompts ?? promptCount
     box.scrollTop = following.current ? box.scrollHeight : (saved?.top ?? box.scrollHeight)
+    settleUntil.current = following.current ? Date.now() + 1200 : 0
+    const content = box.querySelector<HTMLElement>('[data-transcript]')
+    const settle = content === null ? null : new ResizeObserver(() => {
+      if (following.current && Date.now() < settleUntil.current) box.scrollTop = box.scrollHeight
+    })
+    if (content !== null) settle?.observe(content)
     const savePosition = () => {
       if (!useSessionStore.getState().sessions.some(s => s.id === id)) return
       const position = { top: box.scrollTop, following: following.current, prompts: seenPrompts.current }
       useSessionStore.setState(state => ({ readPositions: { ...state.readPositions, [id]: position } }))
     }
     window.addEventListener('beforeunload', savePosition)
-    return () => { window.removeEventListener('beforeunload', savePosition); savePosition() }
+    return () => { settle?.disconnect(); window.removeEventListener('beforeunload', savePosition); savePosition() }
     // Busy is read once per tab switch, which is all it decides for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id])
@@ -1193,9 +1202,12 @@ export function SessionView(): JSX.Element {
         ref={scrollRef}
         onScroll={(event) => {
           const box = event.currentTarget
-          following.current = box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_SLACK
+          const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_SLACK
+          if (atEnd || Date.now() >= settleUntil.current) following.current = atEnd
           setScrolled(box.scrollTop > 4 && !following.current)
         }}
+        onWheel={() => { settleUntil.current = 0 }}
+        onTouchMove={() => { settleUntil.current = 0 }}
         className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
