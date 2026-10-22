@@ -83,6 +83,8 @@ const AGENT_GRACE_STEPS = 2
 /** Three identical tool rounds in a row are almost certainly a stuck model. */
 const MAX_IDENTICAL_TOOL_ROUNDS = 3
 const TOOL_LOOP_WINDOW = 12
+const NARRATION_WINDOW = 8
+const MAX_ALIKE_NARRATIONS = 4
 const MAX_PLAN_NUDGES_WITHOUT_WORK = 2
 /**
  * Sent whenever the run tries to stop with a checklist that has unfinished
@@ -106,6 +108,20 @@ function stableJSON(value: unknown): string {
     if (item === null || typeof item !== 'object' || Array.isArray(item)) return item
     return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
   })
+}
+
+/** Words of a narration, lower-cased, for judging whether the model keeps announcing the same thing. */
+function narrationWords(text: string): string[] {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean)
+}
+
+export function narrationsAlike(a: string[], b: string[]): boolean {
+  if (a.length < 4 || b.length < 4) return false
+  if (a.slice(0, 4).join(' ') === b.slice(0, 4).join(' ')) return true
+  const left = new Set(a), right = new Set(b)
+  let shared = 0
+  for (const word of left) if (right.has(word)) shared += 1
+  return shared / (left.size + right.size - shared) >= 0.6
 }
 
 function toolFingerprints(calls: ToolUseBlock[], results: ContentBlock[], images: ContentBlock[] = []): string[] {
@@ -418,6 +434,7 @@ export class AgentSession {
 
     let steps = 0
     const recentToolRounds: string[][] = []
+    const recentNarrations: string[][] = []
     let blockedContinuation = false
     if (isContinuation(prompt)) {
       let boundary = 0
@@ -440,6 +457,7 @@ export class AgentSession {
     }
     let planNudgesWithoutWork = 0
     let loopRecoveries = 0
+    let narrationNudges = 0
     try {
       if (blockedContinuation) this.record({ role: 'user', content: [{ type: 'text', internal: true, text: 'Resume from existing evidence, not from the start. The previous run repeated unchanged checks. Choose a different concrete action; if blocked, give a final report naming the missing requirement instead of checking again.' }] })
       for (;;) {
@@ -525,6 +543,20 @@ export class AgentSession {
         if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
           recentToolRounds.length = 0
           planNudgesWithoutWork = 0
+        }
+        // A model can announce the same step again and again while its tool
+        // inputs differ slightly, which the exact-call guard never sees.
+        const narration = narrationWords(response.content.flatMap((block) => block.type === 'text' ? [block.text] : []).join(' '))
+        if (narration.length >= 4) {
+          recentNarrations.push(narration)
+          if (recentNarrations.length > NARRATION_WINDOW) recentNarrations.shift()
+          const alike = recentNarrations.filter((other) => narrationsAlike(other, narration)).length
+          if (alike >= MAX_ALIKE_NARRATIONS) {
+            recentNarrations.length = 0
+            if (narrationNudges++ >= 2) throw new Error('Stopped a repeated narration loop: the same progress statement kept returning after recovery guidance. Existing results are saved; choose a different action to continue.')
+            params.emit({ type: 'notice', runId, text: 'Agen mengulang pernyataan yang sama. Diarahkan untuk langsung bertindak atau melaporkan hambatan.' })
+            this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[You have repeated the same progress statement several times. Stop announcing what you will do. Use the results already in this history and make the next concrete tool call, or give the final report naming the specific blocker.]' }] })
+          }
         }
         const fingerprints = toolFingerprints(calls, results, roundImages)
         const observed = new Set(recentToolRounds.flat())
