@@ -576,7 +576,14 @@ export function App(): JSX.Element {
     void window.anticode.setAutoApprove(enabled).then(setStatus)
   }, [])
 
-  const pending = approvals[0]
+  // An approval belongs to the session whose run asked for it. A run that
+  // is not known yet still shows, so a request can never get stuck unseen.
+  const activeRuns = useSessionStore((state) => state.activeRuns)
+  const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
+  const pending = approvals.find((request) => {
+    const owner = (activeRuns[request.runId] ?? mirrorRuns[request.runId])?.sessionId
+    return owner === undefined || owner === activeSessionId
+  })
   // A question belongs to the session that asked it; other tabs stay clean.
   const pendingQuestion = questions.find((request) => request.sessionId === activeSessionId)
   const activeSession = useSessionStore((state) =>
@@ -585,7 +592,7 @@ export function App(): JSX.Element {
   const isFreshSession =
     activeSession !== undefined && activeSession.messages.length === 0
   const web = useWebSession(activeSessionId)
-  const swipeRoot = useSessionSwipe(view === 'session' && approvals.length === 0 && questions.length === 0, openExistingSession)
+  const swipeRoot = useSessionSwipe(view === 'session' && pending === undefined && pendingQuestion === undefined, openExistingSession)
 
   // An update the user has not closed the banner on. Ready means it has been
   // downloaded and waits for a restart; available means it waits for the click.
