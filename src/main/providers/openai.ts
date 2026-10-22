@@ -292,6 +292,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
           const cached = (chunk.usage as { prompt_tokens_details?: { cached_tokens?: unknown } })
             .prompt_tokens_details?.cached_tokens
           if (typeof cached === 'number' && Number.isFinite(cached)) usage.cachedTokens = cached
+          // Some gateways (Anthropic-style caching) report prompt_tokens without the
+          // cached part; cache can never exceed the whole prompt, so top it up.
+          if (usage.cachedTokens > usage.inputTokens) usage.inputTokens += usage.cachedTokens
         }
 
         const choice = chunk.choices[0]
