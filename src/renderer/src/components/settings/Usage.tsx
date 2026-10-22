@@ -47,11 +47,22 @@ function errorText(failure: unknown): string {
   )
 }
 
+/**
+ * A long total (nine digits and up) would run past the card and clip on its
+ * right edge, so the type steps down instead of the number being cut off.
+ */
+function valueSize(value: string): string {
+  if (value.length > 13) return 'text-[13px]'
+  if (value.length > 11) return 'text-[15px]'
+  if (value.length > 8) return 'text-[17px]'
+  return 'text-[19px]'
+}
+
 function Card({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }): JSX.Element {
   return (
-    <div className="glass-surface rounded-xl border border-line p-4">
-      <div className="text-[11px] tracking-wide text-faint uppercase">{label}</div>
-      <div className={`mt-1 text-[22px] tabular-nums ${accent ?? 'text-text'}`}>{value}</div>
+    <div className="glass-surface flex min-w-0 flex-col items-center rounded-xl border border-line p-4 text-center">
+      <div className="w-full truncate text-[11px] tracking-wide text-faint uppercase">{label}</div>
+      <div title={value} className={`mt-1 w-full tabular-nums ${valueSize(value)} ${accent ?? 'text-text'}`}>{value}</div>
       {sub !== undefined && <div className="mt-0.5 text-[11px] text-faint">{sub}</div>}
     </div>
   )
@@ -172,7 +183,7 @@ export function Usage(): JSX.Element {
         <div className="text-[13px] text-faint">Loading usage…</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
             <Card label="Total requests" value={formatNumber(summary.requests)} />
             <Card label="Total input" value={formatNumber(summary.inputTokens)} />
             <Card label="Cached tokens" value={formatNumber(summary.cachedTokens)} sub="Served from cache" />
