@@ -60,12 +60,14 @@ class ClaudeCodeRun {
   private inputItems: SDKUserMessage[] = []
   private inputWake: (() => void) | undefined
   syncedLength: number
+  readonly toolKey: string
   private closed = false
   private completed = false
   private directory?: string
   private readonly onAbort = (): void => this.close()
   constructor(readonly key: string, readonly token: string, readonly params: ChatParams, readonly model: string) {
     this.syncedLength = params.messages.length
+    this.toolKey = params.tools.map(t => t.name).sort().join('\n')
     params.signal.addEventListener('abort', this.onAbort, { once: true })
   }
   private push(item: Item): void { this.items.push(item); this.wake?.(); this.wake = undefined }
@@ -189,7 +191,9 @@ export class ClaudeCodeProvider implements LLMProvider {
     params.signal.throwIfAborted()
     const key = `${this.id}/${params.sessionId ?? 'default'}`
     let run = runs.get(key)
-    if (run && (run.model !== this.model || run.params.signal !== params.signal || run.token !== this.token)) { run.close(); run = undefined }
+    // The engine's tool list is fixed at start; a changed list (load_tools) needs a fresh run built from the transcript.
+    const toolKey = params.tools.map(t => t.name).sort().join('\n')
+    if (run && (run.model !== this.model || run.params.signal !== params.signal || run.token !== this.token || run.toolKey !== toolKey)) { run.close(); run = undefined }
     if (run) {
       run.steer(params)
       for (const block of params.messages.flatMap(m => m.content)) {
