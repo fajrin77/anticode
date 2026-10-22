@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
+import { createPortal } from 'react-dom'
 import type { AttachmentKind, AttachmentRef } from '@shared/ipc'
 import { usePreviewStore } from '../store/preview'
 
@@ -148,7 +149,9 @@ export function ImageViewer({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  return (
+  // Portaled to the body: transcript rows use content-visibility, which clips a
+  // fixed overlay to the row and left the rest of the window unclickable.
+  return createPortal(
     <div
       role="dialog"
       aria-label={name}
@@ -171,6 +174,7 @@ export function ImageViewer({
           Close
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

@@ -306,6 +306,16 @@ function EditPrompt({ sessionId, message }: { sessionId: string; message: Messag
  * clipboard. Drawn at the bubble's edge, visible only while hovered, and it
  * never shifts the transcript: the badge it swaps to occupies the same spot.
  */
+/** A sent reply carries its quote as leading `> ` lines; split it back out so it is drawn like the composer's quote card. */
+export function splitQuote(text: string): { quote: string; body: string } {
+  const lines = text.split('\n')
+  let end = 0
+  while (end < lines.length && /^>( |$)/.test(lines[end] ?? '')) end += 1
+  if (end === 0) return { quote: '', body: text }
+  const quote = lines.slice(0, end).map((line) => line.replace(/^> ?/, '')).join('\n').trim()
+  return { quote, body: lines.slice(end).join('\n').replace(/^\n+/, '') }
+}
+
 function CopyPromptButton({ text }: { text: string }): JSX.Element {
   const [copied, setCopied] = useState(false)
   return (
@@ -389,13 +399,23 @@ function MessageView({
       .map((part) => (part.kind === 'text' ? part.text : ''))
       .join('')
 
+    const { quote, body } = splitQuote(text)
     return (
       <div className="group/prompt flex flex-col items-end gap-2 pt-4 pb-1">
         {files.length > 0 && <Attachments items={files} />}
-        {text.trim() !== '' && (
-          <div className="relative max-w-[80%] rounded-xl bg-raised py-2.5 pl-4 pr-9 text-[15px] leading-relaxed whitespace-pre-wrap text-text">
-            {text}
-            <CopyPromptButton text={text} />
+        {(body.trim() !== '' || quote !== '') && (
+          <div className="relative flex max-w-[80%] flex-col gap-2 rounded-xl bg-raised py-2.5 pl-4 pr-9 text-[15px] leading-relaxed text-text">
+            {quote !== '' && (
+              <div className="flex items-start gap-2 rounded-xl border border-line bg-bg/35 px-3 py-2">
+                <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
+                <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
+                  <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
+                  <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
+                </span>
+              </div>
+            )}
+            {body.trim() !== '' && <span className="whitespace-pre-wrap">{body}</span>}
+            <CopyPromptButton text={body.trim() !== '' ? body : quote} />
           </div>
         )}
         {/* The phone shows "Follow-up added." for prompts that joined a running turn; the desktop transcript says the same in the same place. */}
