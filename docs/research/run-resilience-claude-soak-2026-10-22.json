@@ -1,0 +1,13 @@
+{
+  "evidence": "live-inference-plus-verification-fault",
+  "ok": true,
+  "tools": 2,
+  "notices": 0,
+  "progress": 0,
+  "followUp": true,
+  "directory": "/var/folders/gq/hkv4b5wx3t317yy9481nhh840000gn/T/anticode-claude-live-soak-oI3Jly",
+  "elapsedMs": 310085,
+  "metadata429s": 2,
+  "verified": true,
+  "followupPreserved": true
+}

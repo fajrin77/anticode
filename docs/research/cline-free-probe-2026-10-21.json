@@ -1,0 +1,158 @@
+[
+  {
+    "model": "minimax/minimax-m3.1-flash:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "xingchen-agi/xing4.0-29b-a4b:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "nvidia/nemotron-3.5-super-vl:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "dots-studio/dots-3-note-preview:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "liquid/lfm-2.5-2.6b:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "nvidia/nemotron-3.5-lightning:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "thinkingmachines/inkling-small:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "poolside/laguna-s-2.1:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "thinkingmachines/inkling:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "poolside/laguna-xs-2.1:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "cohere/north-mini-code:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "nvidia/nemotron-3.5-content-safety:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "google/gemma-4-26b-a4b-it:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "google/gemma-4-31b-it:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "openrouter/free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "cline-free/minimax-m3.1-flash",
+    "status": 403,
+    "replyReceived": false,
+    "restriction": "Cline official surfaces only"
+  },
+  {
+    "model": "reflection/beam-free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "cline-free/nemotron-3.5-super-vl",
+    "status": 403,
+    "replyReceived": false,
+    "restriction": "Cline official surfaces only"
+  },
+  {
+    "model": "nvidia/nemotron-3.5-lightning-free",
+    "status": 200,
+    "replyReceived": true,
+    "restriction": null
+  },
+  {
+    "model": "poolside/laguna-s-2.1-free",
+    "status": 200,
+    "replyReceived": false,
+    "restriction": null
+  },
+  {
+    "model": "cline-free/solar-mini4",
+    "status": 403,
+    "replyReceived": false,
+    "restriction": "Cline official surfaces only"
+  },
+  {
+    "model": "cline-free/muse-spark-1.3-contributor",
+    "status": 403,
+    "replyReceived": false,
+    "restriction": "Cline official surfaces only"
+  },
+  {
+    "model": "cline-free/mimo-v2.6-flash",
+    "status": 403,
+    "replyReceived": false,
+    "restriction": "Cline official surfaces only"
+  }
+]

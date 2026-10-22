@@ -1,0 +1,36 @@
+{
+  "status": "partial-analysis-failed",
+  "code": "execution_failure",
+  "diagnostics": {
+    "source_path": "node_modules/@lydell/node-pty-darwin-arm64/lib/eventEmitter2.js",
+    "phase": "startup",
+    "message": "macOS process ownership helper compilation failed via xcrun (compiler result: exit code 1): /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap:13:8: error: redefinition of module 'SwiftBridging'\n11 | //===----------------------------------------------------------------------===//\n12 | \n13 | module SwiftBridging {\n   |        `- error: redefinition of module 'SwiftBridging'\n14 |     header \"bridging\"\n15 | \n\n/Library/Developer/CommandLineTools/usr/include/swift/bridging.modulemap:13:8: note: previously defined here\n11 | //===-------------------------------------------------------\u2026 [diagnostics truncated]"
+  },
+  "evidence_id": "ev_1c69e2da50672f824ecf0f22929560bdf0b090aba0a800378209ad9dbb0d015d",
+  "subject": {
+    "name": "app.asar",
+    "digest": {
+      "sha256": "13d76fbda5282b6e1cdb7a09f7622facfa754d0c61c449ce367bdf2e37f8a5ff"
+    },
+    "local_path": "/Applications/OpenCode.app/Contents/Resources/app.asar",
+    "format": "asar",
+    "architecture": null
+  },
+  "initial_error": {
+    "error": "JavaScript application analysis failed",
+    "code": "artifact_integrity_mismatch",
+    "category": "integrity_mismatch",
+    "message": "Declared ASAR integrity for unpacked entry node_modules/@lydell/node-pty-darwin-arm64/prebuilds/darwin-arm64/pty.node contradicts its companion file; packaging tools commonly sign or strip unpacked native binaries after writing the archive. If expected, rerun analyze_javascript_application with integrity_policy=record-and-continue (CLI: --integrity-policy record-and-continue) to retain observed bytes as untrusted; otherwise get a fresh copy.",
+    "retryable": false,
+    "remediation": {
+      "action": "Declared ASAR integrity for unpacked entry node_modules/@lydell/node-pty-darwin-arm64/prebuilds/darwin-arm64/pty.node contradicts its companion file; packaging tools commonly sign or strip unpacked native binaries after writing the archive. If expected, rerun analyze_javascript_application with integrity_policy=record-and-continue (CLI: --integrity-policy record-and-continue) to retain observed bytes as untrusted; otherwise get a fresh copy."
+    },
+    "details": {
+      "logical_path": "node_modules/@lydell/node-pty-darwin-arm64/prebuilds/darwin-arm64/pty.node",
+      "declared_sha256": "30ac36647725b2402585781c8e81be39d76962bf79d03620a9763539d0fdbec8",
+      "calculated_sha256": "3587801f3205e469eaaec53a64e33fcd904bf4df601cd777d495127c92a22274",
+      "unpacked": true
+    }
+  },
+  "note": "Inventory is partial evidence only; no runtime behavior or complete source parsing was established. Full local CLI output was retained outside the repository."
+}

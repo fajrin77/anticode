@@ -1,0 +1,58 @@
+{
+  "target": "9router",
+  "installedVersion": "0.5.81",
+  "referenceVersion": "0.5.104",
+  "files": [
+    {
+      "name": "8236.js",
+      "sha256": "e6ee31d06722b64f0373455d07310eb606d4293c9b1460338da019d90b290a2d"
+    },
+    {
+      "name": "3753.js",
+      "sha256": "6cbc2222b5450979afd04cbd90b524cfab2f7dfeaaa95a233d8ec63c382eb339"
+    },
+    {
+      "name": "7011.js",
+      "sha256": "983ffc9c1129c9b4f16ad73de9ec21a46dc3766131bf020d91779a546da4092c"
+    }
+  ],
+  "reaVersion": "6.7.0",
+  "reaStatus": "partial-analysis; macOS ownership helper compile failure (SwiftBridging module redefinition)",
+  "liveClaudeStatus": "Browser login succeeded; sealed account survived preview restart. Read-only profile, usage and model catalogue HTTP 200. SDK inference Sonnet 5.5 and Haiku 5.5 HTTP 429; no successful response claimed.",
+  "verification": {
+    "typecheck": "passed",
+    "unitTests": 581,
+    "desktopClaudeAndFreePolicy": "fixture passed",
+    "nativeSubscriptionDesktop": "fixture passed",
+    "packagedSmoke": "passed: empty-profile startup, new chat, settings, no startup errors",
+    "anonymousKiloDesktop": "fixture passed: empty key accepted, credential available, billing free"
+  },
+  "liveFreeProbes": {
+    "kilo": {
+      "status": "passed",
+      "model": "minimax/minimax-m3.1-flash:free",
+      "adapter": "OpenAICompatibleProvider",
+      "anonymous": true,
+      "requests": 2,
+      "toolRoundTrip": true,
+      "hasFinalText": true
+    },
+    "opencode": {
+      "model": "deepseek-v4.1-flash-free",
+      "status": 403,
+      "reason": "Official-client restriction for anonymous request; authenticated access not proved"
+    }
+  },
+  "buildVersion": "0.0.60",
+  "installation": {
+    "status": "installed and reopened",
+    "version": "0.0.60",
+    "date": "2026-10-21",
+    "preservedSessions": 3,
+    "preservedSealedAccounts": 7,
+    "localOverviewHttp": 200,
+    "defaultProviderReady": true,
+    "claudePreviewAccountImported": false,
+    "backupCreated": true
+  }
+}

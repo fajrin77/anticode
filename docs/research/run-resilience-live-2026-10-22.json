@@ -1,0 +1,57 @@
+{
+  "scope": "real provider inference, temporary multi-file coding workspaces; not a general benchmark",
+  "models": [
+    {
+      "model": "claude-sonnet-5-5",
+      "ok": true,
+      "tools": 8,
+      "notices": 0,
+      "steered": true,
+      "reason": "complete",
+      "passed": true,
+      "report": true,
+      "testUnchanged": true,
+      "dropped": false,
+      "elapsedSeconds": 27
+    },
+    {
+      "model": "cline-pass/muse-spark-1.3-contributor",
+      "ok": true,
+      "tools": 17,
+      "notices": 1,
+      "steered": true,
+      "reason": "complete",
+      "passed": true,
+      "report": true,
+      "testUnchanged": true,
+      "dropped": true,
+      "elapsedSeconds": 66
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "ok": true,
+      "tools": 19,
+      "notices": 0,
+      "steered": true,
+      "reason": "complete",
+      "passed": true,
+      "report": true,
+      "testUnchanged": true,
+      "dropped": false,
+      "elapsedSeconds": 75
+    },
+    {
+      "model": "claude-opus-5-5",
+      "ok": true,
+      "tools": 8,
+      "notices": 0,
+      "steered": true,
+      "reason": "complete",
+      "passed": true,
+      "report": true,
+      "testUnchanged": true,
+      "dropped": false,
+      "elapsedSeconds": 29
+    }
+  ]
+}

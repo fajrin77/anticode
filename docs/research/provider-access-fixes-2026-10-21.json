@@ -1,0 +1,396 @@
+{
+  "date": "2026-10-21",
+  "version": "0.0.61",
+  "real_provider_probes": {
+    "tiny_requests": [
+      {
+        "provider": "OpenRouter",
+        "slot": 1,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 1,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 2,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 2,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 3,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 3,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 4,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 4,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": true,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 5,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 5,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 6,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 6,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 7,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 7,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": false,
+          "finishReason": "length"
+        }
+      },
+      {
+        "provider": "OpenCode configured Go endpoint",
+        "slot": 1,
+        "model": "minimax-m3.1-flash-free",
+        "sessionHeader": true,
+        "inference": {
+          "status": 403,
+          "error": "Upstream request failed: An active OpenCode Go subscription is required to use Go models.",
+          "hasText": false
+        }
+      }
+    ],
+    "answer_requests": [
+      {
+        "provider": "OpenRouter",
+        "slot": 1,
+        "model": "meta/muse-spark-1.3",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": true,
+          "finishReason": "stop"
+        }
+      },
+      {
+        "provider": "OpenRouter",
+        "slot": 1,
+        "model": "z-ai/glm-5.3-flashx",
+        "quota": {
+          "status": 200,
+          "limit": null,
+          "remaining": null,
+          "isFreeTier": true,
+          "dailyFreeRequests": {
+            "used": 0,
+            "limit": 50,
+            "remaining": 50
+          }
+        },
+        "inference": {
+          "status": 200,
+          "hasText": true,
+          "finishReason": "stop"
+        }
+      }
+    ],
+    "opencode_endpoint_checks": [
+      {
+        "provider": "OpenCode configured Go endpoint",
+        "slot": 1,
+        "model": "minimax-m3.1-flash-free",
+        "sessionHeader": true,
+        "inference": {
+          "status": 403,
+          "error": "Upstream request failed: An active OpenCode Go subscription is required to use Go models.",
+          "hasText": false
+        }
+      },
+      {
+        "provider": "OpenCode Free endpoint",
+        "slot": 1,
+        "model": "minimax-m3.1-flash-free",
+        "sessionHeader": true,
+        "inference": {
+          "status": 403,
+          "error": "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building.",
+          "hasText": false
+        }
+      }
+    ]
+  },
+  "fixtures": {
+    "unit_tests": 600,
+    "test_files": 59,
+    "electron_free_auth": "passed",
+    "electron_keyring": "passed",
+    "packaged_smoke": "passed"
+  },
+  "limitations": [
+    "Tiny HTTP 200 responses without text are not completed answers.",
+    "Answer probes are direct API diagnostics, not coding benchmarks.",
+    "Browser logins newly added for Kilo and OpenRouter and MiniMax plan connection have fixture evidence only.",
+    "Keys may share account quota.",
+    "No automatic paid fallback or official-client impersonation.",
+    "Not every provider displayed in 9Router is implemented."
+  ]
+}
