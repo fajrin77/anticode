@@ -1,5 +1,6 @@
 import { closeBrowser, closeSearchPage } from '../browser'
-import { randomUUID } from 'node:crypto'
+import { requestLimit } from '../providers/requestLimits'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -14,14 +15,20 @@ function phaseForTool(name: string): RunPhase {
   if (name.startsWith('browser_') || name === 'openWebUrl' || name === 'web_search') return 'browsing'
   return 'thinking'
 }
-import { HISTORY_TOKEN_BUDGET, historyBudgetFor as sharedHistoryBudgetFor, maxOutputFor } from '@shared/ipc'
+import { CONTINUE_PROMPT, HISTORY_TOKEN_BUDGET, historyBudgetFor as sharedHistoryBudgetFor, maxOutputFor } from '@shared/ipc'
 import { isTypedPrompt, MEMORY_HEADER } from './turns'
 import type { ContentBlock, LLMProvider, LLMResponse, Message, ProviderEvent, Usage } from '../providers/types'
 import { definitionsOf, subagentTools, toolsFor, ToolError } from '../tools'
 import type { Tool } from '../tools'
 import type { DelegatedTask } from '../tools/types'
 import type { ApprovalGate } from '../approval/types'
+import { SessionToolCatalog } from '../tools/catalog'
+import { modelTools, editingGuidance } from '../tools/modelProfile'
+import { patchPaths } from '../tools/applyPatch'
 import { isOutOfUsage } from '../usageErrors'
+import { isTransient, canFailOver, isTransportFailure } from '../providers/failures'
+import { modelCannotSeeImages, modelIsBatchOnly } from '@shared/ipc'
+import { ProviderRequestError } from '../providers/requestError'
 
 const DEFAULT_MAX_TOKENS = 32_000
 const MAX_TOOL_OUTPUT = 10_000
@@ -30,6 +37,11 @@ const MAX_HISTORY_TOKENS = HISTORY_TOKEN_BUDGET
 const IMAGE_TOKEN_COST = 1600
 /** Transient provider failures worth one automatic retry. */
 const MAX_RETRIES = 2
+const MAX_TRANSPORT_RETRIES = 5
+function retryBudget(error: unknown): number {
+  const details = error as { message?: string; code?: string; cause?: { code?: string } }
+  return isTransportFailure(error) && !/timeout|timed.?out/i.test([details.message, details.code, details.cause?.code].join(' ')) ? MAX_TRANSPORT_RETRIES : MAX_RETRIES
+}
 /** Tool-result turns newer than this keep their verbatim output. */
 const RECENT_TOOL_TURNS = 3
 /** Older tool outputs are squashed to a short tail so the outcome still shows. */
@@ -70,6 +82,8 @@ const AGENT_MAX_STEPS = 200
 const AGENT_GRACE_STEPS = 2
 /** Three identical tool rounds in a row are almost certainly a stuck model. */
 const MAX_IDENTICAL_TOOL_ROUNDS = 3
+const TOOL_LOOP_WINDOW = 12
+const MAX_PLAN_NUDGES_WITHOUT_WORK = 2
 /**
  * Sent whenever the run tries to stop with a checklist that has unfinished
  * items. It tells the model to publish the *updated* checklist before it does
@@ -80,7 +94,29 @@ const FINISH_PLAN_PROMPT =
   '[The checklist for this run still has unfinished items. Call todo_write first, mark every item whose work ' +
   'is already done as completed, keep exactly one item in_progress, then keep working. Do not stop at a stage ' +
   'boundary, do not ask the user to type continue, and do not only describe the next step. When the last item ' +
-  'is done, verify the complete result before your final answer.]'
+  'is done, verify the complete result before your final answer. If access, credentials, or user input blocks work, ' +
+  'mark the affected item blocked, explain the missing requirement, and stop. Never repeat unchanged access checks.]'
+
+function isContinuation(prompt: string): boolean {
+  return prompt === CONTINUE_PROMPT || /^(lanjut(?:kan)?|continue|resume)[.!\s]*$/i.test(prompt.trim())
+}
+
+function stableJSON(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) return item
+    return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+  })
+}
+
+function toolFingerprints(calls: ToolUseBlock[], results: ContentBlock[], images: ContentBlock[] = []): string[] {
+  return calls.map((call) => {
+    const result = results.find((block) => block.type === 'tool_result' && block.toolUseId === call.id)
+    return createHash('sha256').update(stableJSON({ name: call.name, input: call.input,
+      result: result?.type === 'tool_result' ? { content: result.content, isError: result.isError, diff: result.diff } : null,
+      images: images.filter((block) => block.type === 'image')
+    })).digest('hex')
+  })
+}
 
 interface RunParams {
   runId: string
@@ -183,30 +219,11 @@ function truncate(output: string): string {
 
 function stubOutput(content: string): string {
   return (
-    `[earlier tool output elided, ${content.length} characters total]\n` +
-    content.slice(-STUB_CHARS)
+    content.slice(0, STUB_CHARS) + `\n[earlier tool output elided, ${content.length} characters total]\n` + content.slice(-STUB_CHARS)
   )
 }
 
-/** Providers mark rate limits and outages with an HTTP-ish status property. */
-const RETRYABLE_CODES = new Set([
-  'ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETDOWN',
-  'ENETUNREACH', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET'
-])
-
-export function isTransient(error: unknown): boolean {
-  let current: unknown = error
-  for (let depth = 0; depth < 5 && current !== null && typeof current === 'object'; depth++) {
-    const record = current as { status?: unknown; code?: unknown; message?: unknown; cause?: unknown; error?: unknown }
-    if (typeof record.status === 'number' &&
-      (record.status === 408 || record.status === 429 || (record.status >= 500 && record.status <= 599))) return true
-    if (typeof record.code === 'string' && RETRYABLE_CODES.has(record.code.toUpperCase())) return true
-    if (typeof record.message === 'string' &&
-      /fetch failed|terminated|other side closed|network|connection (?:lost|reset|refused)|socket|timed? ?out|timeout|temporarily unavailable/i.test(record.message)) return true
-    current = record.cause ?? record.error
-  }
-  return false
-}
+export { isTransient } from '../providers/failures'
 
 /** Provider SDKs expose Retry-After either as seconds or an HTTP date. */
 function retryDelay(error: unknown, attempt: number): number {
@@ -220,7 +237,7 @@ function retryDelay(error: unknown, attempt: number): number {
     if (Number.isFinite(at)) return Math.min(30_000, Math.max(0, at - Date.now()))
   }
   // Small jitter prevents several simultaneous sessions retrying in lockstep.
-  return 1_000 * 2 ** attempt + Math.floor(Math.random() * 250)
+  return Math.min(10_000, 1_000 * 2 ** attempt) + Math.floor(Math.random() * 250)
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
@@ -316,8 +333,10 @@ export class AgentSession {
   }
 
   /** What the model is offered now, MCP servers may have come or gone since the last step. */
+  private readonly toolCatalog = new SessionToolCatalog(() => toolsFor(this.mode))
+
   private toolset(): Tool[] {
-    return this.fixedTools ?? toolsFor(this.mode)
+    return this.fixedTools ?? modelTools(this.toolCatalog.tools(this.history), this.provider.model)
   }
 
   get providerName(): string { return this.provider.name }
@@ -381,6 +400,7 @@ export class AgentSession {
   private async runExclusive(params: RunParams): Promise<void> {
     const { runId, prompt, signal, emit } = params
     const runTranscriptStart = this.transcript.length
+    this.replayNoticeModel = null
     // Taking instructions in is what moves every viewer's reply below them.
     const takeIn = (): ContentBlock[] => {
       const blocks = this.takeFollowUps(true)
@@ -397,9 +417,31 @@ export class AgentSession {
     })
 
     let steps = 0
-    let repeatedToolRounds = 0
-    let previousToolRound = ''
+    const recentToolRounds: string[][] = []
+    let blockedContinuation = false
+    if (isContinuation(prompt)) {
+      let boundary = 0
+      for (let index = runTranscriptStart - 1; index >= 0; index--) {
+        const message = this.transcript[index]
+        if (message && isTypedPrompt(message)) {
+          const text = message.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
+          if (!isContinuation(text)) { boundary = index; break }
+        }
+      }
+      blockedContinuation = this.transcript.slice(boundary, runTranscriptStart).some((message) => message.content.some((block) => block.type === 'display' && block.kind === 'error' && /Stopped a (?:repeated tool|task) loop/.test(block.text)))
+      for (let index = boundary; index < runTranscriptStart - 1; index++) {
+        const message = this.transcript[index]
+        if (message?.role !== 'assistant') continue
+        const calls = message.content.filter(isToolUse)
+        const results = this.transcript[index + 1]?.content ?? []
+        if (calls.length) recentToolRounds.push(toolFingerprints(calls, results, results))
+      }
+      recentToolRounds.splice(0, Math.max(0, recentToolRounds.length - TOOL_LOOP_WINDOW))
+    }
+    let planNudgesWithoutWork = 0
+    let loopRecoveries = 0
     try {
+      if (blockedContinuation) this.record({ role: 'user', content: [{ type: 'text', internal: true, text: 'Resume from existing evidence, not from the start. The previous run repeated unchanged checks. Choose a different concrete action; if blocked, give a final report naming the missing requirement instead of checking again.' }] })
       for (;;) {
         if (signal.aborted) break
         steps += 1
@@ -443,7 +485,11 @@ export class AgentSession {
           // pauses. Some models finish each checklist item with end_turn and
           // wait for "continue". Keep the same run alive until its latest
           // three-or-more-item checklist says the whole request is done.
-          if (response.stopReason === 'end_turn' && this.hasUnfinishedPlan(runTranscriptStart)) {
+          if (response.stopReason === 'end_turn' && !params.plan && this.hasUnfinishedPlan(runTranscriptStart)) {
+            if (planNudgesWithoutWork >= MAX_PLAN_NUDGES_WITHOUT_WORK) {
+              throw new Error('Stopped a task loop: the checklist is unfinished but no new work followed the continuation prompts. Supply the missing access or instructions before continuing.')
+            }
+            planNudgesWithoutWork++
             this.record({
               role: 'user',
               content: [{ type: 'text', text: FINISH_PLAN_PROMPT, internal: true }]
@@ -472,33 +518,36 @@ export class AgentSession {
           : steps >= stepLimit - 4
             ? [{ type: 'text', text: '[Approaching the step limit. Finish the remaining plan items without detours.]' }]
             : []
-        this.record({ role: 'user', content: [...results, ...this.pendingImages, ...added, ...limit] })
+        const roundImages = this.pendingImages
+        this.record({ role: 'user', content: [...results, ...roundImages, ...added, ...limit] })
         this.pendingImages = []
 
-        const toolRound = JSON.stringify(calls.map((call, index) => ({
-          name: call.name,
-          input: call.input,
-          result: results[index]?.type === 'tool_result'
-            ? {
-                content: results[index].content,
-                isError: results[index].isError,
-                diff: results[index].diff
-              }
-            : results[index]
-        })))
-        repeatedToolRounds = toolRound === previousToolRound ? repeatedToolRounds + 1 : 1
-        previousToolRound = toolRound
-        if (calls.length > 0 && repeatedToolRounds >= MAX_IDENTICAL_TOOL_ROUNDS) {
-          throw new Error(
-            `Stopped a repeated tool loop: the same ${calls.length === 1 ? calls[0]?.name ?? 'tool' : 'tool calls'} and result occurred ${MAX_IDENTICAL_TOOL_ROUNDS} times in a row.`
-          )
+        if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
+          recentToolRounds.length = 0
+          planNudgesWithoutWork = 0
         }
+        const fingerprints = toolFingerprints(calls, results, roundImages)
+        const observed = new Set(recentToolRounds.flat())
+        if (calls.some((call, index) => call.name !== 'todo_write' && call.name !== 'load_tools' && !observed.has(fingerprints[index] ?? ''))) {
+          planNudgesWithoutWork = 0
+        }
+        recentToolRounds.push(fingerprints)
+        if (recentToolRounds.length > TOOL_LOOP_WINDOW) recentToolRounds.shift()
+        const work = calls.flatMap((call, index) => call.name === 'todo_write' || call.name === 'load_tools' ? [] : [fingerprints[index]!])
+        const hasNewEvidence = work.some(fingerprint => !observed.has(fingerprint))
+        if (!hasNewEvidence && work.some(fingerprint => recentToolRounds.filter(round => round.includes(fingerprint)).length >= MAX_IDENTICAL_TOOL_ROUNDS)) {
+          if (loopRecoveries++ > 0) throw new Error('Stopped a repeated tool loop: unchanged checks continued after recovery guidance. Existing results are saved; choose a different action to continue.')
+          const text = 'Pemeriksaan berulang tidak memberi bukti baru. Agen diarahkan memakai hasil yang sudah ada dan melanjutkan dengan tindakan berbeda.'
+          params.emit({ type: 'notice', runId, text })
+          this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[Repeated checks produced no new evidence. Stop repeating those calls. Use the results already in this history, update the task state, and take a different concrete action toward completion. Do not restart analysis or repeat a progress promise. Report a specific blocker only if no authorized action can advance the task.]' }] })
+        }
+
       }
     } catch (error) {
       this.pendingImages = []
       this.sealPendingToolUses()
-      const retryable = !signal.aborted && !isOutOfUsage(error) && isTransient(error)
-      const kept = (signal.aborted || retryable) ? this.keepInterruptedReply() : null
+      const kept = this.keepInterruptedReply()
+      const retryable = !signal.aborted && ((!isOutOfUsage(error) && isTransient(error)) || (kept !== null && canFailOver(error)))
       const keptReply = kept !== null ? { keptReplyModel: this.provider.model } : {}
       if (kept !== null) {
         // Streaming APIs normally report usage only in their final chunk. A
@@ -540,6 +589,7 @@ export class AgentSession {
         if (block?.type !== 'tool_use' || block.name !== 'todo_write') continue
         const items = (block.input as { items?: unknown } | null)?.items
         if (!Array.isArray(items) || items.length < 3) return false
+        if (items.some((item) => (item as { status?: unknown } | null)?.status === 'blocked')) return false
         return items.some((item) =>
           item === null || typeof item !== 'object' || (item as { status?: unknown }).status !== 'completed'
         )
@@ -549,6 +599,7 @@ export class AgentSession {
   }
 
   private async requestTurn(params: RunParams): Promise<LLMResponse> {
+    let reducedForKeyLimit = false
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.streamTurn(params)
@@ -557,7 +608,19 @@ export class AgentSession {
         // Words already shown cannot be taken back: another attempt, or
         // another model, would write its whole reply after them. The run
         // stops instead; the words are kept and Continue carries on from them.
-        if (this.streamed !== '') throw error
+        if (this.streamed !== '') {
+          if (attempt >= retryBudget(error) || !isTransient(error) || isOutOfUsage(error)) throw error
+          this.keepInterruptedReply()
+          this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[The connection interrupted the response. Resume from the last confirmed tool results and the partial text above. Do not repeat completed actions or restart the explanation. Finish the remaining work.]' }] })
+          params.emit({ type: 'notice', runId: params.runId, text: 'Koneksi terputus sementara. Melanjutkan dari hasil terakhir yang tersimpan.' })
+          await delay(retryDelay(error, attempt), params.signal)
+          continue
+        }
+        const limit = requestLimit(error)
+        if (!reducedForKeyLimit && limit?.kind === 'input' && this.reduceForKeyLimit(limit.promptTokens ?? 0, limit.limitTokens ?? 0, params)) {
+          reducedForKeyLimit = true
+          continue
+        }
         // Under rotation a provider that fails, rate limited, out of quota,
         // down, hands the turn to the next one at once rather than being
         // waited out. Only once every one has failed do the retries below run.
@@ -567,18 +630,67 @@ export class AgentSession {
           attempt = -1
           continue
         }
-        if (attempt >= MAX_RETRIES || !isTransient(error)) throw error
+        if (attempt >= retryBudget(error) || !isTransient(error)) throw error
+        if (attempt === 0) params.emit({ type: 'notice', runId: params.runId, text: 'Provider mengalami gangguan sementara. Request dicoba kembali otomatis dengan jeda; pekerjaan yang sudah selesai tetap tersimpan.' })
         await delay(retryDelay(error, attempt), params.signal)
       }
     }
+  }
+
+  /** A credit-limited key may allow less context than the model itself. Keep
+   * the latest complete turn and the full transcript; retry only once. This
+   * digest is local so condensing cannot itself send the oversized request. */
+  private reduceForKeyLimit(promptTokens: number, limitTokens: number, params: RunParams): boolean {
+    if (!Number.isFinite(promptTokens) || !Number.isFinite(limitTokens) || limitTokens <= 0) return false
+    const before = replayCost(this.history)
+    const fixedCost = Math.max(0, promptTokens - before)
+    const budget = Math.floor(limitTokens * 0.8) - fixedCost
+    const cut = this.history.findLastIndex(isPlainPrompt)
+    if (cut <= 0) return false
+    const tail = this.history.slice(cut)
+    const memoryTokens = budget - replayCost(tail) - 64
+    if (memoryTokens < 256) return false
+    const removed = this.history.slice(0, cut)
+    const original = removed.find(isTypedPrompt)?.content.find(block => block.type === 'text' && !block.attachment && !block.internal)
+    const goal = original?.type === 'text' ? `Original request: ${original.text.slice(0, 1000)}\n` : ''
+    const digest = clip(goal + summariseMessages(removed), Math.min(MEMORY_MAX_CHARS, Math.floor(memoryTokens * 4)))
+    const memory: Message = { role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${digest}` }] }
+    if (replayCost([memory, ...tail]) >= before) return false
+    this.history.splice(0, cut, memory)
+    const text = 'Konteks melebihi batas request key. Riwayat lama diringkas secara lokal untuk satu percobaan ulang; transkrip asli tetap tersimpan.'
+    this.recordDisplay('notice', text)
+    params.emit({ type: 'notice', runId: params.runId, text })
+    return true
+  }
+
+  /** Adapt replay without changing the saved transcript or the vision history. */
+  private replayNoticeModel: string | null = null
+
+  private requestMessages(params: RunParams): Message[] {
+    if (!modelCannotSeeImages(this.provider.model)) return this.history
+    const latest = this.history.findLastIndex((message) => isTypedPrompt(message) || message.role === 'user' && message.content.some((block) => block.type === 'text' && block.text === CONTINUE_PROMPT))
+    const messages = this.history.map((message, index) => ({ ...message, content: message.content.map((block): ContentBlock => {
+      if (block.type !== 'image') return block
+      if (index >= latest) throw new ProviderRequestError('Model ini hanya membaca teks. Gambar baru membutuhkan model vision; pilih model vision atau kirim pertanyaan teks berikutnya.', 400)
+      return { type: 'text', text: '[Earlier image retained in the conversation but unavailable to this text-only model. Use only the existing textual evidence; do not invent image details.]' }
+    }) }))
+    if (this.replayNoticeModel !== this.provider.model && this.history.some((message) => message.content.some((block) => block.type === 'image'))) {
+      this.replayNoticeModel = this.provider.model
+      const text = 'Model ini hanya membaca teks. Gambar dari pesan terdahulu tetap tersimpan, tetapi tidak dikirim ke model ini; gunakan model vision untuk memeriksanya kembali.'
+      this.recordDisplay('notice', text)
+      params.emit({ type: 'notice', runId: params.runId, text })
+    }
+    return messages
   }
 
   private async streamTurn(params: RunParams): Promise<LLMResponse> {
     let response: LLMResponse | null = null
     this.streamed = ''
 
+    if (modelIsBatchOnly(this.provider.model)) throw new ProviderRequestError('Model batch tidak mendukung chat interaktif. Pilih model tanpa akhiran :batch.', 400)
+    const messages = this.requestMessages(params)
     const iterator = this.provider.chat({
-      system: this.systemPrompt(), messages: this.history,
+      sessionId: this.scope, system: this.systemPrompt(), messages,
       tools: definitionsOf(this.toolset()),
       // Small endpoints reject a 32k ask; the cap follows the model's family.
       maxTokens: Math.min(DEFAULT_MAX_TOKENS, maxOutputFor(this.provider.model)), signal: params.signal
@@ -620,6 +732,8 @@ export class AgentSession {
    * errors (short by nature) are left untouched.
    */
   private condenseHistory(): void {
+    // Keep evidence while it fits. Age alone is not a reason to erase facts.
+    if (replayCost(this.history) < historyBudgetFor(this.provider.model) * 0.65) return
     let toolTurns = 0
     for (let i = this.history.length - 1; i >= 0; i--) {
       const message = this.history[i]
@@ -738,7 +852,7 @@ export class AgentSession {
     try {
       const response = await collectResponse(
         this.provider.chat({
-          system: COMPACTION_SYSTEM,
+          sessionId: this.scope, system: COMPACTION_SYSTEM,
           messages: [{ role: 'user', content: [{ type: 'text', text: compactionMaterial(removed) }] }],
           tools: [],
           maxTokens: COMPACTION_MAX_TOKENS,
@@ -925,9 +1039,9 @@ export class AgentSession {
    * off, but the words before it are.
    */
   private keepInterruptedReply(): string | null {
-    const said = this.streamed.trim()
+    const said = this.streamed
     this.streamed = ''
-    if (said === '' || this.history.at(-1)?.role !== 'user') return null
+    if (said.trim() === '' || this.history.at(-1)?.role !== 'user') return null
     this.record({ role: 'assistant', content: [{ type: 'text', text: said }] })
     return said
   }
@@ -1075,6 +1189,10 @@ export class AgentSession {
     if (this.checkpoints === null || tool.readOnly) return null
     try {
       if (tool.name === 'run_command') return await this.checkpoints.beforeCommand()
+      if (tool.name === 'apply_patch') {
+        const patch = (call.input as { patch: string }).patch
+        for (const target of patchPaths(patch)) this.checkpoints.capture(target)
+      }
       const input = call.input as { path?: unknown; output_path?: unknown } | null
       for (const target of [input?.path, input?.output_path]) {
         if (typeof target === 'string' && target.trim() !== '') this.checkpoints.capture(target)
@@ -1104,7 +1222,9 @@ export class AgentSession {
   get contextTokens(): number { return replayCost(this.history) }
 
   private systemPrompt(): string {
-    const base = this.basePrompt()
+    const base = this.basePrompt() + '\nWrite clear Markdown in the language of the user. Lead final work reports with the result, then changes, verification, and unfinished work when relevant. Distinguish attempted work from verified results. Use the tool results already received; reread unchanged files only when necessary to resolve a specific missing fact. Do not restart discovery after each tool call or repeat the same progress promise. After an interruption, resume from the recorded state and finish with one self-contained report; never claim interrupted work is complete.' + (this.fixedTools === undefined
+      ? '\nCall load_tools before using document, interactive browser, media, or MCP capabilities. Load only the groups needed for the task.'
+      : '')
     const given = this.options.instructions?.()
     const sections = [
       ...(given !== undefined && given.global.trim() !== '' ? [`Instructions from the user, for every session:\n\n${given.global.trim()}`] : []),
@@ -1175,7 +1295,7 @@ export class AgentSession {
         'If the user refers to a specific local file that is not attached, ask them to attach it. ' +
           'You may still create new files or use terminal, browser, and internet tools without an attachment.',
         'Use search_files to locate workspace content instead of reading files one by one. Read a file ' +
-          'before changing it, and use edit_file for partial changes.',
+          'before changing it. ' + editingGuidance(this.provider.model),
         'Do not offer scripts for the user to run as a substitute unless they ask for one.',
         'Reply in the language the user writes in; be concise and to the point.',
         'Do not use emojis or decorative symbols in your replies.'
@@ -1191,7 +1311,7 @@ export class AgentSession {
       '- Every path you pass to a tool is relative to the workspace root.',
       '- Use search_files to locate code instead of reading files one by one.',
       '- Read a file before changing it; never guess its contents.',
-      '- For partial changes use edit_file, not write_file.',
+      '- ' + editingGuidance(this.provider.model),
       '- After editing code, run check_problems and fix what it reports before replying done.',
       '- Work in as few model turns as possible. Before every tool response, list what can already be done ' +
         'without another result and issue those independent tool calls together in that same response. ' +
@@ -1213,6 +1333,8 @@ export class AgentSession {
       '- When the user asks to create an image, call generate_image and return its file card.',
       '- Stop as soon as the task succeeds; do not re-run commands to double-check.',
       '- If a tool fails, read its error message and adjust your approach.',
+      '- Treat completed checks as evidence to reuse. Do not alternate screenshots, page text, network logs, and checklist updates to recheck the same unchanged state. Choose a concrete next action, or mark the task blocked and explain the missing input.',
+      '- Missing credentials, permissions, or a target file can block a task. Mark the affected checklist item blocked and stop with the specific requirement; never claim completion or ask for repeated continue messages.',
       '- Files the user attaches from outside the project are copied into .anticode/uploads/. ' +
         'To change one, work on that copy.',
       '- A file reaches the user as a downloadable card only in two ways: a document ' +

@@ -83,6 +83,75 @@ function lastContent(provider: FakeProvider, turnIndex: number): ContentBlock[] 
 }
 
 describe('AgentSession', () => {
+  it.each(['deepseek-v4.1-flash:free', 'deepseek/deepseek-v4.1-flash', 'laguna-s-2.1'])('continues text after an old image with %s and restores original images for vision', async (model) => {
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }, { type: 'text', text: 'jelaskan gambar' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Catatan teks sebelumnya.' }] }
+    ]
+    const sent: Message[][] = []
+    const provider = (model: string): LLMProvider => ({ name: 'fixture', model, async *chat(params) {
+      sent.push(structuredClone(params.messages))
+      yield { type: 'response', response: turn([{ type: 'text', text: 'OK' }], 'end_turn') }
+    } })
+    const session = new AgentSession(provider(model), allowAll, 'chat', undefined, history)
+    const send = (prompt: string) => session.run({ runId: 'image-replay', prompt, signal: new AbortController().signal, emit: (event) => events.push(event) })
+    await send('lanjutkan pekerjaan teks')
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+    expect(sent[0]?.flatMap((message) => message.content).some((block) => block.type === 'image')).toBe(false)
+    expect(events.some((event) => event.type === 'notice' && event.text.includes('Gambar'))).toBe(true)
+    session.useProvider(provider('vision-model'))
+    await send('periksa gambar sebelumnya')
+    expect(sent[1]?.flatMap((message) => message.content).some((block) => block.type === 'image')).toBe(true)
+  })
+
+  it('refuses a new image on a text model before calling the provider', async () => {
+    let called = false
+    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-v4.1-flash:free', async *chat() { called = true; yield { type: 'response', response: turn([], 'end_turn') } } }
+    const session = new AgentSession(provider, allowAll, 'chat')
+    await session.run({ runId: 'new-image', prompt: 'baca gambar ini', attachments: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }], signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(called).toBe(false)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('Gambar baru') })
+  })
+
+  it('can resume with a text model after a previous vision turn', async () => {
+    const sent: Message[][] = []
+    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-v4.1-flash:free', async *chat(params) {
+      sent.push(structuredClone(params.messages))
+      yield { type: 'response', response: turn([{ type: 'text', text: 'lanjut' }], 'end_turn') }
+    } }
+    const session = new AgentSession(provider, allowAll, 'chat', null, [
+      { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }, { type: 'text', text: 'kerjakan' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'sudah diperiksa' }] }
+    ])
+    await session.run({ runId: 'resume', prompt: CONTINUE_PROMPT, signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(sent).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
+  it('preserves a quota-interrupted report and makes it resumable without replaying it', async () => {
+    let calls = 0
+    const provider: LLMProvider = { name: 'fixture', model: 'fixture-model', async *chat() {
+      calls++
+      yield { type: 'text_delta', text: 'Pekerjaan yang sudah selesai: ' }
+      throw Object.assign(new Error('usage limit reached'), { status: 429 })
+    } }
+    const session = new AgentSession(provider, allowAll, 'chat')
+    let fallbackCalls = 0
+    session.useProvider(provider, () => { fallbackCalls++; return null })
+    await session.run({ runId: 'quota-partial', prompt: 'kerjakan', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(calls).toBe(1)
+    expect(fallbackCalls).toBe(0)
+    expect(events.at(-1)).toMatchObject({ type: 'error', retryable: true, keptReplyModel: 'fixture-model' })
+    expect(session.snapshot().messages.some((message) => message.content.some((block) => block.type === 'text' && block.text.includes('Pekerjaan yang sudah selesai')))).toBe(true)
+  })
+
+  it('rejects batch models before calling the provider', async () => {
+    let called = false
+    await run({ name: 'fixture', model: 'moonshotai/kimi-k3:batch', async *chat() { called = true; yield { type: 'response', response: turn([], 'end_turn') } } })
+    expect(called).toBe(false)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('batch') })
+  })
+
   it('streams text and ends the turn', async () => {
     await run(new FakeProvider([turn([{ type: 'text', text: 'selesai' }], 'end_turn')]))
 
@@ -162,7 +231,7 @@ describe('AgentSession', () => {
     expect(events.at(-1)).toEqual({ type: 'end', runId: 'run-1', reason: 'complete' })
   })
 
-  it('stops after three identical tool calls return the same result', async () => {
+  it('offers one recovery before stopping repeated unchanged checks', async () => {
     await writeFile(path.join(root, 'same.txt'), 'unchanged')
     const provider = new FakeProvider([1, 2, 3, 4].map((index) => turn([
       { type: 'tool_use', id: `read-${index}`, name: 'read_file', input: { path: 'same.txt' } }
@@ -170,16 +239,82 @@ describe('AgentSession', () => {
 
     await run(provider)
 
-    expect(provider.sent).toHaveLength(3)
+    expect(provider.sent).toHaveLength(4)
+    expect(events.some(event => event.type === 'notice')).toBe(true)
     expect(events.at(-1)).toMatchObject({
       type: 'error',
       message: expect.stringContaining('repeated tool loop')
     })
   })
 
+  it('stops alternating unchanged checks even when checklist updates interrupt them', async () => {
+    await writeFile(path.join(root, 'same.txt'), 'unchanged')
+    const provider = new FakeProvider([1, 2, 3].flatMap((index) => [
+      turn([{ type: 'tool_use', id: `read-${index}`, name: 'read_file', input: { path: 'same.txt' } }], 'tool_use'),
+      turn([{ type: 'tool_use', id: `list-${index}`, name: 'list_directory', input: { path: '.' } }], 'tool_use')
+    ]))
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    await session.run({ runId: 'cycle', prompt: 'inspect the file', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(provider.sent).toHaveLength(6)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('repeated tool loop') })
+    // A reload and Continue must retain the stop instead of paying for the same loop again.
+    const resumedProvider = new FakeProvider([turn([{type:'text',text:'Used the existing evidence and finished with a different action.'}],'end_turn')])
+    const resumed = new AgentSession(resumedProvider, allowAll, 'code', root, session.snapshot().messages)
+    await resumed.run({ runId: 'resume', prompt: CONTINUE_PROMPT, signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(resumedProvider.sent).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({type:'end',reason:'complete'})
+    resumed.useProvider(new FakeProvider([turn([{ type: 'text', text: 'new evidence handled' }], 'end_turn')]))
+    await resumed.run({ runId: 'new-info', prompt: 'The permission was changed; inspect a new target.', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
+  it('stops checklist continuations that produce no concrete work', async () => {
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'plan', name: 'todo_write', input: { items: [
+        { content: 'One', status: 'in_progress' }, { content: 'Two', status: 'pending' }, { content: 'Three', status: 'pending' }
+      ] } }], 'tool_use'),
+      ...[1, 2, 3, 4].map(() => turn([{ type: 'text' as const, text: 'I will check the same access again.' }], 'end_turn'))
+    ])
+    await run(provider)
+    expect(provider.sent).toHaveLength(4)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('checklist is unfinished') })
+  })
+
+  it('ends an explicitly blocked checklist without forcing further verification', async () => {
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'blocked-plan', name: 'todo_write', input: { items: [
+        { content: 'Read folder', status: 'completed' },
+        { content: 'Edit report: missing editor permission', status: 'blocked' },
+        { content: 'Verify report after edit', status: 'pending' }
+      ] } }], 'tool_use'),
+      turn([{ type: 'text', text: 'Editor permission is needed before editing.' }], 'end_turn')
+    ])
+    await run(provider)
+    expect(provider.sent).toHaveLength(2)
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+    expect(lastContent(provider, 1)).toEqual([expect.objectContaining({ type: 'tool_result', isError: false, content: expect.stringContaining('[!]') })])
+  })
+
+  it('does not mistake a changing polling result for an unchanged loop', async () => {
+    const countTool = {
+      name: 'poll_status', description: 'Read changing job status', inputSchema: { type: 'object', properties: {} },
+      readOnly: true,
+      prepare: () => ({ risk: 'low' as const, preview: async () => ({ kind: 'text' as const, subject: 'status', detail: '' }), execute: async () => ({ text: String(++count), images: [] }) })
+    }
+    let count = 0
+    const provider = new FakeProvider([
+      ...[1, 2, 3, 4].map((index) => turn([{ type: 'tool_use' as const, id: `poll-${index}`, name: 'poll_status', input: {} }], 'tool_use')),
+      turn([{ type: 'text', text: 'finished' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'code', root, [], 'polling', { tools: [countTool] })
+    await session.run({ runId: 'poll', prompt: 'wait for the job', signal: new AbortController().signal, emit: (event) => events.push(event) })
+    expect(count).toBe(4)
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
   it('persists a provider error as a display-only transcript block', async () => {
     const provider: LLMProvider = { name: 'ollama', model: 'llama3.2', async *chat() {
-      throw new Error('Connection error')
+      throw Object.assign(new Error('Connection error'), {retryAfter:0})
     } }
     const session = new AgentSession(provider, allowAll, 'chat')
     await session.run({
@@ -452,7 +587,7 @@ describe('AgentSession', () => {
     expect(replayed).toHaveLength(3)
   })
 
-  it('stubs old tool outputs and keeps recent turns verbatim', async () => {
+  it('keeps old and recent tool evidence intact while it fits the context budget', async () => {
     for (const id of ['1', '2', '3', '4']) await writeFile(path.join(root, `a${id}.txt`), 'x'.repeat(2000))
     const toolTurn = (id: string): LLMResponse =>
       turn([{ type: 'tool_use', id: `t${id}`, name: 'read_file', input: { path: `a${id}.txt` } }], 'tool_use')
@@ -473,7 +608,7 @@ describe('AgentSession', () => {
       )
       .map((block) => block.content)
 
-    expect(contents.some((content) => content.includes('elided'))).toBe(true)
+    expect(contents.some((content) => content.includes('elided'))).toBe(false)
     expect(contents.some((content) => content.includes('x'.repeat(2000)))).toBe(true)
   })
 
@@ -549,8 +684,8 @@ describe('AgentSession', () => {
     })
 
     // Retrying after words were shown would write the reply twice on screen.
-    expect(calls).toBe(1)
-    expect(events.filter((event) => event.type === 'text_delta')).toHaveLength(1)
+    expect(calls).toBe(6)
+    expect(events.filter((event) => event.type === 'text_delta')).toHaveLength(6)
     expect(events.at(-1)).toMatchObject({
       type: 'error', retryable: true, keptReplyModel: 'offline-model',
       message: 'Connection to offline dropped (fetch failed). The run was stopped; press Continue to pick it up. If it keeps failing, check your internet connection, not the provider settings.'
@@ -562,7 +697,7 @@ describe('AgentSession', () => {
       runId: 'continued', prompt: CONTINUE_PROMPT, signal: new AbortController().signal,
       emit: () => undefined
     })
-    expect(recovered.sent[0]?.map((message) => message.role)).toEqual(['user', 'assistant', 'user'])
+    expect(recovered.sent[0]?.map((message) => message.role)).toEqual(['user','assistant','user','assistant','user','assistant','user','assistant','user','assistant','user','assistant','user'])
     expect(recovered.sent[0]?.[1]?.content).toEqual([{ type: 'text', text: 'bagian yang sudah diterima' }])
   })
 
@@ -1086,9 +1221,16 @@ describe('titleOf', () => {
 })
 
 describe('antichat', () => {
-  it('offers the same file, terminal, browser, internet, and delegation tools as anticode', async () => {
+  it('loads document, browser, and media capabilities on demand in antichat', async () => {
     let offered: string[] = []
     const provider: LLMProvider = { name: 'spy', model: 'spy', async *chat(params) {
+      if (offered.length === 0) {
+        offered = params.tools.map((tool) => tool.name)
+        expect(offered).toContain('load_tools')
+        expect(offered).not.toContain('read_excel')
+        yield { type: 'response', response: turn([{ type: 'tool_use', id: 'load', name: 'load_tools', input: { groups: ['documents', 'browser', 'media'] } }], 'tool_use') }
+        return
+      }
       offered = params.tools.map((tool) => tool.name)
       yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
     } }
@@ -1168,4 +1310,61 @@ it('instructs coding models to batch independent tools instead of spending one t
   expect(systems[0]).toContain('issue those independent tool calls together in that same response')
   expect(systems[0]).toContain('Never spend a model turn only updating todo_write')
   expect(systems[0]).toContain('Only serialize calls when one result is genuinely required')
+})
+
+it('locally condenses oversized key-limited history once while preserving the original transcript', async () => {
+  const oldText = 'Earlier verified work and decisions. '.repeat(5000)
+  const sent: Message[][] = []
+  const provider: LLMProvider = {
+    name: 'fixture', model: 'fixture-large-window',
+    async *chat(params) {
+      sent.push(structuredClone(params.messages))
+      if (sent.length === 1) throw Object.assign(new Error('Prompt tokens limit exceeded: 45000 > 12000'), { status: 402 })
+      yield { type: 'response', response: turn([{ type: 'text', text: 'OK' }], 'end_turn') }
+    }
+  }
+  const session = new AgentSession(provider, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'text', text: 'Keep the original project goal.' }] }, { role: 'assistant', content: [{ type: 'text', text: oldText }] }], 'limit-test', { tools: [] })
+  await session.run({ runId: 'limit-test', prompt: 'Current request remains intact.', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(sent.length).toBe(2)
+  expect(JSON.stringify(sent[1]).length).toBeLessThan(JSON.stringify(sent[0]).length)
+  expect(JSON.stringify(sent[1])).toContain('Current request remains intact.')
+  expect(events.some(event => event.type === 'notice' && event.text.includes('diringkas secara lokal'))).toBe(true)
+  expect(JSON.stringify(session.snapshot().messages)).toContain(oldText)
+})
+
+it('does not repeat a key-limit compaction indefinitely if a smaller request is refused too', async () => {
+  let requests = 0
+  const provider: LLMProvider = { name: 'fixture', model: 'fixture-large-window', async *chat() {
+    requests++
+    throw Object.assign(new Error('Prompt tokens limit exceeded: 45000 > 12000'), { status: 402 })
+  } }
+  const session = new AgentSession(provider, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'text', text: 'Old goal' }] }, { role: 'assistant', content: [{ type: 'text', text: 'past work '.repeat(18000) }] }], 'limit-retry', { tools: [] })
+  await session.run({ runId: 'limit-retry', prompt: 'New request', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(requests).toBe(2)
+  expect(events.some(event => event.type === 'error' && event.message.includes('out of usage'))).toBe(false)
+})
+
+it('recovers automatically after a partial network response and finishes without re-executing a completed write', async () => {
+  let requests=0
+  const good = new FakeProvider([turn([{type:'text',text:'Verified the saved result; finished.'}],'end_turn')])
+  const flaky:LLMProvider={name:'fixture',model:'fixture',async *chat(params){
+    requests++
+    if(requests===1){yield {type:'text_delta',text:'The completed work is saved.'};throw new Error('fetch failed')}
+    yield* good.chat(params)
+  }}
+  const session=new AgentSession(flaky,allowAll,'code',root)
+  await session.run({runId:'auto-resume',prompt:'Finish the task',signal:new AbortController().signal,emit:event=>events.push(event)})
+  expect(requests).toBe(2)
+  expect(events.at(-1)).toMatchObject({type:'end',reason:'complete'})
+  expect(good.sent[0]?.flatMap(m=>m.content).some(b=>b.type==='text'&&b.text.includes('last confirmed tool results'))).toBe(true)
+})
+
+it('does not abort useful work because one familiar file is checked alongside new evidence', async () => {
+  for(const name of ['common','a','b','c'])await writeFile(path.join(root,name+'.txt'),name)
+  const provider=new FakeProvider(['a','b','c'].map((name,index)=>turn([
+    {type:'tool_use',id:'common-'+index,name:'read_file',input:{path:'common.txt'}},
+    {type:'tool_use',id:'fresh-'+index,name:'read_file',input:{path:name+'.txt'}}
+  ],'tool_use')).concat([turn([{type:'text',text:'Finished with new evidence.'}],'end_turn')]))
+  await run(provider)
+  expect(events.at(-1)).toMatchObject({type:'end',reason:'complete'})
 })
