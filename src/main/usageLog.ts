@@ -206,7 +206,10 @@ export function summarizeUsage(rangeMs: number | null): UsageSummary {
     costUsd,
     costPartial,
     since,
-    byDay: [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1)),
+    // Busiest day first; equal totals fall back to the newest day.
+    byDay: [...byDay.values()].sort((a, b) =>
+      b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens) || (a.day < b.day ? 1 : -1)
+    ),
     byModel: [...byModel.values()].sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens))
   }
 }
