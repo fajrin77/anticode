@@ -103,7 +103,7 @@ it('restarts the engine when the tool list changes so newly loaded tools are cal
   p.messages.push({ role: 'assistant', content: first.content }, { role: 'user', content: [{ type: 'tool_result', toolUseId: call.id, content: 'actual fixture result', isError: false }] })
   await collect(provider, p).catch(() => undefined)
   expect(fixture.options).toHaveLength(2)
-  expect(fixture.options[1].mcpServers.anticode.tools.map((t: { name: string }) => t.name)).toContain('read_pdf')
+  expect(fixture.options[1]?.mcpServers.anticode.tools.map((t: { name: string }) => t.name)).toContain('read_pdf')
 })
 it('returns concurrent tool proposals to the host and waits for both real results', async () => {
   fixture.mode = 'parallel'
