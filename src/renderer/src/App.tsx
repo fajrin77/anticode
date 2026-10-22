@@ -577,7 +577,8 @@ export function App(): JSX.Element {
   }, [])
 
   const pending = approvals[0]
-  const pendingQuestion = questions[0]
+  // A question belongs to the session that asked it; other tabs stay clean.
+  const pendingQuestion = questions.find((request) => request.sessionId === activeSessionId)
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId)
   )
