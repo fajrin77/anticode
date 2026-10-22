@@ -43,6 +43,9 @@ interface SettingsViewProps {
 
 type Section = 'general' | 'providers' | 'auth' | 'models' | 'usage' | 'mcp' | 'remote' | 'updates'
 
+// Remembered across leaving and reopening Settings, so it reopens where it was left.
+let lastSection: Section = 'general'
+
 function Tag({ children }: { children: string }): JSX.Element {
   return (
     <span className="rounded border border-line px-1.5 py-0.5 text-[10.5px] text-faint">
@@ -1958,7 +1961,11 @@ export function SettingsView({
   onProvidersChange,
   onBack
 }: SettingsViewProps): JSX.Element {
-  const [section, setSection] = useState<Section>('general')
+  const [section, setSectionState] = useState<Section>(lastSection)
+  const setSection = (next: Section): void => {
+    lastSection = next
+    setSectionState(next)
+  }
 
   const items: { id: Section; label: string; icon: JSX.Element }[] = [
     {
