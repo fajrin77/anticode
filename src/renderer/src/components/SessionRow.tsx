@@ -60,32 +60,39 @@ export function SessionRow({
           </div>
         </div>
       </button>
-      {onDuplicate !== undefined && (
-        <button
-          type="button"
-          aria-label="Duplicate session"
-          onClick={() => onDuplicate(session.id)}
-          className="absolute top-2 right-10 text-faint opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-brand"
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-            <path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H4.5A1.5 1.5 0 0 0 3 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2" />
-          </svg>
-        </button>
-      )}
-      {onDelete !== undefined && (
-        <button
-          type="button"
-          aria-label={confirming ? `Confirm deleting this session` : 'Delete session'}
-          title={confirming ? 'Click again, deleting also removes its checkpoints and files' : 'Delete session'}
-          onClick={() => (confirming ? onDelete(session.id) : setConfirming(true))}
-          onBlur={() => setConfirming(false)}
-          className={`absolute top-2.5 right-2 text-[13px] leading-none opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:text-del ${
-            confirming ? 'font-medium text-del' : 'text-faint'
-          } transition-colors ${confirming ? '' : 'hover:text-del'}`}
-        >
-          {confirming ? 'Delete?' : '×'}
-        </button>
+      {/* Copy and delete share one right-aligned slot, so the wider
+          "Delete?" label never lands on top of the copy icon. */}
+      {(onDuplicate !== undefined || onDelete !== undefined) && (
+        <div className="absolute top-2.5 right-2 flex items-center gap-2">
+          {onDuplicate !== undefined && (
+            <button
+              type="button"
+              aria-label="Duplicate session"
+              title="Duplicate session"
+              onClick={() => onDuplicate(session.id)}
+              className="text-faint opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-brand"
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+                <path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H4.5A1.5 1.5 0 0 0 3 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2" />
+              </svg>
+            </button>
+          )}
+          {onDelete !== undefined && (
+            <button
+              type="button"
+              aria-label={confirming ? 'Confirm deleting this session' : 'Delete session'}
+              title={confirming ? 'Click again, deleting also removes its checkpoints and files' : 'Delete session'}
+              onClick={() => (confirming ? onDelete(session.id) : setConfirming(true))}
+              onBlur={() => setConfirming(false)}
+              className={`shrink-0 whitespace-nowrap text-[13px] leading-none opacity-0 transition-[opacity,color] group-hover:opacity-100 focus-visible:opacity-100 ${
+                confirming ? 'font-medium text-del' : 'text-faint hover:text-del'
+              }`}
+            >
+              {confirming ? 'Delete?' : '×'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
