@@ -6,6 +6,10 @@ release/
 
 .env
 .env.local
+.env.*
+!.env.example
+/providers.json
+/auth-accounts.json
 *.log
 npm-debug.log*
 

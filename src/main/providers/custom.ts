@@ -3,12 +3,16 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { VENDOR_BASE_URLS } from '@shared/ipc'
+import { providerPreset, presetAllowsModel } from '@shared/providerPresets'
+import type { ProviderPresetId } from '@shared/providerPresets'
 import { SEALED_PREFIX, seal, secureStorageAvailable, unseal } from '../secrets'
 
 /** The kinds a provider added in Settings can be. */
 export const CUSTOM_KINDS = ['openai', 'ollama', 'anthropic', 'openai-api'] as const
 
 export interface CustomProviderConfig {
+  billing?: 'subscription' | 'free' | 'unknown'
+  preset?: ProviderPresetId
   id: string
   label: string
   /**
@@ -18,6 +22,7 @@ export interface CustomProviderConfig {
   kind: (typeof CUSTOM_KINDS)[number]
   baseURL: string
   apiKey: string
+  apiKeys?: string[]
   /** Model ids typed in Settings, for gateways whose /models is missing or short. */
   models?: string[]
 }
@@ -31,6 +36,7 @@ export interface BuiltinOverride {
   label?: string
   baseURL?: string
   apiKey?: string
+  apiKeys?: string[]
   models?: string[]
   removed?: boolean
 }
@@ -40,6 +46,7 @@ export interface ProviderEdit {
   label?: string
   baseURL?: string
   apiKey?: string
+  apiKeys?: string[]
   models?: string[]
 }
 
@@ -61,20 +68,20 @@ const safeStorage = (): boolean | null => (secureStorageAvailable() ? true : nul
 
 function decoded(stored: ProvidersFile): ProvidersFile {
   return {
-    providers: stored.providers.map((provider) => ({ ...provider, apiKey: decryptKey(provider.apiKey) })),
+    providers: stored.providers.map((provider) => ({ ...provider, apiKey: decryptKey(provider.apiKey), ...(provider.apiKeys ? { apiKeys: provider.apiKeys.map(decryptKey).filter(Boolean) } : {}) })),
     builtin: Object.fromEntries(Object.entries(stored.builtin).map(([id, override]) => [
       id,
-      { ...override, ...(override.apiKey !== undefined ? { apiKey: decryptKey(override.apiKey) } : {}) }
+      { ...override, ...(override.apiKey !== undefined ? { apiKey: decryptKey(override.apiKey) } : {}), ...(override.apiKeys ? { apiKeys: override.apiKeys.map(decryptKey).filter(Boolean) } : {}) }
     ]))
   }
 }
 
 function encoded(stored: ProvidersFile): ProvidersFile {
   return {
-    providers: stored.providers.map((provider) => ({ ...provider, apiKey: encryptKey(provider.apiKey) })),
+    providers: stored.providers.map((provider) => ({ ...provider, apiKey: encryptKey(provider.apiKey), ...(provider.apiKeys ? { apiKeys: provider.apiKeys.map(encryptKey) } : {}) })),
     builtin: Object.fromEntries(Object.entries(stored.builtin).map(([id, override]) => [
       id,
-      { ...override, ...(override.apiKey !== undefined ? { apiKey: encryptKey(override.apiKey) } : {}) }
+      { ...override, ...(override.apiKey !== undefined ? { apiKey: encryptKey(override.apiKey) } : {}), ...(override.apiKeys ? { apiKeys: override.apiKeys.map(encryptKey) } : {}) }
     ]))
   }
 }
@@ -91,8 +98,8 @@ function load(): ProvidersFile {
           : {}
     } satisfies ProvidersFile
     cache = decoded(stored)
-    const plaintext = stored.providers.some((provider) => provider.apiKey !== '' && !provider.apiKey.startsWith(ENCRYPTED_PREFIX)) ||
-      Object.values(stored.builtin).some((override) => override.apiKey !== undefined && override.apiKey !== '' && !override.apiKey.startsWith(ENCRYPTED_PREFIX))
+    const plaintext = [...stored.providers, ...Object.values(stored.builtin)].some((provider) =>
+      [provider.apiKey ?? '', ...(provider.apiKeys ?? [])].some(key => key !== '' && !key.startsWith(ENCRYPTED_PREFIX)))
     // Transparently migrate legacy plaintext files the first time they are read.
     if (plaintext && safeStorage() !== null) save(cache)
   } catch {
@@ -102,6 +109,7 @@ function load(): ProvidersFile {
 }
 
 function save(next: ProvidersFile): void {
+  if ([...next.providers, ...Object.values(next.builtin)].some(provider => [provider.apiKey ?? '', ...(provider.apiKeys ?? [])].some(Boolean)) && !secureStorageAvailable()) throw new Error('Secure storage is unavailable. Unlock the system keychain before saving API keys.')
   cache = next
   mkdirSync(path.dirname(file()), { recursive: true })
   // On macOS/Windows safeStorage delegates to Keychain/DPAPI. Atomic replace
@@ -113,6 +121,13 @@ function save(next: ProvidersFile): void {
 
 export function listCustomProviders(): CustomProviderConfig[] {
   return load().providers
+}
+
+/** One-time import of a user-configured legacy connection, preserving its id. */
+export function importLegacyProvider(config: CustomProviderConfig): void {
+  const stored = load()
+  if (stored.providers.some(provider => provider.id === config.id)) return
+  save({ ...stored, providers: [...stored.providers, config], builtin: { ...stored.builtin, [config.id]: { removed: true } } })
 }
 
 export function getCustomProvider(id: string): CustomProviderConfig | undefined {
@@ -159,9 +174,11 @@ export function addCustomProvider(input: Omit<CustomProviderConfig, 'id'>): Cust
   if (!(CUSTOM_KINDS as readonly string[]).includes(input.kind)) throw new Error('Unknown provider type')
   // A vendor API needs no Base URL typed; the vendor's own is the default.
   const baseURL = checkedBaseURL(input.baseURL.trim() !== '' ? input.baseURL : (VENDOR_BASE_URLS[input.kind] ?? ''))
+  validatePreset({ ...input, baseURL })
   const config: CustomProviderConfig = {
     ...input,
     baseURL,
+    apiKeys: cleanApiKeys([input.apiKey, ...(input.apiKeys ?? [])]),
     models: cleanModelIds(input.models),
     id: `custom:${randomUUID()}`
   }
@@ -176,17 +193,30 @@ export function updateCustomProvider(id: string, edit: ProviderEdit): void {
   if (existing === undefined) throw new Error('Unknown provider')
   const next: CustomProviderConfig = {
     ...existing,
+    ...(edit.baseURL?.trim() && checkedBaseURL(edit.baseURL) !== existing.baseURL && existing.billing === 'subscription' ? { billing: 'unknown' as const } : {}),
     label: edit.label?.trim() || existing.label,
     baseURL: edit.baseURL?.trim() ? checkedBaseURL(edit.baseURL) : existing.baseURL,
     apiKey: edit.apiKey?.trim() || existing.apiKey,
+    apiKeys: cleanApiKeys([edit.apiKey?.trim() || existing.apiKey, ...(existing.apiKeys ?? []).filter((key) => key !== existing.apiKey), ...(edit.apiKeys ?? [])]),
     models: edit.models !== undefined ? cleanModelIds(edit.models) : (existing.models ?? [])
   }
+  validatePreset(next)
   save({ ...stored, providers: stored.providers.map((entry) => (entry.id === id ? next : entry)) })
 }
 
 export function removeCustomProvider(id: string): void {
   const stored = load()
   save({ ...stored, providers: stored.providers.filter((entry) => entry.id !== id) })
+}
+
+/** Check again on requests, including profiles created by older versions. */
+export function validatePreset(config: Pick<CustomProviderConfig, 'preset' | 'baseURL' | 'kind' | 'models'>, model?: string): void {
+  if (config.preset === undefined) return
+  const preset = providerPreset(config.preset)
+  if (!preset || config.kind !== 'openai' || normalizeBaseURL(config.baseURL) !== preset.baseURL) throw new Error('This free connection must use its original provider endpoint. Add a separate provider for another endpoint.')
+  for (const id of model === undefined ? config.models ?? [] : [model]) {
+    if (!presetAllowsModel(preset.id, id)) throw new Error(`The ${preset.label} connection accepts free model routes only. Choose a free model; paid aliases are not used automatically.`)
+  }
 }
 
 export function builtinOverride(id: string): BuiltinOverride {
@@ -196,4 +226,12 @@ export function builtinOverride(id: string): BuiltinOverride {
 export function setBuiltinOverride(id: string, next: BuiltinOverride): void {
   const stored = load()
   save({ ...stored, builtin: { ...stored.builtin, [id]: next } })
+}
+
+
+export function cleanApiKeys(keys: unknown): string[] {
+  if (!Array.isArray(keys)) return []
+  const result = [...new Set(keys.filter((key): key is string => typeof key === 'string').map(key => key.trim()).filter(Boolean))]
+  if (result.length > 20 || result.some(key => /\s/.test(key) || key.length > 8192)) throw new Error('Enter up to 20 API keys, one per line, without spaces.')
+  return result
 }

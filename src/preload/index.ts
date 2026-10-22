@@ -77,6 +77,8 @@ const api: AnticodeApi = {
   chooseWorkspace: () => ipcRenderer.invoke(IpcChannel.WORKSPACE_CHOOSE) as Promise<SessionStatus>,
   setWorkspace: (root: string) =>
     ipcRenderer.invoke(IpcChannel.WORKSPACE_SET, root) as Promise<SessionStatus>,
+  setProviderVisibility: (id, visible) => ipcRenderer.invoke(IpcChannel.PROVIDER_VISIBILITY, id, visible) as Promise<ProviderInfo[]>,
+  setProviderGroupVisibility: (kind, visible) => ipcRenderer.invoke(IpcChannel.PROVIDER_GROUP_VISIBILITY, kind, visible) as Promise<ProviderInfo[]>,
   listProviders: () => ipcRenderer.invoke(IpcChannel.PROVIDER_LIST) as Promise<ProviderInfo[]>,
   selectProvider: (selection: ProviderSelection, sessionId?: string | null) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_SELECT, selection, sessionId ?? null) as Promise<SessionStatus>,
@@ -87,6 +89,10 @@ const api: AnticodeApi = {
   resetRotationUsage: () => ipcRenderer.invoke(IpcChannel.ROTATION_RESET) as Promise<SessionStatus>,
   setRotationEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_ENABLE, enabled) as Promise<SessionStatus>,
+  setSubscriptionRouting: (enabled: boolean) =>
+    ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_ROUTING, enabled) as ReturnType<AnticodeApi['setSubscriptionRouting']>,
+  getSubscriptionQuotas: () =>
+    ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_QUOTAS) as ReturnType<AnticodeApi['getSubscriptionQuotas']>,
   setRotationGroups: (groups: RotationGroupInput[]) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_GROUPS_SET, groups) as Promise<SessionStatus>,
   selectRotationGroup: (id: string | null) =>
@@ -192,6 +198,8 @@ const api: AnticodeApi = {
   onMcpServers: (listener) => subscribe<McpServerStatus[]>(IpcChannel.MCP_UPDATED, listener),
   listPrices: (models) => ipcRenderer.invoke(IpcChannel.PRICING_LIST, models) as Promise<PricedModel[]>,
   setPrice: (model, price) => ipcRenderer.invoke(IpcChannel.PRICING_SET, model, price) as Promise<void>,
+  getAccessReport: () => ipcRenderer.invoke(IpcChannel.ACCESS_REPORT) as ReturnType<AnticodeApi['getAccessReport']>,
+  testAllAccess: () => ipcRenderer.invoke(IpcChannel.ACCESS_TEST) as ReturnType<AnticodeApi['testAllAccess']>,
   getUsageSummary: (rangeMs) =>
     ipcRenderer.invoke(IpcChannel.USAGE_SUMMARY, rangeMs ?? null) as ReturnType<AnticodeApi['getUsageSummary']>,
   listUsageRecent: (limit) =>

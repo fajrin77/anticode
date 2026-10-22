@@ -74,7 +74,7 @@ export const searchFilesTool = defineTool({
   readOnly: true,
   risk: 'low',
   schema: z.object({
-    pattern: z.string().min(1).describe('Teks yang dicari'),
+    pattern: z.string().min(1).describe('Literal text by default. For regex such as foo|bar, also set is_regex=true.'),
     path: z
       .string()
       .default('.')
@@ -121,7 +121,7 @@ export const searchFilesTool = defineTool({
       }
     }
 
-    if (hits.length === 0) return `(no matches for "${input.pattern}")`
+    if (hits.length === 0) return `(no matches for "${input.pattern}")${!input.is_regex && /[|^$*+?{}()[\]\\]/.test(input.pattern) ? '\nThis was a literal search. If you intended a regular expression, set is_regex=true; do not repeat the same literal request.' : ''}`
 
     const grouped = new Map<string, string[]>()
     for (const hit of hits) {

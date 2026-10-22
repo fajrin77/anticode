@@ -1,3 +1,5 @@
+import { APP_VERSION } from '../version'
+import { ProviderRequestError } from './requestError'
 import Anthropic from '@anthropic-ai/sdk'
 import type {
   ChatParams,
@@ -13,18 +15,10 @@ import { dropInvalidToolCalls } from './history'
 
 const PROVIDER_NAME = 'anthropic'
 
-/**
- * The exact identity the official CLI sends on OAuth traffic (mirrored from
- * working setups against this backend). Without it, plan traffic gets
- * throttled even with quota left. Only used for OAuth accounts, never keys.
- * No User-Agent override: the SDK sends its own real one, and a fabricated
- * CLI version risks being treated as a retired client.
- */
+/** OAuth protocol feature flags; the SDK retains its own client identity. */
 export const CLAUDE_CODE_HEADERS: Record<string, string> = {
-  'anthropic-beta':
-    'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20,effort-2025-11-24,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28',
-  'anthropic-dangerous-direct-browser-access': 'true',
-  'x-app': 'cli'
+  'anthropic-beta': 'oauth-2025-04-20',
+  'user-agent': 'anticode/' + APP_VERSION
 }
 
 function toBlockParam(block: ContentBlock): Anthropic.ContentBlockParam | null {
@@ -182,6 +176,7 @@ export class AnthropicProvider implements LLMProvider {
       }
 
       const final = await stream.finalMessage()
+      if (final.stop_reason === null) throw new ProviderRequestError('Anthropic stream ended before completion; no partial tool calls were executed.', 503)
       const response: LLMResponse = {
         content: final.content.map(fromContentBlock),
         stopReason: toStopReason(final.stop_reason),
@@ -228,13 +223,11 @@ function friendlyError(model: string, error: unknown): Error {
     // like spent quota; otherwise it would mislead and trip the detector.
     const vendor = vendorDetail(error)
     const reset = ratelimitReset(error)
-    // No reset timestamps at all means this is not a standard throttle: the
-    // plan itself does not serve this model over OAuth (a smaller model on
-    // the same account works). Say so instead of sending the user to wait
-    // out a reset that is not coming.
+    // Missing reset headers do not establish quota exhaustion, model access,
+    // or that a different model on the account will work.
     const friendly = new Error(
       reset === ''
-        ? `Claude refused "${model}" over OAuth (429, no reset time given). This plan serves other models — try claude-haiku-4-5 or a Codex model instead.${vendor === '' ? '' : ` Vendor says: ${vendor}`}`
+        ? `Claude rate limited "${model}" (429, no reset time given). The provider did not identify the cause or when access will recover. Retry later; no paid fallback is used.${vendor === '' ? '' : ` Vendor says: ${vendor}`}`
         : `Claude rate limited this request (429). ${wait} — or put this account in Rotate usage with another model as backup.${vendor === '' ? '' : ` Vendor says: ${vendor}`} ${reset}`
     )
     // Keep the status so the agent loop still sees this as transient and

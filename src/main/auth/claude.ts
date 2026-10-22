@@ -1,5 +1,7 @@
+import { ProviderRequestError } from '../providers/requestError'
 import { shell } from 'electron'
 import { makeVerifier, makeChallenge, makeState } from './pkce'
+import { withRelogin } from './types'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
 
 /*
@@ -9,7 +11,7 @@ import type { AuthLoginCallbacks, AuthTokens } from './types'
  */
 
 const AUTHORIZE_URL = 'https://claude.ai/oauth/authorize'
-const TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token'
+const TOKEN_URL = 'https://api.anthropic.com/v1/oauth/token'
 const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
 const SCOPES = 'user:profile user:inference user:sessions:claude_code user:mcp_servers'
 const REDIRECT_URI = 'https://console.anthropic.com/oauth/code/callback'
@@ -18,16 +20,29 @@ interface TokenResponse {
   access_token: string
   refresh_token?: string
   expires_in?: number
-  account?: { email_address?: string }
+  scope?: string
+  account?: { uuid?: string; email_address?: string }
+  organization?: { uuid?: string }
 }
 
 function toTokens(raw: TokenResponse, previous?: AuthTokens): AuthTokens {
+  if (typeof raw.access_token !== 'string' || !raw.access_token.trim()) throw new Error('Claude returned no access token. Start Sign in again.')
   const refreshToken = raw.refresh_token ?? previous?.refreshToken
+  const userId = raw.account?.uuid ?? previous?.meta?.userId
+  const organizationId = raw.organization?.uuid ?? previous?.meta?.organizationId
+  const accountId = userId ? [userId, organizationId].filter(Boolean).join('/') : previous?.meta?.accountId
   return {
     accessToken: raw.access_token,
-    ...(refreshToken !== undefined ? { refreshToken } : {}),
-    expiresAt: raw.expires_in ? Date.now() + raw.expires_in * 1000 : 0,
-    meta: { email: raw.account?.email_address ?? previous?.meta?.email ?? '' }
+    ...(refreshToken ? { refreshToken } : {}),
+    expiresAt: typeof raw.expires_in === 'number' && raw.expires_in > 0 ? Date.now() + raw.expires_in * 1000 : 0,
+    meta: {
+      ...previous?.meta,
+      email: raw.account?.email_address ?? previous?.meta?.email ?? '',
+      ...(userId ? { userId } : {}),
+      ...(organizationId ? { organizationId } : {}),
+      ...(accountId ? { accountId } : {}),
+      ...(raw.scope ? { scope: raw.scope } : {})
+    }
   }
 }
 
@@ -45,21 +60,14 @@ async function reason(response: Response): Promise<string> {
 /** Accepts either the bare code or the whole `code#state` string. */
 function parsePasted(input: string): { code: string; state: string } {
   const trimmed = input.trim()
+  // A callback URL may itself contain a fragment. Parse the URL before the
+  // short code#state format so the full URL is never exchanged as a code.
+  if (/^https?:\/\//i.test(trimmed)) {
+    const url = new URL(trimmed)
+    return { code: url.searchParams.get('code') ?? '', state: url.searchParams.get('state') ?? '' }
+  }
   const hash = trimmed.indexOf('#')
   if (hash >= 0) return { code: trimmed.slice(0, hash), state: trimmed.slice(hash + 1) }
-  const url = (() => {
-    try {
-      return new URL(trimmed)
-    } catch {
-      return null
-    }
-  })()
-  if (url !== null) {
-    return {
-      code: url.searchParams.get('code') ?? '',
-      state: url.searchParams.get('state') ?? ''
-    }
-  }
   return { code: trimmed, state: '' }
 }
 
@@ -79,25 +87,27 @@ export async function loginClaude(callbacks: AuthLoginCallbacks): Promise<AuthTo
   url.searchParams.set('state', state)
 
   callbacks.onUpdate({
-    message: 'Sign in to Claude, then paste the code shown back here',
+    message: 'Sign in to Claude, then paste the complete code#state into Anticode',
     url: url.toString(),
     needsCode: true
   })
   void shell.openExternal(url.toString())
 
-  const pasted = await callbacks.promptForCode('Paste the Claude authorization code:')
+  const pasted = await callbacks.promptForCode('Paste the complete Claude code#state or callback URL:')
   const parsed = parsePasted(pasted)
+  callbacks.signal.throwIfAborted()
   if (parsed.code === '') throw new Error('No code was pasted')
+  if (parsed.state && parsed.state !== state) throw new Error('This Claude code belongs to another Sign in attempt. Start Sign in from Anticode and paste the new code#state here.')
 
   callbacks.onUpdate({ message: 'Exchanging the code…' })
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal: callbacks.signal,
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(15_000)]),
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code: parsed.code,
-      state: parsed.state === '' ? state : parsed.state,
+      state,
       client_id: CLIENT_ID,
       redirect_uri: REDIRECT_URI,
       code_verifier: verifier
@@ -113,14 +123,21 @@ export async function refreshClaude(tokens: AuthTokens): Promise<AuthTokens> {
   if (tokens.refreshToken === undefined) throw new Error('No refresh token')
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(15_000),
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({
       grant_type: 'refresh_token',
       refresh_token: tokens.refreshToken,
       client_id: CLIENT_ID
     })
   })
-  if (!response.ok) throw new Error(`Claude refresh failed: ${await reason(response)}`)
+  if (!response.ok) {
+    const detail = await reason(response)
+    if (response.status === 401 || response.status === 400) {
+      throw new ProviderRequestError(withRelogin(`Claude refresh failed: ${detail}.`), response.status, 'account')
+    }
+    throw new ProviderRequestError(`Claude refresh failed: ${detail}`, response.status, 'account')
+  }
   return toTokens((await response.json()) as TokenResponse, tokens)
 }
 

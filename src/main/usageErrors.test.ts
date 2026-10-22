@@ -1,3 +1,4 @@
+import { ClaudeAccessCheckError } from './auth/claudeAccess'
 import { describe, expect, it } from 'vitest'
 import { isOutOfUsage } from './usageErrors'
 
@@ -21,4 +22,8 @@ describe('isOutOfUsage', () => {
   ])('does not classify a temporary or configuration error as spent quota', (error) => {
     expect(isOutOfUsage(error)).toBe(false)
   })
+})
+
+it('does not interpret a verification service failure as exhausted inference quota', () => {
+  expect(isOutOfUsage(new ClaudeAccessCheckError('usage limit service unavailable',429,'account'))).toBe(false)
 })

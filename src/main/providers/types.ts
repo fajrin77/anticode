@@ -65,6 +65,8 @@ export type ProviderEvent =
   | { type: 'response'; response: LLMResponse }
 
 export interface ChatParams {
+  /** Stable conversation identity for subscription gateways. */
+  sessionId?: string
   system: string
   messages: Message[]
   tools: ToolDefinition[]

@@ -1,4 +1,8 @@
 import OpenAI from 'openai'
+import { isAccountAccessFailure } from './failures'
+import { modelCannotSeeImages } from '@shared/ipc'
+import { ProviderRequestError } from './requestError'
+import { requestLimit } from './requestLimits'
 import type {
   ChatParams,
   ContentBlock,
@@ -19,6 +23,46 @@ type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam
 export const FIRST_DATA_TIMEOUT_MS = 60_000
 /** Once output has begun, allow long generations to keep progressing. */
 export const STREAM_INACTIVITY_MS = 180_000
+
+/** Cline wraps upstream failures in a successful SSE response, sometimes with
+ * an outer 404 hiding an earlier provider 429. Inspect only bounded error fields.
+ */
+function clineStreamFailure(message: string): ProviderRequestError {
+  const bounded = message.slice(0, 65_536)
+  const outerStatus = /(?:status|HTTP)\s+(4\d\d|5\d\d)\b/i.exec(bounded)?.[1]
+  const status = outerStatus ? Number(outerStatus) : 502
+  let rateLimited = false
+  let nested429 = false
+  const pending: { value: unknown; depth: number }[] = [{ value: bounded, depth: 0 }]
+  let remainingCharacters = 65_536
+  for (let count = 0; pending.length && count < 64; count++) {
+    const { value, depth } = pending.shift()!
+    if (depth > 8) continue
+    if (typeof value === 'string') {
+      const text = value.slice(0, remainingCharacters)
+      remainingCharacters -= text.length
+      rateLimited ||= /rate[- ]limit(?:ed|ing)?\b/i.test(text)
+      // The upstream JSON follows the human-readable Cline error prefix.
+      const start = text.indexOf('{')
+      if (start >= 0) {
+        try { pending.push({ value: JSON.parse(text.slice(start)), depth: depth + 1 }) } catch { /* plain error text */ }
+      }
+    } else if (Array.isArray(value)) {
+      pending.push(...value.slice(0, 16).map((item) => ({ value: item, depth: depth + 1 })))
+    } else if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      nested429 ||= record.code === 429 || record.status === 429 || record.code === '429' || record.status === '429'
+      for (const key of ['error', 'metadata', 'previous_errors', 'raw', 'message']) {
+        if (key in record) pending.push({ value: record[key], depth: depth + 1 })
+      }
+    }
+  }
+  if (status === 429 || (status === 404 && nested429 && rateLimited)) {
+    return new ProviderRequestError('This free model is temporarily rate limited upstream. Retry later or choose another free model.', 429)
+  }
+  // Preserve explicit product-surface restrictions for AuthProvider to handle.
+  return new ProviderRequestError(message, status)
+}
 
 /**
  * Anthropic groups every tool result into one user message; OpenAI wants one
@@ -105,6 +149,15 @@ function parseArguments(raw: string): unknown {
   }
 }
 
+/** "…but can only afford 9269": the output budget OpenRouter would accept, with a little headroom. */
+export function affordableTokens(error: unknown): number | null {
+  const record = error as { status?: unknown; message?: unknown } | null
+  if (record?.status !== 402 || typeof record.message !== 'string') return null
+  const match = /can only afford (\d+)/i.exec(record.message)
+  const affordable = match === null ? 0 : Math.floor(Number(match[1]) * 0.95)
+  return affordable >= 256 ? affordable : null
+}
+
 export class OpenAICompatibleProvider implements LLMProvider {
   private readonly client: OpenAI
 
@@ -117,6 +170,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
       maxTokensField: 'max_completion_tokens' | 'max_tokens'
       /** Extra headers a vendor needs (CodeBuddy's X-Domain, for instance). */
       defaultHeaders?: Record<string, string>
+      /** Public free endpoints only; never used as fallback for a rejected key. */
+      anonymous?: boolean
       /** Test hook; production uses FIRST_DATA_TIMEOUT_MS. */
       firstDataTimeoutMs?: number
       /** Test hook; production uses STREAM_INACTIVITY_MS. */
@@ -126,7 +181,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     this.client = new OpenAI({
       apiKey: options.apiKey,
       ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {}),
-      ...(options.defaultHeaders !== undefined ? { defaultHeaders: options.defaultHeaders } : {})
+      defaultHeaders: { ...options.defaultHeaders, ...(options.anonymous ? { Authorization: null } : {}) }
     })
     this.maxTokensField = options.maxTokensField
     this.firstDataTimeoutMs = options.firstDataTimeoutMs ?? FIRST_DATA_TIMEOUT_MS
@@ -175,6 +230,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+    if (modelCannotSeeImages(this.model) && params.messages.some((message) => message.content.some((block) => block.type === 'image'))) {
+      throw new ProviderRequestError(`${this.model} cannot inspect images in this conversation. Choose a vision model or start a text-only chat.`, 400)
+    }
     params.signal.throwIfAborted()
     // Some OpenAI-compatible gateways reject an empty tools array, so the key
     // is omitted entirely when there is nothing to offer (chat mode).
@@ -203,21 +261,29 @@ export class OpenAICompatibleProvider implements LLMProvider {
     const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }
     const calls = new Map<number, { id: string; name: string; args: string }>()
     const stalled = (): Error => received
-      ? new Error('Provider stream stalled mid-turn. The run stopped so nothing is duplicated')
+      ? new ProviderRequestError('Provider stream stalled mid-turn. The run stopped so nothing is duplicated', 503)
       : Object.assign(new Error('Provider stream stalled before any data arrived'), { status: 503 })
 
     try {
-      const stream = await this.client.chat.completions.create(
+      const open = (maxTokens: number) => this.client.chat.completions.create(
         {
           model: this.model,
           messages: toChatMessages(params.system, params.messages),
           ...(tools !== undefined ? { tools } : {}),
           stream: true,
           stream_options: { include_usage: true },
-          [this.maxTokensField]: params.maxTokens
+          [this.maxTokensField]: maxTokens
         },
         { signal: watchdog.signal }
       )
+      // OpenRouter answers 402 when the requested output budget costs more
+      // than the credit left, and names what the account can afford. That is
+      // not a spent key: ask again for what fits.
+      const stream = await open(params.maxTokens).catch((error: unknown) => {
+        const affordable = affordableTokens(error)
+        if (affordable === null || affordable >= params.maxTokens) throw error
+        return open(affordable)
+      })
 
       for await (const chunk of stream) {
         if (chunk.usage) {
@@ -243,8 +309,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
           received = true
           const existing = calls.get(call.index) ?? { id: '', name: '', args: '' }
           calls.set(call.index, {
-            id: call.id ?? existing.id,
-            name: call.function?.name ?? existing.name,
+            id: call.id || existing.id,
+            name: call.function?.name || existing.name,
             args: existing.args + (call.function?.arguments ?? '')
           })
         }
@@ -254,7 +320,17 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
     } catch (error) {
       if (params.signal.aborted) throw error
+      const limit = requestLimit(error)
+      if (limit?.kind === 'input') {
+        throw Object.assign(new ProviderRequestError(`This conversation sends ${limit.promptTokens} prompt tokens, but this key permits ${limit.limitTokens}. Reduce the conversation context or start a new chat. This is a request-size limit, not proof that all keys are exhausted.`, 402), { cause: error })
+      }
+      if (isAccountAccessFailure(error)) throw Object.assign(error as object, { scope: 'account' })
       if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
+      // Cline can send an upstream HTTP failure inside a 200 SSE response.
+      const streamError = error as { error?: { code?: unknown }; message?: unknown } | null
+      if ((this.name === 'cline' || this.name === 'clinepass') && streamError?.error?.code === 'stream_initialization_failed' && typeof streamError.message === 'string') {
+        throw clineStreamFailure(streamError.message)
+      }
       throw error
     } finally {
       if (inactivity !== null) clearTimeout(inactivity)
@@ -264,6 +340,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // instead of throwing. It is still a stall and must reach Rotate fallback.
     if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
 
+    if (finishReason === null) throw new ProviderRequestError('Provider stream ended before completion; no partial tool calls were executed.', 503)
     const content: ContentBlock[] = []
     if (text !== '') content.push({ type: 'text', text })
     for (const [index, call] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
@@ -273,6 +350,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
         name: call.name,
         input: parseArguments(call.args)
       })
+    }
+
+    if (content.length === 0) {
+      throw new ProviderRequestError('The model returned no answer or tool call. Choose another model or retry with a larger output budget.', 502)
     }
 
     const response: LLMResponse = {

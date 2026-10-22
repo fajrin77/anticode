@@ -1,3 +1,4 @@
+import { ProviderRequestError } from './requestError'
 import { randomUUID } from 'node:crypto'
 import { GoogleGenAI } from '@google/genai'
 import type { Content, FunctionDeclaration, Part, Schema } from '@google/genai'
@@ -131,9 +132,10 @@ export class GoogleProvider implements LLMProvider {
 
   constructor(
     apiKey: string,
-    readonly model: string
+    readonly model: string,
+    httpOptions?: { baseUrl: string; headers: Record<string, string> }
   ) {
-    this.client = new GoogleGenAI({ apiKey })
+    this.client = new GoogleGenAI({ apiKey, ...(httpOptions ? { httpOptions } : {}) })
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
@@ -184,6 +186,7 @@ export class GoogleProvider implements LLMProvider {
       }
     }
 
+    if (!finishReason) throw new ProviderRequestError('Google stream ended before completion; no partial tool calls were executed.', 503)
     const content: ContentBlock[] = text !== '' ? [{ type: 'text', text }, ...calls] : calls
     const response: LLMResponse = {
       content,

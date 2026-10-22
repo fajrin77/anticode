@@ -82,3 +82,14 @@ it('leaves no summary when a run stopped before writing anything', () => {
   forward({ type: 'end', runId: 'run', reason: 'cancelled' })
   expect(mocks.record).not.toHaveBeenCalled()
 })
+
+it.each(['error', 'cancelled', 'complete'] as const)('persists an honest %s outcome for a partial or finished report', (outcome) => {
+  mocks.record.mockClear()
+  beginRun('run', 'session'); registerRun('run', 'session')
+  forward({ type: 'prompt', runId: 'run', text: 'work' })
+  forward({ type: 'usage', runId: 'run', provider: 'fixture', model: 'fixture-model', inputTokens: 10, outputTokens: 5 })
+  finishRun('run')
+  if (outcome === 'error') forward({ type: 'error', runId: 'run', message: 'connection lost', retryable: true })
+  else forward({ type: 'end', runId: 'run', reason: outcome })
+  expect(mocks.record).toHaveBeenCalledWith('session', expect.objectContaining({ outcome: outcome === 'cancelled' ? 'interrupted' : outcome }))
+})

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -238,6 +238,7 @@ export async function prepareAttachment(
 
   return {
     id: randomUUID(),
+    ...(kind === 'image' ? { contentHash: createHash('sha256').update(await readFile(filePath)).digest('hex') } : {}),
     name: path.basename(filePath),
     path: filePath,
     workspacePath: relative,

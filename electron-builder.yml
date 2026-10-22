@@ -14,6 +14,7 @@ files:
   - '!**/.anticode/**'
 # sharp ships platform-specific binaries that cannot be loaded from inside asar.
 asarUnpack:
+  - '**/node_modules/@anthropic-ai/claude-agent-sdk*/**'
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'
 mac:

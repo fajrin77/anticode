@@ -5,6 +5,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ApprovalGate } from './approval/types'
 import type { ProviderFallback } from './agent/loop'
 import type { Message } from './providers/types'
+import type { ProviderInfo } from '@shared/ipc'
+const extra = vi.hoisted(() => ({ providers: [] as ProviderInfo[] }))
+vi.mock('./auth/provider', async (original) => ({ ...await original<typeof import('./auth/provider')>(), authProvider: (id: string, model: string) => ({ name: id, model, async *chat() { yield { type: 'response', response: { content: [], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } } } } }) }))
 
 const userData = mkdtempSync(path.join(tmpdir(), 'anticode-runtime-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
@@ -13,10 +16,11 @@ vi.mock('./web', () => ({ clearWeb: () => undefined, restoreWeb: () => undefined
 vi.mock('./providers/models', () => ({ fetchModels: async () => [] }))
 vi.mock('./providers', () => ({
   listProviders: () => [
-    { id: 'one', label: 'One', defaultModel: 'm1', credentialAvailable: true, configured: true, credentialHint: '' },
-    { id: 'two', label: 'Two', defaultModel: 'm2', credentialAvailable: true, configured: true, credentialHint: '' },
+    { id: 'one', billing: 'subscription', models: ['m1', 'm1b'], label: 'One', defaultModel: 'm1', credentialAvailable: true, configured: true, credentialHint: '' },
+    { id: 'two', billing: 'subscription', label: 'Two', defaultModel: 'm2', credentialAvailable: true, configured: true, credentialHint: '' },
     { id: 'three', label: 'Three', defaultModel: 'm3', credentialAvailable: true, configured: true, credentialHint: '' },
-    { id: 'known', label: 'Known', defaultModel: 'listed', credentialAvailable: true, configured: true, credentialHint: '', models: ['listed'] }
+    { id: 'known', label: 'Known', defaultModel: 'listed', credentialAvailable: true, configured: true, credentialHint: '', models: ['listed'] },
+    ...extra.providers
   ],
   createProvider: (id: string, model: string) => ({
     name: id,
@@ -49,8 +53,10 @@ vi.mock('./agent/loop', () => ({
 }))
 
 import {
+  syncAuthAccountRoutes,
   applyRotation,
   applyRotationEnabled,
+  applySubscriptionRouting,
   applyRotationGroup,
   applyRotationGroups,
   cloneSession,
@@ -75,7 +81,40 @@ type FakeAgent = {
 const agentOf = (sessionId: string): FakeAgent => getSession(sessionId, gate) as unknown as FakeAgent
 const modelOf = (sessionId: string): string => agentOf(sessionId).provider.model
 
+it.each(['codex', 'claude', 'cline', 'opencode-go', 'codebuddy'] as const)('hands %s requests to another account on connection/quota failures with the same model', (authKind) => {
+  extra.providers = [1, 2].map((number) => ({ id: `auth:${authKind}-${number}`, label: 'Fixture', authKind, kind: 'auth', models: ['same'], defaultModel: 'same', credentialAvailable: true, configured: true, credentialHint: '' }))
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: extra.providers[0]!.id, model: 'same' }, 'a')
+  const agent = agentOf('a')
+  expect(agent.provider.name).toBe(extra.providers[0]!.id)
+  expect(agent.fallback?.(new Error('fetch failed'))).toMatchObject({ name: extra.providers[1]!.id, model: 'same' })
+  expect(() => agent.fallback?.(Object.assign(new Error('usage limit reached'), { status: 429 }))).toThrow('usage limit')
+  expect(agentOf('a').provider.name).toBe(extra.providers[0]!.id) // A network failure did not exhaust this account.
+})
+
+it('does not rotate on unsupported capability/product access and rejects stale batch choices', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  const agent = agentOf('a')
+  for (const status of [400, 403, 404]) expect(agent.fallback?.(Object.assign(new Error('unsupported'), { status }))).toBeNull()
+  expect(getStatus().rotation.every((entry) => entry.coolingUntil === null)).toBe(true)
+  applyRotationEnabled(false)
+  expect(() => selectProvider({ provider: 'three', model: 'moonshotai/kimi-k3:batch' }, 'a')).toThrow(/Batch/)
+})
+
+it('remembers a failed single account when a second one is added later', () => {
+  const first: ProviderInfo = { id: 'auth:codex-first', label: 'First', authKind: 'codex', models: ['same'], defaultModel: 'same', credentialAvailable: true, configured: true, credentialHint: '' }
+  extra.providers = [first]
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: first.id, model: 'same' }, 'a')
+  expect(() => agentOf('a').fallback?.(Object.assign(new Error('usage limit reached'), { status: 429 }))).toThrow('usage limit')
+  extra.providers.push({ ...first, id: 'auth:codex-second' })
+  expect(agentOf('a').provider.name).toBe('auth:codex-second')
+})
+
 beforeEach(() => {
+  extra.providers = []
   resetRotationForTests()
   applyRotation([])
   applyRotationEnabled(false)
@@ -326,7 +365,7 @@ it('hands a failed turn to the next pool entry and rests the one that failed', (
   const next = agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429 }))
   expect(next?.model).toBe('m2')
   // Nothing left to try in this turn.
-  expect(agent.fallback?.(new Error('down'))).toBeNull()
+  expect(agent.fallback?.(Object.assign(new Error('down'), { status: 503 }))).toBeNull()
 
   const pool = getStatus().rotation
   expect(pool.every((entry) => entry.coolingUntil !== null)).toBe(true)
@@ -529,4 +568,47 @@ it('blocks Rotate while the group in use is empty, and falls back to the pool wh
   expect(getStatus().blockedReason).toMatch(/media only/)
   applyRotationGroups([])
   expect(getStatus()).toMatchObject({ rotationGroup: null, providerReady: true })
+})
+
+
+it('routes subscriptions internally and never falls back into a metered pool entry', () => {
+  applyRotation([{ provider: 'three', model: 'm3' }])
+  applySubscriptionRouting(true)
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  expect(getStatus().subscriptionOnly).toBe(true)
+  const agent = agentOf('a')
+  expect(agent.provider.name).toBe('one')
+  expect(agent.fallback?.(Object.assign(new Error('rate limited'), { scope: 'account', retryAt: Date.now() + 60_000 }))).toMatchObject({ name: 'two' })
+  expect(() => agent.fallback?.(Object.assign(new Error('usage limit reached'), { scope: 'account' }))).toThrow(/usage limit/)
+  expect(getStatus().rotation.find((entry) => entry.provider === 'three')?.ready).toBe(false)
+})
+
+it('retains the configured pool when native subscription routing is switched off', () => {
+  applyRotation([{ provider: 'three', model: 'm3' }])
+  applySubscriptionRouting(true)
+  applySubscriptionRouting(false)
+  expect(getStatus()).toMatchObject({ subscriptionOnly: false, rotationEnabled: false })
+  expect(getStatus().rotation.some((entry) => entry.provider === 'three')).toBe(true)
+})
+
+
+it('adds a new eligible login to an enabled native pool without discarding existing choices', () => {
+  applySubscriptionRouting(true)
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  syncAuthAccountRoutes('two')
+  const pool = getStatus().rotation.map(entry => ({ provider: entry.provider, model: entry.model }))
+  expect(pool).toContainEqual({ provider: 'one', model: 'm1' })
+  expect(pool).toContainEqual({ provider: 'two', model: 'm2' })
+  syncAuthAccountRoutes('two')
+  expect(getStatus().rotation.filter(entry => entry.provider === 'two')).toHaveLength(1)
+  applySubscriptionRouting(false)
+})
+
+it('allows bounded in-run retry after a single account transport failure instead of throwing during fallback', () => {
+  extra.providers=[{id:'auth:codex-only',label:'Codex',kind:'auth',authKind:'codex',models:['same'],defaultModel:'same',credentialAvailable:true,configured:true,credentialHint:'',composerVisible:true}]
+  createSession({sessionId:'single-transport',mode:'chat',workspaceRoot:null})
+  selectProvider({provider:'auth:codex-only',model:'same'},'single-transport')
+  const agent=agentOf('single-transport')
+  expect(agent.fallback?.(new Error('fetch failed'))).toBeNull()
+  expect(agentOf('single-transport').provider.name).toBe('auth:codex-only')
 })

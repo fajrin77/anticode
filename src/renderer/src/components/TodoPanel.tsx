@@ -4,7 +4,7 @@ import type { Message } from '../store/session'
 
 export interface TodoItem {
   content: string
-  status: 'pending' | 'in_progress' | 'completed'
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
 }
 
 /**
@@ -29,7 +29,7 @@ export function latestPlan(messages: Message[]): TodoItem[] | null {
       if (!Array.isArray(items)) continue
       const plan = items.filter(
         (item): item is TodoItem =>
-          typeof item?.content === 'string' && ['pending', 'in_progress', 'completed'].includes(item?.status)
+          typeof item?.content === 'string' && ['pending', 'in_progress', 'completed', 'blocked'].includes(item?.status)
       )
       if (plan.length > 0) return plan
     }
@@ -45,6 +45,7 @@ function Mark({ status }: { status: TodoItem['status'] }): JSX.Element {
       </svg>
     )
   }
+  if (status === 'blocked') return <span className="mx-[2px] shrink-0 text-del" title="Blocked">!</span>
   if (status === 'in_progress') return <span className="mx-[3px] h-1.5 w-1.5 shrink-0 animate-breathe rounded-full bg-text" aria-hidden />
   return <span className="mx-[2px] h-2 w-2 shrink-0 rounded-full border border-faint" aria-hidden />
 }
@@ -58,7 +59,7 @@ export function TodoPanel({ sessionId, messages, working }: { sessionId: string;
   const open = useSessionStore((state) => state.planOpenBySession[sessionId])
   const setPlanOpen = useSessionStore((state) => state.setPlanOpen)
   const plan = latestPlan(messages)
-  if (plan === null || plan.length < 3 || !working) return null
+  if (plan === null || plan.length < 3 || (!working && !plan.some((item) => item.status === 'blocked'))) return null
   const done = plan.filter((item) => item.status === 'completed').length
   const finished = done === plan.length
   const current = plan.find((item) => item.status === 'in_progress') ?? plan.find((item) => item.status === 'pending')
@@ -77,7 +78,7 @@ export function TodoPanel({ sessionId, messages, working }: { sessionId: string;
           {done}/{plan.length}
         </span>
         <span className="min-w-0 flex-1 truncate text-dim">
-          {finished ? 'all done' : !expanded && current !== undefined ? current.content : ''}
+          {plan.some((item) => item.status === 'blocked') ? 'blocked' : finished ? 'all done' : !expanded && current !== undefined ? current.content : ''}
         </span>
         <span className="shrink-0 text-[11px] text-faint transition-colors group-hover:text-brand">{expanded ? '⌃' : '⌄'}</span>
       </button>

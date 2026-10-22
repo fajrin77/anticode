@@ -12,6 +12,16 @@ export function attachmentError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
+function uniqueAttachments(values: AttachmentInfo[]): { attachments: AttachmentInfo[]; unused: string[] } {
+  const attachments: AttachmentInfo[] = []
+  const removed: string[] = []
+  for (const item of values) {
+    if (attachments.some(existing => existing.id === item.id || existing.path === item.path || (item.kind === 'image' && item.contentHash && existing.contentHash === item.contentHash))) removed.push(item.id)
+    else attachments.push(item)
+  }
+  return { attachments, unused: [...new Set(removed)].filter(id => !attachments.some(item => item.id === id)) }
+}
+
 /** Jobs belong to a draft, not to the component/tab that started them. */
 export async function stageDraftAttachments(id: string, jobs: Array<() => Promise<AttachmentInfo[]>>): Promise<void> {
   changePending(id, jobs.length)
@@ -23,7 +33,9 @@ export async function stageDraftAttachments(id: string, jobs: Array<() => Promis
         await window.anticode.releaseAttachments(added.map(item => item.id))
         return
       }
-      store.updateDraft(id, { attachments: [...(store.drafts[id]?.attachments ?? []), ...added] })
+      const { attachments, unused } = uniqueAttachments([...(store.drafts[id]?.attachments ?? []), ...added])
+      store.updateDraft(id, { attachments })
+      if (unused.length) await window.anticode.releaseAttachments(unused)
     } catch (error) {
       const store = useSessionStore.getState()
       if (id === DASHBOARD_DRAFT || store.sessions.some(s => s.id === id)) store.updateDraft(id, {
@@ -51,7 +63,9 @@ export function restoreDraftAttachments(): Promise<void> {
           await window.anticode.releaseAttachments(added.map(a => a.id))
           return
         }
-        store.updateDraft(id, { attachments: current.flatMap(a => a.id === item.id ? added : [a]) })
+        const {attachments,unused}=uniqueAttachments(current.flatMap(a => a.id === item.id ? added : [a]))
+        store.updateDraft(id, { attachments })
+        if(unused.length)await window.anticode.releaseAttachments(unused)
       } catch (error) {
         const store = useSessionStore.getState()
         const current = store.drafts[id]

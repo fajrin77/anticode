@@ -1,3 +1,5 @@
+import { ProviderRequestError } from '../providers/requestError'
+import { APP_VERSION } from '../version'
 import { shell } from 'electron'
 import { makeState } from './pkce'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
@@ -11,7 +13,7 @@ import type { AuthLoginCallbacks, AuthTokens } from './types'
  */
 
 const BASE = 'https://www.codebuddy.ai'
-const STATE_URL = `${BASE}/v2/plugin/auth/state`
+const STATE_URL = `${BASE}/v2/plugin/auth/state?platform=CLI`
 const TOKEN_URL = `${BASE}/v2/plugin/auth/token`
 const POLL_INTERVAL_MS = 1500
 const POLL_TIMEOUT_MS = 5 * 60 * 1000
@@ -24,11 +26,11 @@ function headers(requestId: string): Record<string, string> {
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
     Connection: 'close',
-    Authorization: 'true',
+    'X-No-Authorization': 'true',
     'X-No-User-Id': 'true',
     'X-No-Enterprise-Id': 'true',
     'X-No-Department-Info': 'true',
-    'User-Agent': 'CLI/1.0.8 CodeBuddy/1.0.8',
+    'User-Agent': `anticode/${APP_VERSION}`,
     'X-Product': 'SaaS',
     'X-Request-ID': requestId
   }
@@ -47,22 +49,24 @@ interface TokenResponse {
     bearerToken?: string
     refreshToken?: string
     expiresIn?: number
+    expiresAt?: number
     user_id?: string
   }
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        reject(new Error('Login cancelled'))
-      },
-      { once: true }
-    )
+    signal.throwIfAborted()
+    const onAbort = (): void => { clearTimeout(timer); reject(new Error('Login cancelled')) }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+/** CodeBuddy responses may use epoch seconds or milliseconds. */
+function tokenExpiry(expiresAt: number | undefined, expiresIn: number | undefined): number {
+  if (typeof expiresAt === 'number' && Number.isFinite(expiresAt) && expiresAt > 0) return expiresAt < 1e12 ? expiresAt * 1000 : expiresAt
+  return typeof expiresIn === 'number' && Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : 0
 }
 
 export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
@@ -72,7 +76,7 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
   const start = await fetch(STATE_URL, {
     method: 'POST',
     headers: headers(requestId),
-    body: JSON.stringify({ platform: 'CLI' }),
+    body: JSON.stringify({}),
     signal
   })
   if (!start.ok) throw new Error(`CodeBuddy login could not start: ${start.status}`)
@@ -89,24 +93,27 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS, signal)
     waited += POLL_INTERVAL_MS
-    const poll = await fetch(TOKEN_URL, {
-      method: 'POST',
+    const poll = await fetch(`${TOKEN_URL}?${new URLSearchParams({ state })}`, {
+      method: 'GET',
       headers: headers(makeState()),
-      body: JSON.stringify({ state, platform: 'CLI' }),
       signal
     })
+    if (poll.status === 401 || poll.status === 403) throw new Error(`CodeBuddy refused login (HTTP ${poll.status}). Start sign in again.`)
     if (!poll.ok) continue
     const payload = (await poll.json()) as TokenResponse
     const token = payload.data?.accessToken ?? payload.data?.bearerToken
-    if (payload.code === 0 && token !== undefined && token !== '') {
+    if ((payload.code === undefined || payload.code === 0 || payload.code === 200) && token !== undefined && token !== '') {
+      if (payload.data?.state && payload.data.state !== state) throw new Error('CodeBuddy login returned the wrong state')
+      const identity = await fetch(`${BASE}/v2/plugin/account`, { headers: { Authorization: `Bearer ${token}`, 'X-Domain': 'www.codebuddy.ai', 'User-Agent': `anticode/${APP_VERSION}` }, signal }).then(async response => response.ok ? (await response.json() as {data?: {uid?: string; email?: string; nickname?: string}}).data : undefined).catch(error => { if (signal.aborted) throw error; return undefined })
       callbacks.onUpdate({ message: 'Signed in', done: true })
       const refreshToken = payload.data?.refreshToken
       return {
         accessToken: token,
         ...(refreshToken !== undefined ? { refreshToken } : {}),
-        expiresAt: payload.data?.expiresIn ? Date.now() + payload.data.expiresIn * 1000 : 0,
+        expiresAt: tokenExpiry(payload.data?.expiresAt, payload.data?.expiresIn),
         meta: {
-          userId: payload.data?.user_id ?? '',
+          userId: identity?.uid ?? payload.data?.user_id ?? '',
+          ...(identity?.email ? { email: identity.email } : {}),
           sessionState: payload.data?.state ?? ''
         }
       }
@@ -121,5 +128,21 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
 }
 
 export function accountLabel(tokens: AuthTokens): string | undefined {
-  return tokens.meta?.userId || undefined
+  return tokens.meta?.email || tokens.meta?.userId || undefined
+}
+
+/** Refresh grant observed in the official CodeBuddy CLI 2.171.0. */
+export async function refreshCodebuddy(tokens: AuthTokens): Promise<AuthTokens> {
+  if (!tokens.refreshToken) throw new Error('CodeBuddy has no refresh token. Sign in again in Settings → Auth provider.')
+  const response = await fetch(`${BASE}/v2/plugin/auth/token/refresh`, {
+    method: 'POST', headers: { 'content-type': 'application/json',
+      authorization: `Bearer ${tokens.accessToken}`, 'X-Refresh-Token': tokens.refreshToken,
+      'X-Auth-Refresh-Source': 'plugin', 'X-Domain': 'www.codebuddy.ai', 'User-Agent': `anticode/${APP_VERSION}` },
+    body: '{}', signal: AbortSignal.timeout(15000)
+  })
+  if (!response.ok) throw new ProviderRequestError(`CodeBuddy token renewal failed (HTTP ${response.status}).${response.status === 400 || response.status === 401 ? ' Sign in again.' : ' Try again shortly.'}`, response.status, 'account')
+  const payload = await response.json() as { data?: { accessToken?: string; refreshToken?: string; expiresIn?: number; expiresAt?: number } }
+  if (!payload.data?.accessToken) throw new Error('CodeBuddy returned no renewed token. Sign in again.')
+  return { ...tokens, accessToken: payload.data.accessToken, refreshToken: payload.data.refreshToken || tokens.refreshToken,
+    expiresAt: tokenExpiry(payload.data.expiresAt, payload.data.expiresIn) }
 }

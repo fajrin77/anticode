@@ -77,11 +77,12 @@ function tally(runId: string): {
  * turn, with no usage ever reported, and that turn needs its summary too or
  * every later reply would wear the one before it.
  */
-function closeTally(runId: string, sessionId: string, keptReplyModel?: string): RunSummary | undefined {
+function closeTally(runId: string, sessionId: string, keptReplyModel?: string, outcome?: RunSummary['outcome']): RunSummary | undefined {
   const entry = tallies.get(runId) ?? (keptReplyModel !== undefined ? tally(runId) : undefined)
   tallies.delete(runId)
   if (entry === undefined || (entry.turns === 0 && keptReplyModel === undefined)) return
   const summary: RunSummary = {
+    ...(outcome ? { outcome } : {}),
     model: entry.model !== '' ? entry.model : (keptReplyModel ?? ''),
     durationMs: Date.now() - entry.startedAt,
     inputTokens: entry.inputTokens,
@@ -163,7 +164,7 @@ export function forward(event: AgentEvent): void {
   if (event.type === 'end' || event.type === 'error') {
     runSessions.delete(event.runId)
     journals.delete(event.runId)
-    const summary = closeTally(event.runId, sessionId, event.keptReplyModel)
+    const summary = closeTally(event.runId, sessionId, event.keptReplyModel, event.type === 'error' ? 'error' : event.reason === 'cancelled' ? 'interrupted' : event.reason)
     if (summary !== undefined && (routed.type === 'end' || routed.type === 'error')) routed.summary = summary
     // Paused just as the run was finishing on its own: it finished, so there
     // is nothing left to resume on either screen.

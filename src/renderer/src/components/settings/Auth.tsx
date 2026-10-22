@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { AuthAccountSummary, AuthKind, AuthLoginState, ProviderInfo } from '@shared/ipc'
+import { ComposerVisibility, ComposerGroupVisibility } from './ComposerVisibility'
+import { Toggle } from './controls'
+import { AccountGroup } from './AccountGroup'
+import type { AuthAccountSummary, AuthKind, AuthLoginState, ProviderInfo, SessionStatus, SubscriptionQuota } from '@shared/ipc'
 
 /*
  * Sign in to an OAuth vendor and use the account as a provider. Each account
@@ -18,21 +21,34 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
     title: 'ChatGPT (Codex)',
     hint: 'Sign in with a ChatGPT Plus/Pro/Business account; Codex models run under your plan.'
   },
-  { kind: 'claude', title: 'Claude Code', hint: 'Sign in with a Claude account and paste the code back.' },
-  { kind: 'cline', title: 'Cline', hint: 'Sign in to your Cline account; the provider talks to api.cline.bot.' },
+  { kind: 'claude', title: 'Claude Code', hint: 'Uses the official Claude Code engine with your Claude subscription. Extra usage must be off; no 9Router required.' },
+  { kind: 'clinepass', title: 'ClinePass', hint: 'Subscription ClinePass dengan akun Cline.' },
+  { kind: 'cline', title: 'Cline Free', hint: 'Sign in to your Cline account; the provider talks to api.cline.bot.' },
+  { kind: 'opencode-go', title: 'OpenCode Go', hint: 'Login di Console, lalu salin key dari workspace dengan paket Go / Go Plus aktif dan tempel di sini. Membuka dashboard belum menghubungkan akun. Matikan Extra usage agar tetap dalam batas paket.' },
+  { kind: 'minimax-plan', title: 'MiniMax M Plan', hint: 'Login ke MiniMax → Plan Details, salin Subscription Key (sk-cp) M Plan / Token Plan, lalu tempel di sini. MiniMax tidak menyediakan login browser untuk app lain. Key API pay-as-you-go tidak diterima.' },
   {
     kind: 'codebuddy',
     title: 'CodeBuddy',
     hint: 'Sign in at codebuddy.ai; the account speaks OpenAI’s wire format.'
-  }
+  },
+  { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
+  { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Login dan setujui akses di browser; Anticode menerima kodenya otomatis lewat localhost. Hanya rute model gratis yang dipakai.' }
 ]
 
-/** CodeBuddy hands out a long-lived token and offers no refresh grant. */
+/** Vendors kept in code but not offered for new sign-ins. */
+const HIDDEN = new Set<AuthKind>(['opencode-go', 'minimax-plan'])
+
+/** Manual renewal is also available for providers with refresh grants. */
 const RENEWABLE: Record<AuthKind, boolean> = {
+  'minimax-plan': false,
+  kilo: false,
+  openrouter: false,
   codex: true,
   claude: true,
   cline: true,
-  codebuddy: false
+  clinepass: true,
+  'opencode-go': false,
+  codebuddy: true
 }
 
 const TICK_MS = 30_000
@@ -101,11 +117,17 @@ function tokenState(
 
 export function Auth({
   providers,
+  status,
   onProvidersChange
 }: {
   providers: ProviderInfo[]
+  status: SessionStatus | null
   onProvidersChange: (list: ProviderInfo[]) => void
 }): JSX.Element {
+  const [expanded, setExpanded] = useState<Partial<Record<AuthKind, boolean>>>({})
+  const [routingBusy, setRoutingBusy] = useState(false)
+  const [quotas, setQuotas] = useState<SubscriptionQuota[] | null>(null)
+  const [quotaBusy, setQuotaBusy] = useState(false)
   const [accounts, setAccounts] = useState<AuthAccountSummary[]>([])
   // One card per vendor that has a flow in the air, keyed by the flow id, so
   // signing in to two vendors at once does not make them fight over one slot.
@@ -167,6 +189,7 @@ export function Auth({
 
   async function start(kind: AuthKind): Promise<void> {
     setError(null)
+    setExpanded(current => ({ ...current, [kind]: true }))
     try {
       const state = await window.anticode.startAuthLogin(kind)
       setFlows((current) => ({ ...current, [state.id]: state }))
@@ -194,63 +217,35 @@ export function Auth({
     })
   }
 
-  return (
-    <>
-      <h1 className="mb-6 text-[19px] text-text">Auth provider</h1>
+  async function toggleRouting(): Promise<void> {
+    setRoutingBusy(true)
+    setError(null)
+    try { await window.anticode.setSubscriptionRouting(!(status?.subscriptionOnly && status.rotationEnabled)) }
+    catch (failure) { setError(errorText(failure)) }
+    finally { setRoutingBusy(false) }
+  }
 
-      <p className="mb-6 max-w-prose text-[12.5px] leading-relaxed text-faint">
-        Sign in with an account instead of an API key. Each account is added as a provider
-        (<span className="text-dim">auth:codex</span>, <span className="text-dim">auth:claude</span>)
-        and can be picked in the composer or added to Rotate usage by name. Tokens are sealed with
-        the system keychain and renewed on their own while a session runs.
-      </p>
 
-      <div className="glass-surface mb-6 overflow-hidden rounded-xl border border-line">
-        {VENDORS.map((vendor) => {
-          const mine = accounts.filter((row) => row.kind === vendor.kind)
-          const running = live.some((state) => state.kind === vendor.kind)
-          return (
-            <div
-              key={vendor.kind}
-              data-auth-vendor={vendor.kind}
-              className="flex items-center gap-6 border-b border-line-soft px-5 py-4 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[13.5px] text-text">{vendor.title}</span>
-                  {/* Rendered at every count so the title never shifts when
-                      the first account of a vendor appears. */}
-                  <span
-                    className={`text-[11.5px] tabular-nums text-faint ${mine.length === 0 ? 'invisible' : ''}`}
-                  >
-                    {mine.length} signed in
-                  </span>
-                </div>
-                <div className="mt-0.5 text-[12.5px] leading-relaxed text-faint">{vendor.hint}</div>
-              </div>
-              <button
-                type="button"
-                disabled={running}
-                title={mine.length === 0 ? `Sign in to ${vendor.title}` : `Add another ${vendor.title} account`}
-                onClick={() => void start(vendor.kind)}
-                className="glass-control w-[104px] shrink-0 rounded-lg border px-3 py-1.5 text-center text-[12.5px] text-text transition-colors enabled:hover:text-brand disabled:text-faint"
-              >
-                {running ? 'Signing in…' : 'Sign in'}
-              </button>
-            </div>
-          )
-        })}
-      </div>
+  async function refreshQuotas(): Promise<void> {
+    setQuotaBusy(true)
+    try { setQuotas(await window.anticode.getSubscriptionQuotas()) }
+    catch (failure) { setError(errorText(failure)) }
+    finally { setQuotaBusy(false) }
+  }
 
-      {Object.values(flows).map((state) => (
+  function renderFlow(state: AuthLoginState): JSX.Element {
+    return (
         <div
           key={state.id}
           data-auth-flow={state.kind}
-          className="glass-surface mb-6 overflow-hidden rounded-xl border border-line px-5 py-4"
+          className="mx-3 my-3 rounded-lg border border-line px-4 py-3"
         >
           <div className={`text-[13.5px] ${state.error !== undefined ? 'text-del' : 'text-text'}`}>
             {state.status}
           </div>
+          {accounts.some((row) => row.kind === state.kind) && !state.done && !state.error && (
+            <p className="mt-1 text-[12px] text-faint">Choose another account in your browser.</p>
+          )}
           {state.url !== undefined && !state.done && (
             <a
               href={state.url}
@@ -261,9 +256,14 @@ export function Auth({
               {state.url}
             </a>
           )}
+          {state.kind === 'opencode-go' && state.needsCode && <p className="mt-2 text-[12px] text-faint">Turn off Extra usage in OpenCode Console to stay within plan limits.</p>}
           {state.needsCode && (
             <div className="mt-3 flex items-center gap-2">
               <input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label={state.kind === 'claude' ? 'Claude code#state or callback URL' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'openrouter' ? 'OpenRouter authorization code' : 'Authorization code or key'}
                 value={codes[state.id] ?? ''}
                 autoFocus
                 onChange={(event) =>
@@ -272,7 +272,7 @@ export function Auth({
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && (codes[state.id] ?? '').trim() !== '') void submit(state.id)
                 }}
-                placeholder="Paste the authorization code"
+                placeholder={state.kind === 'opencode-go' ? 'OpenCode Go plan key' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'claude' ? 'Paste the complete code#state or callback URL' : 'Paste the authorization code'}
                 className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12.5px] text-text outline-none focus:border-brand"
               />
               <button
@@ -290,36 +290,32 @@ export function Auth({
               type="button"
               title="Stop this login"
               onClick={() => dismiss(state.id)}
-              className="mt-3 text-[12px] text-dim transition-colors hover:text-brand"
+              className="mt-3 block text-[12px] text-dim transition-colors hover:text-brand"
             >
               {state.error !== undefined ? 'Dismiss' : 'Cancel'}
             </button>
           )}
         </div>
-      ))}
+    )
+  }
 
-      {accounts.length === 0 ? (
-        <div className="glass-surface rounded-xl border border-line px-5 py-4 text-[12.5px] text-faint">
-          No accounts yet.
-        </div>
-      ) : (
-        <div className="glass-surface overflow-hidden rounded-xl border border-line">
-          {accounts.map((row) => {
+  function renderAccount(row: AuthAccountSummary): JSX.Element {
             const renamingThis = open?.id === row.id && open.action === 'rename'
             const removingThis = open?.id === row.id && open.action === 'remove'
             const state = tokenState(row, now)
-            const models = providers.find((entry) => entry.id === row.id)?.models ?? []
+            const provider = providers.find((entry) => entry.id === row.id)
+            const models = provider?.models ?? []
             // What the id is and what it can run; the token's own state is
             // coloured separately and so is appended rather than joined in.
-            const facts = [row.id, models.length > 0 ? `${models.length} models · ${models[0]}` : null].filter(
+            const facts = [ models.length > 0 ? `${models.length} models · ${models[0]}` : null].filter(
               (part) => part !== null
             )
             return (
               <div key={row.id} data-auth-account={row.id} className="border-b border-line-soft last:border-b-0">
-                <div className="flex items-center gap-3 px-5 py-3.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="truncate text-[13.5px] text-text">{row.label}</span>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5">
+                  <div className="min-w-[180px] flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span title={row.label} className="min-w-0 break-all text-[13px] text-text">{row.label.startsWith((VENDORS.find(vendor => vendor.kind === row.kind)?.title ?? '') + ' · ') ? row.label.split(' · ').slice(1).join(' · ') : row.label}</span>
                       {/* The one thing that must survive a narrow window: the
                           name can be clipped, the token's state cannot. */}
                       <span className={`shrink-0 text-[11.5px] ${state.tone}`} title={state.title}>
@@ -330,6 +326,9 @@ export function Auth({
                       {facts.join(' · ')}
                     </div>
                   </div>
+                  {provider && (
+                    <ComposerVisibility provider={provider} onChange={onProvidersChange} />
+                  )}
                   {removingThis ? (
                     <>
                       <span className="shrink-0 text-[12px] text-dim">Remove?</span>
@@ -448,9 +447,71 @@ export function Auth({
                 )}
               </div>
             )
-          })}
+  }
+
+  return (
+    <>
+      <h1 className="mb-6 text-[19px] text-text">Auth provider</h1>
+
+      <div className="glass-surface mb-6 overflow-hidden rounded-xl border border-line" data-subscription-routing>
+        <div className="flex items-center justify-between gap-4 px-5 py-4">
+          <div>
+            <h2 className="text-[13.5px] text-text">Subscription routing</h2>
+          </div>
+          <Toggle on={status?.subscriptionOnly === true && status.rotationEnabled}
+            disabled={routingBusy} label="Subscription routing"
+            title="Automatically switch between connected plans. Provider extra usage settings still apply."
+            onChange={() => void toggleRouting()} />
         </div>
-      )}
+        <div className="border-t border-line-soft px-5 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[12.5px] text-dim">Subscription quotas</span>
+            <button type="button" disabled={quotaBusy} onClick={() => void refreshQuotas()}
+              aria-label={accounts.some(account => account.kind === 'claude') ? 'Refresh subscription quotas' : 'Refresh ChatGPT quota'}
+              className="text-[12px] text-faint hover:text-brand disabled:text-faint">
+              {quotaBusy ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+          {quotas?.length === 0 && <p className="mt-2 text-[12px] text-faint">No connected account.</p>}
+          {quotas?.map((quota) => (
+            <div key={quota.provider} className="mt-3 text-[12px] text-faint" title={`Checked ${absolute(quota.checkedAt)}`}>
+              <span className="text-dim">{quota.label}{quota.plan ? ` · ${quota.plan}` : ''}</span>
+              {quota.extraUsageEnabled !== undefined && <p>{quota.extraUsageEnabled === false ? 'Extra usage off · third-party billing entitlement unverified' : 'Extra usage enabled or unknown · inference blocked'}</p>}
+              {quota.error ? <p>{quota.error}</p> : quota.windows.map((window) => (
+                <p key={window.label}>{window.label}: {window.usedPercent === null ? 'unknown usage' : `${window.usedPercent}% used`}
+                  {window.resetAt !== null ? ` · resets ${absolute(window.resetAt)}` : ''}</p>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
+        {VENDORS.map(vendor => {
+          const mine = accounts.filter(row => row.kind === vendor.kind)
+          const running = live.some(state => state.kind === vendor.kind)
+          // OpenCode Go stays supported but off the list; an account already
+          // connected still shows so it can be renamed or removed.
+          if (HIDDEN.has(vendor.kind) && mine.length === 0 && !running) return null
+          const keyConnection = vendor.kind === 'opencode-go' || vendor.kind === 'minimax-plan'
+          return (
+            <div key={vendor.kind} data-auth-vendor={vendor.kind} className="border-b border-line-soft last:border-b-0">
+              <AccountGroup id={`auth-${vendor.kind}`} title={vendor.title} count={mine.length}
+                expanded={expanded[vendor.kind] === true}
+                onToggle={() => setExpanded(current => ({ ...current, [vendor.kind]: !current[vendor.kind] }))}
+                action={<><ComposerGroupVisibility members={providers.filter(p => p.authKind === vendor.kind)} label={vendor.title} onChange={onProvidersChange} /><button type="button" disabled={running}
+                  title={mine.length ? `Add another ${vendor.title} account` : `Connect ${vendor.title}`}
+                  onClick={() => void start(vendor.kind)}
+                  className="glass-control w-[112px] shrink-0 rounded-lg border px-3 py-1.5 text-center text-[12px] text-text enabled:hover:text-brand disabled:text-faint">
+                  {running ? 'Connecting…' : mine.length ? 'Add account' : keyConnection ? 'Connect key' : 'Sign in'}
+                </button></>}>
+                {Object.values(flows).filter(state => state.kind === vendor.kind).map(renderFlow)}
+                {mine.map(renderAccount)}
+              </AccountGroup>
+            </div>
+          )
+        })}
+      </div>
 
       {error !== null && <p className="mt-4 text-[12.5px] text-del">{error}</p>}
     </>

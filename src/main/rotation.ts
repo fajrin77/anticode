@@ -1,8 +1,14 @@
+import { isSubscriptionCheckFailure } from './providers/requestError'
+import { observeAccessFailure, observeAccessSuccess } from './accessLedger'
+import { recordAccountUsage } from './auth/sharing'
 import { randomUUID } from 'node:crypto'
+import { canonicalClinepassModel } from './providers/clinepass'
 import type { OutOfUsage, RotationEntry, RotationGroup } from '@shared/ipc'
 import type { LLMProvider, Usage } from './providers/types'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import { isOutOfUsage } from './usageErrors'
+import { canFailOver, isTransportFailure } from './providers/failures'
+import { modelIsBatchOnly } from '@shared/ipc'
 
 export { isOutOfUsage }
 
@@ -43,6 +49,7 @@ interface Tally {
 
 let entries: RotationEntry[] | null = null
 let enabled = false
+let plansOnly = false
 /** As kept: hand-picked entries only, never ones a provider link covers. */
 interface StoredGroup {
   id: string
@@ -60,12 +67,18 @@ const exhausted = new Map<string, OutOfUsage>()
 let changeSink: (() => void) | null = null
 
 export function rotationKey(entry: RotationEntry): string {
-  return `${entry.provider}\n${entry.model}`
+  const model = entry.provider === 'clinepass' ? canonicalClinepassModel(entry.model) : entry.model
+  return `${entry.provider}\n${model}`
 }
 
 /** Called once by ipc registration, so every viewer hears of it at once. */
 export function setRotationChangeSink(sink: () => void): void {
   changeSink = sink
+}
+
+function canonicalStoredKey(key: string): string {
+  const separator = key.indexOf('\n')
+  return separator < 0 ? key : rotationKey({ provider: key.slice(0, separator), model: key.slice(separator + 1) })
 }
 
 function load(): RotationEntry[] {
@@ -75,17 +88,26 @@ function load(): RotationEntry[] {
     ? clean(saved.entries)
     : []
   enabled = saved?.enabled === true
+  plansOnly = saved?.subscriptionOnly === true
   for (const [key, tally] of Object.entries(saved?.usage ?? {})) {
     if (typeof tally?.inputTokens === 'number' && typeof tally.outputTokens === 'number') {
-      usage.set(key, { inputTokens: tally.inputTokens, outputTokens: tally.outputTokens })
+      const canonical = canonicalStoredKey(key)
+      const previous = usage.get(canonical)
+      usage.set(canonical, {
+        inputTokens: (previous?.inputTokens ?? 0) + tally.inputTokens,
+        outputTokens: (previous?.outputTokens ?? 0) + tally.outputTokens
+      })
     }
   }
   const inPool = new Set(entries.map(rotationKey))
   groups = cleanGroups(Array.isArray(saved?.groups) ? saved.groups : [], inPool, [])
   activeGroup = groups.some((group) => group.id === saved?.group) ? (saved?.group ?? null) : null
-  for (const [key, mark] of Object.entries(saved?.outOfUsage ?? {})) {
+  for (const [storedKey, mark] of Object.entries(saved?.outOfUsage ?? {})) {
+    const key = canonicalStoredKey(storedKey)
     if (inPool.has(key) && typeof mark?.since === 'number' && typeof mark.reason === 'string') {
-      exhausted.set(key, { since: mark.since, reason: mark.reason })
+      exhausted.set(key, { since: mark.since, reason: mark.reason,
+        ...(typeof mark.resetAt === 'number' && Number.isFinite(mark.resetAt) ? { resetAt: mark.resetAt } : {}),
+        ...(mark.scope === 'account' ? { scope: 'account' } : {}) })
     }
   }
   return entries
@@ -129,8 +151,9 @@ function clean(list: unknown[]): RotationEntry[] {
   const kept: RotationEntry[] = []
   for (const item of list) {
     const provider = typeof (item as RotationEntry | null)?.provider === 'string' ? (item as RotationEntry).provider.trim() : ''
-    const model = typeof (item as RotationEntry | null)?.model === 'string' ? (item as RotationEntry).model.trim() : ''
-    if (provider === '' || model === '') continue
+    const rawModel = typeof (item as RotationEntry | null)?.model === 'string' ? (item as RotationEntry).model.trim() : ''
+    const model = provider === 'clinepass' ? canonicalClinepassModel(rawModel) : rawModel
+    if (provider === '' || model === '' || modelIsBatchOnly(model)) continue
     const entry = { provider, model }
     if (seen.has(rotationKey(entry))) continue
     seen.add(rotationKey(entry))
@@ -145,6 +168,7 @@ function persist(): void {
   savePersistedSettings({
     rotation: {
       enabled,
+      subscriptionOnly: plansOnly,
       entries: list,
       usage: Object.fromEntries([...usage].filter(([key]) => keys.has(key))),
       groups,
@@ -209,6 +233,17 @@ export function setActiveRotationGroup(id: string | null): void {
   persist()
 }
 
+export function subscriptionOnly(): boolean {
+  load()
+  return plansOnly
+}
+
+export function setSubscriptionOnly(on: boolean): void {
+  load()
+  plansOnly = on
+  persist()
+}
+
 export function rotationEnabled(): boolean {
   load()
   return enabled
@@ -235,7 +270,7 @@ export function setRotationEntries(next: unknown[]): RotationEntry[] {
   }, null)
   for (const entry of list) {
     const key = rotationKey(entry)
-    if (!existing.has(key)) usage.set(key, baseline === null ? { inputTokens: 0, outputTokens: 0 } : { ...baseline })
+    if (!existing.has(key)) usage.set(key, (entry.provider.startsWith('auth:') || entry.provider === 'clinepass') || baseline === null ? { inputTokens: 0, outputTokens: 0 } : { ...baseline })
   }
   const kept = new Set(list.map(rotationKey))
   for (const key of [...usage.keys()]) if (!kept.has(key)) usage.delete(key)
@@ -283,23 +318,45 @@ export function recordRotationUsage(entry: RotationEntry, spent: Usage): void {
 }
 
 /** A rate limit, an empty quota, an outage: others go first for a while. */
-export function coolDown(entry: RotationEntry, now = Date.now()): void {
-  cooling.set(rotationKey(entry), now + COOL_DOWN_MS)
+export function coolDown(entry: RotationEntry, now = Date.now(), error?: unknown): void {
+  if (isSubscriptionCheckFailure(error)) return
+  // Transport outages are not evidence that a particular account is unusable.
+  if (isTransportFailure(error)) return
+  const detail = error as { scope?: string; retryAt?: number; resetAt?: number; status?: number } | undefined
+  const key = detail?.status === 401 ? `login:${entry.provider}` : detail?.scope === 'account' ? `account:${entry.provider}` : rotationKey(entry)
+  const retryAt = detail?.retryAt ?? detail?.resetAt
+  const until = typeof retryAt === 'number' && Number.isFinite(retryAt) && retryAt > now ? retryAt : now + COOL_DOWN_MS
+  cooling.set(key, until)
+}
+
+/** A renewed login must not inherit the old token's authentication cooldown. */
+export function clearLoginCooldown(provider: string): void {
+  cooling.delete(`login:${provider}`)
 }
 
 export function coolingUntil(entry: RotationEntry, now = Date.now()): number | null {
-  const until = cooling.get(rotationKey(entry))
-  if (until === undefined) return null
-  if (until <= now) {
-    cooling.delete(rotationKey(entry))
-    return null
+  let latest: number | null = null
+  for (const key of [rotationKey(entry), `account:${entry.provider}`, `login:${entry.provider}`]) {
+    const until = cooling.get(key)
+    if (until === undefined) continue
+    if (until <= now) cooling.delete(key)
+    else latest = Math.max(latest ?? 0, until)
   }
-  return until
+  return latest
 }
 
-export function outOfUsage(entry: RotationEntry): OutOfUsage | null {
+export function outOfUsage(entry: RotationEntry, now = Date.now()): OutOfUsage | null {
   load()
-  const mark = exhausted.get(rotationKey(entry))
+  let changed = false
+  for (const [key, mark] of exhausted) {
+    if (mark.resetAt !== undefined && mark.resetAt <= now) {
+      exhausted.delete(key)
+      changed = true
+    }
+  }
+  if (changed) persist()
+  const mark = exhausted.get(rotationKey(entry)) ?? [...exhausted].find(([key, value]) =>
+    value.scope === 'account' && key.startsWith(`${entry.provider}\n`))?.[1]
   return mark === undefined ? null : { ...mark }
 }
 
@@ -309,7 +366,11 @@ export function markOutOfUsage(entry: RotationEntry, error: unknown, now = Date.
   if (!load().some((item) => rotationKey(item) === key)) return
   const message = error instanceof Error ? error.message : String(error)
   const reason = message.replace(/\s+/g, ' ').trim().slice(0, 160)
-  exhausted.set(key, { since: exhausted.get(key)?.since ?? now, reason })
+  const detail = error as { resetAt?: number; scope?: 'account' | 'model' } | null
+  const resetAt = typeof detail?.resetAt === 'number' && Number.isFinite(detail.resetAt) && detail.resetAt > now ? detail.resetAt : undefined
+  exhausted.set(key, { since: exhausted.get(key)?.since ?? now, reason,
+    ...(resetAt !== undefined ? { resetAt } : {}),
+    ...(detail?.scope === 'account' ? { scope: 'account' } : {}) })
   persist()
   changeSink?.()
 }
@@ -339,18 +400,26 @@ export function rankRotation(options: {
   now?: number
 }): RotationEntry[] {
   const now = options.now ?? Date.now()
+  const accountUsage = new Map<string, number>()
+  load()
+  for (const [key, tally] of usage) {
+    const provider = key.slice(0, key.indexOf('\n'))
+    if ((provider.startsWith('auth:') || provider === 'clinepass')) accountUsage.set(provider, (accountUsage.get(provider) ?? 0) + total(tally))
+  }
   return activeRotationEntries()
     .map((entry, index) => ({
       entry,
       index,
-      spentOut: exhausted.has(rotationKey(entry)) ? 1 : 0,
+      spentOut: outOfUsage(entry, now) !== null ? 1 : 0,
       resting: coolingUntil(entry, now) !== null ? 1 : 0,
       busy: options.busy(entry),
-      spent: total(usage.get(rotationKey(entry)) ?? { inputTokens: 0, outputTokens: 0 })
+      spent: (entry.provider.startsWith('auth:') || entry.provider === 'clinepass') ? accountUsage.get(entry.provider) ?? 0 : total(usage.get(rotationKey(entry)) ?? { inputTokens: 0, outputTokens: 0 }),
+      modelSpent: total(usage.get(rotationKey(entry)) ?? { inputTokens: 0, outputTokens: 0 })
     }))
+    .filter(({ spentOut, resting }) => !plansOnly || (spentOut === 0 && resting === 0))
     .filter(({ entry }) => options.ready(entry) && !(options.exclude?.has(rotationKey(entry)) ?? false))
     .sort((a, b) =>
-      a.spentOut - b.spentOut || a.resting - b.resting || a.busy - b.busy || a.spent - b.spent || a.index - b.index)
+      a.spentOut - b.spentOut || a.resting - b.resting || a.busy - b.busy || a.spent - b.spent || a.modelSpent - b.modelSpent || a.index - b.index)
     .map(({ entry }) => entry)
 }
 
@@ -371,12 +440,16 @@ export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMPr
       try {
         for await (const event of inner.chat(params)) {
           if (event.type === 'response') {
+            recordAccountUsage(entry.provider, event.response.usage.inputTokens, event.response.usage.outputTokens)
             recordRotationUsage(entry, event.response.usage)
             markUsable(entry)
+            observeAccessSuccess(entry.provider, entry.model)
           }
           yield event
         }
       } catch (error) {
+        if (params.signal?.aborted !== true) observeAccessFailure(entry.provider, entry.model, error)
+        if (params.signal?.aborted !== true && canFailOver(error)) coolDown(entry, Date.now(), error)
         if (params.signal?.aborted !== true && isOutOfUsage(error)) markOutOfUsage(entry, error)
         throw error
       }
@@ -388,6 +461,7 @@ export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMPr
 export function resetRotationForTests(): void {
   entries = null
   enabled = false
+  plansOnly = false
   groups = []
   activeGroup = null
   usage.clear()

@@ -1,3 +1,6 @@
+import { isOutOfUsage } from './usageErrors'
+import { canFailOver, isTransient } from './providers/failures'
+import { accountCandidates, rankAccounts } from './auth/sharing'
 import { cpSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
@@ -7,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
 import type { ContentBlock, Message } from './providers/types'
 import type { AttachmentRef, RunSummary, SnapshotMessage } from '@shared/ipc'
-import { INSTRUCTIONS_MAX_CHARS, ROTATE_PROVIDER, SESSION_COLOURS } from '@shared/ipc'
+import { INSTRUCTIONS_MAX_CHARS, ROTATE_PROVIDER, SESSION_COLOURS, modelIsBatchOnly } from '@shared/ipc'
 import type {
   ModelCatalogue,
   ModelChoice,
@@ -28,6 +31,7 @@ import type { LLMProvider } from './providers/types'
 import { clearWeb, restoreWeb, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
 import { authProvider, isAuthProvider as isAuthId } from './auth/provider'
+import { isSubscriptionProvider, subscriptionEntries } from './subscriptions'
 import { fetchModels } from './providers/models'
 import {
   activeRotationEntries,
@@ -39,6 +43,8 @@ import {
   outOfUsage,
   rankRotation,
   rotationEnabled,
+  subscriptionOnly,
+  setSubscriptionOnly,
   rotationEntries,
   rotationGroups,
   rotationKey,
@@ -106,7 +112,7 @@ function current(): ProviderSelection {
       providers.find((p) => p.configured && p.defaultModel !== '') ??
       providers.find((p) => p.configured) ??
       providers.find((p) => p.credentialAvailable)
-    selection = { provider: chosen?.id ?? 'clinepass', model: chosen?.defaultModel ?? '' }
+    selection = { provider: chosen?.id ?? '', model: chosen?.defaultModel ?? '' }
   }
   return selection
 }
@@ -114,7 +120,7 @@ function current(): ProviderSelection {
 /** Used only when no explicit default has ever been saved, or it was removed. */
 function firstConnectedSelection(): ProviderSelection {
   const provider = listProviders().find((entry) => entry.credentialAvailable)
-  if (provider === undefined) return { provider: 'clinepass', model: '' }
+  if (provider === undefined) return { provider: '', model: '' }
   return {
     provider: provider.id,
     model: chosenFor(provider.id)[0] ?? provider.defaultModel
@@ -278,6 +284,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
       throw new Error('Provider unavailable. Configure its credentials first.')
     }
     const model = next.model.trim()
+    if (modelIsBatchOnly(model)) throw new Error('Batch models cannot be used in interactive chat. Choose a model without :batch.')
     const knownModels = providerInfo.models ?? []
     // A provider that publishes/configures a model list is authoritative.
     // Search text in the composer must not silently turn a typo into the
@@ -369,6 +376,19 @@ export function applyRotationGroup(id: string | null): void {
  * Rotate usage is global. On, every existing and future composer follows the
  * pool. Off, every composer falls back to the first connected provider.
  */
+export function applySubscriptionRouting(on: boolean): void {
+  if (on) {
+    const eligible = subscriptionEntries(listProviders().map((provider) => ({ ...provider, models: cachedCatalogue(provider.id) ?? provider.models ?? [] })))
+    if (eligible.length === 0) throw new Error('Sign in to ChatGPT or Cline, or connect a Clinepass plan in Settings before enabling subscription routing.')
+    // Keep the existing pool and groups; the router filters them by entitlement.
+    setRotationEntries([...rotationEntries(), ...eligible])
+    setActiveRotationGroup(null)
+  }
+  setSubscriptionOnly(on)
+  applyRotationEnabled(on)
+  releaseRotatingSessions()
+}
+
 export function applyRotationEnabled(on: boolean): void {
   setRotationEnabled(on)
   const chosen = on
@@ -390,6 +410,24 @@ export function applyRotationEnabled(on: boolean): void {
 /** A provider's model list changed in Settings; the next listModels refetches. */
 export function forgetCatalogue(provider: ProviderId): void {
   catalogues.delete(provider)
+}
+
+/** New logins join enabled native routing without resetting other accounts or groups. */
+export function syncAuthAccountRoutes(id: string): void {
+  forgetCatalogue(id)
+  const providers = listProviders()
+  const account = providers.find((provider) => provider.id === id)
+  const peers = account?.authKind ? providers.filter((provider) => provider.id !== id && provider.authKind === account.authKind) : []
+  const peerIds = new Set(peers.map((provider) => provider.id))
+  const shared = [...new Set(rotationEntries().filter((entry) => peerIds.has(entry.provider)).map((entry) => entry.model))]
+    .filter((model) => account?.models?.includes(model)).map((model) => ({ provider: id, model }))
+  if (peers.length) {
+    if (shared.length) setRotationEntries([...rotationEntries(), ...shared])
+    return
+  }
+  if (!subscriptionOnly() || !rotationEnabled()) return
+  const eligible = subscriptionEntries(providers.filter((provider) => provider.id === id))
+  if (eligible.length) setRotationEntries([...rotationEntries(), ...eligible])
 }
 
 /** The cached catalogue without any network round-trip; null when cold. */
@@ -643,7 +681,11 @@ export function rememberedSpec(sessionId: string): SessionSpec | undefined {
 type Providers = ReturnType<typeof listProviders>
 
 function entryReady(entry: RotationEntry, providers: Providers): boolean {
-  return providers.some((provider) => provider.id === entry.provider && provider.credentialAvailable)
+  return !modelIsBatchOnly(entry.model) && providers.some((provider) => provider.id === entry.provider && provider.credentialAvailable &&
+    (!provider.authKind || provider.composerVisible !== false) &&
+    (provider.billing !== 'free' || (provider.models ?? []).includes(entry.model)) &&
+    (!subscriptionOnly() || (isSubscriptionProvider(provider) &&
+      (provider.billing === 'free' ? provider.models ?? [] : cachedCatalogue(provider.id) ?? provider.models ?? [provider.defaultModel]).includes(entry.model) && coolingUntil(entry) === null && outOfUsage(entry) === null)))
 }
 
 function readiness(
@@ -674,6 +716,8 @@ function readiness(
           ? `${info.label} has no ${info.credentialHint} yet. Add it in Settings → Providers`
           : choice.model === ''
             ? 'No model selected. Choose one in Settings → Models'
+            : info.authKind && info.composerVisible === false && accountCandidates(choice, providers).length === 0
+              ? 'All accounts for this model are disabled in Composer. Enable an account in Settings.'
             : null
   }
   return { providerReady: blockedReason === null, blockedReason }
@@ -723,6 +767,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     sessions: Object.fromEntries([...sessions].map(([id, live]) => [id, choiceStatus(live, providers)])),
     rotation: rotationStatus(providers),
     rotationEnabled: rotationEnabled(),
+    subscriptionOnly: subscriptionOnly(),
     rotationGroups: rotationGroups(),
     rotationGroup: activeRotationGroupId()
   }
@@ -739,7 +784,8 @@ function busyOn(entry: RotationEntry): number {
   const key = rotationKey(entry)
   let count = 0
   for (const [id, live] of sessions) {
-    if (live.selection !== undefined && rotationKey(live.selection) === key && runForSession(id) !== null) count += 1
+    if (live.selection !== undefined && runForSession(id) !== null &&
+      (isAuthId(entry.provider) ? live.selection.provider === entry.provider : rotationKey(live.selection) === key)) count += 1
   }
   return count
 }
@@ -799,13 +845,20 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       }
       live.promptsOnEntry = 1
     }
-    if (first === undefined) throw new Error(readiness(choice, providers).blockedReason ?? 'No model in Rotate usage is ready')
+    if (first === undefined) throw new Error(subscriptionOnly()
+      ? 'No subscription route is available. Wait for the account quota to reset, sign in to another plan, or retry after its cooldown. Paid API fallback is disabled.'
+      : readiness(choice, providers).blockedReason ?? 'No model in Rotate usage is ready')
     tried.add(rotationKey(first))
     target = first
-    fallback = () => {
-      if (live.selection !== undefined) coolDown(live.selection)
+    fallback = (error) => {
+      if (!canFailOver(error)) return null
+      if (live.selection !== undefined) coolDown(live.selection, Date.now(), error)
       const following = next()
-      if (following === undefined) return null
+      if (following === undefined) {
+        if (isTransient(error) && !isOutOfUsage(error)) return null
+        if (subscriptionOnly()) throw error
+        return null
+      }
       tried.add(rotationKey(following))
       live.selection = { ...following }
       // The model that took over starts its own turn with this prompt.
@@ -814,6 +867,34 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     }
   } else {
     target = choice
+    if (isAuthId(choice.provider)) {
+      const providers = listProviders()
+      const candidates = accountCandidates(choice, providers)
+      if (!candidates.length && providers.find(p => p.id === choice.provider)?.composerVisible === false) throw new Error('All accounts for this model are disabled in Composer. Enable an account in Settings.')
+      if (candidates.length > 0) {
+        const tried = new Set<string>()
+        const next = (): ProviderSelection | undefined => rankAccounts(candidates,
+          (entry) => !tried.has(entry.provider) && coolingUntil(entry) === null && outOfUsage(entry) === null, busyOn)[0]
+        const first = next()
+        if (!first) {
+          const retryAt = candidates.flatMap(entry => { const at = coolingUntil(entry); return at === null || outOfUsage(entry) !== null ? [] : [at] }).sort((a,b)=>a-b)[0]
+          throw new Error(retryAt !== undefined
+            ? `Provider sedang membatasi request model ini sementara. Coba lagi dalam ${Math.max(1,Math.ceil((retryAt-Date.now())/1000))} detik.`
+            : 'Semua akun aktif untuk model ini melaporkan batas kuota provider. Tunggu reset kuota atau pilih akun/model lain yang tersedia.')
+        }
+        target = first
+        tried.add(first.provider)
+        fallback = (error) => {
+          if (!canFailOver(error)) return null
+          if (live.selection) coolDown(live.selection, Date.now(), error)
+          const following = next()
+          if (!following) { if (isTransient(error) && !isOutOfUsage(error)) return null; throw error }
+          tried.add(following.provider)
+          live.selection = { ...following }
+          return providerFor(following)
+        }
+      }
+    }
   }
 
   const provider = providerFor(target)

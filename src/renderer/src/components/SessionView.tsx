@@ -416,7 +416,8 @@ function MessageView({
     tail !== undefined &&
     tail.kind === 'tools' &&
     (message.pending || tail.parts.some((part) => part.status === 'running'))
-  const done = message.summary !== undefined && !paused
+  const done = message.summary !== undefined
+  const settledTools = !message.pending ? message.parts.filter((part): part is ToolPart => part.kind === 'tool') : []
   const documents = documentsProduced(message.parts, chat)
   // While the run streams, keep live tool details closed unless the user opens
   // them. Auto-opening the first streamed tool made the transcript flash between
@@ -453,11 +454,9 @@ function MessageView({
             </div>
           )
         }
-        // A finished run hides its tool groups behind the summary line, so the
-        // closing summary is what stays visible, not a wall of steps. A group
-        // with a failure stays: a step that did not happen must not look done.
-        const failedHere = block.parts.some((part) => part.status === 'error')
-        return done && !stepsOpen && !failedHere ? null : (
+        // Settled runs use one expandable group below the report. Its failed
+        // count stays visible without scattering groups through the narration.
+        return !message.pending && !stepsOpen ? null : (
           <ToolGroup
             key={block.parts[0]?.toolUseId ?? `tools-${index}`}
             parts={block.parts}
@@ -465,6 +464,22 @@ function MessageView({
           />
         )
       })}
+      {!message.pending && (paused || message.summary?.outcome && message.summary.outcome !== 'complete') && (
+        <div data-interrupted-report className="my-4 rounded-lg border border-line-soft px-4 py-3 text-[14px]">
+          <p className="font-semibold">Hasil sementara · laporan akhir belum selesai</p>
+          {settledTools.length > 0 && (
+            <p className="mt-2 text-dim">
+              {settledTools.filter((part) => part.status === 'ok').length} langkah berhasil
+              {' · '}{settledTools.filter((part) => part.status === 'error').length} langkah gagal
+            </p>
+          )}
+          <p className="mt-2 text-dim">
+            Jawaban parsial dan hasil langkah yang sudah diterima tetap tersimpan.
+            {' '}Lanjutkan dari titik terakhir untuk menyelesaikan pekerjaan dan pemeriksaannya.
+          </p>
+        </div>
+      )}
+      {!stepsOpen && settledTools.length > 0 && <ToolGroup parts={settledTools} />}
       {documents.length > 0 && <Artifacts sessionId={sessionId} paths={documents} />}
       {/* The same box as a step group's line: when the next step starts, its
           group takes this line's place and nothing below moves. */}
@@ -483,11 +498,15 @@ function MessageView({
           message={message}
           open={stepsOpen}
           onToggle={() => setStepsOpen((value) => !value)}
-          {...(lastAnswer && !busy ? { onRetry: (choice: ProviderSelection | null) => void retryLastPrompt(sessionId, choice) } : {})}
+          {...(lastAnswer && !busy && !paused ? { onRetry: (choice: ProviderSelection | null) => void retryLastPrompt(sessionId, choice) } : {})}
         />
       )}
     </div>
   )
+}
+
+function outcomeLabel(outcome: string): string {
+  return outcome === 'error' ? 'Terhenti karena kesalahan' : outcome === 'max_tokens' ? 'Batas respons tercapai' : outcome === 'refusal' ? 'Ditolak provider' : 'Dijeda'
 }
 
 /** Formats 469000 ms as "7m 49s", 42000 ms as "42s". */
@@ -579,11 +598,10 @@ function OldTurn({
               </div>
             )
           }
-          if (block.kind === 'tools' && block.parts.some((part) => part.status === 'error')) {
-            return <ToolGroup key={block.parts[0]?.toolUseId ?? `tools-${index}`} parts={block.parts} />
-          }
+
           return null
         })}
+        {allParts.some((part) => part.kind === 'tool') && <ToolGroup parts={allParts.filter((part): part is ToolPart => part.kind === 'tool')} />}
         {summary !== undefined && (
           <div className="group my-1 flex flex-col items-center">
             <button
@@ -593,6 +611,7 @@ function OldTurn({
               className="flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-colors hover:text-brand"
             >
               <span>{summary.model === '' ? 'done' : summary.model}</span>
+              {summary.outcome && summary.outcome !== 'complete' && <span>{outcomeLabel(summary.outcome)}</span>}
               <span aria-hidden>·</span>
               <span>{formatDuration(summary.durationMs)}</span>
               {tokens > 0 && (
@@ -803,6 +822,7 @@ function RunSummaryCard({
           className="flex items-center gap-2 rounded-md px-2 py-1 text-faint transition-colors hover:text-brand"
         >
           <span>{model === '' ? 'done' : model}</span>
+          {summary.outcome && summary.outcome !== 'complete' && <span>{outcomeLabel(summary.outcome)}</span>}
         </button>
 
         {/* Between the model and its cost, where a reader's eye already is. */}

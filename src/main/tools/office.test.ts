@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -485,7 +485,9 @@ describe('attachment handler', () => {
 
   it('refuses a file over the size limit', async () => {
     const file = path.join(root, 'besar.bin')
-    await writeFile(file, Buffer.alloc(101 * 1024 * 1024))
+    // Sparse fixture: validate the same file size without consuming 101 MB.
+    await writeFile(file, '')
+    await truncate(file, 101 * 1024 * 1024)
     await expect(prepareAttachment(file, root)).rejects.toThrow(/too large/)
   })
 

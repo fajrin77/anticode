@@ -25,14 +25,44 @@ Setiap release juga memuat `latest-mac.yml` (macOS) dan `latest.yml` (Windows). 
 - **Dari HP**: buka dan kendalikan sesi dari browser ponsel di jaringan yang sama, lengkap dengan transkrip, approval, dan lampiran.
 - **Kenyamanan harian**: automatic context compaction, checklist, checkpoint/Revert, menu bar + quick capture, notifikasi sistem, dan update otomatis.
 
+## Subscription dan akun
+
+**Cline Free** dan **ClinePass** mempunyai grup Auth terpisah. ClinePass menampilkan batas 5 jam, mingguan, dan bulanan dari provider di Usage; koneksi plan lama dimigrasikan dengan ID sesi tetap.
+
+Hubungkan akun lewat **Settings → Auth provider**. Anticode mendukung beberapa akun dan
+routing kuota langsung di aplikasi, tanpa layanan 9Router terpisah. Model yang tersedia
+mengikuti akses akun dan rute provider; login tidak menjamin semua model bisa digunakan.
+
+Aktifkan **Subscription routing** untuk membatasi routing otomatis ke sumber subscription
+atau gratis yang didukung. Kuota tetap mengikuti ketentuan provider; catatan token bulanan
+di Anticode berbeda dari sisa kuota akun. Routing tidak boleh diam-diam beralih ke API berbayar.
+
+Atur sakelar **Composer** di Settings → Providers atau Auth provider untuk memilih sumber
+yang ditampilkan. Sumber baru tidak otomatis masuk daftar. Pilih modelnya di Settings → Models.
+Beberapa akun pada layanan auth yang sama berbagi satu daftar model; request memakai akun
+yang tersedia dengan mempertimbangkan kesibukan dan catatan usage lokal.
+
+Provider API dapat menyimpan beberapa key lewat **Edit → Add API keys**. Key disimpan
+terenkripsi dan berbagi daftar model yang sama. Menambah key tidak menjamin kuota terpisah
+jika beberapa key berasal dari akun provider yang sama.
+
+**OpenCode Go / Go Plus** disiapkan di Auth provider lewat plan key; matikan Extra usage di
+OpenCode Console agar batas paket tidak beralih ke saldo PAYG. CodeBuddy menggunakan login
+akun dan pembaruan token. Akses subscription nyata kedua layanan tetap perlu diverifikasi
+dengan akun pengguna; keberhasilan fixture bukan bukti kuota provider.
+
+Untuk pengembangan provider berikutnya, ikuti [panduan integrasi subscription](docs/SUBSCRIPTIONS.md).
+
 ## Setup
 
 ```bash
 npm install
 ```
 
-Salin `.env.example` menjadi `.env`, lalu isi kredensial provider yang mau dipakai. Provider tanpa
-kredensial tetap tampil di UI tetapi dinonaktifkan dengan alasan yang jelas.
+Untuk provider berbasis API key, salin `.env.example` menjadi `.env` dan isi kredensial yang
+diperlukan, atau gunakan Settings → Providers. Untuk akun subscription, gunakan Settings →
+Auth provider. Profil baru tidak mempunyai provider bawaan; koneksi dan kredensial
+disimpan dalam profil lokal pengguna, bukan di repository atau paket pembaruan.
 
 ## Perintah
 

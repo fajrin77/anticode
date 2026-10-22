@@ -164,10 +164,17 @@ export function summarizeUsage(rangeMs: number | null): UsageSummary {
     if (since === null || row.ts < since) since = row.ts
 
     const day = dayKey(row.ts)
-    const dayEntry = byDay.get(day) ?? { day, requests: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
+    const dayEntry = byDay.get(day) ?? { day, requests: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, costUsd: 0, models: [] }
     dayEntry.requests += 1
     dayEntry.inputTokens += row.inputTokens
+    dayEntry.cachedTokens += row.cachedTokens
     dayEntry.outputTokens += row.outputTokens
+    const dayModel = dayEntry.models.find(model => model.provider === row.provider && model.model === row.model)
+    if (dayModel) {
+      dayModel.inputTokens += row.inputTokens
+      dayModel.cachedTokens += row.cachedTokens
+      dayModel.outputTokens += row.outputTokens
+    } else dayEntry.models.push({ provider: row.provider, model: row.model, inputTokens: row.inputTokens, cachedTokens: row.cachedTokens, outputTokens: row.outputTokens })
     if (typeof row.costUsd === 'number') dayEntry.costUsd += row.costUsd
     byDay.set(day, dayEntry)
 

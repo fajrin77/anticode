@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -11,7 +11,7 @@ vi.mock('../runtime', () => ({
   sessionMode: (id: string) => sessions.get(id)?.mode ?? null,
   sessionFileRoot: (id: string) => sessions.get(id)?.root ?? null
 }))
-import { attachmentsFor, blocksOf, registerAttachmentData } from './registry'
+import { attachmentsFor, blocksOf, registerAttachmentData, registerAttachments } from './registry'
 
 let root: string
 /** antichat's private folder, which the app keeps in its own data. */
@@ -74,4 +74,12 @@ it('refuses uploads above 100 MB', async () => {
 
 it('refuses an id that was already used or dropped', async () => {
   await expect(attachmentsFor('code', ['gone'])).rejects.toThrow(/no longer available/)
+})
+
+it('returns only the newly requested file, without leaking staged files from another draft', async () => {
+  await registerAttachmentData('old-one.txt',Buffer.from('one'))
+  await registerAttachmentData('old-two.txt',Buffer.from('two'))
+  const target=path.join(root,'single.txt');await writeFile(target,'single')
+  const result=await registerAttachments([target])
+  expect(result.map(item=>item.name)).toEqual(['single.txt'])
 })

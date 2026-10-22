@@ -28,6 +28,12 @@ it('allows different sessions without overwriting their run', () => {
   expect(runForSession('a')).toBe('desktop')
   expect(runForSession('b')).toBe('phone')
 })
+it('cancels suspended engine work when a run finishes without explicit cancellation', () => {
+  const controller = beginRun('desktop', 'session')
+  finishRun('desktop')
+  expect(controller.signal.aborted).toBe(true)
+  expect(runForSession('session')).toBeNull()
+})
 it('pauses a run for every viewer, and the next run anywhere resumes it', () => {
   const told: [string, boolean][] = []
   setPauseSink((sessionId, paused) => told.push([sessionId, paused]))

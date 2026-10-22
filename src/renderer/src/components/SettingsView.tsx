@@ -1,3 +1,8 @@
+import { AccountGroup } from './settings/AccountGroup'
+import { ComposerGroupVisibility } from './settings/ComposerVisibility'
+import { groupAuthProviders } from '@shared/providerGroups'
+import { PROVIDER_PRESETS, providerPreset } from '@shared/providerPresets'
+import type { ProviderPresetId } from '@shared/providerPresets'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -17,6 +22,7 @@ import type {
   SessionStatus
 } from '@shared/ipc'
 import { compactTokens } from './ModelPicker'
+import { ComposerVisibility } from './settings/ComposerVisibility'
 import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
 import { Usage } from './settings/Usage'
@@ -172,10 +178,12 @@ const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
 ]
 
 interface ProviderFormValues {
+  preset?: ProviderPresetId
   label: string
   kind: ProviderKind
   baseURL: string
   apiKey: string
+  apiKeys?: string
   models: string
 }
 
@@ -201,8 +209,9 @@ function ProviderForm({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const set = (patch: Partial<ProviderFormValues>): void => setValues((current) => ({ ...current, ...patch }))
-  const needsKey = values.kind !== 'ollama' && !hasKey
   const vendor = VENDOR_NAMES[values.kind] !== undefined
+  const preset = providerPreset(values.preset)
+  const needsKey = values.kind !== 'ollama' && !hasKey && preset?.requiresKey !== false
   // A vendor API names itself and knows its own address; a gateway does not.
   const valid =
     editing ||
@@ -237,6 +246,20 @@ function ProviderForm({
 
   return (
     <div className="grid grid-cols-2 gap-3" onKeyDown={onKeyDown}>
+      {!editing && (
+        <label className="col-span-2">
+          <span className="mb-1 block text-[12px] text-faint">Connection</span>
+          <select aria-label="Provider connection" value={values.preset ?? ''} className={inputClass}
+            onChange={event => {
+              const selected = providerPreset(event.target.value)
+              setValues(selected ? { ...EMPTY_FORM, preset: selected.id, label: selected.label, baseURL: selected.baseURL, models: selected.models.join('\n') } : { ...EMPTY_FORM })
+            }}>
+            <option value="">Custom provider</option>
+            {PROVIDER_PRESETS.map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </label>
+      )}
+      {preset && <a href={preset.website} target="_blank" rel="noreferrer" className="col-span-2 text-[12px] text-brand">Get API key</a>}
       <label className="col-span-2 sm:col-span-1">
         <span className="mb-1 block text-[12px] text-faint">Name</span>
         <input
@@ -247,10 +270,10 @@ function ProviderForm({
           className={inputClass}
         />
       </label>
-      {!editing ? (
+      {!editing && !preset ? (
         <label className="col-span-2">
           <span className="mb-1 block text-[12px] text-faint">Type</span>
-          <div className="flex rounded-lg border border-line p-0.5">
+          <div className="flex flex-wrap rounded-lg border border-line p-0.5">
             {KIND_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -284,6 +307,7 @@ function ProviderForm({
         <span className="mb-1 block text-[12px] text-faint">Base URL{vendor ? ' (optional)' : ''}</span>
         <input
           value={values.baseURL}
+          readOnly={preset !== undefined}
           onChange={(event) => set({ baseURL: event.target.value })}
           placeholder={
             VENDOR_BASE_URLS[values.kind] ??
@@ -295,7 +319,7 @@ function ProviderForm({
       </label>
       {values.kind !== 'ollama' && (
         <label className="col-span-2">
-          <span className="mb-1 block text-[12px] text-faint">API key</span>
+          <span className="mb-1 block text-[12px] text-faint">API key{preset?.requiresKey === false ? ' (optional)' : ''}</span>
           <input
             type="password"
             value={values.apiKey}
@@ -306,9 +330,17 @@ function ProviderForm({
           />
         </label>
       )}
+      {values.kind !== 'ollama' && (
+        <label className="col-span-2">
+          <span className="mb-1 block text-[12px] text-faint">Add API keys</span>
+          <textarea value={values.apiKeys ?? ''} onChange={(event) => set({ apiKeys: event.target.value })}
+            placeholder="Additional keys, one per line" autoComplete="off" spellCheck={false} rows={2}
+            className={`${inputClass} font-mono text-[12px] [-webkit-text-security:disc]`} />
+        </label>
+      )}
       <label className="col-span-2">
         <span className="mb-1 block text-[12px] text-faint">
-          Models{values.kind === 'clinepass' ? '' : ' (optional)'}
+          Models (optional)
         </span>
         <textarea
           value={values.models}
@@ -318,11 +350,6 @@ function ProviderForm({
           spellCheck={false}
           className={`${inputClass} resize-none font-mono text-[12.5px] leading-relaxed`}
         />
-        <span className="mt-1.5 block text-[11.5px] leading-relaxed text-faint">
-          {values.kind === 'clinepass'
-            ? 'The subscription models, one id per line. Empty goes back to the list anticode ships with.'
-            : 'One id per line. They show in the model picker even when the provider has no model list; the first is the default.'}
-        </span>
       </label>
 
       {error !== null && <p className="col-span-2 text-[12px] text-del">{error}</p>}
@@ -355,25 +382,29 @@ function Providers({
   providers,
   status,
   onSelectProvider,
-  onProvidersChange
+  onProvidersChange,
+  onManageAccounts
 }: {
   providers: ProviderInfo[]
   status: SessionStatus | null
   onSelectProvider: (provider: ProviderId, model: string) => void
   onProvidersChange: (providers: ProviderInfo[]) => void
+  onManageAccounts: () => void
 }): JSX.Element {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [adding, setAdding] = useState(false)
   // One row at a time is open: for editing, or for confirming its removal.
   const [open, setOpen] = useState<{ id: string; action: 'edit' | 'remove' } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const clinepassRemoved = !providers.some((entry) => entry.id === 'clinepass')
 
   async function add(values: ProviderFormValues): Promise<void> {
     const next = await window.anticode.addProvider({
+      ...(values.preset ? { preset: values.preset } : {}),
       label: values.label,
       kind: values.kind,
       baseURL: values.baseURL,
       apiKey: values.apiKey,
+      ...(values.apiKeys?.trim() ? { apiKeys: values.apiKeys.split('\n').map(key => key.trim()).filter(Boolean) } : {}),
       models: modelIds(values.models)
     })
     onProvidersChange(next)
@@ -397,6 +428,7 @@ function Providers({
       label: values.label,
       baseURL: values.baseURL,
       apiKey: values.apiKey,
+      ...(values.apiKeys?.trim() ? { apiKeys: values.apiKeys.split('\n').map(key => key.trim()).filter(Boolean) } : {}),
       models: modelIds(values.models)
     })
     onProvidersChange(next)
@@ -414,72 +446,26 @@ function Providers({
       .catch((failure) => setError((failure as Error).message))
   }
 
-  function restoreClinepass(): void {
-    void window.anticode
-      .addProvider({ label: 'Clinepass', kind: 'clinepass', baseURL: '', apiKey: '' })
-      .then((next) => {
-        onProvidersChange(next)
-        setError(null)
-        // With no key left to find, the form is where it gets one.
-        const back = next.find((entry) => entry.id === 'clinepass')
-        if (back !== undefined && !back.credentialAvailable) setOpen({ id: 'clinepass', action: 'edit' })
-      })
-      .catch((failure) => setError((failure as Error).message))
-  }
 
-  return (
-    <>
-      <h1 className="mb-6 text-[19px] text-text">Providers</h1>
-
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-[14px] text-text">Connected providers</h2>
-        <button
-          type="button"
-          onClick={() => {
-            setAdding((value) => !value)
-            setOpen(null)
-          }}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors hover:text-brand ${
-            adding ? 'glass-control text-text' : 'glass-control border-line text-dim'
-          }`}
-        >
-          + Add provider
-        </button>
-      </div>
-
-      {adding && (
-        <div className="glass-surface mb-4 rounded-xl border border-line p-4">
-          <ProviderForm
-            initial={EMPTY_FORM}
-            editing={false}
-            hasKey={false}
-            onSubmit={add}
-            onCancel={() => setAdding(false)}
-          />
-        </div>
-      )}
-
-      <div className="glass-surface overflow-hidden rounded-xl border border-line">
-        {providers.map((provider) => {
+  function renderProvider(provider: ProviderInfo): JSX.Element {
           const active = provider.id === status?.defaultProvider
           const kind: ProviderKind = provider.kind ?? 'openai'
           const listed = provider.models ?? []
           const editingThis = open?.id === provider.id && open.action === 'edit'
           const removingThis = open?.id === provider.id && open.action === 'remove'
           const details = [
-            hostOf(provider.baseURL) || 'no base URL',
-            kind === 'ollama' ? 'local' : provider.hasKey === true ? 'key saved' : 'no key',
+            provider.kind === 'auth' ? 'Connected account' : hostOf(provider.baseURL) || 'no base URL',
+            provider.kind === 'auth' ? null : kind === 'ollama' ? 'local' : provider.hasKey === true ? `${provider.keyCount ?? 1} ${(provider.keyCount ?? 1) === 1 ? 'key' : 'keys'} saved` : 'no key',
             listed.length > 0 ? `${listed.length} ${listed.length === 1 ? 'model' : 'models'}` : null
           ].filter((part) => part !== null)
           return (
             <div key={provider.id} className="border-b border-line-soft last:border-b-0">
-              <div className="flex items-center gap-3 px-5 py-3.5">
-                <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5">
+                <div className="min-w-[180px] flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`truncate text-[13.5px] ${active ? 'text-text' : 'text-dim'}`}>
+                    <span title={provider.label} className={`break-all text-[13.5px] ${active ? 'text-text' : 'text-dim'}`}>
                       {provider.label}
                     </span>
-                    {kind === 'clinepass' && <Tag>built-in</Tag>}
                     {kind === 'anthropic' && <Tag>Anthropic API</Tag>}
                     {kind === 'openai-api' && <Tag>OpenAI API</Tag>}
                     {active && <span className="text-[11.5px] text-brand">default</span>}
@@ -489,6 +475,7 @@ function Providers({
                     {details.join(' · ')}
                   </div>
                 </div>
+                <ComposerVisibility provider={provider} onChange={onProvidersChange} />
                 {!active && provider.credentialAvailable && !removingThis && (
                   <button
                     type="button"
@@ -499,7 +486,9 @@ function Providers({
                     Default
                   </button>
                 )}
-                {removingThis ? (
+                {provider.kind === 'auth' ? (
+                  <button type="button" onClick={onManageAccounts} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint hover:text-brand">Manage account</button>
+                ) : removingThis ? (
                   <>
                     <span className="shrink-0 text-[12px] text-dim">Remove?</span>
                     <button
@@ -544,18 +533,13 @@ function Providers({
                   </>
                 )}
               </div>
-              {removingThis && kind === 'clinepass' && (
-                <p className="px-5 pb-3 text-[11.5px] leading-relaxed text-faint">
-                  What Settings saved for Clinepass is forgotten. A key in the .env file stays
-                  there, and Restore Clinepass brings it back.
-                </p>
-              )}
               {editingThis && (
                 <div className="border-t border-line-soft px-5 py-4">
                   <ProviderForm
                     initial={{
                       label: provider.label,
                       kind,
+                      ...(provider.preset ? { preset: provider.preset } : {}),
                       baseURL: provider.baseURL ?? '',
                       apiKey: '',
                       models: listed.join('\n')
@@ -569,6 +553,50 @@ function Providers({
               )}
             </div>
           )
+  }
+
+  return (
+    <>
+      <h1 className="mb-6 text-[19px] text-text">Providers</h1>
+
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-[14px] text-text">Connected providers</h2>
+        <button
+          type="button"
+          onClick={() => {
+            setAdding((value) => !value)
+            setOpen(null)
+          }}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors hover:text-brand ${
+            adding ? 'glass-control text-text' : 'glass-control border-line text-dim'
+          }`}
+        >
+          + Add provider
+        </button>
+      </div>
+
+      {adding && (
+        <div className="glass-surface mb-4 rounded-xl border border-line p-4">
+          <ProviderForm
+            initial={EMPTY_FORM}
+            editing={false}
+            hasKey={false}
+            onSubmit={add}
+            onCancel={() => setAdding(false)}
+          />
+        </div>
+      )}
+
+      <div className="glass-surface overflow-hidden rounded-xl border border-line">
+        {groupAuthProviders(providers).map(group => {
+          if (!group.accountIds) return renderProvider(group)
+          const members = providers.filter(provider => group.accountIds!.includes(provider.id))
+          return <AccountGroup key={group.id} id={`providers-${group.authKind}`} title={group.label.replace(/ · \d+ accounts$/, '')}
+            count={members.length} expanded={expanded[group.id] === true}
+            action={<ComposerGroupVisibility members={members} label={group.label.replace(/ · \d+ accounts$/, '')} onChange={onProvidersChange} />}
+            onToggle={() => setExpanded(current => ({ ...current, [group.id]: !current[group.id] }))}>
+            {members.map(renderProvider)}
+          </AccountGroup>
         })}
         {providers.length === 0 && (
           <div className="px-5 py-4 text-[12.5px] text-faint">No providers. Add one to start a session.</div>
@@ -577,15 +605,6 @@ function Providers({
 
       {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
 
-      {clinepassRemoved && (
-        <button
-          type="button"
-          onClick={restoreClinepass}
-          className="mt-3 text-[12px] text-faint transition-colors hover:text-brand"
-        >
-          Restore Clinepass
-        </button>
-      )}
 
       <RotateUsage status={status} providers={providers} />
     </>
@@ -911,7 +930,7 @@ function RotateUsage({
   const pool = status?.rotation ?? []
   const groups = status?.rotationGroups ?? []
   const inUseId = status?.rotationGroup ?? null
-  const usable = providers.filter((entry) => entry.credentialAvailable)
+  const usable = providers.filter((entry) => entry.credentialAvailable && (!status?.subscriptionOnly || (entry.billing === 'subscription' || entry.billing === 'free')))
   const [viewing, setViewing] = useState<string | null>(inUseId)
   const [adding, setAdding] = useState<Adding | null>(null)
   const [catalogue, setCatalogue] = useState<string[]>([])
@@ -1203,7 +1222,7 @@ function RotateUsage({
   return (
     <>
       <div className={`mt-10 flex items-center justify-between gap-4 ${enabled ? 'mb-4' : ''}`}>
-        <h2 className="text-[14px] text-text">Rotate usage</h2>
+        <h2 className="text-[14px] text-text">{status?.subscriptionOnly ? 'Subscription routing' : 'Rotate usage'}</h2>
         <div className="flex items-center gap-3">
           {enabled && pool.length > 0 && (
             <span className={activeReadyCount > 0 ? 'text-[11.5px] text-brand' : 'text-[11.5px] text-del'}>
@@ -1616,68 +1635,100 @@ function sinceLabel(since: number): string {
  */
 function Models({
   status,
-  providers,
+  providers: allProviders,
   onSelectProvider
 }: {
   status: SessionStatus | null
   providers: ProviderInfo[]
   onSelectProvider: (provider: ProviderId, model: string) => void
 }): JSX.Element {
+  const providers = groupAuthProviders(allProviders)
   const [catalogue, setCatalogue] = useState<ModelCatalogue | null>(null)
+  const catalogueRequest = useRef(0)
   const [query, setQuery] = useState('')
   const [pickedOnly, setPickedOnly] = useState(false)
+  const [refreshingModels, setRefreshingModels] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const usable = providers.filter((entry) => entry.credentialAvailable)
+  const usable = providers.filter((entry) => entry.credentialAvailable && (!status?.subscriptionOnly || (entry.billing === 'subscription' || entry.billing === 'free')))
   // Rotation has no catalogue of its own; its models come from a provider's.
   const [provider, setProvider] = useState<ProviderId>(() =>
     status?.provider !== undefined && status.provider !== ROTATE_PROVIDER
-      ? status.provider
-      : (usable[0]?.id ?? 'clinepass')
+      ? (providers.find((entry) => (entry.accountIds ?? [entry.id]).includes(status.provider))?.id ?? status.provider)
+      : (usable[0]?.id ?? '')
   )
   const pool = status?.rotation ?? []
   const enabled = status?.rotationEnabled === true
-  const picked = pool.filter((entry) => entry.provider === provider).map((entry) => entry.model)
+  const accountIds = providers.find((entry) => entry.id === provider)?.accountIds ?? [provider]
+  const picked = [...new Set(pool.filter((entry) => accountIds.includes(entry.provider)).map((entry) => entry.model))]
 
   useEffect(() => {
     let active = true
+    const request = ++catalogueRequest.current
+    setRefreshingModels(false)
     setCatalogue(null)
     void window.anticode.listModels(provider).then((result) => {
-      if (active) setCatalogue(result)
+      if (active && catalogueRequest.current === request) setCatalogue(result)
     })
     return () => {
       active = false
     }
   }, [provider])
 
+  async function refreshModels(): Promise<void> {
+    const request = ++catalogueRequest.current
+    setRefreshingModels(true)
+    try {
+      const result = await window.anticode.listModels(provider, true)
+      if (catalogueRequest.current === request) setCatalogue(result)
+    } catch (failure) {
+      if (catalogueRequest.current === request) setError((failure as Error).message)
+    } finally {
+      if (catalogueRequest.current === request) setRefreshingModels(false)
+    }
+  }
+
   function setPicked(model: string, on: boolean): void {
     const rest = pool
-      .filter((entry) => !(entry.provider === provider && entry.model === model))
+      .filter((entry) => !(accountIds.includes(entry.provider) && entry.model === model))
       .map(({ provider: id, model: name }) => ({ provider: id, model: name }))
+    const eligible = accountIds.filter((id) => {
+      const account = allProviders.find((entry) => entry.id === id)
+      return account?.kind !== 'auth' || account.models?.includes(model)
+    })
     void window.anticode
-      .setRotation(on ? [...rest, { provider, model }] : rest)
+      .setRotation(on ? [...rest, ...eligible.map((id) => ({ provider: id, model }))] : rest)
       .then(() => setError(null))
       .catch((failure) => setError((failure as Error).message))
   }
 
+  const freeClineAccount = providers.find((entry) => entry.id === provider)?.billing === 'free'
   const needle = query.trim().toLowerCase()
   // Ids typed by hand (a subscription model no catalogue lists) stay visible
   // once picked, ahead of the catalogue.
   const listed = [
-    ...picked.filter((id) => !(catalogue?.models ?? []).includes(id)),
+    ...picked.filter((id) => !freeClineAccount && !(catalogue?.models ?? []).includes(id)),
     ...(catalogue?.models ?? [])
   ]
   const matches = listed.filter(
     (id) => (!pickedOnly || picked.includes(id)) && (needle === '' || id.toLowerCase().includes(needle))
   )
   const typed = query.trim()
-  const canAddTyped = typed !== '' && !listed.includes(typed)
+  const canAddTyped = !freeClineAccount && typed !== '' && !listed.includes(typed)
 
   return (
     <>
-      <h1 className="mb-6 text-[19px] text-text">Models</h1>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-[19px] text-text">Models</h1>
+        <button type="button" disabled={refreshingModels} onClick={() => void refreshModels()}
+          className="text-[12.5px] text-faint hover:text-brand disabled:text-faint">
+          {refreshingModels ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
 
       {providers.length > 1 && (
-        <div className="mb-3 flex flex-wrap gap-1">
+        // Columns, not a wrapped row: every tab starts and ends on the same
+        // lines, so long and short provider names sit in a tidy grid.
+        <div className="mb-3 grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-1">
           {providers.map((entry) => {
             const count = pool.filter((item) => item.provider === entry.id).length
             return (
@@ -1687,14 +1738,14 @@ function Models({
                 disabled={!entry.credentialAvailable}
                 title={entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}`}
                 onClick={() => setProvider(entry.id)}
-                className={`rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:text-faint ${
+                className={`flex min-w-0 items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-left text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                   entry.id === provider ? 'glass-control text-text' : 'border-transparent text-dim hover:bg-raised hover:text-brand'
                 }`}
               >
-                {entry.label}
+                <span className="min-w-0 truncate">{entry.label}</span>
                 {/* The count keeps its room at zero, so switching a model on
                     never pushes the tabs after it sideways. */}
-                <span className={`ml-1.5 inline-block min-w-[1ch] tabular-nums text-faint ${count > 0 ? '' : 'invisible'}`}>
+                <span className={`shrink-0 tabular-nums text-faint ${count > 0 ? '' : 'invisible'}`}>
                   {count}
                 </span>
               </button>
@@ -2044,9 +2095,10 @@ export function SettingsView({
               status={status}
               onSelectProvider={onSelectProvider}
               onProvidersChange={onProvidersChange}
+              onManageAccounts={() => setSection('auth')}
             />
           )}
-          {section === 'auth' && <Auth providers={providers} onProvidersChange={onProvidersChange} />}
+          {section === 'auth' && <Auth status={status} providers={providers} onProvidersChange={onProvidersChange} />}
           {section === 'models' && (
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
           )}

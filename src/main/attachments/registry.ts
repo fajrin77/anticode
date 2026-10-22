@@ -48,11 +48,12 @@ export async function registerAttachments(paths: string[]): Promise<AttachmentIn
     if (info?.isDirectory() === true) folders.push(entry)
     else files.push(entry)
   }
-  const known = [...staged.values()]
-  for (const folder of folders) known.push(...(await expandFolder(folder, known)))
+  const expanded: AttachmentInfo[] = []
+  for (const folder of folders) expanded.push(...(await expandFolder(folder, expanded)))
+  for (const item of expanded) staged.set(item.id, item)
   const fresh = await keep(files)
   const added = new Set(fresh.map((item) => item.path))
-  return [...fresh, ...known.filter((item) => !added.has(item.path))]
+  return [...fresh, ...expanded.filter((item) => !added.has(item.path))]
 }
 
 /** For bytes with no file of their own: a pasted screenshot, a phone upload. */
@@ -78,7 +79,7 @@ export async function attachmentsFor(sessionId: string, ids: string[]): Promise<
   const root = sessionFileRoot(sessionId)
   const into = sessionMode(sessionId) === 'chat' ? '' : UPLOADS_DIR
   if (ids.some((id) => !staged.has(id))) throw new AttachmentError('An attachment is no longer available. Attach it again before sending.')
-  const items = ids
+  const items = [...new Set(ids)]
     .map((id) => staged.get(id))
     .filter((item): item is AttachmentInfo => item !== undefined)
     .map((item) => {

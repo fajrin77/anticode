@@ -1,3 +1,9 @@
+import { loginClinePass, clinePassIdentity } from './clinepass'
+import { isTransient } from '../providers/failures'
+import { loginOpenCodeGo } from './opencodeGo'
+import { loginOpenRouter } from './openrouter'
+import { loginKilo } from './kilo'
+import { loginMiniMaxPlan } from './minimaxPlan'
 import { randomUUID } from 'node:crypto'
 import {
   listAuthAccounts,
@@ -5,17 +11,25 @@ import {
   readAuthTokens,
   saveAuthAccount,
   updateAuthTokens,
-  removeAuthAccount,
+  removeAuthAccount as deleteAuthAccount,
   renameAuthAccount,
   authAccountExists
 } from './store'
-import { loginCodex, refreshCodex, accountLabel as codexLabel } from './codex'
-import { loginClaude, refreshClaude, accountLabel as claudeLabel } from './claude'
-import { loginCline, refreshCline } from './cline'
+import { loginCodex, accountLabel as codexLabel } from './codex'
+import { loginClaude, accountLabel as claudeLabel } from './claude'
+import { loginCline, accountLabel as clineLabel } from './cline'
 import { loginCodebuddy, accountLabel as codebuddyLabel } from './codebuddy'
+import { forgetAuthCatalogue } from './catalogue'
+import { ensureFreshAuthTokens } from './provider'
+import { withRelogin } from './types'
 import type { AuthAccount, AuthKind, AuthLoginCallbacks, AuthTokens } from './types'
 
-export { listAuthAccounts, getAuthAccount, readAuthTokens, removeAuthAccount, renameAuthAccount }
+export { listAuthAccounts, getAuthAccount, readAuthTokens, renameAuthAccount }
+
+export function removeAuthAccount(id: string): void {
+  deleteAuthAccount(id)
+  forgetAuthCatalogue(id)
+}
 
 /**
  * What Settings lists. `usable` is the one fact the renderer cannot work out
@@ -42,24 +56,34 @@ export function authProviderId(kind: AuthKind, label: string): string {
 }
 
 export function isAuthProvider(id: string): boolean {
-  return id.startsWith(AUTH_PREFIX)
+  return id.startsWith(AUTH_PREFIX) || (id === 'clinepass' && getAuthAccount(id)?.kind === 'clinepass')
 }
 
 export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
+  'minimax-plan': 'MiniMax Token Plan',
+  kilo: 'Kilo Free',
+  openrouter: 'OpenRouter Free',
   codex: 'ChatGPT (Codex)',
   claude: 'Claude Code',
-  cline: 'Cline',
+  cline: 'Cline Free',
+  clinepass: 'ClinePass',
+  'opencode-go': 'OpenCode Go',
   codebuddy: 'CodeBuddy'
 }
 
 function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   switch (kind) {
+    case 'clinepass': return loginClinePass(callbacks)
+    case 'minimax-plan': return loginMiniMaxPlan(callbacks)
+    case 'kilo': return loginKilo(callbacks)
+    case 'openrouter': return loginOpenRouter(callbacks)
     case 'codex':
       return loginCodex(callbacks)
     case 'claude':
       return loginClaude(callbacks)
     case 'cline':
       return loginCline(callbacks)
+    case 'opencode-go': return loginOpenCodeGo(callbacks)
     case 'codebuddy':
       return loginCodebuddy(callbacks)
   }
@@ -67,15 +91,31 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
 
 function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
   switch (kind) {
+    case 'minimax-plan': return undefined
+    case 'kilo': return tokens.meta?.email || undefined
+    case 'openrouter': return undefined
+    case 'opencode-go': return undefined
     case 'codex':
       return codexLabel(tokens)
     case 'claude':
       return claudeLabel(tokens)
     case 'codebuddy':
       return codebuddyLabel(tokens)
+    case 'clinepass':
     case 'cline':
-      return undefined
+      return clineLabel(tokens)
   }
+}
+
+/** Stable provider identity prevents browser SSO from creating duplicate quota slots. */
+function sameAccount(existing: AuthAccount, tokens: AuthTokens, label: string | undefined): boolean {
+  const previous = readAuthTokens(existing.id)
+  const oldId = (previous?.meta?.accountId || previous?.meta?.userId)?.trim()
+  const newId = (tokens.meta?.accountId || tokens.meta?.userId)?.trim()
+  if (oldId && newId) return oldId === newId
+  const oldLabel = (existing.account ?? previous?.meta?.email ?? '').trim().toLowerCase()
+  const newLabel = (label ?? tokens.meta?.email ?? '').trim().toLowerCase()
+  return oldLabel && newLabel ? oldLabel === newLabel : previous?.accessToken === tokens.accessToken
 }
 
 /**
@@ -88,8 +128,31 @@ export async function loginAuthAccount(
   callbacks: AuthLoginCallbacks
 ): Promise<AuthAccount> {
   const tokens = await runLogin(kind, callbacks)
+  if (kind === 'clinepass' && tokens.meta?.accountId) {
+    // Link an imported plan key to the same browser subscription before creating a new slot.
+    for (const row of listAuthAccounts().filter(row => row.kind === 'clinepass')) {
+      const previous = readAuthTokens(row.id)
+      if (!previous || previous.meta?.accountId) continue
+      try {
+        const accountId = await clinePassIdentity(previous, callbacks.signal)
+        if (accountId) updateAuthTokens(row.id, { ...previous, meta: { ...previous.meta, accountId } })
+      } catch { callbacks.signal.throwIfAborted() }
+    }
+  }
   const vendorLabel = AUTH_KIND_LABELS[kind]
   const account = labelFor(kind, tokens)
+  const existing = listAuthAccounts().find((row) => row.kind === kind && sameAccount(row, tokens, account))
+  if (existing) {
+    const updated: AuthAccount = {
+      ...existing,
+      ...(account ? { account } : {}),
+      ...(tokens.expiresAt !== undefined ? { expiresAt: tokens.expiresAt } : { expiresAt: 0 }),
+      refreshable: tokens.refreshToken !== undefined
+    }
+    saveAuthAccount(updated, { ...tokens, meta: { ...readAuthTokens(existing.id)?.meta, ...tokens.meta } })
+    forgetAuthCatalogue(updated.id)
+    return updated
+  }
 
   let id = authProviderId(kind, '')
   let suffix = 2
@@ -108,12 +171,13 @@ export async function loginAuthAccount(
     refreshable: tokens.refreshToken !== undefined
   }
   saveAuthAccount(record, tokens)
+  forgetAuthCatalogue(id)
   return record
 }
 
 /** True when the vendor has a refresh grant we can call for this account. */
 export function canRefreshAuthAccount(kind: AuthKind): boolean {
-  return kind !== 'codebuddy'
+  return !['opencode-go', 'kilo', 'openrouter', 'minimax-plan'].includes(kind)
 }
 
 /**
@@ -137,21 +201,13 @@ export async function refreshAuthAccount(id: string): Promise<void> {
   if (tokens.refreshToken === undefined) {
     throw new Error('This login came without a refresh token. Sign in again to replace it.')
   }
-  let next: AuthTokens
-  switch (account.kind) {
-    case 'codex':
-      next = await refreshCodex(tokens)
-      break
-    case 'claude':
-      next = await refreshClaude(tokens)
-      break
-    case 'cline':
-      next = await refreshCline(tokens)
-      break
-    case 'codebuddy':
-      return
+  try {
+    await ensureFreshAuthTokens(id, true)
+  } catch (error) {
+    if (isTransient(error)) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(withRelogin(message.replace(/\.*$/, '.')))
   }
-  updateAuthTokens(id, next)
 }
 
 export function newRequestId(): string {

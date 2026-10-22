@@ -2,10 +2,13 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { GoogleGenAI } from '@google/genai'
 import type { ProviderId } from '@shared/ipc'
+import { modelIsBatchOnly } from '@shared/ipc'
 import { getCustomProvider } from './custom'
+import { presetAllowsModel } from '@shared/providerPresets'
 import { clinepassConfig } from './clinepass'
 import { anthropicBaseURL } from './anthropic'
 import { recordPublishedPrices } from '../pricing'
+import { authModelsFor, fetchCodexModels, fetchClineModels, fetchClinePassModels, fetchClaudeModels, fetchFreeGatewayModels } from '../auth/catalogue'
 import { AUTH_MODELS } from '../auth/provider'
 import { getAuthAccount } from '../auth/store'
 
@@ -61,7 +64,7 @@ async function listAnthropic(apiKey: string, baseURL?: string): Promise<string[]
 const NOT_CHAT = /(embedding|tts|whisper|transcribe|dall-e|gpt-image|image|moderation|realtime|audio|search|babbage|davinci)/i
 
 export function chatModelsOnly(ids: string[]): string[] {
-  return ids.filter((id) => !NOT_CHAT.test(id))
+  return ids.filter((id) => !NOT_CHAT.test(id) && !modelIsBatchOnly(id))
 }
 
 async function listGoogle(apiKey: string): Promise<string[]> {
@@ -91,7 +94,8 @@ function sanitizeModelFetchError(error: unknown): string {
 
 export async function fetchModels(id: ProviderId): Promise<string[]> {
   try {
-    return await fetchModelList(id)
+    const preset = id.startsWith('custom:') ? getCustomProvider(id)?.preset : undefined
+    return (await fetchModelList(id)).filter((model) => !modelIsBatchOnly(model) && (!preset || presetAllowsModel(preset, model)))
   } catch (error) {
     throw new Error(sanitizeModelFetchError(error))
   }
@@ -100,17 +104,24 @@ export async function fetchModels(id: ProviderId): Promise<string[]> {
 async function fetchModelList(id: ProviderId): Promise<string[]> {
   // An OAuth account has no /models endpoint to ask, the plan decides the
   // catalogue, and it is written down next to the adapter that uses it.
-  if (id.startsWith('auth:')) {
+  if (id.startsWith('auth:') || getAuthAccount(id)) {
     const account = getAuthAccount(id)
+    if (account?.kind === 'codex') return fetchCodexModels(id)
+    if (account?.kind === 'clinepass') return fetchClinePassModels(id)
+    if (account?.kind === 'cline') return fetchClineModels(id)
+    if (account?.kind === 'claude') return fetchClaudeModels(id)
+    if (account?.kind === 'kilo' || account?.kind === 'openrouter') return fetchFreeGatewayModels(id, account.kind)
+    if (account?.kind === 'minimax-plan') return authModelsFor(id, account.kind)
     return account === undefined ? [] : [...AUTH_MODELS[account.kind]]
   }
 
-  if (id.startsWith('custom:')) {
+  if (getCustomProvider(id)) {
     const config = getCustomProvider(id)
     if (config === undefined) return []
     // The ids typed in Settings always count; the gateway's own list adds to
     // them, and when it cannot be read the typed ones are the catalogue.
     const listed = config.models ?? []
+    if (id === 'clinepass') return listed
     try {
       const fetched =
         config.kind === 'anthropic'

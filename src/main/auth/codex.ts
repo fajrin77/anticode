@@ -1,6 +1,8 @@
+import { ProviderRequestError } from '../providers/requestError'
 import { shell } from 'electron'
 import { makeVerifier, makeChallenge, makeState } from './pkce'
 import { waitForCallback } from './server'
+import { withRelogin } from './types'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
 
 /** Shared by every PKCE flow that opens a URL and waits for the callback. */
@@ -152,6 +154,7 @@ export async function refreshCodex(tokens: AuthTokens): Promise<AuthTokens> {
   // Codex client posts; anything else risks a refused grant.
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       client_id: CLIENT_ID,
@@ -159,7 +162,15 @@ export async function refreshCodex(tokens: AuthTokens): Promise<AuthTokens> {
       refresh_token: tokens.refreshToken
     })
   })
-  if (!response.ok) throw new Error(`ChatGPT refresh failed: ${await reason(response)}`)
+  if (!response.ok) {
+    const detail = await reason(response)
+    // A refused grant is permanent: the stored token is dead and retrying it
+    // only fails again, so the error names the way out.
+    if (response.status === 401 || response.status === 400) {
+      throw new ProviderRequestError(withRelogin(`ChatGPT refresh failed: ${detail}.`), response.status, 'account')
+    }
+    throw new ProviderRequestError(`ChatGPT refresh failed: ${detail}`, response.status, 'account')
+  }
   return toTokens((await response.json()) as TokenResponse, tokens)
 }
 

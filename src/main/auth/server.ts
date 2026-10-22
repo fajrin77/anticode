@@ -38,6 +38,7 @@ export interface LocalServerOptions {
  */
 export function waitForCallback(options: LocalServerOptions): Promise<CallbackResult> {
   return new Promise<CallbackResult>((resolve, reject) => {
+    if (options.signal?.aborted) { reject(new Error('Login cancelled')); return }
     let server: Server | null = null
     const cleanup = (): void => {
       try {
@@ -69,6 +70,7 @@ export function waitForCallback(options: LocalServerOptions): Promise<CallbackRe
         const code = url.searchParams.get('code') ?? ''
         const state = url.searchParams.get('state') ?? ''
         const error = url.searchParams.get('error')
+        if (!code && error === null) { res.writeHead(400).end('Missing authorization code'); return }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(SUCCESS_HTML)
         options.signal?.removeEventListener('abort', onAbort)
         setImmediate(cleanup)

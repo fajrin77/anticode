@@ -25,3 +25,8 @@ it('does not carry a previous run plan into a new prompt', () => {
   }
   expect(latestPlan([call('old', old), nextPrompt])).toBeNull()
 })
+
+it('preserves blocked items instead of showing them as completed or active', () => {
+  const plan = [{ content: 'Need editor access', status: 'blocked' }]
+  expect(latestPlan([call('blocked', plan)])).toEqual(plan)
+})

@@ -8,7 +8,7 @@
  */
 
 /** Which vendor flow an account was created by. */
-export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy'
+export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'minimax-plan' | 'clinepass'
 
 /** Live state of an account as the Settings UI needs it. */
 export interface AuthAccount {
@@ -57,6 +57,18 @@ export interface AuthLoginUpdate {
 
 /** The prompt-code callback a paste-code flow (Claude) uses. */
 export type PromptForCode = (message: string) => Promise<string>
+
+/**
+ * What every dead-login error ends with. A refused refresh grant (401,
+ * invalid_grant) is permanent — retrying the same token only fails again —
+ * so the message must name the way out instead of the HTTP status.
+ */
+export const RELOGIN_HINT = 'The login has expired. Sign in again in Settings → Auth provider.'
+
+/** Appends the re-login hint to a refresh error that does not carry it yet. */
+export function withRelogin(message: string): string {
+  return message.includes('Sign in again') ? message : `${message} ${RELOGIN_HINT}`
+}
 
 /** Everything a login flow can report through. */
 export interface AuthLoginCallbacks {

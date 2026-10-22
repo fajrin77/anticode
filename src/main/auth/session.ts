@@ -1,8 +1,8 @@
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { AuthLoginState } from '@shared/ipc'
-import { loginAuthAccount } from './index'
-import type { AuthKind } from './types'
+import { loginAuthAccount, listAuthAccounts } from './index'
+import type { AuthKind, AuthAccount } from './types'
 
 /*
  * Runs the vendor logins the Settings → Auth provider panel asks for. One
@@ -24,6 +24,11 @@ interface Running {
 }
 
 const running = new Map<string, Running>()
+let accountSink: ((account: AuthAccount, added: boolean) => void) | null = null
+
+export function setAuthAccountSink(sink: (account: AuthAccount, added: boolean) => void): void {
+  accountSink = sink
+}
 
 function broadcast(state: AuthLoginState): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -74,6 +79,7 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
 
   void (async () => {
     try {
+      const existingIds = new Set(listAuthAccounts().map((account) => account.id))
       const account = await loginAuthAccount(kind, {
         onUpdate: (u) => {
           const url = u.url ?? entry.state.url
@@ -92,8 +98,10 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
           }),
         signal: controller.signal
       })
+      const added = !existingIds.has(account.id)
+      accountSink?.(account, added)
       update({
-        status: 'Signed in',
+        status: added ? 'Account added' : 'Account reconnected',
         done: true,
         accountId: account.id,
         label: account.label,
@@ -113,8 +121,10 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
     }
   })()
 
-  broadcast(initial)
-  return initial
+  // Paste-code flows can reach promptForCode synchronously. Returning the old
+  // initial state would hide their input after the AUTH_EVENT already showed it.
+  broadcast(entry.state)
+  return entry.state
 }
 
 /** Hands the pasted authorization code to the waiting Claude flow. */

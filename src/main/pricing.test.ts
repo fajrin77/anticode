@@ -22,14 +22,14 @@ describe('model prices', () => {
 
   it("knows Anthropic's published rates, the longest name first", () => {
     expect(priceFor('anthropic', 'claude-opus-5')).toEqual({ price: { input: 5, output: 25 }, source: 'built-in' })
-    expect(priceFor('clinepass', 'anthropic/claude-fable-5-1')).toEqual({ price: { input: 10, output: 50 }, source: 'built-in' })
-    expect(priceFor('clinepass', 'anthropic/claude-sonnet-5')).toMatchObject({ price: { input: 2, output: 10 } })
+    expect(priceFor('custom:gateway', 'anthropic/claude-fable-5-1')).toEqual({ price: { input: 10, output: 50 }, source: 'built-in' })
+    expect(priceFor('custom:gateway', 'anthropic/claude-sonnet-5')).toMatchObject({ price: { input: 2, output: 10 } })
   })
 
   it('never guesses a price it does not know, and a free tier is free', () => {
     expect(priceFor('custom:x', 'mystery-model')).toEqual({ price: null, source: 'unknown' })
     expect(costOf('custom:x', 'mystery-model', 1000, 1000)).toBeNull()
-    expect(priceFor('clinepass', 'thinkingmachines/inkling-small:free')).toEqual({ price: { input: 0, output: 0 }, source: 'free' })
+    expect(priceFor('custom:gateway', 'thinkingmachines/inkling-small:free')).toEqual({ price: { input: 0, output: 0 }, source: 'free' })
   })
 
   it('takes a gateway price over the built-in one, and a typed one over both', () => {
@@ -45,4 +45,12 @@ describe('model prices', () => {
     expect(costOf('anthropic', 'claude-opus-5', 1_000_000, 100_000)).toBeCloseTo(7.5)
     expect(() => setCustomPrice('m', { input: -1, output: 1 })).toThrow(/zero or more/)
   })
+})
+
+it('keeps subscription token usage separate from per-token API estimates', () => {
+  setCustomPrice('claude-opus-5', { input: 99, output: 99 })
+  for (const provider of ['clinepass', 'auth:codex']) {
+    expect(priceFor(provider, 'claude-opus-5')).toEqual({ price: null, source: 'subscription' })
+    expect(costOf(provider, 'claude-opus-5', 1000, 1000)).toBeNull()
+  }
 })

@@ -105,7 +105,7 @@ export function setExternalTools(source: () => Tool[]): void {
  * antichat uses a private folder owned by that session.
  */
 export function toolsFor(_mode: SessionMode): Tool[] {
-  const builtIn = new Set(tools.map((tool) => tool.name))
+  const builtIn = new Set([...tools.map((tool) => tool.name), 'load_tools', 'apply_patch'])
   return [...tools, ...external().filter((tool) => !builtIn.has(tool.name))]
 }
 

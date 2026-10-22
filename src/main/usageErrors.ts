@@ -1,5 +1,7 @@
+import { isSubscriptionCheckFailure } from './providers/requestError'
 // Kept apart from rotation.ts, which reaches Electron through settings, so the
 // agent loop can tell a spent quota apart without importing the app.
+import { requestLimit } from './providers/requestLimits'
 
 /**
  * Spent credit and exhausted plans, as opposed to a per-minute rate limit:
@@ -12,6 +14,7 @@ const SPENT =
   /insufficient[_ -]?(quota|credits?|balance|funds)|exceeded[_ ](your[_ ])?(current[_ ])?quota|quota[_ ](exceeded|exhausted)|out of (credits?|quota|tokens)|credit balance|no credits? (left|remaining)|(?:reached|exceeded) your (?:monthly )?[^\n.]{0,40}limit|usage limit|spend(?:ing)? limit|payment required|余额不足|额度/i
 
 export function isOutOfUsage(error: unknown): boolean {
+  if (requestLimit(error) || isSubscriptionCheckFailure(error)) return false
   let current: unknown = error
   const said: Array<string | number> = []
 

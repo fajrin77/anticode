@@ -1,3 +1,5 @@
+import { getAccessReport } from '../accessReport'
+import { testAllAccess } from '../accessProbe'
 import { APP_VERSION } from '../version'
 import { listSchedules, addSchedule, updateSchedule, removeSchedule } from '../scheduler'
 import type { ScheduleEntry, ScheduleInput } from '@shared/ipc'
@@ -36,6 +38,8 @@ import type {
   SessionSpec,
   SessionStatus
 } from '@shared/ipc'
+import { isSubscriptionProvider } from '../subscriptions'
+import { getSubscriptionQuotas } from '../subscriptionQuotas'
 import { resetRotationUsage, setRotationChangeSink } from '../rotation'
 import { setFollowUpMode } from '../followUp'
 import {
@@ -48,6 +52,7 @@ import {
   listModels,
   listSessionSpecs,
   forgetCatalogue,
+  syncAuthAccountRoutes,
   forgetProvider,
   providerInUse,
   sessionFileRoot,
@@ -57,6 +62,7 @@ import {
   policy,
   applyRotation,
   applyRotationEnabled,
+  applySubscriptionRouting,
   applyRotationGroup,
   applyRotationGroups,
   selectProvider,
@@ -67,7 +73,8 @@ import {
   setWorkspaceRoot
 } from '../runtime'
 import { listProviders } from '../providers'
-import { startAuthLogin, submitAuthCode, cancelAuthLogin } from '../auth/session'
+import { setComposerVisibility, setComposerGroupVisibility } from '../providers/visibility'
+import { startAuthLogin, submitAuthCode, cancelAuthLogin, setAuthAccountSink } from '../auth/session'
 import {
   listAuthAccountSummaries,
   refreshAuthAccount,
@@ -83,7 +90,7 @@ import {
   registerAttachments,
   releaseAttachments
 } from '../attachments/registry'
-import { addCustomProvider, cleanModelIds, removeCustomProvider, updateCustomProvider } from '../providers/custom'
+import { addCustomProvider, cleanModelIds, removeCustomProvider, updateCustomProvider, getCustomProvider } from '../providers/custom'
 import { probeLocalProvider } from '../providers/models'
 import { editClinepass, removeClinepass, restoreClinepass } from '../providers/clinepass'
 import { savePersistedSettings } from '../settings'
@@ -190,11 +197,12 @@ export async function addProvider(input: CustomProviderInput): Promise<ProviderI
       label: input.label,
       baseURL: input.baseURL,
       apiKey: input.apiKey,
+      ...(input.apiKeys ? { apiKeys: input.apiKeys } : {}),
       ...(models.length > 0 ? { models } : {})
     })
     forgetCatalogue('clinepass')
   } else {
-    if (input.kind !== 'ollama' && input.kind !== 'auth' && input.apiKey.trim() === '') throw new Error('API key is required')
+    if (input.kind !== 'ollama' && input.kind !== 'auth' && input.preset !== 'kilo-free' && input.apiKey.trim() === '') throw new Error('API key is required')
     // Only a gateway or a local server has no address of its own to fall back on.
     if (input.kind === 'openai' && input.baseURL.trim() === '') {
       throw new Error('Base URL is required')
@@ -204,10 +212,12 @@ export async function addProvider(input: CustomProviderInput): Promise<ProviderI
     if (input.kind === 'ollama') await probeLocalProvider(baseURL)
     const named = { anthropic: 'Anthropic', 'openai-api': 'OpenAI' }[input.kind as string]
     addCustomProvider({
+      ...(input.preset ? { preset: input.preset } : {}),
       label: input.label.trim() !== '' ? input.label.trim() : (named ?? 'Provider'),
       kind: input.kind,
       baseURL,
       apiKey: input.apiKey.trim(),
+      ...(input.apiKeys ? { apiKeys: input.apiKeys } : {}),
       models
     })
   }
@@ -222,7 +232,8 @@ export async function addProvider(input: CustomProviderInput): Promise<ProviderI
  * starts on the first one. A run already going keeps the connection it has.
  */
 export async function updateProvider(id: string, edit: ProviderEdit): Promise<ProviderInfo[]> {
-  if (id === 'clinepass') editClinepass(edit)
+  if (getCustomProvider(id)) updateCustomProvider(id, edit)
+  else if (id === 'clinepass') editClinepass(edit)
   else if (id.startsWith('custom:')) updateCustomProvider(id, edit)
   else throw new Error('Unknown provider')
   forgetCatalogue(id)
@@ -237,7 +248,8 @@ export async function updateProvider(id: string, edit: ProviderEdit): Promise<Pr
 
 export function removeProvider(id: string): ProviderInfo[] {
   if (providerInUse(id)) throw new Error('A running session is using this provider. Wait for it to finish before removing it.')
-  if (id === 'clinepass') removeClinepass()
+  if (getCustomProvider(id)) removeCustomProvider(id)
+  else if (id === 'clinepass') removeClinepass()
   else if (id.startsWith('custom:')) removeCustomProvider(id)
   else throw new Error('Unknown provider')
   forgetCatalogue(id)
@@ -414,6 +426,21 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.STATUS, (): SessionStatus => getStatus())
 
   ipcMain.handle(IpcChannel.PROVIDER_LIST, (): ProviderInfo[] => listProviders())
+  ipcMain.handle(IpcChannel.PROVIDER_VISIBILITY, (_event, id: string, visible: boolean): ProviderInfo[] => {
+    if (typeof id !== 'string' || typeof visible !== 'boolean' || !listProviders().some((provider) => provider.id === id)) throw new Error('Unknown provider or invalid visibility')
+    setComposerVisibility(id, visible)
+    announceProviders()
+    announceStatus()
+    return listProviders()
+  })
+  ipcMain.handle(IpcChannel.PROVIDER_GROUP_VISIBILITY, (_event, kind: unknown, visible: unknown): ProviderInfo[] => {
+    if (typeof kind !== 'string' || typeof visible !== 'boolean') throw new Error('Invalid account group')
+    const ids = listProviders().filter(provider => provider.authKind === kind).map(provider => provider.id)
+    if (!ids.length) throw new Error('No accounts in this group')
+    setComposerGroupVisibility(ids, visible)
+    announceProviders(); announceStatus()
+    return listProviders()
+  })
 
   ipcMain.handle(
     IpcChannel.PROVIDER_SELECT,
@@ -423,6 +450,15 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.ROTATION_SET, (_event, entries: unknown): SessionStatus => setRotation(entries))
   ipcMain.handle(IpcChannel.ROTATION_RESET, (): SessionStatus => resetRotation())
+  ipcMain.handle(IpcChannel.SUBSCRIPTION_QUOTAS, () => getSubscriptionQuotas())
+  ipcMain.handle(IpcChannel.SUBSCRIPTION_ROUTING, async (_event, enabled: unknown): Promise<SessionStatus> => {
+    if (typeof enabled !== 'boolean') throw new Error('Expected on or off')
+    if (enabled) await Promise.all(listProviders().filter((provider) => provider.credentialAvailable && isSubscriptionProvider(provider)).map((provider) => listModels(provider.id, true)))
+    applySubscriptionRouting(enabled)
+    announceProviders()
+    announceStatus()
+    return getStatus()
+  })
   ipcMain.handle(IpcChannel.ROTATION_ENABLE, (_event, enabled: unknown): SessionStatus => enableRotation(enabled))
   ipcMain.handle(IpcChannel.ROTATION_GROUPS_SET, (_event, groups: unknown): SessionStatus => setRotationGroups(groups))
   ipcMain.handle(IpcChannel.ROTATION_GROUP_SELECT, (_event, id: unknown): SessionStatus => selectRotationGroup(id))
@@ -452,6 +488,18 @@ export function registerIpcHandlers(): void {
   // OAuth logins. A running flow is kept in memory while it waits for the
   // browser (or for a pasted code, in Claude's case) and reports through
   // AUTH_EVENT so both windows and the phone can follow along.
+  setAuthAccountSink((account, added) => {
+    if (added) {
+      syncAuthAccountRoutes(account.id)
+      void listModels(account.id, true).then(() => {
+        syncAuthAccountRoutes(account.id)
+        announceProviders()
+        announceStatus()
+      }).catch(() => {})
+    }
+    else forgetCatalogue(account.id)
+    announceStatus()
+  })
   ipcMain.handle(IpcChannel.AUTH_LOGIN, (_event, kind: AuthKind) => startAuthLogin(kind))
   ipcMain.handle(IpcChannel.AUTH_SUBMIT_CODE, (_event, id: string, code: string) =>
     submitAuthCode(id, code)
@@ -773,6 +821,8 @@ export function registerIpcHandlers(): void {
     if (typeof model !== 'string') throw new Error('Name the model')
     setCustomPrice(model, price === null ? null : (price as ModelPrice))
   })
+  ipcMain.handle(IpcChannel.ACCESS_REPORT, () => getAccessReport())
+  ipcMain.handle(IpcChannel.ACCESS_TEST, () => testAllAccess())
   ipcMain.handle(IpcChannel.USAGE_SUMMARY, (_event, rangeMs: unknown) =>
     summarizeUsage(typeof rangeMs === 'number' ? rangeMs : null)
   )

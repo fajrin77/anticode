@@ -9,6 +9,8 @@ export const IpcChannel = {
   WORKSPACE_CHOOSE: 'workspace:choose',
   WORKSPACE_SET: 'workspace:set',
   PROVIDER_LIST: 'provider:list',
+  PROVIDER_VISIBILITY: 'provider:visibility',
+  PROVIDER_GROUP_VISIBILITY: 'provider:group-visibility',
   PROVIDER_SELECT: 'provider:select',
   PROVIDER_MODELS: 'provider:models',
   POLICY_SET: 'policy:set',
@@ -52,6 +54,8 @@ export const IpcChannel = {
   PRICING_LIST: 'pricing:list',
   PRICING_SET: 'pricing:set',
   USAGE_SUMMARY: 'usage:summary',
+  ACCESS_REPORT: 'usage:access-report',
+  ACCESS_TEST: 'usage:access-test',
   USAGE_RECENT: 'usage:recent',
   USAGE_CLEAR: 'usage:clear',
   PREFERENCES_GET: 'preferences:get',
@@ -94,6 +98,8 @@ export const IpcChannel = {
   ROTATION_SET: 'rotation:set',
   ROTATION_RESET: 'rotation:reset',
   ROTATION_ENABLE: 'rotation:enable',
+  SUBSCRIPTION_ROUTING: 'subscription:routing',
+  SUBSCRIPTION_QUOTAS: 'subscription:quotas',
   ROTATION_GROUPS_SET: 'rotation:groups',
   ROTATION_GROUP_SELECT: 'rotation:group',
   REMOTE_STATUS: 'remote:status',
@@ -295,16 +301,24 @@ export const VENDOR_BASE_URLS: Partial<Record<ProviderKind, string>> = {
 }
 
 export interface CustomProviderInput {
+  preset?: import('./providerPresets').ProviderPresetId
   label: string
   /** 'clinepass' brings back the built-in gateway after it was removed. */
   kind: ProviderKind
   baseURL: string
   apiKey: string
+  apiKeys?: string[]
   /** Model ids typed by the user; the first is the one the provider starts on. */
   models?: string[]
 }
 
 export interface ProviderInfo {
+  preset?: import('./providerPresets').ProviderPresetId
+  /** Explicit opt-in for the composer provider tabs. */
+  composerVisible?: boolean
+  authKind?: AuthKind
+  /** UI-only account grouping; backend identity remains per account. */
+  accountIds?: string[]
   id: ProviderId
   label: string
   /** Empty when the provider has no stable default and the user must name one. */
@@ -316,14 +330,18 @@ export interface ProviderInfo {
   /** The model ids typed for it in Settings (Clinepass: its subscription list). */
   models?: string[]
   kind?: ProviderKind
+  /** Account-backed plan routing; OAuth alone does not establish plan entitlement. */
+  billing?: 'subscription' | 'free' | 'metered' | 'unknown'
   /** Where it is reached. The key is never sent, only whether one is saved. */
   baseURL?: string
   /** A key is saved for it. The key itself never leaves the main process. */
   hasKey?: boolean
+  keyCount?: number
 }
 
 /** A change made in Settings. Blank or missing fields keep what is there. */
 export interface ProviderEdit {
+  apiKeys?: string[]
   label?: string
   baseURL?: string
   apiKey?: string
@@ -343,7 +361,7 @@ export interface ProviderSelection {
 }
 
 /** The OAuth vendors anticode can sign into. */
-export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy'
+export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'minimax-plan' | 'clinepass'
 
 /** A vendor flow as the Settings UI needs it while it runs. */
 export interface AuthLoginState {
@@ -394,6 +412,21 @@ export const ROTATE_PROVIDER = 'rotate'
 export const ROTATE_LABEL = 'rotate'
 
 /** One model in the Rotate usage pool. */
+
+/** A provider-reported account window, independent of the local monthly token log. */
+export interface SubscriptionQuota {
+  authKind?: AuthKind
+  account?: string
+  status?: 'ok' | 'stale' | 'unavailable' | 'unsupported'
+  extraUsageEnabled?: boolean | null
+  provider: string
+  label: string
+  checkedAt: number
+  plan?: string
+  windows: { label: string; usedPercent: number | null; resetAt: number | null }[]
+  error?: string
+}
+
 export interface RotationEntry {
   provider: ProviderId
   model: string
@@ -417,6 +450,8 @@ export interface RotationEntryStatus extends RotationEntry {
 }
 
 export interface OutOfUsage {
+  resetAt?: number
+  scope?: 'account' | 'model'
   since: number
   /** What the provider said, shortened. */
   reason: string
@@ -614,6 +649,8 @@ export interface SessionStatus {
    * model and no token is counted; the pool is still the composer's list.
    */
   rotationEnabled: boolean
+  /** All automatic routes stay on account-backed plans. */
+  subscriptionOnly?: boolean
   /** The named parts of the pool, in the order they were made. */
   rotationGroups: RotationGroup[]
   /** The group every session rotates over; null is the whole pool. */
@@ -676,10 +713,15 @@ export function modelLabel(
   return status.model === '' ? 'pick a model' : status.model
 }
 
+/** Batch APIs are asynchronous jobs, never interactive chat routes. */
+export function modelIsBatchOnly(model: string): boolean {
+  return /:batch(?:$|[:/])/i.test(model)
+}
+
 /** Conservative known-text-only check; unknown models avoid a false warning. */
 export function modelCannotSeeImages(model: string | null | undefined): boolean {
   if (model === undefined || model === null || model === '') return false
-  return /deepseek-(?:v[34].*flash|chat|coder)|llama3\.2(?!.*vision)/i.test(model)
+  return /deepseek-(?:v[34].*flash|chat|coder)|llama3\.2(?!.*vision)|(?:^|\/)laguna-(?:xs|s)-2\.1(?:$|[:\-])/i.test(model)
 }
 
 /**
@@ -705,6 +747,7 @@ export interface AttachmentRef {
 }
 
 export interface AttachmentInfo extends AttachmentRef {
+  contentHash?: string
   id: string
   preview: string
 }
@@ -800,7 +843,7 @@ export interface ModelPrice {
 export interface PricedModel extends ProviderSelection {
   price: ModelPrice | null
   /** Typed in Settings, published by the gateway, built in, a free tier, or not known. */
-  source: 'custom' | 'gateway' | 'built-in' | 'free' | 'unknown'
+  source: 'custom' | 'gateway' | 'built-in' | 'free' | 'subscription' | 'unknown'
 }
 
 /** App-wide choices from Settings → General. */
@@ -1104,6 +1147,7 @@ export interface SnapshotMessage {
  * records none, which is exactly what keeps the two lists aligned.
  */
 export interface RunSummary {
+  outcome?: 'complete' | 'interrupted' | 'error' | 'max_tokens' | 'refusal'
   model: string
   durationMs: number
   inputTokens: number
@@ -1160,8 +1204,10 @@ export interface UsageByDay {
   day: string
   requests: number
   inputTokens: number
+  cachedTokens: number
   outputTokens: number
   costUsd: number
+  models: { provider: string; model: string; inputTokens: number; cachedTokens: number; outputTokens: number }[]
 }
 
 /** What Settings → Usage renders: totals plus per-day and per-model splits. */
@@ -1178,6 +1224,43 @@ export interface UsageSummary {
   since: number | null
   byDay: UsageByDay[]
   byModel: UsageByModel[]
+}
+
+export type AccessState = 'ready' | 'unknown' | 'quota' | 'auth' | 'restricted' | 'cooldown' | 'request-limit' | 'retry' | 'limited'
+export interface AccessObservation {
+  state: Exclude<AccessState, 'unknown' | 'retry' | 'limited'>
+  scope: 'account' | 'model'
+  model: string
+  checkedAt: number
+  retryAt?: number
+}
+export interface AccessSource {
+  id: string
+  label: string
+  state: AccessState
+  lastSuccessAt?: number
+  observations: AccessObservation[]
+}
+export interface AccessReportGroup {
+  id: string
+  label: string
+  kind: 'accounts' | 'keys'
+  sources: AccessSource[]
+}
+export interface AccessReport {
+  checkedAt: number
+  groups: AccessReportGroup[]
+}
+/** One "Test all" request: the account or key, the model tried, and how it went. */
+export interface AccessProbeResult {
+  id: string
+  label: string
+  group: string
+  model: string
+  ok: boolean
+  ms: number
+  status?: number
+  message?: string
 }
 
 export interface AnticodeApi {
@@ -1260,6 +1343,8 @@ export interface AnticodeApi {
   chooseWorkspace: () => Promise<SessionStatus>
   setWorkspace: (root: string) => Promise<SessionStatus>
   listProviders: () => Promise<ProviderInfo[]>
+  setProviderVisibility: (id: ProviderId, visible: boolean) => Promise<ProviderInfo[]>
+  setProviderGroupVisibility: (kind: AuthKind, visible: boolean) => Promise<ProviderInfo[]>
   /**
    * With a session id, that session changes model, no other one does, and a
    * run it has going keeps its model until it ends. The pick also becomes the
@@ -1273,6 +1358,8 @@ export interface AnticodeApi {
   resetRotationUsage: () => Promise<SessionStatus>
   /** Switches Rotate usage on or off; off moves sessions on Rotate to a plain model. */
   setRotationEnabled: (enabled: boolean) => Promise<SessionStatus>
+  setSubscriptionRouting: (enabled: boolean) => Promise<SessionStatus>
+  getSubscriptionQuotas: () => Promise<SubscriptionQuota[]>
   /** Replaces the Rotate usage groups; a model a group names joins the pool. */
   setRotationGroups: (groups: RotationGroupInput[]) => Promise<SessionStatus>
   /** The group every session rotates over from its next prompt; null for the whole pool. */
@@ -1352,6 +1439,9 @@ export interface AnticodeApi {
    * log. Real provider-reported tokens, not estimates — every `usage` event
    * the agent emits is recorded with its timestamp, model, and priced cost.
    */
+  getAccessReport: () => Promise<AccessReport>
+  /** Sends one tiny request through every account and API key. */
+  testAllAccess: () => Promise<AccessProbeResult[]>
   getUsageSummary: (rangeMs: number | null) => Promise<UsageSummary>
   /** Newest requests first, capped by `limit`. Same source as the summary. */
   listUsageRecent: (limit: number) => Promise<UsageRecord[]>

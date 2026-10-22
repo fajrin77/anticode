@@ -46,7 +46,12 @@ export function beginRun(runId: string, sessionId: string): AbortController {
   setPaused(sessionId, false)
   return controller
 }
-export function finishRun(runId: string): void { runs.delete(runId) }
+export function finishRun(runId: string): void {
+  // An official engine can be suspended waiting for a host tool when the
+  // run ends on an error. Release its resources before forgetting ownership.
+  runs.get(runId)?.controller.abort()
+  runs.delete(runId)
+}
 export function cancelRun(runId: string): void { runs.get(runId)?.controller.abort() }
 export function sessionOfRun(runId: string): string | null {
   return runs.get(runId)?.sessionId ?? null

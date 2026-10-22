@@ -14,10 +14,17 @@ export interface PersistedSettings {
   alwaysAllowed?: string[]
   /** Ride along with a running task, or wait in line. One source for both screens. */
   followUpMode?: 'steer' | 'queue'
+  /** Explicit composer opt-ins; separate from credentials and rotation membership. */
+  composerProviders?: Record<string, boolean>
+  accessObservations?: Record<string, { lastSuccessAt?: number; observations: import('@shared/ipc').AccessObservation[] }>
+  providerKeyCooldowns?: Record<string, number>
+  accountRoutingUsage?: { month: string; accounts: Record<string, number> }
   provider?: string | null
   model?: string | null
   remote?: RemoteSettings
   rotation?: PersistedRotation
+  /** Last observed model ids only; no credentials. Used when offline after restart. */
+  authModelCatalogues?: Record<string, { models: string[]; checkedAt: number; freeOnly?: boolean; unavailable?: Record<string, { reason: string; until: number }> }>
   updates?: { source: string; autoCheck: boolean; autoDownload: boolean }
   preferences?: Partial<Omit<import('@shared/ipc').AppPreferences, 'notifications'>> & {
     notifications?: Partial<import('@shared/ipc').NotificationSettings>
@@ -27,6 +34,7 @@ export interface PersistedSettings {
 }
 
 export interface PersistedRotation {
+  subscriptionOnly?: boolean
   /** Switched on in Settings; absent means off. */
   enabled?: boolean
   entries: { provider: string; model: string }[]
@@ -37,7 +45,7 @@ export interface PersistedRotation {
   /** The group in use; absent or null means the whole pool. */
   group?: string | null
   /** Entries whose quota ran out, keyed by rotationKey. */
-  outOfUsage?: Record<string, { since: number; reason: string }>
+  outOfUsage?: Record<string, { since: number; reason: string; resetAt?: number; scope?: 'account' | 'model' }>
 }
 
 let cache: PersistedSettings | null = null

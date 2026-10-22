@@ -5,6 +5,7 @@ import { useSessionStore } from '../../store/session'
 import { formatUsd } from '../../money'
 
 const SOURCE_LABEL: Record<PricedModel['source'], string> = {
+  subscription: 'plan usage',
   custom: 'yours',
   gateway: 'gateway',
   'built-in': 'built-in',

@@ -3,7 +3,7 @@ import { defineTool } from './types'
 
 const item = z.object({
   content: z.string().min(1).max(300).describe('A concrete task, written as an action'),
-  status: z.enum(['pending', 'in_progress', 'completed'])
+  status: z.enum(['pending', 'in_progress', 'completed', 'blocked'])
 })
 
 /** The result itself is the persisted ledger: it survives transcript reloads. */
@@ -11,7 +11,7 @@ export const todoWriteTool = defineTool({
   name: 'todo_write',
   description:
     'Publish the current task plan as a complete checklist. Replace the whole list on every call, ' +
-    'keep exactly one item in_progress, and update it as work advances. Use for multi-step work.',
+    'keep at most one item in_progress, and update it as work advances. Mark an item blocked when access or missing input prevents it, explain why in its content, and stop repeating the same checks.',
   readOnly: false,
   risk: 'low',
   schema: z.object({
@@ -20,7 +20,7 @@ export const todoWriteTool = defineTool({
   execute: async ({ items }) => {
     const active = items.filter((entry) => entry.status === 'in_progress').length
     if (active > 1) throw new Error('Only one todo may be in progress at a time')
-    const mark = { pending: '[ ]', in_progress: '[>]', completed: '[x]' } as const
+    const mark = { pending: '[ ]', in_progress: '[>]', completed: '[x]', blocked: '[!]'  } as const
     return ['Task plan:', ...items.map((entry) => `${mark[entry.status]} ${entry.content}`)].join('\n')
   }
 })

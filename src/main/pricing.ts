@@ -68,6 +68,12 @@ function valid(price: unknown): price is ModelPrice {
 
 /** The price that applies, and where it came from; null when nothing knows it. */
 export function priceFor(provider: string, model: string): Pick<PricedModel, 'price' | 'source'> {
+  // A token price is not a subscription invoice. Keep tokens, leave cost unknown.
+  if (provider === 'clinepass' || /^auth:(?:codex|clinepass)(?:-|$)/.test(provider)) {
+    return { price: null, source: 'subscription' }
+  }
+  // Other OAuth accounts may consume credits or extra usage; OAuth alone is not a plan.
+  if (provider.startsWith('auth:')) return { price: null, source: 'unknown' }
   const typed = custom()[model]
   if (valid(typed)) return { price: typed, source: 'custom' }
   const listed = published.get(key(provider, model))

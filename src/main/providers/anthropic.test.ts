@@ -111,7 +111,7 @@ it('takes a Base URL with or without /v1', () => {
 })
 
 it('leaves out of OpenAI’s list the models that cannot chat', () => {
-  expect(chatModelsOnly(['gpt-5', 'text-embedding-3-large', 'tts-1', 'whisper-1', 'dall-e-3', 'omni-moderation-latest', 'gpt-5-mini']))
+  expect(chatModelsOnly(['gpt-5', 'text-embedding-3-large', 'tts-1', 'whisper-1', 'dall-e-3', 'omni-moderation-latest', 'gpt-5-mini', 'moonshotai/kimi-k3:batch']))
     .toEqual(['gpt-5', 'gpt-5-mini'])
 })
 
@@ -162,8 +162,10 @@ it('quota errors say to wait or rotate, not JSON', async () => {
   expect(await failsWith('limited-model')).toMatch(/rate limited/)
 })
 
-it('a 429 with no reset time says the plan does not serve the model', async () => {
-  expect(await failsWith('limited-noreset-model')).toMatch(/does not serve|haiku-4-5/i)
+it('a 429 without reset time does not invent entitlement or an alternate working model', async () => {
+  const message = await failsWith('limited-noreset-model')
+  expect(message).toMatch(/no reset time given/)
+  expect(message).not.toMatch(/plan serves|haiku-4-5|does not serve/i)
 })
 
 it('rate-limit wording never trips the spent-quota detector', async () => {
@@ -179,7 +181,7 @@ it('leaves 401s alone so the OAuth wrapper can retry them', async () => {
   expect(await failsWith('locked-model')).toMatch(/401/)
 })
 
-it('sends the CLI identity headers OAuth traffic needs', async () => {
+it('sends OAuth headers with Anticode identity', async () => {
   const seen: Record<string, string | string[] | undefined>[] = []
   const srv = createServer((req, res) => {
     seen.push({ ...req.headers })

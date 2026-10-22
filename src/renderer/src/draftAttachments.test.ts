@@ -80,3 +80,25 @@ it('keeps dashboard uploads when its composer unmounts', async () => {
   expect(store.getState().drafts[id]?.attachments.map(a => a.id)).toEqual(['dashboard'])
   expect(store.getState().drafts[id]?.text).toBe('dashboard work')
 })
+
+it('deduplicates concurrent photo arrivals by content without mixing separate drafts', async () => {
+  const id=store.getState().openSession('chat',null)
+  const photo=(id:string,hash:string):AttachmentInfo=>({...item(id),kind:'image',contentHash:hash})
+  await module.stageDraftAttachments(id,[async()=>[photo('a','same')],async()=>[photo('b','same')],async()=>[photo('c','different')]])
+  expect(store.getState().drafts[id]?.attachments.map(a=>a.id)).toEqual(['a','c'])
+  expect(api.releaseAttachments).toHaveBeenCalledWith(['b'])
+  const other=store.getState().openSession('chat',null)
+  await module.stageDraftAttachments(other,[async()=>[photo('d','same')]])
+  expect(store.getState().drafts[other]?.attachments.map(a=>a.id)).toEqual(['d'])
+})
+
+it('repairs legacy duplicate photos during restart restoration without duplicating the draft', async () => {
+  const id=store.getState().openSession('chat',null)
+  store.getState().updateDraft(id,{text:'keep this',attachments:['old-a','old-b','old-c'].map(x=>({...item(x),kind:'image'}))})
+  let index=0
+  api.addAttachments.mockImplementation(async()=>[{...item('restored-'+(++index)),kind:'image',contentHash:'same-photo'}])
+  await module.restoreDraftAttachments()
+  expect(store.getState().drafts[id]?.attachments).toHaveLength(1)
+  expect(store.getState().drafts[id]?.text).toBe('keep this')
+  expect(module.useAttachmentJobs.getState().pending[id]).toBe(0)
+})

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { groupAuthProviders } from '@shared/providerGroups'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { activeRotationEntries, activeRotationGroup, ROTATE_PROVIDER } from '@shared/ipc'
 import type { ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
@@ -23,25 +24,72 @@ export function ModelPicker({
   onSelect,
   onClose
 }: ModelPickerProps): JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    const anchor = menu?.parentElement
+    if (!menu || !anchor) return
+    menu.showPopover()
+    const place = (): void => {
+      const bounds = anchor.getBoundingClientRect()
+      const safeTop = (document.querySelector('header')?.getBoundingClientRect().bottom ?? 0) + 8
+      const above = Math.max(0, bounds.top - safeTop - 8)
+      const below = Math.max(0, window.innerHeight - bounds.bottom - 16)
+      const upwards = above >= Math.min(320, below)
+      menu.style.inset = 'auto'
+      menu.style.width = `${Math.min(360, window.innerWidth - 24)}px`
+      menu.style.maxHeight = `${Math.max(80, Math.min(360, upwards ? above : below))}px`
+      menu.style.left = `${Math.max(12, Math.min(bounds.left + 12, window.innerWidth - menu.offsetWidth - 12))}px`
+      menu.style.top = `${upwards ? Math.max(safeTop, bounds.top - menu.offsetHeight - 8) : Math.max(safeTop, bounds.bottom + 8)}px`
+    }
+    place()
+    menu.querySelector('input')?.focus({ preventScroll: true })
+    const observer = new ResizeObserver(place)
+    observer.observe(menu); observer.observe(anchor)
+    window.addEventListener('resize', place)
+    document.addEventListener('scroll', place, true)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', place)
+      document.removeEventListener('scroll', place, true)
+      if (menu.matches(':popover-open')) menu.hidePopover()
+    }
+  }, [])
   const [query, setQuery] = useState('')
   const provider = status?.provider ?? 'anthropic'
   const rotating = provider === ROTATE_PROVIDER
   // The tab being looked at. Looking is not choosing: the session moves to
   // another provider only when one of its models is picked, so browsing a tab
   // with nothing chosen yet never leaves the session without a model.
-  const [viewing, setViewing] = useState<ProviderId>(provider)
+  const [viewedId, setViewing] = useState<ProviderId>(provider)
+  const visibleProviders = groupAuthProviders(providers.filter((entry) => entry.composerVisible === true))
+  const viewing = visibleProviders.find((entry) => (entry.accountIds ?? [entry.id]).includes(viewedId))?.id ?? visibleProviders[0]?.id ?? ''
   const pool = status?.rotation ?? []
   // The models switched on in Settings → Models for this provider are the
   // whole list: a catalogue of hundreds is chosen from there, not from here.
-  // Until something is switched on the list is empty, and the session's model
-  // is always one of these (or none), so nothing else ever shows.
-  const configured = pool.filter((entry) => entry.provider === viewing).map((entry) => entry.model)
-  const activeModel = viewing === provider ? status?.model ?? '' : ''
-  const picked = activeModel !== '' && !configured.includes(activeModel)
-    ? [activeModel, ...configured]
+  // Until something is switched on the list is empty. An existing session
+  // can keep its current model without reintroducing it into this list.
+  const viewedProvider = visibleProviders.find((entry) => entry.id === viewing)
+  const accountProvider = viewedProvider?.kind === 'auth'
+  const [accountCatalogue, setAccountCatalogue] = useState<{ provider: string; models: string[] } | null>(null)
+  useEffect(() => {
+    if (!accountProvider) return
+    let active = true
+    void window.anticode.listModels(viewing, true).then((result) => {
+      if (active) setAccountCatalogue({ provider: viewing, models: result.models })
+    }).catch(() => {})
+    return () => { active = false }
+  }, [viewing, accountProvider])
+  const configured = [...new Set(pool.filter((entry) => (viewedProvider?.accountIds ?? [viewing]).includes(entry.provider)).map((entry) => entry.model))]
+  const freeClineAccount = accountProvider && /^auth:cline(?:-|$)/.test(viewing)
+  const accountModels = [...new Set([...(accountCatalogue?.provider === viewing ? accountCatalogue.models : viewedProvider?.models ?? []),
+    ...providers.filter((entry) => entry.id !== viewing && viewedProvider?.accountIds?.includes(entry.id)).flatMap((entry) => entry.models ?? [])])]
+  const offered = accountProvider
+    ? configured.filter((model) => !freeClineAccount || accountModels.includes(model))
     : configured
-  const providerLabel = providers.find((entry) => entry.id === viewing)?.label ?? viewing
-  const current = (id: string): boolean => viewing === provider && id === status?.model
+  const picked = offered
+  const providerLabel = visibleProviders.find((entry) => entry.id === viewing)?.label ?? viewing
+  const current = (id: string): boolean => (viewedProvider?.accountIds ?? [viewing]).includes(provider) && id === status?.model
   // Rotating, the list is what sessions rotate over: the group in use, or all.
   const rotatingOver = activeRotationEntries(status)
   const group = activeRotationGroup(status)
@@ -53,18 +101,19 @@ export function ModelPicker({
     return needle === '' ? picked : picked.filter((id) => id.toLowerCase().includes(needle))
   }, [query, picked.join('\n')])
 
-  const typedIsNew = query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
+  const typedIsNew = viewing !== '' && query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
   const tabs = status?.rotationEnabled === true
     ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Rotate usage controls every session while it is on' }]
-    : providers.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
+    : visibleProviders.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
 
   return (
-    <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 flex max-h-72 w-80 flex-col overflow-hidden rounded-xl border">
+    <div ref={menuRef} popover="manual" data-model-picker role="dialog" aria-label="Choose model" className="menu-glass fixed m-0 flex w-80 flex-col overflow-hidden rounded-xl border p-0">
       {tabs.length > 1 && (
-        <div className="flex flex-wrap gap-0.5 border-b border-line-soft p-1.5">
+        <div className="grid max-h-36 shrink-0 grid-cols-2 gap-0.5 overflow-y-auto border-b border-line-soft p-1.5">
           {tabs.map((entry) => (
             <button
               key={entry.id}
+              data-picker-provider={entry.id}
               type="button"
               onClick={() => {
                 if (entry.id === ROTATE_PROVIDER) onSelect(entry.id, '')
@@ -74,7 +123,7 @@ export function ModelPicker({
                 }
               }}
               title={entry.hint}
-              className={`rounded px-2 py-1 text-[12px] transition-colors ${
+              className={`min-w-0 truncate rounded px-2 py-1 text-left text-[12px] transition-colors ${
                 entry.id === viewing
                   ? 'bg-hover text-text'
                   : entry.available
@@ -149,15 +198,12 @@ export function ModelPicker({
               </div>
             ))}
           </div>
-          <div className="border-t border-line-soft px-3 py-1.5 text-[11px] leading-relaxed text-faint">
-            This session stays on a model for 2 prompts, then moves to the one that has used the
-            fewest tokens. Models and groups are made in Settings → Providers.
-          </div>
         </>
       ) : (
         <>
           <input
             value={query}
+            disabled={viewing === ''}
             autoFocus
             placeholder="Search models, or type an id"
             onChange={(event) => setQuery(event.target.value)}
@@ -171,7 +217,9 @@ export function ModelPicker({
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
             {matches.length === 0 && (
               <div data-picker-empty className="px-2 py-3 text-[12px] leading-relaxed text-faint">
-                {query.trim() === ''
+                {viewing === ''
+                  ? 'No providers shown. Turn on Composer in Settings → Providers or Auth provider.'
+                  : query.trim() === ''
                   ? `No ${providerLabel} models chosen yet. Choose the ones you want in Settings → Models.`
                   : picked.length === 0
                     ? 'No matches. Press Enter to use this id; this provider has no configured model list.'
@@ -192,6 +240,7 @@ export function ModelPicker({
             {matches.map((id) => (
               <button
                 key={id}
+                data-picker-model={id}
                 type="button"
                 onClick={() => onSelect(viewing, id)}
                 className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover hover:text-brand ${
@@ -199,6 +248,7 @@ export function ModelPicker({
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{id}</span>
+                {freeClineAccount && <span className="shrink-0 text-faint">free</span>}
                 {current(id) && <span className="shrink-0">✓</span>}
               </button>
             ))}
@@ -206,7 +256,7 @@ export function ModelPicker({
 
           {picked.length > 0 && (
             <div className="truncate border-t border-line-soft px-3 py-1.5 text-[11px] text-faint">
-              {providerLabel} · {picked.length} chosen · more in Settings → Models
+              {providerLabel} · {picked.length} models
             </div>
           )}
         </>

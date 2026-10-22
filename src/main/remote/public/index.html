@@ -1903,7 +1903,8 @@ function runSummaryEl(summary, said) {
   const row = document.createElement('div');
   row.className = 'runsum';
   const model = document.createElement('span');
-  model.textContent = summary.model === '' ? 'done' : summary.model;
+  const outcome = { interrupted: 'Dijeda', error: 'Terhenti karena kesalahan', max_tokens: 'Batas respons tercapai', refusal: 'Ditolak provider' }[summary.outcome];
+  model.textContent = (summary.model === '' ? 'done' : summary.model) + (outcome ? ' · ' + outcome : '');
   const copy = document.createElement('button');
   copy.className = 'copy';
   copy.title = 'Copy this reply';

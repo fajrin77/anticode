@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
-import { stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
+import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
 import { ModelPicker } from './ModelPicker'
 import { TodoPanel } from './TodoPanel'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
@@ -247,7 +247,7 @@ export function Composer({  status: sharedStatus,
     setPausing(true)
     try {
       if (!await window.anticode.pauseSession(session.id)) await letGoOfFinishedRun(session.id)
-    } catch (failure) { setError((failure as Error).message) }
+    } catch (failure) { setError(errorText(failure)) }
     finally { setPausing(false) }
   }
 
@@ -327,8 +327,8 @@ export function Composer({  status: sharedStatus,
         attachmentIds: []
       })
     } catch (failure) {
-      setError((failure as Error).message)
-      useSessionStore.getState().appendText(session.id, messageId, (failure as Error).message)
+      setError(errorText(failure))
+      useSessionStore.getState().appendText(session.id, messageId, errorText(failure))
       useSessionStore.getState().settleMessage(messageId)
       setActiveRun(null, runId)
     }
@@ -346,7 +346,7 @@ export function Composer({  status: sharedStatus,
       dropLastTurn(session.id)
       setDraft(prompt)
     } catch (failure) {
-      setError((failure as Error).message)
+      setError(errorText(failure))
     }
   }
 
@@ -362,7 +362,7 @@ export function Composer({  status: sharedStatus,
         void collect(() => window.anticode.addAttachments(taken.attachments.map((file) => file.path)))
       }
       promptRef.current?.focus()
-    } catch (failure) { setError((failure as Error).message) }
+    } catch (failure) { setError(errorText(failure)) }
   }
 
       /**
@@ -385,7 +385,7 @@ export function Composer({  status: sharedStatus,
           })
           if (!outcome.steered) return // The run ended; it already went out.
         } catch (failure) {
-          setError((failure as Error).message)
+          setError(errorText(failure))
         }
       }
 
@@ -420,7 +420,7 @@ export function Composer({  status: sharedStatus,
         return
       }
     } catch (failure) {
-      setError((failure as Error).message)
+      setError(errorText(failure))
       useSessionStore.getState().updateDraft(session.id, kept)
     }
   }
@@ -463,7 +463,7 @@ export function Composer({  status: sharedStatus,
         const request = { sessionId: session.id, runId: crypto.randomUUID(), prompt: shown, attachmentIds, plan: planMode }
         await window.anticode.queuePrompt(request)
       } catch (failure) {
-        setError((failure as Error).message)
+        setError(errorText(failure))
         useSessionStore.getState().updateDraft(session.id, kept)
       }
       return
@@ -510,8 +510,8 @@ export function Composer({  status: sharedStatus,
       }
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the composer.
-      setError((failure as Error).message)
-      useSessionStore.getState().appendText(session.id, messageId, (failure as Error).message)
+      setError(errorText(failure))
+      useSessionStore.getState().appendText(session.id, messageId, errorText(failure))
       useSessionStore.getState().settleMessage(messageId)
       setActiveRun(null, runId)
     }
@@ -583,9 +583,6 @@ export function Composer({  status: sharedStatus,
                   }`}
                 >
                   <div className="text-[12.5px]">{option.name}</div>
-                  <div className="text-[11px] text-faint transition-colors group-hover:text-brand">
-                    {option.hint}
-                  </div>
                 </button>
               ))}
             </div>

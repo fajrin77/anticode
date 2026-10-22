@@ -64,8 +64,8 @@ function openToOthers(file: string): boolean {
  */
 export function knownSecrets(extra: string[] = []): string[] {
   const values = [
-    ...listCustomProviders().map((provider) => provider.apiKey),
-    clinepassConfig().apiKey ?? '',
+    ...listCustomProviders().flatMap((provider) => [provider.apiKey, ...(provider.apiKeys ?? [])]),
+    ...(clinepassConfig().apiKeys ?? [clinepassConfig().apiKey ?? '']),
     ...Object.entries(process.env).filter(([name]) => SECRET_NAME.test(name)).map(([, value]) => value ?? ''),
     ...extra
   ]

@@ -8,6 +8,8 @@ import type {
   StopReason,
   ToolDefinition
 } from './types'
+import { CODEX_BASE_URL, CODEX_CLIENT_VERSION } from './codexConfig'
+import { ProviderRequestError } from './requestError'
 import { dropInvalidToolCalls } from './history'
 
 /*
@@ -19,7 +21,7 @@ import { dropInvalidToolCalls } from './history'
  * The access token is an account token; a refresh is the caller's job.
  */
 
-const ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
+const ENDPOINT = `${CODEX_BASE_URL}/responses`
 const PROVIDER_NAME = 'codex'
 
 type ResponsesInput =
@@ -32,7 +34,7 @@ type ResponsesContent =
   | { type: 'output_text'; text: string }
   | { type: 'input_image'; image_url: string }
 
-function toInput(messages: Message[]): ResponsesInput[] {
+export function toInput(messages: Message[]): ResponsesInput[] {
   const out: ResponsesInput[] = []
   for (const message of dropInvalidToolCalls(messages, 64)) {
     const parts: ResponsesContent[] = []
@@ -61,7 +63,7 @@ function toInput(messages: Message[]): ResponsesInput[] {
   return out
 }
 
-function toTools(tools: ToolDefinition[]): unknown[] {
+export function toTools(tools: ToolDefinition[]): unknown[] {
   return tools.map((tool) => ({
     type: 'function',
     name: tool.name,
@@ -86,31 +88,43 @@ function parseArguments(raw: string): unknown {
   }
 }
 
-/** A tiny SSE reader: `data: {...}` lines until the stream closes. */
+/** Read complete SSE frames, including split UTF-8 and a final frame without a newline. */
 async function* sse(body: ReadableStream<Uint8Array>): AsyncIterable<Record<string, unknown>> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let index = buffer.indexOf('\n')
-    while (index >= 0) {
-      const line = buffer.slice(0, index).trim()
-      buffer = buffer.slice(index + 1)
-      if (line.startsWith('data:')) {
-        const payload = line.slice(5).trim()
-        if (payload !== '' && payload !== '[DONE]') {
-          try {
-            yield JSON.parse(payload) as Record<string, unknown>
-          } catch {
-            // Ignore a partial frame; the next one carries the rest.
-          }
+  let data: string[] = []
+  function parse(): Record<string, unknown> | null {
+    const payload = data.join('\n')
+    data = []
+    if (!payload || payload === '[DONE]') return null
+    try { return JSON.parse(payload) as Record<string, unknown> }
+    catch { throw new Error('Codex returned malformed stream data') }
+  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true })
+      if (done && buffer && !buffer.endsWith('\n')) buffer += '\n'
+      let index: number
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, index).replace(/\r$/, '')
+        buffer = buffer.slice(index + 1)
+        if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+        else if (line === '') {
+          const event = parse()
+          if (event !== null) yield event
         }
       }
-      index = buffer.indexOf('\n')
+      if (done) {
+        const event = parse()
+        if (event !== null) yield event
+        break
+      }
     }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
 }
 
@@ -133,7 +147,7 @@ export class CodexProvider implements LLMProvider {
         accept: 'text/event-stream',
         'openai-beta': 'responses=experimental',
         originator: 'codex_cli_rs',
-        'user-agent': 'codex_cli_rs/0.154.0',
+        'user-agent': `codex_cli_rs/${CODEX_CLIENT_VERSION}`,
         ...(this.accountId !== undefined && this.accountId !== ''
           ? { 'chatgpt-account-id': this.accountId }
           : {})
@@ -159,11 +173,23 @@ export class CodexProvider implements LLMProvider {
         )
       }
       if (response.status === 429) {
-        throw new Error(
-          'Codex rate limited this request (429). Wait a minute and retry, or put this account in Rotate usage with another model as backup.'
-        )
+        let body: { error?: { type?: string; resets_at?: number; resets_in_seconds?: number } } = {}
+        try { body = JSON.parse(detail) as typeof body } catch { /* unknown error body */ }
+        const error = body.error
+        const quota = error?.type === 'usage_limit_reached' || /usage.limit|quota.exhausted|insufficient.quota/i.test(detail)
+        const now = Date.now()
+        const resetAt = typeof error?.resets_at === 'number' && Number.isFinite(error.resets_at) ? error.resets_at * 1000
+          : typeof error?.resets_in_seconds === 'number' && Number.isFinite(error.resets_in_seconds) ? now + error.resets_in_seconds * 1000 : undefined
+        const retry = response.headers.get('retry-after')
+        const seconds = retry === null ? NaN : Number(retry)
+        const retryAt = retry !== null ? (Number.isFinite(seconds) ? now + seconds * 1000 : Date.parse(retry)) : undefined
+        throw new ProviderRequestError(quota
+          ? 'ChatGPT plan usage limit reached. Wait for its quota reset or use another subscription account. Paid API fallback is disabled in subscription routing.'
+          : 'Codex rate limited this request (429). Wait for the account cooldown or use another subscription account.',
+        429, 'account', resetAt, retryAt)
       }
-      throw new Error(`Codex returned ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 200)}`}`)
+      throw new ProviderRequestError(`Codex returned ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 200)}`}`, response.status)
+
     }
 
     let text = ''
@@ -171,9 +197,15 @@ export class CodexProvider implements LLMProvider {
     const order: string[] = []
     const usage: { inputTokens: number; outputTokens: number; cachedTokens?: number } = { inputTokens: 0, outputTokens: 0 }
     let reason: string | null = null
+    let finished = false
 
     for await (const event of sse(response.body)) {
       const type = typeof event.type === 'string' ? event.type : ''
+      if (type === 'error' || type === 'response.failed') {
+        const failure = event.response as { error?: { message?: string } } | undefined
+        throw new Error(`Codex stream failed: ${failure?.error?.message ?? 'provider rejected the response'}`)
+      }
+      if (type === 'response.incomplete') throw new Error('Codex response was incomplete; no tool calls were executed.')
       if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
         text += event.delta
         yield { type: 'text_delta', text: event.delta }
@@ -198,6 +230,7 @@ export class CodexProvider implements LLMProvider {
           if (!order.includes(item.call_id)) order.push(item.call_id)
         }
       } else if (type === 'response.completed') {
+        finished = true
         const completed = event.response as
           | { usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }; incomplete_details?: { reason?: string } }
           | undefined
@@ -209,6 +242,7 @@ export class CodexProvider implements LLMProvider {
       }
     }
 
+    if (!finished) throw new ProviderRequestError('Codex connection closed before the response completed', 503)
     const content: ContentBlock[] = []
     if (text !== '') content.push({ type: 'text', text })
     for (const callId of order) {
