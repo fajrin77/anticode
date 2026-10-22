@@ -327,7 +327,7 @@ export function TabBar({
               // The active tab carries a glass box and a lime underline so it
               // reads at a glance even among many dark tabs; inactive tabs stay
               // bare and gain the box only under the cursor.
-              className={`region-no-drag group relative flex h-9 min-w-0 shrink items-center gap-2 rounded-lg px-3 transition-colors ${
+              className={`region-no-drag group relative flex h-9 min-w-0 flex-1 basis-0 max-w-48 items-center gap-2 rounded-lg px-3 transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
             >
@@ -346,7 +346,7 @@ export function TabBar({
                 type="button"
                 onClick={() => onSelectSession(session.id)}
                 title={session.title}
-                className={`min-w-0 max-w-52 truncate text-[14px] transition-colors group-hover:text-brand ${
+                className={`min-w-0 flex-1 truncate text-left text-[14px] transition-colors group-hover:text-brand ${
                   isActive ? 'text-text' : 'text-dim'
                 }`}
               >
