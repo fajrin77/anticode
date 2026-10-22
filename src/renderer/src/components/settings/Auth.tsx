@@ -43,6 +43,8 @@ const RENEWABLE: Record<AuthKind, boolean> = {
   'minimax-plan': false,
   kilo: false,
   openrouter: false,
+  // A gateway key is pasted once and never renews.
+  vercel: false,
   codex: true,
   claude: true,
   cline: true,

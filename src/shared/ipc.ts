@@ -361,7 +361,7 @@ export interface ProviderSelection {
 }
 
 /** The OAuth vendors anticode can sign into. */
-export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'minimax-plan' | 'clinepass'
+export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'vercel' | 'minimax-plan' | 'clinepass'
 
 /** A vendor flow as the Settings UI needs it while it runs. */
 export interface AuthLoginState {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { AuthKind, AuthTokens } from './types'
-const { flows } = vi.hoisted(() => ({ flows: { clinepass: vi.fn(), codex: vi.fn(), cline: vi.fn(), claude: vi.fn(), codebuddy: vi.fn(), 'opencode-go': vi.fn(), kilo: vi.fn(), openrouter: vi.fn(), 'minimax-plan': vi.fn() } }))
+const { flows } = vi.hoisted(() => ({ flows: { clinepass: vi.fn(), codex: vi.fn(), cline: vi.fn(), claude: vi.fn(), codebuddy: vi.fn(), 'opencode-go': vi.fn(), kilo: vi.fn(), openrouter: vi.fn(), vercel: vi.fn(), 'minimax-plan': vi.fn() } }))
 const profile = mkdtempSync(path.join(tmpdir(), 'anticode-multi-account-'))
 vi.mock('electron', () => ({ app: { getPath: () => profile }, safeStorage: {
   isEncryptionAvailable: () => true,
@@ -16,6 +16,7 @@ vi.mock('./cline', () => ({ loginCline: flows.cline, accountLabel: (t: AuthToken
 vi.mock('./claude', () => ({ loginClaude: flows.claude, accountLabel: (t: AuthTokens) => t.meta?.email, refreshClaude: vi.fn() }))
 vi.mock('./kilo', () => ({ loginKilo: flows.kilo }))
 vi.mock('./openrouter', () => ({ loginOpenRouter: flows.openrouter }))
+vi.mock('./vercel', () => ({ loginVercel: flows.vercel, VERCEL_GATEWAY_BASE: 'https://ai-gateway.vercel.sh/v1' }))
 vi.mock('./minimaxPlan', () => ({ loginMiniMaxPlan: flows['minimax-plan'], MINIMAX_PLAN_MODELS: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5'] }))
 vi.mock('./opencodeGo', () => ({ loginOpenCodeGo: flows['opencode-go'] }))
 vi.mock('./codebuddy', () => ({ loginCodebuddy: flows.codebuddy, accountLabel: (t: AuthTokens) => t.meta?.email }))

@@ -215,7 +215,7 @@ export function validatePreset(config: Pick<CustomProviderConfig, 'preset' | 'ba
   const preset = providerPreset(config.preset)
   if (!preset || config.kind !== 'openai' || normalizeBaseURL(config.baseURL) !== preset.baseURL) throw new Error('This free connection must use its original provider endpoint. Add a separate provider for another endpoint.')
   for (const id of model === undefined ? config.models ?? [] : [model]) {
-    if (!presetAllowsModel(preset.id, id)) throw new Error(`The ${preset.label} connection accepts free model routes only. Choose a free model; paid aliases are not used automatically.`)
+    if (!presetAllowsModel(preset.id as ProviderPresetId, id)) throw new Error(`The ${preset.label} connection accepts free model routes only. Choose a free model; paid aliases are not used automatically.`)
   }
 }
 

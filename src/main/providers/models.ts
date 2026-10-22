@@ -110,7 +110,7 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
     if (account?.kind === 'clinepass') return fetchClinePassModels(id)
     if (account?.kind === 'cline') return fetchClineModels(id)
     if (account?.kind === 'claude') return fetchClaudeModels(id)
-    if (account?.kind === 'kilo' || account?.kind === 'openrouter') return fetchFreeGatewayModels(id, account.kind)
+    if (account?.kind === 'kilo' || account?.kind === 'openrouter' || account?.kind === 'vercel') return fetchFreeGatewayModels(id, account.kind)
     if (account?.kind === 'minimax-plan') return authModelsFor(id, account.kind)
     return account === undefined ? [] : [...AUTH_MODELS[account.kind]]
   }

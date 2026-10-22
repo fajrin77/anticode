@@ -8,7 +8,7 @@
  */
 
 /** Which vendor flow an account was created by. */
-export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'minimax-plan' | 'clinepass'
+export type AuthKind = 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'vercel' | 'minimax-plan' | 'clinepass'
 
 /** Live state of an account as the Settings UI needs it. */
 export interface AuthAccount {

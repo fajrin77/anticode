@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { presetAllowsModel } from '@shared/providerPresets'
 import { APP_VERSION } from '../version'
 import { MINIMAX_PLAN_MODELS } from './minimaxPlan'
+import { VERCEL_GATEWAY_BASE } from './vercel'
 import { failureStatus, isTransient } from '../providers/failures'
 import { ProviderRequestError } from '../providers/requestError'
 import { clearLoginCooldown } from '../rotation'
@@ -48,6 +49,8 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   clinepass: CLINEPASS_MODELS as [string, ...string[]],
   'minimax-plan': MINIMAX_PLAN_MODELS,
   kilo: ['minimax/minimax-m3.1-flash:free'],
+  // Only free routes; the live catalogue adds whatever else the key allows.
+  vercel: ['zai/glm-4.5-air:free', 'openai/gpt-oss-20b:free'],
   openrouter: ['openrouter/free'],
   // Offline fallback only; the signed-in account catalogue takes precedence.
   codex: ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
@@ -71,6 +74,7 @@ export const AUTH_DEFAULT_MODELS: Record<AuthKind, string> = {
   clinepass: CLINEPASS_MODELS[0]!,
   'minimax-plan': MINIMAX_PLAN_MODELS[0],
   kilo: AUTH_MODELS.kilo[0],
+  vercel: AUTH_MODELS.vercel[0],
   openrouter: AUTH_MODELS.openrouter[0],
   codex: AUTH_MODELS.codex[0],
   claude: AUTH_MODELS.claude[0],
@@ -96,6 +100,8 @@ async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> 
     case 'cline':
       return refreshCline(tokens)
     case 'opencode-go': return tokens
+    // A gateway key is long-lived and has no renewal endpoint.
+    case 'vercel': return tokens
     case 'codebuddy': return refreshCodebuddy(tokens)
   }
 }
@@ -173,6 +179,7 @@ export function ensureFreshAuthTokens(id: string, force = false): Promise<AuthTo
 const AUTH_KIND_NAMES: Record<AuthKind, string> = {
   'minimax-plan': 'MiniMax Token Plan',
   kilo: 'Kilo',
+  vercel: 'Vercel AI Gateway',
   openrouter: 'OpenRouter',
   codex: 'ChatGPT',
   claude: 'Claude',
@@ -225,6 +232,13 @@ class AuthProvider implements LLMProvider {
       case 'kilo':
       case 'openrouter':
         return new OpenAICompatibleProvider(this.kind, model, { apiKey: tokens.accessToken, baseURL: this.kind === 'kilo' ? 'https://ai-gateway.kilo.ai/api/v1' : 'https://openrouter.ai/api/v1', maxTokensField: 'max_tokens', defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' } })
+      case 'vercel':
+        return new OpenAICompatibleProvider('vercel', model, {
+          apiKey: tokens.accessToken,
+          baseURL: VERCEL_GATEWAY_BASE,
+          maxTokensField: 'max_tokens',
+          defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' }
+        })
       case 'codex':
         // The Codex backend wants the numeric ChatGPT account id from the id
         // token, `account.account` is the email, which it does not accept.
@@ -259,6 +273,13 @@ class AuthProvider implements LLMProvider {
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+    // Before the client is built: a paid route must never reach the gateway.
+    if (this.kind === 'vercel') {
+      const requested = this.model || AUTH_DEFAULT_MODELS[this.kind]
+      if (!presetAllowsModel('vercel-free', requested) || !authModelsFor(this.id, 'vercel').includes(requested)) {
+        throw new ProviderRequestError('This gateway connection uses free model routes only. Refresh the model list or choose a model ending in :free; paid fallback is disabled.', 400)
+      }
+    }
     let client = await this.client(false, params.sessionId, params.signal)
     let produced = false
     try {

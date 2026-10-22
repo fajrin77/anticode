@@ -3,6 +3,7 @@ import { isTransient } from '../providers/failures'
 import { loginOpenCodeGo } from './opencodeGo'
 import { loginOpenRouter } from './openrouter'
 import { loginKilo } from './kilo'
+import { loginVercel } from './vercel'
 import { loginMiniMaxPlan } from './minimaxPlan'
 import { randomUUID } from 'node:crypto'
 import {
@@ -62,6 +63,7 @@ export function isAuthProvider(id: string): boolean {
 export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
   'minimax-plan': 'MiniMax Token Plan',
   kilo: 'Kilo Free',
+  vercel: 'Vercel AI Gateway',
   openrouter: 'OpenRouter Free',
   codex: 'ChatGPT (Codex)',
   claude: 'Claude Code',
@@ -86,6 +88,8 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
     case 'opencode-go': return loginOpenCodeGo(callbacks)
     case 'codebuddy':
       return loginCodebuddy(callbacks)
+    case 'vercel':
+      return loginVercel(callbacks)
   }
 }
 

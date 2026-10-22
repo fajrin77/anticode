@@ -1,7 +1,7 @@
 import { AccountGroup } from './settings/AccountGroup'
 import { ComposerGroupVisibility } from './settings/ComposerVisibility'
 import { groupAuthProviders } from '@shared/providerGroups'
-import { PROVIDER_PRESETS, providerPreset } from '@shared/providerPresets'
+import { PRESET_VIEW, providerPreset } from '@shared/providerPresets'
 import type { ProviderPresetId } from '@shared/providerPresets'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, KeyboardEvent } from 'react'
@@ -255,10 +255,10 @@ function ProviderForm({
           <select aria-label="Provider connection" value={values.preset ?? ''} className={inputClass}
             onChange={event => {
               const selected = providerPreset(event.target.value)
-              setValues(selected ? { ...EMPTY_FORM, preset: selected.id, label: selected.label, baseURL: selected.baseURL, models: selected.models.join('\n') } : { ...EMPTY_FORM })
+              setValues(selected ? { ...EMPTY_FORM, preset: selected.id as ProviderPresetId, label: selected.label, baseURL: selected.baseURL, models: selected.models.join('\n') } : { ...EMPTY_FORM })
             }}>
             <option value="">Custom provider</option>
-            {PROVIDER_PRESETS.map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+            {PRESET_VIEW.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
           </select>
         </label>
       )}
