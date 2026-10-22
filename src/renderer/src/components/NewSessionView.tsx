@@ -521,8 +521,8 @@ export function NewSessionView({
   const [fillText, setFillText] = useState('')
   const [fillPulse, setFillPulse] = useState(0)
   const sessions = useSessionStore((state) => state.sessions)
+  const openBlankSession = useSessionStore((state) => state.openSession)
   const deleteSession = useSessionStore((state) => state.deleteSession)
-  const duplicateLocalSession = useSessionStore((state) => state.duplicateSession)
   const presets = useSessionStore((state) => state.presets)
   const deletePreset = useSessionStore((state) => state.deletePreset)
   const activeRuns = useSessionStore((state) => state.activeRuns)
@@ -536,24 +536,14 @@ export function NewSessionView({
     deleteSession(id)
   }
 
-  /** Duplicate both the visible tab and the main-process conversation. */
-  function duplicateSession(id: string): void {
-    const duplicate = duplicateLocalSession(id)
-    if (!duplicate) return
-    const colour = useSessionStore.getState().sessions.find((item) => item.id === duplicate)?.colour
-    void window.anticode
-      .cloneSession(id, duplicate, null, colour)
-      .then(async (settled) => {
-        useSessionStore.getState().addExternalSession(settled)
-        const snapshot = await window.anticode.getSessionSnapshot(duplicate)
-        if (snapshot !== null) {
-          useSessionStore.getState().importSnapshot(duplicate, snapshot.messages, snapshot.summaries)
-        }
-      })
-      .catch((error) => {
-        useSessionStore.getState().deleteSession(duplicate)
-        console.error(`[anticode] duplicate failed for session ${id}:`, error)
-      })
+  /**
+   * The copy icon starts a blank session in the same project, not a second
+   * transcript: the picks made here follow it so the next prompt is ready.
+   */
+  function startSameProject(id: string): void {
+    const source = useSessionStore.getState().sessions.find((item) => item.id === id)
+    if (source === undefined) return
+    openBlankSession(source.mode, source.projectRoot, source.provider, source.model)
   }
 
   /** A preset fills the dashboard composer; Enter then sends it. */
@@ -681,7 +671,7 @@ export function NewSessionView({
             query={query}
             onSelect={onSelectSession}
             onDelete={removeSession}
-            onDuplicate={duplicateSession}
+            onDuplicate={startSameProject}
             runningIds={runningIds}
           />
           <SessionColumn
@@ -690,7 +680,7 @@ export function NewSessionView({
             query={query}
             onSelect={onSelectSession}
             onDelete={removeSession}
-            onDuplicate={duplicateSession}
+            onDuplicate={startSameProject}
             runningIds={runningIds}
           />
         </div>

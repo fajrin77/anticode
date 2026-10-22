@@ -60,15 +60,15 @@ export function SessionRow({
           </div>
         </div>
       </button>
-      {/* Copy and delete share one right-aligned slot, so the wider
+      {/* New-session and delete share one right-aligned slot, so the wider
           "Delete?" label never lands on top of the copy icon. */}
       {(onDuplicate !== undefined || onDelete !== undefined) && (
         <div className="absolute top-2.5 right-2 flex items-center gap-2">
           {onDuplicate !== undefined && (
             <button
               type="button"
-              aria-label="Duplicate session"
-              title="Duplicate session"
+              aria-label="New session in the same project"
+              title="New session in the same project"
               onClick={() => onDuplicate(session.id)}
               className="text-faint opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-brand"
             >

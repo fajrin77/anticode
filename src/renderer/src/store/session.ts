@@ -203,7 +203,8 @@ interface SessionState {
   /** Puts a passage from the transcript above the composer, to be replied to. */
   quoteInDraft: (id: string, quote: string) => void
   addProject: (root: string) => void
-  openSession: (mode: SessionMode, projectRoot: string | null) => string
+  /** A blank session; `provider`/`model` carry the dashboard's picks into the new tab. */
+  openSession: (mode: SessionMode, projectRoot: string | null, provider?: string | null, model?: string | null) => string
   selectSession: (id: string) => void
   /** Slides a tab one position within the open-tab order. */
   moveSession: (id: string, direction: 'left' | 'right') => void
@@ -432,10 +433,12 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         : { projects: [...state.projects, { root, name: baseName(root) }] }
     ),
 
-  openSession: (mode, projectRoot) => {
+  openSession: (mode, projectRoot, provider, model) => {
     let id = ''
     set((state) => {
       const session = newSession(mode, projectRoot, state.nextColour)
+      if (provider !== undefined && provider !== null) session.provider = provider
+      if (model !== undefined && model !== null) session.model = model
       if (mode === 'code' && projectRoot !== null) session.title = baseName(projectRoot)
       id = session.id
       return {
