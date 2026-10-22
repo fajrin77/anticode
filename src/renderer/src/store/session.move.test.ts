@@ -55,3 +55,27 @@ describe('moveSession', () => {
     expect(titles).toEqual(['b', 'a', 'c'])
   })
 })
+
+describe('moveSessionTo', () => {
+  it('drops a dragged tab at the index it was released over', () => {
+    const ids = seed(['a', 'b', 'c', 'd'])
+    useSessionStore.getState().moveSessionTo(ids[3]!, 1)
+    const titles = useSessionStore.getState().sessions.map((session) => session.title)
+    expect(titles).toEqual(['a', 'd', 'b', 'c'])
+    useSessionStore.getState().moveSessionTo(ids[3]!, 0)
+    expect(useSessionStore.getState().sessions.map((session) => session.title)).toEqual([
+      'd',
+      'a',
+      'b',
+      'c'
+    ])
+  })
+
+  it('clamps out-of-range indexes and ignores an unknown tab', () => {
+    const ids = seed(['a', 'b'])
+    useSessionStore.getState().moveSessionTo(ids[0]!, 99)
+    expect(useSessionStore.getState().sessions.map((session) => session.title)).toEqual(['b', 'a'])
+    useSessionStore.getState().moveSessionTo('missing', 0)
+    expect(useSessionStore.getState().sessions.map((session) => session.title)).toEqual(['b', 'a'])
+  })
+})

@@ -1,5 +1,5 @@
 /** Wheel events include trackpad momentum; a quiet interval ends one gesture. */
-export const SWIPE_IDLE_MS = 90
+export const SWIPE_IDLE_MS = 60
 /** A deliberate new flick may begin before the previous momentum fully dies. */
 export const SWIPE_REARM_MS = 45
 export const SWIPE_REARM_DELTA = 6
@@ -7,12 +7,12 @@ export const SWIPE_REARM_DELTA = 6
  * a new flick, recognised immediately instead of after the residue dies. */
 export const SWIPE_TAIL_ESCAPE_RATIO = 2
 /** Deliberate horizontal travel before the neighbour is committed. */
-export const SWIPE_THRESHOLD = 32
+export const SWIPE_THRESHOLD = 24
 /** The old session dims out before the swap; the new one eases in after. */
-export const SWIPE_FADE_OUT_MS = 90
-export const SWIPE_FADE_IN_MS = 150
+export const SWIPE_FADE_OUT_MS = 55
+export const SWIPE_FADE_IN_MS = 100
 /** A wheel step at or below this speed means the fingers have let go. */
-export const SWIPE_SETTLE_DELTA = 6
+export const SWIPE_SETTLE_DELTA = 10
 
 export function swipeDelta(x: number, y: number, mode: number): number {
   if (Math.abs(x) <= Math.abs(y) * 1.4) return 0

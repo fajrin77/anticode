@@ -208,6 +208,8 @@ interface SessionState {
   selectSession: (id: string) => void
   /** Slides a tab one position within the open-tab order. */
   moveSession: (id: string, direction: 'left' | 'right') => void
+  /** Drops a dragged tab at an exact open-tab position. */
+  moveSessionTo: (id: string, index: number) => void
   /** Reopens a closed session's tab and makes it active. */
   reopenSession: (id: string) => void
   /** Clones a session into a fresh editable copy; the original stays untouched. */
@@ -466,6 +468,20 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       const neighbour = reordered[targetIndex]!
       reordered[index] = neighbour
       reordered[targetIndex] = moved
+      const closed = state.sessions.filter((session) => session.closed)
+      return { sessions: [...reordered, ...closed] }
+    }),
+
+  /** Puts a dragged tab where the pointer left it. */
+  moveSessionTo: (id, index) =>
+    set((state) => {
+      const open = state.sessions.filter((session) => !session.closed)
+      const from = open.findIndex((session) => session.id === id)
+      const to = Math.max(0, Math.min(open.length - 1, index))
+      if (from < 0 || from === to) return state
+      const reordered = [...open]
+      const moved = reordered.splice(from, 1)[0]!
+      reordered.splice(to, 0, moved)
       const closed = state.sessions.filter((session) => session.closed)
       return { sessions: [...reordered, ...closed] }
     }),

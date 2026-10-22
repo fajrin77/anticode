@@ -258,12 +258,12 @@ export function TabBar({
   const closeSession = useSessionStore((state) => state.closeSession)
   const deleteSession = useSessionStore((state) => state.deleteSession)
   const moveSession = useSessionStore((state) => state.moveSession)
+  const moveSessionTo = useSessionStore((state) => state.moveSessionTo)
   const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
   )
-
   // Closing a tab archives the session (still editable from the dashboard)
   // and stops its run, otherwise the agent keeps burning tokens with no way
   // to stop it. The main-process session stays alive so history survives.
@@ -280,6 +280,52 @@ export function TabBar({
       return
     }
     closeSession(sessionId)
+  }
+
+  // Dragging a tab reorders the strip. The pointer listeners live on the window
+  // for the length of one drag: the tab itself is moved around inside the
+  // strip, and pointer capture would not survive that.
+  const strip = useRef<HTMLDivElement>(null)
+  const drag = useRef<number | null>(null)
+  const dragged = useRef(false)
+
+  /** Where a dragged tab would land: the dragged tab itself is skipped, so the
+   *  strip never chases the cursor it is already under. */
+  function dropIndex(host: HTMLElement, clientX: number, draggedId: string): number {
+    let index = 0
+    for (const tab of host.querySelectorAll<HTMLElement>('[data-tab-id]')) {
+      if (tab.dataset.tabId === draggedId) continue
+      const box = tab.getBoundingClientRect()
+      if (clientX > box.left + box.width / 2) index++
+    }
+    return index
+  }
+
+  function startDrag(sessionId: string, event: React.PointerEvent<HTMLDivElement>): void {
+    if (event.button !== 0) return
+    const startX = event.clientX
+    let moved = false
+    drag.current = event.pointerId
+    const onMove = (move: PointerEvent): void => {
+      if (move.pointerId !== drag.current) return
+      if (!moved && Math.abs(move.clientX - startX) < 6) return
+      moved = true
+      dragged.current = true
+      const host = strip.current
+      if (host === null) return
+      moveSessionTo(sessionId, dropIndex(host, move.clientX, sessionId))
+    }
+    const onUp = (): void => {
+      drag.current = null
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      // The click that follows the release must not also select the tab.
+      if (moved) window.setTimeout(() => { dragged.current = false }, 0)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   function badgeName(session: { mode: string; projectRoot: string | null }): string {
@@ -313,6 +359,7 @@ export function TabBar({
 
       <div
         className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+        ref={strip}
         data-session-tabs
         aria-label="Session tabs, swipe with two fingers to switch"
       >
@@ -327,9 +374,16 @@ export function TabBar({
               // The active tab carries a glass box and a lime underline so it
               // reads at a glance even among many dark tabs; inactive tabs stay
               // bare and gain the box only under the cursor.
+              data-tab-id={session.id}
               className={`region-no-drag group relative flex h-9 min-w-0 flex-1 basis-0 max-w-48 items-center gap-2 rounded-lg px-3 transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
+              onPointerDown={(event) => startDrag(session.id, event)}
+              onClickCapture={(event) => {
+                if (!dragged.current) return
+                event.preventDefault()
+                event.stopPropagation()
+              }}
             >
               {isActive && (
                 <span
@@ -360,8 +414,9 @@ export function TabBar({
               >
                 ×
               </button>
-              {/* Reorder: right-click menu keeps the strip clean while making
-                  left/right moves one click away. */}
+              {/* Reorder by dragging the tab itself anywhere along the strip;
+                  a plain click still just selects it. Right-click on an edge
+                  nudges it one slot, for anyone who prefers no dragging. */}
               <div
                 role="navigation"
                 aria-label="Reorder tab"
