@@ -151,7 +151,7 @@ class ClaudeCodeRun {
           if (actual && actual !== this.model && !actual.startsWith(this.model + '-20')) throw new ProviderRequestError(`Claude Code returned a different model (${actual}); expected ${this.model}.`, 400)
           const usage = message.message.usage
           const previous = this.usages.get(message.message.id)
-          this.usages.set(message.message.id, { inputTokens: Math.max(previous?.inputTokens ?? 0, usage.input_tokens), outputTokens: Math.max(previous?.outputTokens ?? 0, usage.output_tokens), cachedTokens: Math.max(previous?.cachedTokens ?? 0, (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)) })
+          this.usages.set(message.message.id, { inputTokens: Math.max(previous?.inputTokens ?? 0, usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)), outputTokens: Math.max(previous?.outputTokens ?? 0, usage.output_tokens), cachedTokens: Math.max(previous?.cachedTokens ?? 0, (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)) })
         }
         if (message.type === 'result') {
           if (message.is_error || message.subtype !== 'success') {

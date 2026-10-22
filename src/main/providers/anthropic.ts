@@ -181,7 +181,8 @@ export class AnthropicProvider implements LLMProvider {
         content: final.content.map(fromContentBlock),
         stopReason: toStopReason(final.stop_reason),
         usage: {
-          inputTokens: final.usage.input_tokens,
+          // Anthropic's input_tokens excludes cache; every other provider counts it in.
+          inputTokens: final.usage.input_tokens + (final.usage.cache_read_input_tokens ?? 0) + (final.usage.cache_creation_input_tokens ?? 0),
           outputTokens: final.usage.output_tokens,
           cachedTokens: (final.usage.cache_read_input_tokens ?? 0) + (final.usage.cache_creation_input_tokens ?? 0)
         }
