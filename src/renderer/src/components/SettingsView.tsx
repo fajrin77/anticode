@@ -2112,13 +2112,33 @@ export function SettingsView({
           short page and a long one line up to the pixel. */}
       <div
         ref={(node) => {
-          if (node !== null && node.dataset.restored !== section) {
-            node.dataset.restored = section
-            node.scrollTop = scrollBySection[section] ?? 0
-            requestAnimationFrame(() => { node.scrollTop = scrollBySection[section] ?? 0 })
+          if (node === null || node.dataset.restored === section) return
+          node.dataset.restored = section
+          // A page that loads its data late is too short at first, and the
+          // browser clamps the position (and reports that as a scroll). Keep
+          // re-applying the saved spot as the content grows, until the user
+          // scrolls on their own or the spot is reached.
+          const target = scrollBySection[section] ?? 0
+          if (target === 0) return
+          let done = false
+          node.dataset.restoring = '1'
+          const stop = (): void => { done = true; delete node.dataset.restoring; observer.disconnect() }
+          const apply = (): void => {
+            if (done) return
+            node.scrollTop = target
+            if (Math.abs(node.scrollTop - target) < 2) stop()
           }
+          const observer = new ResizeObserver(apply)
+          if (node.firstElementChild !== null) observer.observe(node.firstElementChild)
+          for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const) node.addEventListener(type, stop, { once: true })
+          window.setTimeout(stop, 4000)
+          apply()
         }}
-        onScroll={(event) => { scrollBySection[section] = event.currentTarget.scrollTop }}
+        onScroll={(event) => {
+          const node = event.currentTarget
+          // While the saved spot is being restored the clamped value must not overwrite it.
+          if (node.dataset.restoring === undefined) scrollBySection[section] = node.scrollTop
+        }}
         className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10 [scrollbar-gutter:stable]"
       >
         <div className={`mx-auto ${section === 'usage' ? 'max-w-4xl' : 'max-w-2xl'}`}>
