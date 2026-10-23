@@ -16,6 +16,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "pack:mac": "npm run build && electron-builder --mac",
+    "publish:mac": "node scripts/publish-mac.mjs",
     "pack:win": "npm run build && electron-builder --win",
     "pack:linux": "npm run build && electron-builder --linux",
     "test:desktop": "npm run build && node scripts/verify-desktop.mjs",
