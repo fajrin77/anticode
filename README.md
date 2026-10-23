@@ -1,8 +1,24 @@
 # anticode
 
-AI coding agent desktop app. Satu aplikasi Electron untuk mengobrol dan bekerja dengan berbagai
-provider AI, dengan tool file, terminal, browser, dan dokumen yang dijalankan langsung di project
-Anda, plus akses dari HP.
+A desktop coding agent that runs on the subscriptions you already pay for.
+
+No Anticode account, no sign-up, no middleman service. Install, connect your providers, and work.
+Everything runs directly from your machine, with file, terminal, browser, and document tools
+working inside your project, plus control from your phone.
+
+**Why Anticode**
+
+- **Your ChatGPT and Claude subscriptions.** Sign in through Auth provider and Anticode uses the
+  quota of the plan you already have. No separate API billing, and no silent fallback to a paid route.
+- **Dozens of accounts, one pool.** Add as many accounts per service as you need. Rotate usage
+  picks an eligible account for each new prompt by how busy it is and how much it has used.
+- **Usage control you can see.** Per-account quota windows and reset times as reported by the
+  provider, a live routing map of the provider group serving requests, and local token and cost
+  history kept separate from subscription quota.
+- **Private by design.** Credentials live in your OS secure storage; provider and auth settings
+  stay on your device.
+
+Subscription access follows each provider's own terms. Anticode does not promise unlimited usage.
 
 ## Unduh
 
@@ -16,14 +32,14 @@ Ambil build terbaru dari halaman [Releases](https://github.com/fajrin77/anticode
 
 Setiap release juga memuat `latest-mac.yml` (macOS) dan `latest.yml` (Windows). Kedua berkas itulah yang dibaca updater untuk menawarkan versi baru, jadi menambah atau mengubah keterangan di sini tidak memengaruhi auto update: app yang sudah terpasang tetap menemukan dan memasang build baru lewat Settings -> Updates.
 
-## Fitur
+## Features
 
-- **Multi-provider**: lima provider di belakang satu abstraksi; tambah lewat Settings, kredensial disimpan terenkripsi di secure storage OS.
-- **Tool lengkap**: file, terminal, pencarian web, browser Playwright, screenshot, sub-agent, MCP, gambar, serta Excel, Word, dan PDF.
-- **Approval berbasis risiko**: setiap tool punya tingkat risiko; mode Default meminta konfirmasi, mode Auto berjalan tanpa bertanya sama sekali.
-- **Dua mode sesi**: *antichat* untuk tanya jawab tanpa project (folder privat per sesi), *anticode* untuk bekerja di folder project.
-- **Dari HP**: buka dan kendalikan sesi dari browser ponsel di jaringan yang sama, lengkap dengan transkrip, approval, dan lampiran.
-- **Kenyamanan harian**: automatic context compaction, checklist, checkpoint/Revert, menu bar + quick capture, notifikasi sistem, dan update otomatis.
+- **Multi-provider**: Codex, Claude, Cline and ClinePass, OpenRouter, Kilo, Vercel AI Gateway, MiniMax plan, OpenCode, Ollama, and any OpenAI-compatible endpoint. Credentials are encrypted in OS secure storage.
+- **Full toolset**: files, terminal, web search, Playwright browser, screenshots, sub-agents, MCP, images, Excel, Word, and PDF.
+- **Risk-based approval**: Default mode asks first; Auto mode runs without asking.
+- **Two session modes**: *antichat* for questions without a project, *anticode* for working in a project folder.
+- **From your phone**: open and control sessions from a phone browser on the same network.
+- **Daily comfort**: automatic context compaction, checklists, checkpoints and Revert, menu bar quick capture, notifications, and automatic updates.
 
 ## Subscription dan akun
 
