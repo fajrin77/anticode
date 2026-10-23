@@ -306,22 +306,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     if (model !== '' && !chosenFor(next.provider).includes(model)) {
       setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
     }
-    // Rotation is a pick, not a mode: a draft asking for it gets the pool even
-  // when the saved fallback happens to be a model.
-  if (next.provider === ROTATE_PROVIDER && model === '') {
-    chosen = { provider: ROTATE_PROVIDER, model: '' }
-    if (live === undefined) {
-      saveFallback(chosen)
-      return
-    }
-    pinSessions()
-    live.choice = chosen
-    delete live.promptsOnEntry
-    persistSessions()
-    selection = chosen
-    return
-  }
-  // No model named: the first one chosen for that provider, or none yet.
+    // No model named: the first one chosen for that provider, or none yet.
     chosen = {
       provider: next.provider,
       model: model !== '' ? model : (chosenFor(next.provider)[0] ?? providerInfo.defaultModel)
@@ -786,7 +771,12 @@ function rotationStatus(providers: Providers): RotationEntryStatus[] {
 export function getStatus(sessionId?: string | null): SessionStatus {
   const providers = listProviders()
   const own = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
-  const standard = effective(current())
+  // A new session starts on the pool while rotation is on, even when the saved
+  // fallback still points at the model last picked in a session.
+  const fitted = effective(current())
+  const standard = rotationEnabled() && fitted.provider !== ROTATE_PROVIDER
+    ? { provider: ROTATE_PROVIDER, model: '' }
+    : fitted
   const top = own !== undefined ? choiceStatus(own, providers) : { ...standard, ...readiness(standard, providers), lastUsed: null }
   return {
     workspaceRoot,
