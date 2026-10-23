@@ -286,8 +286,9 @@ function effective(choice: ProviderSelection, pinned = false): ProviderSelection
  * session back on the pool.
  */
 export function selectProvider(next: ProviderSelection, sessionId?: string | null): void {
+  // A tab whose session is not created yet (a draft or new-session screen) is
+  // not an error: its pick applies like a draft's, to the default.
   const live = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
-  if (sessionId !== null && sessionId !== undefined && live === undefined) throw new Error('Unknown session; reopen this tab')
   let chosen: ProviderSelection
   if (next.provider === ROTATE_PROVIDER) {
     if (!rotationEnabled()) throw new Error('Rotate usage is off. Turn it on in Settings → Providers')
