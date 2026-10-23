@@ -16,9 +16,9 @@ function tagOf(name: string): string {
 }
 
 /**
- * A file looked at without leaving the app: a workbook with its colours, a
- * document as paper, a picture, a PDF. It covers the conversation below the
- * tabs; Escape or the cross goes back to it. Rendered pages come from the main
+ * A file looked at without leaving the app, in a side panel like a browser's: a workbook with its colours, a
+ * document as paper, a picture, a PDF. It sits at the right edge below the
+ * tabs and can collapse to a rail; Escape or the cross closes it. Rendered pages come from the main
  * process and are drawn in a sandboxed frame, so nothing in a file runs.
  */
 export function FileViewer(): JSX.Element {
@@ -29,12 +29,16 @@ export function FileViewer(): JSX.Element {
   const [pageIndex, setPageIndex] = useState(0)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  // Like a browser side panel: it can shrink to a thin rail and open again.
+  const [collapsed, setCollapsed] = useState(false)
+  const [wide, setWide] = useState(false)
 
   useEffect(() => {
     setPreview(null)
     setFailure(null)
     setPageIndex(0)
     setSaved(null)
+    setCollapsed(false)
     if (target === null) return
     let live = true
     void window.anticode
@@ -97,12 +101,47 @@ export function FileViewer(): JSX.Element {
       .catch((error: Error) => setFailure(error.message))
   }
 
+  if (collapsed) {
+    return (
+      <div
+        role="complementary"
+        aria-label={name}
+        data-file-viewer
+        className="fixed top-12 right-0 bottom-0 z-[25] flex w-10 flex-col items-center gap-2 border-t border-l border-line bg-bg py-2"
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand preview"
+          title={`Expand ${name}`}
+          className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M10 3L5 8l5 5" />
+          </svg>
+        </button>
+        <span className="flex h-6 items-center rounded-md bg-raised px-1 text-[9px] font-semibold tracking-wide text-dim">{tagOf(name)}</span>
+        <button
+          type="button"
+          onClick={close}
+          aria-label="Close preview"
+          className="glass-ghost flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-brand"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
-      role="dialog"
+      role="complementary"
       aria-label={name}
       data-file-viewer
-      className="fixed inset-x-0 top-12 bottom-0 z-[25] flex flex-col border-t border-line bg-bg"
+      style={{ width: wide ? 'min(86vw, 1100px)' : 'min(46vw, 640px)', minWidth: 'min(360px, 100vw)' }}
+      className="fixed top-12 right-0 bottom-0 z-[25] flex flex-col border-t border-l border-line bg-bg shadow-[-8px_0_24px_rgba(0,0,0,0.25)]"
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line-soft pr-2 pl-4">
         <span className="flex h-6 shrink-0 items-center rounded-md bg-raised px-1.5 text-[9px] font-semibold tracking-wide text-dim">
@@ -141,6 +180,25 @@ export function FileViewer(): JSX.Element {
             </button>
           </>
         )}
+        <button
+          type="button"
+          onClick={() => setWide((value) => !value)}
+          aria-label={wide ? 'Narrower preview' : 'Wider preview'}
+          className="glass-ghost shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
+        >
+          {wide ? 'Narrow' : 'Wide'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          aria-label="Collapse preview"
+          title="Collapse to the side"
+          className="glass-ghost flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M6 3l5 5-5 5" />
+          </svg>
+        </button>
         <button
           type="button"
           onClick={close}
