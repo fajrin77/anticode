@@ -111,7 +111,7 @@ export function LiveRouting(): JSX.Element {
                 key={`line-${node.id}`}
                 d={`M ${CX} ${CY} Q ${(CX + x) / 2} ${CY} ${x} ${y}`}
                 fill="none"
-                stroke={node.live ? '#e8923a' : 'currentColor'}
+                stroke={node.live ? '#d1fa22' : 'currentColor'}
                 strokeOpacity={node.live ? 1 : 0.18}
                 strokeWidth={node.live ? 2 : 1}
                 strokeDasharray={node.live ? '6 6' : undefined}
@@ -120,8 +120,8 @@ export function LiveRouting(): JSX.Element {
             )
           })}
           <g>
-            <rect x={CX - 52} y={CY - 18} width={104} height={36} rx={9} fill="#2a1a10" stroke="#e8923a" strokeWidth={1.5} />
-            <text x={CX} y={CY + 4} textAnchor="middle" fontSize={13} fill="#f0a060">Anticode</text>
+            <rect x={CX - 52} y={CY - 18} width={104} height={36} rx={9} fill="#1c2008" stroke="#d1fa22" strokeWidth={1.5} />
+            <text x={CX} y={CY + 4} textAnchor="middle" fontSize={13} fill="#d1fa22">Anticode</text>
           </g>
           {nodes.map((node, index) => {
             const { x, y } = position(index, nodes.length)
@@ -135,7 +135,7 @@ export function LiveRouting(): JSX.Element {
                   height={40}
                   rx={9}
                   fill="rgba(0,0,0,0.25)"
-                  stroke={node.live ? '#e8923a' : 'currentColor'}
+                  stroke={node.live ? '#d1fa22' : 'currentColor'}
                   strokeOpacity={node.live ? 1 : 0.25}
                   strokeWidth={node.live ? 1.8 : 1}
                 />
