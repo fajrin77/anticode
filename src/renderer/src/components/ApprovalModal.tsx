@@ -74,11 +74,17 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
         return
       }
       const rect = composer.getBoundingClientRect()
-      setAnchor({
+      const next = {
         left: rect.left - 40,
         width: rect.width + 80,
         bottom: window.innerHeight - rect.top + 8
-      })
+      }
+      // Unchanged geometry returns the same object, so polling costs no render.
+      setAnchor((prev) =>
+        prev !== null && prev.left === next.left && prev.width === next.width && prev.bottom === next.bottom
+          ? prev
+          : next
+      )
     }
     const observer = new ResizeObserver(sync)
     observer.observe(card)
@@ -86,7 +92,15 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
     if (composer !== null) observer.observe(composer)
     window.addEventListener('resize', sync)
     sync()
+    // The browser pane slides the composer sideways (an animated move, not a
+    // resize, and the composer element can be replaced), which the observers
+    // miss: follow it every frame so the card stays centred on the composer.
+    let frame = requestAnimationFrame(function follow() {
+      sync()
+      frame = requestAnimationFrame(follow)
+    })
     return () => {
+      cancelAnimationFrame(frame)
       observer.disconnect()
       window.removeEventListener('resize', sync)
       root.style.removeProperty('--approval-height')
