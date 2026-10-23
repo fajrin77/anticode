@@ -16,6 +16,10 @@ interface PreviewState {
 
 export const usePreviewStore = create<PreviewState>()((set) => ({
   target: null,
-  open: (target) => set({ target }),
+  open: (target) => set((state) => ({
+    target: state.target?.kind === target.kind && state.target.path === target.path &&
+      (target.kind !== 'artifact' || (state.target.kind === 'artifact' && state.target.sessionId === target.sessionId))
+      ? null : target
+  })),
   close: () => set({ target: null })
 }))

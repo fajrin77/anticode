@@ -22,7 +22,9 @@ function tagOf(name: string): string {
  * process and are drawn in a sandboxed frame, so nothing in a file runs.
  */
 export function FileViewer(): JSX.Element {
-  const target = usePreviewStore((state) => state.target)
+  const requestedTarget = usePreviewStore((state) => state.target)
+  const [target, setTarget] = useState<PreviewTarget | null>(requestedTarget)
+  const [visible, setVisible] = useState(false)
   const close = usePreviewStore((state) => state.close)
   const [preview, setPreview] = useState<FilePreview | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -32,6 +34,18 @@ export function FileViewer(): JSX.Element {
   // Like a browser side panel: it can shrink to a thin rail and open again.
   const [collapsed, setCollapsed] = useState(false)
   const [wide, setWide] = useState(false)
+
+  useEffect(() => {
+    if (requestedTarget !== null) {
+      setTarget(requestedTarget)
+      const frame = requestAnimationFrame(() => setVisible(true))
+      return () => cancelAnimationFrame(frame)
+    }
+    setVisible(false)
+    // Keep the content mounted until the slide-out finishes.
+    const timer = window.setTimeout(() => setTarget(null), 200)
+    return () => window.clearTimeout(timer)
+  }, [requestedTarget])
 
   useEffect(() => {
     setPreview(null)
@@ -107,7 +121,8 @@ export function FileViewer(): JSX.Element {
         role="complementary"
         aria-label={name}
         data-file-viewer
-        className="fixed top-12 right-0 bottom-0 z-[25] flex w-10 flex-col items-center gap-2 border-t border-l border-line bg-bg py-2"
+        style={{ transform: visible ? 'translateX(0)' : 'translateX(100%)', opacity: visible ? 1 : 0 }}
+        className="fixed top-12 right-0 bottom-0 z-[25] flex w-10 flex-col items-center gap-2 border-t border-l border-line bg-bg py-2 transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none"
       >
         <button
           type="button"
@@ -140,8 +155,8 @@ export function FileViewer(): JSX.Element {
       role="complementary"
       aria-label={name}
       data-file-viewer
-      style={{ width: wide ? 'min(86vw, 1100px)' : 'min(46vw, 640px)', minWidth: 'min(360px, 100vw)' }}
-      className="fixed top-12 right-0 bottom-0 z-[25] flex flex-col border-t border-l border-line bg-bg shadow-[-8px_0_24px_rgba(0,0,0,0.25)]"
+      style={{ width: wide ? 'min(86vw, 1100px)' : 'min(46vw, 640px)', minWidth: 'min(360px, 100vw)', transform: visible ? 'translateX(0)' : 'translateX(100%)', opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none' }}
+      className="fixed top-12 right-0 bottom-0 z-[25] flex flex-col border-t border-l border-line bg-bg shadow-[-8px_0_24px_rgba(0,0,0,0.25)] transition-[transform,opacity,width] duration-200 ease-out motion-reduce:transition-none"
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line-soft pr-2 pl-4">
         <span className="flex h-6 shrink-0 items-center rounded-md bg-raised px-1.5 text-[9px] font-semibold tracking-wide text-dim">
