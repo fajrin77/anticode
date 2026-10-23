@@ -38,6 +38,14 @@ it('reads a markdown link as its label', () => {
   expect(out).not.toContain('](')
 })
 
+it('turns web addresses into links without the trailing punctuation', () => {
+  const out = html('Buka https://drive.google.com/drive/folders/abc?usp=sharing. Lalu [docs](https://example.com/x)')
+  expect(out).toContain('href="https://drive.google.com/drive/folders/abc?usp=sharing"')
+  expect(out).toContain('href="https://example.com/x"')
+  expect(out).toContain('>docs</a>')
+  expect(out).not.toContain('sharing."')
+})
+
 it('draws task boxes and horizontal rules', () => {
   const out = html('- [x] Deploy\n- [ ] Split\n\n---')
   expect(out).toContain('✅')

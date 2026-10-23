@@ -5,7 +5,7 @@ import type { Message, MessagePart } from '../store/session'
 import type { ProviderSelection, RotationEntryStatus } from '@shared/ipc'
 import { PHASE_LABEL } from '@shared/ipc'
 import { ToolBlock } from './ToolBlock'
-import { RichText } from './RichText'
+import { RichText, linkify } from './RichText'
 import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
 import { DiffView } from './DiffView'
@@ -414,7 +414,7 @@ function MessageView({
                 </span>
               </div>
             )}
-            {body.trim() !== '' && <span className="whitespace-pre-wrap">{body}</span>}
+            {body.trim() !== '' && <span className="whitespace-pre-wrap">{linkify(body)}</span>}
             <CopyPromptButton text={body.trim() !== '' ? body : quote} />
           </div>
         )}

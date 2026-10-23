@@ -8,9 +8,39 @@ import type { JSX, ReactNode } from 'react'
  * warrants. The phone page (src/main/remote/public/index.html) carries the
  * same rules in plain DOM; the two should read alike.
  */
+const URL_PATTERN = /https?:\/\/[^\s<>"'`]+/g
+const LINK_CLASS = 'text-brand underline decoration-brand/40 underline-offset-2 break-all hover:decoration-brand'
+
+/** A web address shown as a link; trailing sentence punctuation stays outside it. */
+function webLink(url: string, label: ReactNode, key: string): ReactNode {
+  return (
+    <a key={key} href={url} target="_blank" rel="noreferrer" title={url} className={LINK_CLASS}>
+      {label}
+    </a>
+  )
+}
+
+/** Plain text with clickable web addresses (used for the user's own prompts). */
+export function linkify(text: string, keyPrefix = 'u'): ReactNode[] {
+  const nodes: ReactNode[] = []
+  let cursor = 0
+  let match: RegExpExecArray | null
+  const pattern = new RegExp(URL_PATTERN.source, 'g')
+  while ((match = pattern.exec(text)) !== null) {
+    const raw = match[0]
+    const url = raw.replace(/[.,;:!?)\]}]+$/, '')
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
+    nodes.push(webLink(url, url, `${keyPrefix}-${match.index}`))
+    if (url.length < raw.length) nodes.push(raw.slice(url.length))
+    cursor = match.index + raw.length
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return nodes
+}
+
 function inline(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = []
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]\n]+\]\([^)\s]+\))/g
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s<>"'`]+)/g
   let cursor = 0
   let match: RegExpExecArray | null
   let index = 0
@@ -36,9 +66,19 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
           {inline(token.slice(2, -2), key)}
         </strong>
       )
+    } else if (token.startsWith('http')) {
+      const url = token.replace(/[.,;:!?)\]}]+$/, '')
+      nodes.push(webLink(url, url, key))
+      if (url.length < token.length) nodes.push(token.slice(url.length))
     } else {
       // A markdown link reads as its label; where it points is on hover.
       const label = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token)
+      if (label && /^https?:\/\//.test(label[2]!)) {
+        nodes.push(webLink(label[2]!, inline(label[1]!, key), key))
+        cursor = match.index + token.length
+        index += 1
+        continue
+      }
       nodes.push(
         <span key={key} title={label?.[2]}>
           {inline(label?.[1] ?? token, key)}
