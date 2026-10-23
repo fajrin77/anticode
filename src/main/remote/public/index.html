@@ -417,10 +417,10 @@
     background: var(--glass-panel); border: 1px solid var(--glass-border); border-radius: 10px;
     -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   }
-  .artifact .nm {
-    flex: 1; min-width: 0; font: 12.5px ui-monospace, Menlo, monospace;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
+  .artifact .nm { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .artifact .info { flex: 1; min-width: 0; }
+  .artifact .kind { display: block; font-size: 11.5px; color: #6d6d6d; }
+  .artifact .tag { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 9px; background: #2a2a2a; font-size: 9px; font-weight: 600; letter-spacing: .04em; color: #a3a3a3; }
   .artifact, .att.file { cursor: pointer; }
   .artifact:active .nm, .artifact:active .tag, .att.file:active .nm, .att.file:active .tag { color: #d1fa22; }
   .artifact a, .dirrow .dl { color: #d1fa22; text-decoration: none; font-size: 13.5px; flex: none; }
@@ -2578,15 +2578,23 @@ function artifactEl(sessionId, target) {
   tag.className = 'tag';
   const dot = target.lastIndexOf('.');
   tag.textContent = dot === -1 ? 'FILE' : target.slice(dot + 1, dot + 5).toUpperCase();
+  const ext = dot === -1 ? '' : target.slice(dot).toLowerCase();
+  const kinds = {'.xlsx':'Excel','.xlsm':'Excel','.csv':'CSV','.docx':'Word','.pdf':'PDF','.pptx':'PowerPoint','.zip':'Archive','.png':'Image','.jpg':'Image','.jpeg':'Image','.webp':'Image','.gif':'Image'};
+  const info = document.createElement('span');
+  info.className = 'info';
   const name = document.createElement('span');
   name.className = 'nm';
-  name.textContent = target;
+  name.textContent = target.split(/[\\/]/).pop();
+  const kind = document.createElement('span');
+  kind.className = 'kind';
+  kind.textContent = kinds[ext] || 'File';
+  info.append(name, kind);
   const link = document.createElement('a');
   link.href = downloadUrl(sessionId, target);
   link.textContent = 'Unduh';
   link.setAttribute('download', target.split('/').pop());
   link.onclick = (event) => event.stopPropagation();
-  row.append(tag, name, link);
+  row.append(tag, info, link);
   // Tapping the file itself opens it here; Download is still one tap away.
   row.onclick = () => openFileViewer(sessionId, target, false);
   return row;
