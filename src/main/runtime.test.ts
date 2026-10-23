@@ -654,11 +654,17 @@ it('never rewrites a model the user picked in a session when rotation is switche
   applyRotationEnabled(false)
   // Toggling the switch touches the rotating session, not the pinned one.
   expect(getStatus('a')).toMatchObject({ provider: 'three', model: 'm3' })
-  // Switching rotation back on is a mode change, so the pool covers every
-  // session again; only the pick made while it was on survives as a pin.
+  // Switching rotation back on moves the sessions that follow the default onto
+  // the pool; a session with its own pick keeps it.
+  applyRotationEnabled(true)
+  expect(getStatus('a')).toMatchObject({ provider: 'three', model: 'm3' })
+  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
+
+  // Picking Rotate in that session hands it back to the pool.
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  applyRotationEnabled(false)
   applyRotationEnabled(true)
   expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
-  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
 })
 
 it('puts a session back on the pool when Rotate is picked again', () => {

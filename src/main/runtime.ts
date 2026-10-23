@@ -164,7 +164,7 @@ export function setWorkspaceRoot(root: string): void {
 export async function initPersistedState(): Promise<void> {
   try {
     const raw = await readFile(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')
-    const saved = JSON.parse(raw) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; paused?: boolean; pausedForRetry?: boolean }[]
+    const saved = JSON.parse(raw) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; pinned?: boolean; paused?: boolean; pausedForRetry?: boolean }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
@@ -178,7 +178,8 @@ export async function initPersistedState(): Promise<void> {
         summaries: Array.isArray(entry.summaries) ? entry.summaries : [],
         ...(typeof choice?.provider === 'string' && typeof choice.model === 'string'
           ? { choice: { provider: choice.provider, model: choice.model } }
-          : {})
+          : {}),
+        ...(entry.pinned === true && choice?.provider !== ROTATE_PROVIDER ? { pinned: true } : {})
       })
       rememberSpec(entry.spec)
       if (entry.paused === true) restorePausedSession(entry.spec.sessionId, entry.pausedForRetry === true)
@@ -325,6 +326,10 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   pinSessions()
   if (live !== undefined) {
     live.choice = chosen
+    // A model picked for this session alone survives the global Rotate switch;
+    // picking Rotate puts the session back under it.
+    if (chosen.provider === ROTATE_PROVIDER) delete live.pinned
+    else live.pinned = true
     // Picking Rotate again starts a fresh turn on the pool.
     delete live.promptsOnEntry
     persistSessions()
@@ -549,7 +554,8 @@ export function createSession(spec: SessionSpec): SessionSpec {
     messages: [],
     summaries: [],
     // A draft rebound to its folder on first send keeps the model it was given.
-    ...(previous?.choice !== undefined ? { choice: previous.choice } : {})
+    ...(previous?.choice !== undefined ? { choice: previous.choice } : {}),
+    ...(previous?.pinned === true ? { pinned: true } : {})
   }
   sessions.set(spec.sessionId, live)
   rememberSpec(settled)
@@ -623,7 +629,8 @@ export function cloneSession(
     agent: null,
     messages,
     summaries: structuredClone(source.summaries.slice(0, answeredRuns(messages))),
-    ...(source.choice !== undefined ? { choice: { ...source.choice } } : {})
+    ...(source.choice !== undefined ? { choice: { ...source.choice } } : {}),
+    ...(source.pinned === true ? { pinned: true } : {})
   }
 
   sessions.set(newSessionId, live)
@@ -1237,7 +1244,8 @@ function writeSessions(): void {
     web: webRecord(live.spec.sessionId),
     ...(isPaused(live.spec.sessionId) ? { paused: true } : {}),
     ...(isPausedForRetry(live.spec.sessionId) ? { pausedForRetry: true } : {}),
-    ...(live.choice !== undefined ? { choice: live.choice } : {})
+    ...(live.choice !== undefined ? { choice: live.choice } : {}),
+    ...(live.pinned === true ? { pinned: true } : {})
   }))
   try {
     mkdirSync(directory, { recursive: true })
