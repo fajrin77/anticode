@@ -83,6 +83,69 @@ function lastContent(provider: FakeProvider, turnIndex: number): ContentBlock[] 
 }
 
 describe('AgentSession', () => {
+  it('recovers raw DSML once using native tools without leaking or executing the raw command', async () => {
+    const raw = '< | DSML | invoke name="write_file">< | DSML | parameter name="path">raw.txt'
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'before', name: 'write_file', input: { path: 'before.txt', content: 'confirmed' } }], 'tool_use'),
+      turn([{ type: 'text', text: 'Safe progress. ' + raw }], 'end_turn'),
+      turn([{ type: 'tool_use', id: 'native', name: 'write_file', input: { path: 'native.txt', content: 'native result' } }], 'tool_use'),
+      turn([{ type: 'text', text: 'Finished.' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    let fallbacks = 0
+    session.useProvider(provider, () => { fallbacks++; return null })
+    await session.run({ runId: 'dsml', prompt: 'finish', signal: new AbortController().signal, emit: event => events.push(event) })
+    expect(await readFile(path.join(root, 'before.txt'), 'utf8')).toBe('confirmed')
+    expect(await readFile(path.join(root, 'native.txt'), 'utf8')).toBe('native result')
+    await expect(readFile(path.join(root, 'raw.txt'))).rejects.toThrow()
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+    expect(events.filter(event => event.type === 'tool_end')).toHaveLength(2)
+    expect(events.filter(event => event.type === 'notice')).toHaveLength(1)
+    expect(fallbacks).toBe(0)
+    const visible = JSON.stringify(events)
+    expect(visible).toContain('Safe progress.')
+    expect(visible).not.toContain('< | DSML')
+    expect(visible).not.toContain('raw.txt')
+    expect(JSON.stringify(session.snapshot())).not.toContain('raw.txt')
+    expect(provider.sent).toHaveLength(4)
+    expect(lastContent(provider, 2)).toEqual([expect.objectContaining({ type: 'text', internal: true, text: expect.stringContaining('native structured tool-call') })])
+  })
+
+  it.each([true, false])('stops repeated raw DSML with a clear error and no fallback (deltas: %s)', async deltas => {
+    let requests = 0
+    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-fixture', async *chat() {
+      requests++
+      const raw = '<｜DSML｜invoke name="run_command">do-not-execute'
+      if (deltas) for (const char of raw) yield { type: 'text_delta', text: char }
+      yield { type: 'response', response: turn([{ type: 'text', text: raw }], 'end_turn') }
+    } }
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    let fallbacks = 0
+    session.useProvider(provider, () => { fallbacks++; return null })
+    await session.run({ runId: 'dsml', prompt: 'finish', signal: new AbortController().signal, emit: event => events.push(event) })
+    expect(requests).toBe(2)
+    expect(fallbacks).toBe(0)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('format tool yang tidak valid') })
+    expect(events.filter(event => event.type === 'tool_end')).toEqual([])
+    expect(events.filter(event => event.type === 'text_delta')).toEqual([])
+    expect(JSON.stringify(session.snapshot())).not.toContain('do-not-execute')
+  })
+
+  it('does not execute native calls mixed with malformed DSML in a response-only turn', async () => {
+    let requests = 0
+    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-fixture', async *chat() {
+      requests++
+      yield { type: 'response', response: turn([
+        { type: 'text', text: '<|DSML|invoke name="write_file">raw' },
+        { type: 'tool_use', id: 'mixed', name: 'write_file', input: { path: 'mixed.txt', content: 'must not run' } }
+      ], 'tool_use') }
+    } }
+    await run(provider)
+    expect(requests).toBe(2)
+    await expect(readFile(path.join(root, 'mixed.txt'))).rejects.toThrow()
+    expect(events.filter(event => event.type === 'tool_end')).toEqual([])
+  })
+
   it.each(['deepseek-v4.1-flash:free', 'deepseek/deepseek-v4.1-flash', 'laguna-s-2.1'])('continues text after an old image with %s and restores original images for vision', async (model) => {
     const history: Message[] = [
       { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }, { type: 'text', text: 'jelaskan gambar' }] },

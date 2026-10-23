@@ -1,4 +1,5 @@
 import { closeBrowser, closeSearchPage } from '../browser'
+import { ToolMarkupError, ToolMarkupGuard } from './toolMarkup'
 import { requestLimit } from '../providers/requestLimits'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -658,11 +659,22 @@ export class AgentSession {
 
   private async requestTurn(params: RunParams): Promise<LLMResponse> {
     let reducedForKeyLimit = false
+    let correctedToolMarkup = false
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.streamTurn(params)
       } catch (error) {
         if (params.signal.aborted) throw error
+        if (error instanceof ToolMarkupError) {
+          // No tools from this malformed response have run. Retain only the
+          // safe prose already streamed and retry once on this same route.
+          if (correctedToolMarkup) throw error
+          correctedToolMarkup = true
+          this.keepInterruptedReply()
+          this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[Your previous response used raw DSML control markup in ordinary text. That response did not execute any tools. Use only the native structured tool-call interface supplied in this request. Do not print control markup or command payloads as prose. Continue from the confirmed tool results already in the conversation; do not repeat completed actions. If no tool is needed, answer normally.]' }] })
+          params.emit({ type: 'notice', runId: params.runId, text: 'Format pemanggilan tool tidak valid. Meminta model mengirim ulang melalui tool yang tersedia; perintah dari teks tidak dijalankan.' })
+          continue
+        }
         // Words already shown cannot be taken back: another attempt, or
         // another model, would write its whole reply after them. The run
         // stops instead; the words are kept and Continue carries on from them.
@@ -744,6 +756,12 @@ export class AgentSession {
   private async streamTurn(params: RunParams): Promise<LLMResponse> {
     let response: LLMResponse | null = null
     this.streamed = ''
+    const textGuard = new ToolMarkupGuard()
+    const emitText = (text: string): void => {
+      if (text === '') return
+      this.streamed += text
+      params.emit({ type: 'text_delta', runId: params.runId, text })
+    }
 
     if (modelIsBatchOnly(this.provider.model)) throw new ProviderRequestError('Model batch tidak mendukung chat interaktif. Pilih model tanpa akhiran :batch.', 400)
     const messages = this.requestMessages(params)
@@ -765,11 +783,22 @@ export class AgentSession {
         params.signal.throwIfAborted()
         const event = next.value
         if (event.type === 'text_delta') {
-          this.streamed += event.text
-          params.emit({ type: 'text_delta', runId: params.runId, text: event.text })
+          const filtered = textGuard.push(event.text)
+          emitText(filtered.text)
+          if (filtered.rejected) throw new ToolMarkupError()
         }
-        else response = event.response
+        else {
+          // Also inspect response-only adapters and text that differs from
+          // their deltas before accepting any structured tool calls.
+          const guard = new ToolMarkupGuard()
+          const finalText = event.response.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+          if (guard.push(finalText).rejected || guard.finish().rejected) throw new ToolMarkupError()
+          response = event.response
+        }
       }
+      const tail = textGuard.finish()
+      emitText(tail.text)
+      if (tail.rejected) throw new ToolMarkupError()
     } finally {
       params.signal.removeEventListener('abort', onAbort)
       // Some SDK iterators do not settle next() promptly on abort. Do not make
