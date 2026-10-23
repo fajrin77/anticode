@@ -773,10 +773,8 @@ export function Composer({  status: sharedStatus,
                 </button>
               )}
 
-              {/* Under Rotate usage the model is not picked per session, but the
-                  group every session rotates over is, so with groups made,
-                  the chip opens on that choice. */}
-              <Chip disabled={status?.rotationEnabled === true && (status.rotationGroups ?? []).length === 0} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
+              {/* A session can leave Rotate for a concrete model even without saved groups. */}
+              <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">{shortModel}</span>
               </Chip>
 
