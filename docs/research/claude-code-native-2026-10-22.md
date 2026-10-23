@@ -107,3 +107,28 @@ dan hanya sekitar 366 token yang ditulis ulang. Dugaan awal bahwa transkrip JSON
 memutus cache tidak terbukti pada skala ini, sehingga mesin tidak diubah agar hidup
 antar-prompt. `Usage.cacheWriteTokens` kini melaporkan bagian cache-write secara
 terpisah. Skenario dengan tool besar dan riwayat panjang belum diukur.
+
+## Pengukuran dengan tool dan hasil tool besar (23 Oktober 2026)
+
+Probe nyata `scripts/probe-claude-tools.mjs` (claude-sonnet-5-5, enam tool fixture,
+hasil tool sekitar 3.5 ribu token). Satu model/akun; bukan benchmark coding.
+
+| Panggilan | Keterangan | input | cache-write |
+|---|---|---|---|
+| 1 | tanpa tool | 571 | 569 |
+| 2 | enam skema tool | 1739 | 1737 |
+| 3-6 | satu run, tiga hasil tool | 1839 -> 12594 | hanya bagian baru (746, 3585 x3) |
+| 7 | prompt baru setelah run selesai | 12810 | 11717 |
+
+Temuan:
+- Skema enam tool kecil menambah sekitar 1170 token (sekitar 195 per tool). Anticode
+  memuat lebih banyak tool dengan `alwaysLoad`, jadi bagian ini lebih besar.
+- Di dalam satu run cache bekerja: hanya bagian baru yang ditulis.
+- Setelah run selesai, prompt berikutnya menulis ulang hampir seluruh riwayat
+  (11717 dari 12810 token) ketika riwayat memuat hasil tool. Berbeda dengan probe
+  tanpa tool di atas, cache antar-prompt TERPUTUS pada sesi dengan tool. Cache-write
+  dibilling lebih mahal dari cache-read, jadi ini sumber utama rasa boros.
+- Percobaan memecah transkrip menjadi satu blok per pesan tidak memperbaiki
+  (cache-write 11349), sehingga dibatalkan.
+- Perbaikan yang tersisa: pertahankan proses mesin antar-prompt dalam sesi yang sama.
+  Belum dikerjakan karena menyentuh aturan tutup/buka run, steer, dan pemulihan sesi.
