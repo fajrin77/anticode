@@ -263,11 +263,11 @@ try {
   // Staged is not sent: the picture can be checked at full size first.
   await window.getByTitle('View tangkapan.png').click(); await window.waitForTimeout(400)
   check('a staged picture opens full size before sending',
-    await window.getByRole('dialog', { name: 'tangkapan.png' }).count(), 1)
+    await window.getByRole('complementary', { name: 'tangkapan.png' }).count(), 1)
   await shot('13b-staged-picture-open')
   await window.keyboard.press('Escape'); await window.waitForTimeout(250)
   check('the staged picture closes on Escape',
-    await window.getByRole('dialog', { name: 'tangkapan.png' }).count(), 0)
+    await window.getByRole('complementary', { name: 'tangkapan.png' }).count(), 0)
   await limeOnHover('composer: staged file name', window.locator('button.group\\/name span').first())
   await composer().fill('lihat gambar ini')
   await composer().press('Enter')
