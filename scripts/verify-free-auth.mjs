@@ -48,7 +48,10 @@ try {
     }
     await page.waitForFunction(async kind => (await window.anticode.listAuthAccounts()).some(account => account.kind === kind), kind)
   }
-  await page.locator('[data-auth-vendor="minimax-plan"]').getByRole('button', { name: 'Connect key', exact: true }).click()
+  // Hidden by default; the supported login API exposes its masked key form.
+  assert.equal(await page.locator('[data-auth-vendor="minimax-plan"]').count(), 0)
+  await page.evaluate(() => window.anticode.startAuthLogin('minimax-plan'))
+  await page.locator('[data-account-group="auth-minimax-plan"] button[aria-expanded]').click()
   const input = page.locator('input[aria-label="MiniMax Token Plan sk-cp key"]')
   await input.waitFor()
   assert.equal(await input.getAttribute('type'), 'password')

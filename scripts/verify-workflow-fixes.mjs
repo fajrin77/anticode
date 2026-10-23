@@ -20,7 +20,7 @@ const stub=createServer(async(req,res)=>{
   chunk({content:'Workflow reply: '})
   await new Promise(r=>setTimeout(r,text.includes('slow')?3000:80))
   if(res.destroyed)return
-  chunk({content:'finished'});chunk({},'stop');res.end('data: [DONE]\n\n')
+  chunk({content:text.includes('long history fixture')?'Reading position paragraph.\n\n'.repeat(80):'finished'});chunk({},'stop');res.end('data: [DONE]\n\n')
 })
 await new Promise(r=>stub.listen(0,'127.0.0.1',r))
 await writeFile(path.join(profile,'settings.json'),JSON.stringify({rotation:{entries:[{provider:'clinepass',model:'test-model'}],usage:{}}}))
@@ -33,12 +33,13 @@ try {
   let page=await launch()
   await page.getByRole('button',{name:'antichat',exact:true}).click()
   const composer=()=>page.getByPlaceholder(/just vibes|what to change|Add to the task|Queue the next/)
-  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>{await new Promise(r=>setTimeout(r,500));return{canceled:false,filePaths:[file]}}},attachment)
+  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=()=>new Promise(resolve=>{globalThis.finishAttachmentPicker=()=>resolve({canceled:false,filePaths:[file]})})},attachment)
   await composer().fill('dashboard draft survives settings')
   await page.getByTitle('Attach files',{exact:true}).click()
   await page.getByText(/Preparing attachments/).waitFor()
   await composer().press('Enter')
   assert.equal(requests.length,0)
+  await app.evaluate(()=>globalThis.finishAttachmentPicker())
   await page.getByText('reference.txt',{exact:true}).waitFor()
   await page.getByTitle('Settings',{exact:true}).click()
   await page.getByTitle('Settings',{exact:true}).click()
@@ -62,13 +63,14 @@ try {
   await page.getByRole('button',{name:'Send',exact:true}).waitFor()
 
   // Delay the native picker deterministically; do not alter preparation or send IPC.
-  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>{await new Promise(r=>setTimeout(r,600));return{canceled:false,filePaths:[file]}}},attachment)
+  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=()=>new Promise(resolve=>{globalThis.finishAttachmentPicker=()=>resolve({canceled:false,filePaths:[file]})})},attachment)
   await composer().fill('read the reference')
   const before=requests.length
   await page.getByTitle('Attach files',{exact:true}).click()
   await page.getByText(/Preparing attachments/).waitFor()
   await composer().press('Enter')
   assert.equal(requests.length,before)
+  await app.evaluate(()=>globalThis.finishAttachmentPicker())
   await page.getByText('reference.txt',{exact:true}).waitFor()
   await page.getByText(/Preparing attachments/).waitFor({state:'hidden'})
   await composer().press('Enter')
@@ -118,13 +120,17 @@ try {
   console.log('PASS: missing files after restart remain actionable; text survives')
 
   // Long conversations must retain a reading position across tab switches.
-  await page.evaluate(()=>{const s=window.__store.getState();s.addMessage({id:crypto.randomUUID(),role:'assistant',pending:false,parts:[{kind:'text',text:'Reading position paragraph.\n\n'.repeat(80)}]})})
+  await composer().fill('long history fixture')
+  await composer().press('Enter')
+  await page.getByRole('button',{name:'Pause',exact:true}).waitFor({state:'hidden'})
+  await page.waitForFunction(()=>!Object.keys(window.__store.getState().activeRuns).length)
+  await page.getByText(/Reading position paragraph/).first().waitFor()
   const firstTitle=await page.locator('[data-session-tabs] > div').first().locator('button').first().getAttribute('title')
   const scroller=()=>page.locator('[data-transcript]').locator('..')
-  await scroller().evaluate(el=>{el.scrollTop=250;el.dispatchEvent(new Event('scroll',{bubbles:true}))})
+  await scroller().evaluate(el=>{el.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));el.scrollTop=250;el.dispatchEvent(new Event('scroll',{bubbles:true}))})
   await page.getByRole('button',{name:'New tab',exact:true}).click()
   await page.getByTitle(firstTitle,{exact:true}).click()
-  assert.ok(Math.abs(await scroller().evaluate(el=>el.scrollTop)-250)<2)
+  await page.waitForFunction(()=>Math.abs(document.querySelector('[data-transcript]').parentElement.scrollTop-250)<2)
   console.log('PASS: returning to a long chat restores the reading position')
 
   // Real save IPC and copy, with a delayed native dialog to expose double clicks.
@@ -141,13 +147,17 @@ try {
   await page.evaluate(()=>{const s=window.__store.getState();s.addMessage({id:crypto.randomUUID(),role:'assistant',pending:false,parts:[
     {kind:'tool',toolUseId:crypto.randomUUID(),name:'share_file',status:'ok',input:{path:'good.txt'},output:'Shared good.txt'}
   ]})})
-  await page.getByRole('button',{name:'Download',exact:true}).click()
-  const saving=page.getByRole('button',{name:'Saving…',exact:true})
-  await saving.waitFor()
-  assert.equal(await saving.isDisabled(),true)
+  await scroller().evaluate(el=>{el.scrollTop=el.scrollHeight})
+  await page.getByRole('button',{name:'Open in',exact:true}).click()
+  await page.getByRole('menu',{name:'Open good.txt in',exact:true}).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('menu',{name:'Open good.txt in',exact:true}).waitFor({state:'detached'})
+  await page.getByRole('button',{name:'Open in',exact:true}).click()
+  await page.getByRole('menuitem',{name:'Download a copy',exact:true}).click()
   await page.getByText(`Saved to ${destination}`,{exact:true}).waitFor()
   assert.equal(await app.evaluate(()=>globalThis.saveDialogs),2)
-  console.log('PASS: artifact UI displays Saving, disables repeat clicks and reports destination')
+  console.log('PASS: artifact menu downloads a copy and reports destination')
+
 
 
   await page.getByTitle('Settings',{exact:true}).click()
@@ -155,7 +165,7 @@ try {
   const info=await page.evaluate(()=>window.anticode.getAppInfo())
   assert.equal(typeof info.screenRecording,'string')
   assert.equal(info.version,JSON.parse(await readFile(path.resolve('package.json'),'utf8')).version)
-  assert.equal(await page.getByText('Run without approval prompts, including high-risk actions',{exact:true}).count(),1)
+  assert.equal(await page.getByTitle('Run without approval prompts, including high-risk actions',{exact:true}).count(),1)
   await page.getByText('Refresh permissions',{exact:true}).click()
   await page.screenshot({path:path.join(directory,'capabilities.png')})
   console.log('PASS: settings explains real tool capabilities and reports OS permission status')

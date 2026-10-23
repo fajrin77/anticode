@@ -312,6 +312,36 @@ describe('AgentSession', () => {
     expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
   })
 
+  it('allows repeated narration while tools keep returning new evidence', async () => {
+    const turns: LLMResponse[] = []
+    for (let index = 0; index < 24; index++) {
+      await writeFile(path.join(root, `fact-${index}.txt`), `New evidence ${index}`)
+      turns.push(turn([
+        { type: 'text', text: 'Reading the next fact.' },
+        { type: 'tool_use', id: `fact-${index}`, name: 'read_file', input: { path: `fact-${index}.txt` } }
+      ], 'tool_use'))
+    }
+    turns.push(turn([{ type: 'text', text: 'All facts verified.' }], 'end_turn'))
+    await run(new FakeProvider(turns))
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+    expect(events.filter(event => event.type === 'notice')).toEqual([])
+  })
+
+  it('still stops repeated narration when only tool arguments change', async () => {
+    const check = {
+      name: 'check_status', description: 'Check a stalled job', inputSchema: { type: 'object', properties: {} },
+      readOnly: true,
+      prepare: () => ({ risk: 'low' as const, preview: async () => ({ kind: 'text' as const, subject: 'status', detail: '' }), execute: async () => ({ text: 'Still waiting', images: [] }) })
+    }
+    const provider = new FakeProvider(Array.from({ length: 30 }, (_, index) => turn([
+      { type: 'text', text: 'Checking the same stalled job.' },
+      { type: 'tool_use', id: `check-${index}`, name: 'check_status', input: { attempt: index } }
+    ], 'tool_use')))
+    const session = new AgentSession(provider, allowAll, 'code', root, [], 'stalled', { tools: [check] })
+    await session.run({ runId: 'stalled', prompt: 'finish the job', signal: new AbortController().signal, emit: event => events.push(event) })
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('repeated narration loop') })
+  })
+
   it('persists a provider error as a display-only transcript block', async () => {
     const provider: LLMProvider = { name: 'ollama', model: 'llama3.2', async *chat() {
       throw Object.assign(new Error('Connection error'), {retryAfter:0})

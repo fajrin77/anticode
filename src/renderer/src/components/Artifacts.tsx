@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { MessagePart } from '../store/session'
 import { usePreviewStore } from '../store/preview'
@@ -62,9 +62,35 @@ export function Artifacts({
 }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const savingRef = useRef(new Set<string>())
   const [saved, setSaved] = useState<Record<string, string>>({})
   const preview = usePreviewStore((state) => state.open)
+
+  // The transcript and floating composer create stacking contexts. Put the
+  // menu in the top layer so the last file's actions stay reachable too.
+  useLayoutEffect(() => {
+    const panel = menuRef.current
+    const anchor = panel?.parentElement
+    if (menu === null || !panel || !anchor) return
+    panel.showPopover()
+    const place = (): void => {
+      const bounds = anchor.getBoundingClientRect()
+      const height = panel.offsetHeight
+      const below = window.innerHeight - bounds.bottom - 12
+      panel.style.inset = 'auto'
+      panel.style.left = `${Math.max(12, Math.min(bounds.right - panel.offsetWidth, window.innerWidth - panel.offsetWidth - 12))}px`
+      panel.style.top = `${Math.max(12, below >= height ? bounds.bottom + 4 : bounds.top - height - 4)}px`
+    }
+    place()
+    window.addEventListener('resize', place)
+    document.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      document.removeEventListener('scroll', place, true)
+      if (panel.matches(':popover-open')) panel.hidePopover()
+    }
+  }, [menu])
 
   // Any click outside the open menu, or Escape, closes it.
   useEffect(() => {
@@ -141,8 +167,11 @@ export function Artifacts({
               </button>
               {menu === target && (
                 <div
+                  ref={menuRef}
+                  popover="manual"
                   role="menu"
-                  className="glass-surface absolute top-full right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg border border-line py-1 shadow-2xl"
+                  aria-label={`Open ${baseName(target)} in`}
+                  className="glass-surface fixed m-0 w-52 overflow-hidden rounded-lg border border-line py-1 shadow-2xl"
                 >
                   {[
                     { label: 'Default app', run: () => report(window.anticode.openArtifact(sessionId, target)) },

@@ -17,6 +17,7 @@ await writeFile(path.join(workspace, 'hello.txt'), 'original')
 await writeFile(path.join(workspace, '<b>literal.txt'), 'literal filename')
 let calls = 0
 let disconnectRecovered = false
+const phoneWork = Promise.withResolvers()
 /** What the stub was last sent, so a test can read the framing the model saw. */
 let lastSent = ''
 /** A page for the browser pane to point at, standing in for a dev server. */
@@ -57,7 +58,8 @@ const stub = createServer(async (req, res) => {
     chunk({}, 'tool_calls')
   } else {
     chunk({content:'Fixture reply: '})
-    await new Promise(r=>setTimeout(r,text.includes('slow') ? 2000 : 100))
+    if (text === 'slow phone work') await phoneWork.promise
+    else await new Promise(r=>setTimeout(r,text.includes('slow') ? 2000 : 100))
     if (res.destroyed) return
     chunk({content:text.slice(0,80) || 'done'})
     chunk({}, 'stop')
@@ -119,19 +121,18 @@ try {
   }
   const {sessionId}=await api('/api/session',{mode:'code',folder:workspace})
   await api('/api/prompt',{sessionId,prompt:'write-fixture'})
-  await window.getByRole('button',{name:'Approve',exact:true}).waitFor()
-  // Escape in a text field means "close this", not "reject the pending change".
+  await window.waitForFunction(async () => (await window.anticode.pendingApprovals()).length === 1)
+  assert.equal(await window.getByRole('button',{name:'Approve',exact:true}).count(),0)
+  // Settings cannot decide a session's approval; Escape in its search leaves it pending.
   await window.getByRole('button',{name:'Models',exact:true}).click()
   await window.getByPlaceholder(/Search models/).focus()
   await window.keyboard.press('Escape')
-  await new Promise(r=>setTimeout(r,200))
-  assert.equal(await window.getByRole('button',{name:'Approve',exact:true}).count(),1)
-  await window.getByRole('button',{name:'Remote',exact:true}).click()
-  log('Escape in a text field leaves a pending approval alone')
+  assert.equal(await window.evaluate(async () => (await window.anticode.pendingApprovals()).length),1)
+  await window.locator(`[data-tab-id="${sessionId}"] button[title]`).first().click()
   await window.getByRole('button',{name:'Approve',exact:true}).click()
   await new Promise(r=>setTimeout(r,500))
   assert.equal(await readFile(path.join(workspace,'hello.txt'),'utf8'),'written by approved tool')
-  log('remote tool approval appears in Settings and writes the fixture file')
+  log('remote approval stays pending in Settings and appears in its owning session')
   const remoteRun = await api('/api/prompt', {sessionId,prompt:'slow remote lock'})
   // A second prompt no longer bounces off a working session: from either
   // device it joins the run that is going, rather than starting a rival one.
@@ -193,6 +194,7 @@ try {
   const chatUpload = await api('/api/attachment',{name:'Template_Import_Data_Barang.xlsx',data:Buffer.from(await template.xlsx.writeBuffer()).toString('base64')})
   // Both modes use the same approval policy; only their workspace roots differ.
   await api('/api/prompt',{sessionId:chatSession,prompt:'chat-format-fixture: ubah header biru jadi merah',attachmentIds:[chatUpload.id]})
+  await window.locator(`[data-tab-id="${chatSession}"] button[title]`).first().click()
   await window.getByRole('button',{name:'Approve',exact:true}).waitFor()
   await window.getByRole('button',{name:'Approve',exact:true}).click()
   for (let i=0;i<250;i++) { if (!(await api('/api/session/'+chatSession)).runId) break; await new Promise(r=>setTimeout(r,20)) }
@@ -695,6 +697,7 @@ try {
       return pending.then(() => now)
     })
     assert.equal(cleared, '', 'the phone kept the sent prompt in the box')
+    phoneWork.resolve()
     await screen.waitForFunction((label) =>
       [...document.querySelectorAll('#transcript .notice')].some((el) => el.textContent === label),
       'Follow-up added.', { timeout: 5000 })
@@ -712,8 +715,9 @@ try {
     await screen.waitForFunction(() => currentRunId === null, null, { timeout: 15000 })
     const snapshot = await api('/api/session/' + sessionId)
     const followUp = snapshot.messages.flatMap((m) => m.blocks).find((b) => b.type === 'text' && b.text === 'tambah dari hp')
-    assert.equal(followUp?.followUp, 'during', 'the run did not take the phone follow-up in')
-    log('a phone prompt sent mid-run joins the run, on both screens')
+    assert.ok(followUp, 'the queued phone prompt was not preserved')
+    assert.ok(snapshot.messages.some(m=>m.role==='assistant' && m.blocks.some(b=>b.type==='text' && b.text.includes('Fixture reply: tambah dari hp'))), 'the queued phone prompt did not receive a reply')
+    log('a phone prompt sent mid-run is queued, shown on both screens and completed')
 
     // A live snapshot must retain deltas emitted before the request. Previously
     // a refresh replaced them with the agent's unfinished persisted transcript.

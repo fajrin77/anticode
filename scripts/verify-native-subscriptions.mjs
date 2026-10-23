@@ -61,6 +61,7 @@ try {
   await page.screenshot({ path: path.join(directory, 'native-routing.png') })
   const result = await page.evaluate(async (workspace) => {
     const api = window.anticode
+    await api.setProviderGroupVisibility('codex', true)
     await api.setAutoApprove(true)
     await api.createSession({ sessionId: 'native-test', mode: 'code', workspaceRoot: workspace })
     const done = new Promise((resolve, reject) => {

@@ -444,6 +444,7 @@ export class AgentSession {
     let steps = 0
     const recentToolRounds: string[][] = []
     const recentNarrations: string[][] = []
+    const narrationEvidence = new Set<string>()
     let blockedContinuation = false
     if (isContinuation(prompt)) {
       let boundary = 0
@@ -552,6 +553,22 @@ export class AgentSession {
         if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
           recentToolRounds.length = 0
           planNudgesWithoutWork = 0
+        }
+        // Repeated wording is harmless while tools return new evidence. Hash
+        // successful output independently of call ids/inputs so changing only
+        // the arguments of an unproductive check does not evade this guard.
+        let newNarrationEvidence = added.length > 0
+        for (const result of results) {
+          if (result.type !== 'tool_result' || result.isError) continue
+          const fingerprint = createHash('sha256').update(stableJSON({
+            content: result.content, diff: result.diff, images: roundImages
+          })).digest('hex')
+          if (!narrationEvidence.has(fingerprint)) newNarrationEvidence = true
+          narrationEvidence.add(fingerprint)
+        }
+        if (newNarrationEvidence) {
+          recentNarrations.length = 0
+          narrationNudges = 0
         }
         // A model can announce the same step again and again while its tool
         // inputs differ slightly, which the exact-call guard never sees.

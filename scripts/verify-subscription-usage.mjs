@@ -45,6 +45,7 @@ try {
   await page.getByTitle('Settings', { exact: true }).click()
   await page.getByRole('button', { name: 'Usage', exact: true }).click()
   const panel = page.locator('[data-subscription-usage]')
+  await panel.locator('[data-quota-group="claude"] summary').click()
   const first = panel.locator('[data-quota-account="auth:claude-0"]')
   await first.getByRole('progressbar', { name: /Batas sesi/ }).waitFor()
   assert.equal(await first.getByRole('progressbar', { name: /Batas sesi/ }).getAttribute('aria-valuenow'), '17')

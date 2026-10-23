@@ -673,7 +673,9 @@ it('puts a session back on the pool when Rotate is picked again', () => {
   applyRotationEnabled(true)
   selectProvider({ provider: 'three', model: 'm3' }, 'a')
   expect(getStatus('a').provider).toBe('three')
+  expect(modelOf('a')).toBe('m3')
 
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
+  expect(['m1', 'm2']).toContain(modelOf('a'))
 })

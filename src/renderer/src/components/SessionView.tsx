@@ -1143,11 +1143,22 @@ export function SessionView(): JSX.Element {
     following.current = busy || (saved?.following ?? true)
     seenPrompts.current = saved?.prompts ?? promptCount
     box.scrollTop = following.current ? box.scrollHeight : (saved?.top ?? box.scrollHeight)
-    settleUntil.current = following.current ? Date.now() + 1200 : 0
+    const restoring = !following.current && saved !== undefined
+    const previousAnchor = box.style.overflowAnchor
+    // Lazy message layout can make Chromium anchor to a different paragraph
+    // after scrollTop was restored. Hold the saved offset while that initial
+    // layout settles; wheel/touch input cancels settling immediately.
+    if (restoring) box.style.overflowAnchor = 'none'
+    settleUntil.current = following.current || restoring ? Date.now() + 1200 : 0
+    const settlePosition = (): void => {
+      if (Date.now() >= settleUntil.current) return
+      if (following.current) box.scrollTop = box.scrollHeight
+      else if (saved !== undefined) box.scrollTop = saved.top
+    }
+    const frame = requestAnimationFrame(settlePosition)
+    const anchorTimer = window.setTimeout(() => { box.style.overflowAnchor = previousAnchor }, 1200)
     const content = box.querySelector<HTMLElement>('[data-transcript]')
-    const settle = content === null ? null : new ResizeObserver(() => {
-      if (following.current && Date.now() < settleUntil.current) box.scrollTop = box.scrollHeight
-    })
+    const settle = content === null ? null : new ResizeObserver(settlePosition)
     if (content !== null) settle?.observe(content)
     const savePosition = () => {
       if (!useSessionStore.getState().sessions.some(s => s.id === id)) return
@@ -1155,7 +1166,14 @@ export function SessionView(): JSX.Element {
       useSessionStore.setState(state => ({ readPositions: { ...state.readPositions, [id]: position } }))
     }
     window.addEventListener('beforeunload', savePosition)
-    return () => { settle?.disconnect(); window.removeEventListener('beforeunload', savePosition); savePosition() }
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(anchorTimer)
+      box.style.overflowAnchor = previousAnchor
+      settle?.disconnect()
+      window.removeEventListener('beforeunload', savePosition)
+      savePosition()
+    }
     // Busy is read once per tab switch, which is all it decides for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id])

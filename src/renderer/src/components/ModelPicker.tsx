@@ -124,6 +124,11 @@ export function ModelPicker({
                 if (entry.available) {
                   setViewing(entry.id)
                   setQuery('')
+                  // Rotate is a complete choice, unlike a provider tab that
+                  // still needs a model. Activate it as soon as it is clicked.
+                  if (entry.id === ROTATE_PROVIDER && provider !== ROTATE_PROVIDER) {
+                    onSelect(ROTATE_PROVIDER, '')
+                  }
                 }
               }}
               title={entry.hint}

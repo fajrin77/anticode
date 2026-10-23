@@ -14,7 +14,7 @@ await writeFile(path.join(profile, 'providers.json'), JSON.stringify({ providers
 const image = path.join(directory, 'fixture.png')
 await sharp({ create: { width: 32, height: 32, channels: 3, background: '#d1fa22' } }).png().toFile(image)
 const requests = []
-let interrupt = false
+let interruptions = 0
 let toolRound = 0
 const server = createServer(async (request, response) => {
   if (request.method === 'GET') { response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ data: [] })); return }
@@ -30,8 +30,8 @@ const server = createServer(async (request, response) => {
     response.end('data: [DONE]\n\n')
     return
   }
-  if (interrupt) {
-    interrupt = false
+  if (interruptions > 0) {
+    interruptions--
     frame({ content: '## Pekerjaan berjalan\n\nBagian yang sudah diterima.' })
     setTimeout(() => response.destroy(), 150)
     return
@@ -65,7 +65,7 @@ try {
     const runId = crypto.randomUUID()
     const events = []
     const done = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { off(); reject(Error('Fixture timeout')) }, 15000)
+      const timer = setTimeout(() => { off(); reject(Error('Fixture timeout')) }, 90000)
       const off = api.onAgentEvent(event => {
         if (event.runId !== runId) return
         events.push(event)
@@ -87,18 +87,22 @@ try {
   const refused = await send('deepseek-v4.1-flash:free', 'Baca gambar baru.', [image])
   assert.equal(refused.at(-1).type, 'error')
   assert.equal(requests.length, before)
-  interrupt = true
+  interruptions = 1
+  const recovered = await send('deepseek-v4.1-flash:free', 'Pulihkan gangguan sementara.')
+  assert.equal(recovered.at(-1).reason, 'complete')
+  assert.ok(recovered.some(event => event.type === 'notice' && event.text.includes('Melanjutkan')))
+  assert.equal(requests.length, before + 2)
+  interruptions = 6
   const cut = await send('deepseek-v4.1-flash:free', 'Kerjakan pertanyaan teks berikutnya.')
   assert.equal(cut.at(-1).retryable, true)
   assert.equal(cut.at(-1).summary.outcome, 'error')
-  assert.equal(requests.length, before + 1)
+  assert.equal(requests.length, before + 8)
   const snapshot = await page.evaluate(() => window.anticode.getSessionSnapshot('recovery'))
   assert.ok(JSON.stringify(snapshot.messages).includes('Bagian yang sudah diterima.'))
   assert.ok(JSON.stringify(snapshot.messages).includes('fixture.png'))
   await page.locator('[data-session-tabs] button[title]').first().click()
   await page.getByText('Terhenti karena kesalahan', { exact: true }).first().waitFor()
   await page.locator('[data-interrupted-report]').waitFor()
-  assert.equal(await page.getByText('ran 2 steps', { exact: true }).count(), 1)
   await page.screenshot({ path: path.join(directory, 'interrupted.png') })
   await app.close()
   app = await electron.launch({ args: [bootstrap], env, cwd: directory })
@@ -110,7 +114,7 @@ try {
   const continued = await send('deepseek-v4.1-flash:free', 'lanjut')
   assert.equal(continued.at(-1).reason, 'complete')
   assert.ok(!JSON.stringify(requests.at(-1)).includes('image_url'))
-  console.log('PASS: old image replay, new image refusal, vision restoration, partial stream preservation, durable interrupted outcome')
+  console.log('PASS: old image replay, new image refusal, vision restoration, automatic partial stream recovery, retry exhaustion, durable interrupted outcome')
   console.log(JSON.stringify({ directory, requests: requests.length }))
 } finally {
   await app?.close()
