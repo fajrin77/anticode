@@ -46,6 +46,8 @@ type Section = 'general' | 'providers' | 'auth' | 'models' | 'usage' | 'mcp' | '
 
 // Remembered across leaving and reopening Settings, so it reopens where it was left.
 let lastSection: Section = 'general'
+/** Scroll position of each page, kept while Settings is closed. */
+const scrollBySection: Partial<Record<Section, number>> = {}
 
 function Tag({ children }: { children: string }): JSX.Element {
   return (
@@ -2108,7 +2110,17 @@ export function SettingsView({
 
       {/* The scrollbar's room is kept whether or not a page needs it, so a
           short page and a long one line up to the pixel. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10 [scrollbar-gutter:stable]">
+      <div
+        ref={(node) => {
+          if (node !== null && node.dataset.restored !== section) {
+            node.dataset.restored = section
+            node.scrollTop = scrollBySection[section] ?? 0
+            requestAnimationFrame(() => { node.scrollTop = scrollBySection[section] ?? 0 })
+          }
+        }}
+        onScroll={(event) => { scrollBySection[section] = event.currentTarget.scrollTop }}
+        className="min-h-0 flex-1 overflow-y-auto px-10 pt-8 pb-10 [scrollbar-gutter:stable]"
+      >
         <div className={`mx-auto ${section === 'usage' ? 'max-w-4xl' : 'max-w-2xl'}`}>
           {section === 'general' && (
             <General status={status} providers={providers} onToggleAutoApprove={onToggleAutoApprove} />

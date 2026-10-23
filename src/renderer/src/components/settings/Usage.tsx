@@ -76,8 +76,15 @@ function Card({ label, value, sub, accent }: { label: string; value: string; sub
  * the chars/4 replay estimate. Ranges filter by request timestamp, so
  * Today / 7D / 30D / All always agree with the rows below them.
  */
+/** Survives leaving Settings and coming back; a fresh launch starts on 7D. */
+let lastRange: RangeId = '7d'
+
 export function Usage(): JSX.Element {
-  const [range, setRange] = useState<RangeId>('7d')
+  const [range, setRangeState] = useState<RangeId>(lastRange)
+  const setRange = (next: RangeId): void => {
+    lastRange = next
+    setRangeState(next)
+  }
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [tab, setTab] = useState<'overview' | 'details'>('overview')
   const [summary, setSummary] = useState<UsageSummary | null>(null)
