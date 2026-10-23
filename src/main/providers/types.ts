@@ -52,6 +52,8 @@ export interface Usage {
   outputTokens: number
   /** Prompt tokens served from cache, when the vendor reports it. */
   cachedTokens?: number
+  /** Part of cachedTokens that was newly written to cache (billed above plain input), when reported. */
+  cacheWriteTokens?: number
 }
 
 export interface LLMResponse {

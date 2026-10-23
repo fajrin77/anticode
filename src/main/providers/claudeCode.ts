@@ -56,7 +56,9 @@ class ClaudeCodeRun {
   private engine?: Query
   private text = ''
   private readonly usages = new Map<string, Usage>()
+  private readonly writes = new Map<string, number>()
   private reported: Usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }
+  private reportedWrites = 0
   private inputItems: SDKUserMessage[] = []
   private inputWake: (() => void) | undefined
   syncedLength: number
@@ -73,9 +75,12 @@ class ClaudeCodeRun {
   private push(item: Item): void { this.items.push(item); this.wake?.(); this.wake = undefined }
   private takeUsage(): Usage {
     const total = [...this.usages.values()].reduce((a, b) => ({ inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens, cachedTokens: (a.cachedTokens ?? 0) + (b.cachedTokens ?? 0) }), { inputTokens: 0, outputTokens: 0, cachedTokens: 0 })
+    const written = [...this.writes.values()].reduce((a, b) => a + b, 0)
     const delta = { inputTokens: total.inputTokens - this.reported.inputTokens, outputTokens: total.outputTokens - this.reported.outputTokens, cachedTokens: (total.cachedTokens ?? 0) - (this.reported.cachedTokens ?? 0) }
+    const writeDelta = written - this.reportedWrites
+    this.reportedWrites = written
     this.reported = total
-    return delta
+    return writeDelta > 0 ? { ...delta, cacheWriteTokens: writeDelta } : delta
   }
   steer(params: ChatParams): void {
     const messages = params.messages.slice(this.syncedLength).filter(m => m.role === 'user').map(m => ({ ...m, content: m.content.filter(b => b.type === 'text' || b.type === 'image') })).filter(m => m.content.length)
@@ -151,6 +156,7 @@ class ClaudeCodeRun {
           if (actual && actual !== this.model && !actual.startsWith(this.model + '-20')) throw new ProviderRequestError(`Claude Code returned a different model (${actual}); expected ${this.model}.`, 400)
           const usage = message.message.usage
           const previous = this.usages.get(message.message.id)
+          this.writes.set(message.message.id, Math.max(this.writes.get(message.message.id) ?? 0, usage.cache_creation_input_tokens ?? 0))
           this.usages.set(message.message.id, { inputTokens: Math.max(previous?.inputTokens ?? 0, usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)), outputTokens: Math.max(previous?.outputTokens ?? 0, usage.output_tokens), cachedTokens: Math.max(previous?.cachedTokens ?? 0, (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)) })
         }
         if (message.type === 'result') {

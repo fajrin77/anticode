@@ -89,3 +89,21 @@ Diagnostik opsional `scripts/probe-claude-subscription.mjs` membandingkan HTTP
 langsung dan router. `scripts/probe-claude-code.mjs` menguji adapter native.
 Keduanya membaca akun 9Router yang sudah ada hanya untuk probe satu kali; ini
 bukan dependensi aplikasi dan tidak menulis token ke laporan.
+
+## Pengukuran cache antar-prompt (23 Oktober 2026)
+
+Probe nyata `scripts/probe-claude-cache.mjs` (claude-sonnet-5-5, tanpa tool, tiga
+prompt berurutan dengan signal baru tiap prompt, seperti loop Anticode). Bukan
+benchmark coding dan hanya satu model/akun.
+
+| Prompt | input total | cache (read+write) | cache-write |
+|---|---|---|---|
+| 1 | 6285 | 6283 | 366 |
+| 2 | 6347 | 6345 | 366 |
+| 3 | 6409 | 6407 | 366 |
+
+Kesimpulan: cache tidak terputus antar-prompt; sekitar 94% input adalah cache-read
+dan hanya sekitar 366 token yang ditulis ulang. Dugaan awal bahwa transkrip JSON
+memutus cache tidak terbukti pada skala ini, sehingga mesin tidak diubah agar hidup
+antar-prompt. `Usage.cacheWriteTokens` kini melaporkan bagian cache-write secara
+terpisah. Skenario dengan tool besar dan riwayat panjang belum diukur.
