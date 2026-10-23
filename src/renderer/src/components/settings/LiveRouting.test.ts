@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageRecord } from '@shared/ipc'
-import { LIVE_WINDOW_MS, accountTitle, routingNodes } from './LiveRouting'
+import { LIVE_WINDOW_MS, accountTitle, routingNodes, titleParts } from './LiveRouting'
 
 const row = (provider: string, ts: number, tokens = 10, model = 'm'): UsageRecord => ({
   ts, sessionId: 's', runId: 'r', provider, providerLabel: provider.toUpperCase(), model,
@@ -26,6 +26,11 @@ describe('routingNodes', () => {
   it('does not repeat the identity already in the label', () => {
     const base = { id: 'auth:claude', kind: 'claude' as const, label: 'Claude · dev@example.com', refreshable: true, createdAt: 1, usable: true }
     expect(accountTitle({ id: 'auth:claude', label: 'claude' }, { ...base, account: 'dev@example.com' })).toBe('Claude · dev@example.com')
+  })
+
+  it('splits the name from the identity', () => {
+    expect(titleParts('Claude Code · a@b.com')).toEqual({ name: 'Claude Code', who: 'a@b.com' })
+    expect(titleParts('X')).toEqual({ name: 'X', who: '' })
   })
 
   it('is empty without requests', () => {

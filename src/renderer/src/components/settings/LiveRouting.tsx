@@ -61,6 +61,12 @@ export function accountTitle(node: Pick<RoutingNode, 'id' | 'label'>, account: A
   return who !== '' && !name.includes(who) ? `${name} · ${who}` : name
 }
 
+/** Splits `Name · identity` so a long email gets its own line. */
+export function titleParts(title: string): { name: string; who: string } {
+  const i = title.indexOf(' · ')
+  return i < 0 ? { name: title, who: '' } : { name: title.slice(0, i), who: title.slice(i + 3) }
+}
+
 function short(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
@@ -172,22 +178,27 @@ export function LiveRouting(): JSX.Element {
                 <title>{`${node.title} · ${node.model} · ${node.requests} req · ${node.tokens.toLocaleString('en-US')} tokens`}</title>
                 <rect
                   x={x - 104}
-                  y={y - 24}
+                  y={y - 31}
                   width={208}
-                  height={48}
+                  height={62}
                   rx={9}
                   fill={node.live ? '#1d2108' : '#17181b'}
                   stroke={node.live ? '#d1fa22' : '#3a3c42'}
                   strokeWidth={node.live ? 1.4 : 1}
                   filter={node.live ? 'url(#neural-glow)' : undefined}
                 />
-                <text x={x} y={y - 6} textAnchor="middle" fontSize={11.5} fill={node.live ? '#f1ffb8' : '#d4d4d8'}>
-                  {short(node.title, 36)}
+                <text x={x} y={y - 15} textAnchor="middle" fontSize={11} fill={node.live ? '#f1ffb8' : '#d4d4d8'}>
+                  {short(titleParts(node.title).name, 28)}
                 </text>
-                <text x={x} y={y + 9} textAnchor="middle" fontSize={9.5} fill="#8b8d95">
+                {titleParts(node.title).who !== '' && (
+                  <text x={x} y={y - 2} textAnchor="middle" fontSize={9.5} fill={node.live ? '#dfeaa0' : '#b5b7bd'}>
+                    {short(titleParts(node.title).who, 34)}
+                  </text>
+                )}
+                <text x={x} y={y + 12} textAnchor="middle" fontSize={9} fill="#8b8d95">
                   {short(node.model, 30)}
                 </text>
-                <text x={x} y={y + 20} textAnchor="middle" fontSize={8.5} fill={node.live ? '#d1fa22' : '#6b6d75'}>
+                <text x={x} y={y + 24} textAnchor="middle" fontSize={8.5} fill={node.live ? '#d1fa22' : '#6b6d75'}>
                   {node.live ? 'in use' : `${node.requests} req`}
                 </text>
               </g>
