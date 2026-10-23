@@ -3,7 +3,8 @@
 Perbaikan ini menyusul screenshot pada versi 0.0.88: dashboard tetap Rotate
 setelah memilih model manual, grup berisi pasangan Laguna/Claude yang tidak
 sesuai, batas request key lebih kecil dari konteks, dan varian gratis yang
-sudah dihentikan. Perubahan belum dipublish atau dipasang ke aplikasi pengguna.
+sudah dihentikan. Target distribusi perbaikan ini adalah versi 0.0.89; pengujian
+di bawah tidak mengganti aplikasi pengguna yang sedang berjalan.
 
 ## Perilaku
 
