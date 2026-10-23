@@ -70,7 +70,7 @@ export function listProviders(): ProviderInfo[] {
       models,
       kind: 'auth',
       authKind: account.kind,
-      billing: ['codex', 'claude', 'opencode-go', 'minimax-plan', 'clinepass'].includes(account.kind) ? 'subscription' : ['cline', 'kilo', 'openrouter'].includes(account.kind) ? 'free' : 'unknown',
+      billing: ['codex', 'claude', 'opencode-go', 'minimax-plan', 'clinepass'].includes(account.kind) ? 'subscription' : ['cline', 'kilo', 'openrouter', 'vercel'].includes(account.kind) ? 'free' : 'unknown',
       baseURL: '',
       hasKey: tokens !== null
     }

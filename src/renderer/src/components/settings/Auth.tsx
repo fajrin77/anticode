@@ -32,7 +32,8 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
     hint: 'Sign in at codebuddy.ai; the account speaks OpenAI’s wire format.'
   },
   { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
-  { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Login dan setujui akses di browser; Anticode menerima kodenya otomatis lewat localhost. Hanya rute model gratis yang dipakai.' }
+  { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Login dan setujui akses di browser; Anticode menerima kodenya otomatis lewat localhost. Hanya rute model gratis yang dipakai.' },
+  { kind: 'vercel', title: 'Vercel AI Gateway Free', hint: 'Buat API key di dashboard Vercel AI Gateway lalu tempel di sini; hanya rute :free yang dipakai.' }
 ]
 
 /** Vendors kept in code but not offered for new sign-ins. */
@@ -265,7 +266,7 @@ export function Auth({
                 type="password"
                 autoComplete="off"
                 spellCheck={false}
-                aria-label={state.kind === 'claude' ? 'Claude code#state or callback URL' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'openrouter' ? 'OpenRouter authorization code' : 'Authorization code or key'}
+                aria-label={state.kind === 'claude' ? 'Claude code#state or callback URL' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'openrouter' ? 'OpenRouter authorization code' : state.kind === 'vercel' ? 'Vercel AI Gateway API key' : 'Authorization code or key'}
                 value={codes[state.id] ?? ''}
                 autoFocus
                 onChange={(event) =>

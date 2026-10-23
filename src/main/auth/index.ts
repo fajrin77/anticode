@@ -98,6 +98,7 @@ function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
     case 'minimax-plan': return undefined
     case 'kilo': return tokens.meta?.email || undefined
     case 'openrouter': return undefined
+    case 'vercel': return undefined
     case 'opencode-go': return undefined
     case 'codex':
       return codexLabel(tokens)
@@ -181,7 +182,7 @@ export async function loginAuthAccount(
 
 /** True when the vendor has a refresh grant we can call for this account. */
 export function canRefreshAuthAccount(kind: AuthKind): boolean {
-  return !['opencode-go', 'kilo', 'openrouter', 'minimax-plan'].includes(kind)
+  return !['opencode-go', 'kilo', 'openrouter', 'vercel', 'minimax-plan'].includes(kind)
 }
 
 /**
