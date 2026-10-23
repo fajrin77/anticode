@@ -22,7 +22,7 @@ async function run(text, toolList) {
   for (;;) {
     let response
     for await (const e of provider.chat({ sessionId: 'tools-probe', system, messages, tools: toolList, maxTokens: 1024, signal: controller.signal })) if (e.type === 'response') response = e.response
-    rows.push({ call: ++sent, ...response.usage, stop: response.stopReason })
+    rows.push({ call: ++sent, ...response.usage, stop: response.stopReason }); console.log(JSON.stringify(rows.at(-1)))
     messages.push({ role: 'assistant', content: response.content })
     const uses = response.content.filter(b => b.type === 'tool_use')
     if (!uses.length) break
@@ -36,4 +36,6 @@ try {
   await run('Call read_file with query "a", then search_files with query "b", then run_command with query "c" (one at a time), then reply DONE.', tools)
   await run('Say OK in one word.', tools)
 } catch (e) { rows.push({ error: String(e.message).split(tokens.accessToken).join('[redacted]').slice(0, 400) }) }
-for (const r of rows) console.log(JSON.stringify(r))
+if (rows.at(-1)?.error) console.log(JSON.stringify(rows.at(-1)))
+// Kept engines stay alive between prompts by design; end the probe explicitly.
+process.exit(0)

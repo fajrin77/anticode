@@ -47,6 +47,14 @@ export function claudeCodePrompt(params: ChatParams): SDKUserMessage {
 type ToolReply = { content: { type: 'text'; text: string }[]; isError?: boolean }
 type Item = ProviderEvent | Error
 const runs = new Map<string, ClaudeCodeRun>()
+/** An engine kept between prompts of one session stays warm (prompt cache, no re-sent transcript) this long. */
+const IDLE_MS = 10 * 60_000
+/** The engine's maxTurns counts across the whole kept session; renew well before it. */
+const MAX_KEPT_TURNS = 60
+/** Fingerprint of what the user said so far; any edit, rewind or compaction changes it. */
+function userKey(messages: ChatParams['messages']): string {
+  return JSON.stringify(messages.filter(m => m.role === 'user').map(m => m.content.flatMap(b => b.type === 'text' ? [b.text] : b.type === 'image' ? [`image:${b.data.length}`] : [])))
+}
 
 class ClaudeCodeRun {
   readonly pending = new Map<string, (reply: ToolReply) => void>()
@@ -64,11 +72,20 @@ class ClaudeCodeRun {
   syncedLength: number
   readonly toolKey: string
   private closed = false
-  private completed = false
+  /** True while a prompt is being answered; false while parked between prompts. */
+  private active = true
+  idle = false
+  private idleTimer?: ReturnType<typeof setTimeout>
+  private userKey: string
+  private turns = 0
+  private system: string
+  private maxTokens: number
   private directory?: string
   private readonly onAbort = (): void => this.close()
-  constructor(readonly key: string, readonly token: string, readonly params: ChatParams, readonly model: string) {
+  constructor(readonly key: string, readonly token: string, public params: ChatParams, readonly model: string) {
     this.syncedLength = params.messages.length
+    this.userKey = userKey(params.messages)
+    this.system = params.system; this.maxTokens = params.maxTokens
     this.toolKey = params.tools.map(t => t.name).sort().join('\n')
     params.signal.addEventListener('abort', this.onAbort, { once: true })
   }
@@ -85,7 +102,27 @@ class ClaudeCodeRun {
   steer(params: ChatParams): void {
     const messages = params.messages.slice(this.syncedLength).filter(m => m.role === 'user').map(m => ({ ...m, content: m.content.filter(b => b.type === 'text' || b.type === 'image') })).filter(m => m.content.length)
     this.syncedLength = params.messages.length
+    this.userKey = userKey(params.messages)
     if (messages.length) { this.inputItems.push(claudeCodePrompt({ ...params, messages })); this.inputWake?.(); this.inputWake = undefined }
+  }
+  /** Whether a parked engine can answer this prompt with exactly the context it already holds. */
+  canResume(params: ChatParams): boolean {
+    const next = params.messages.slice(this.syncedLength)
+    return !this.closed && this.turns < MAX_KEPT_TURNS && params.system === this.system && params.maxTokens === this.maxTokens
+      && next[0]?.role === 'assistant' && next.slice(1).some(m => m.role === 'user' && m.content.some(b => b.type === 'text' || b.type === 'image'))
+      && userKey(params.messages.slice(0, this.syncedLength)) === this.userKey
+  }
+  resume(params: ChatParams): void {
+    clearTimeout(this.idleTimer)
+    this.idle = false; this.active = true; this.text = ''; this.items = []
+    this.params = params
+    params.signal.addEventListener('abort', this.onAbort, { once: true })
+  }
+  private park(): void {
+    this.active = false; this.idle = true; this.text = ''
+    this.params.signal.removeEventListener('abort', this.onAbort)
+    this.idleTimer = setTimeout(() => this.close(), IDLE_MS)
+    this.idleTimer.unref?.()
   }
   private async *input(): AsyncIterable<SDKUserMessage> {
     yield claudeCodePrompt(this.params)
@@ -98,6 +135,7 @@ class ClaudeCodeRun {
   close(): void {
     if (this.closed) return
     this.closed = true
+    clearTimeout(this.idleTimer)
     this.params.signal.removeEventListener('abort', this.onAbort)
     this.controller.abort()
     for (const resolve of this.pending.values()) resolve({ content: [{ type: 'text', text: 'Anticode cancelled this operation.' }], isError: true })
@@ -152,6 +190,7 @@ class ClaudeCodeRun {
             const detail = message.message.content.filter(b => b.type === 'text').map(b => b.text).join(' ')
             throw new ProviderRequestError(`Claude Code ${message.error}: ${detail}`, statuses[message.error] ?? 500)
           }
+          this.turns++
           const actual = message.message.model
           if (actual && actual !== this.model && !actual.startsWith(this.model + '-20')) throw new ProviderRequestError(`Claude Code returned a different model (${actual}); expected ${this.model}.`, 400)
           const usage = message.message.usage
@@ -164,21 +203,20 @@ class ClaudeCodeRun {
             const detail = message.subtype === 'success' ? message.result : message.errors.join(' ')
             throw new Error(`Claude Code: ${detail}`)
           }
+          // A result nobody is waiting for (a steered message answered late) is dropped.
+          if (!this.active) { this.text = ''; this.takeUsage(); continue }
           const text = this.text || message.result
           if (!text.trim()) throw new Error('Claude Code finished without a final answer.')
-          this.completed = true
-          // A caller may immediately start the next turn while the SDK is
-          // still closing its previous iterator. Never reuse that spent run.
-          if (runs.get(this.key) === this) runs.delete(this.key)
           this.push({ type: 'response', response: { content: [{ type: 'text', text }], stopReason: 'end_turn', usage: this.takeUsage() } })
-          break
+          // Keep the engine for the next prompt of this session; it closes on idle, abort of a later prompt, or any context change.
+          this.park()
         }
       }
-      if (!this.closed && !this.completed) {
+      if (!this.closed && this.active) {
         this.push(new Error('Claude Code ended before completing the response.'))
       }
     } catch (error) {
-      if (!this.closed) {
+      if (!this.closed && this.active) {
         const detail = (error instanceof Error ? error.message : 'Claude Code failed').split(this.token).join('[redacted]')
         this.push(error instanceof ProviderRequestError ? new ProviderRequestError(detail, error.status, error.scope) : new Error(detail))
       }
@@ -199,8 +237,9 @@ export class ClaudeCodeProvider implements LLMProvider {
     let run = runs.get(key)
     // The engine's tool list is fixed at start; a changed list (load_tools) needs a fresh run built from the transcript.
     const toolKey = params.tools.map(t => t.name).sort().join('\n')
-    if (run && (run.model !== this.model || run.params.signal !== params.signal || run.token !== this.token || run.toolKey !== toolKey)) { run.close(); run = undefined }
+    if (run && (run.model !== this.model || run.token !== this.token || run.toolKey !== toolKey || (run.idle ? !run.canResume(params) : run.params.signal !== params.signal))) { run.close(); run = undefined }
     if (run) {
+      if (run.idle) run.resume(params)
       run.steer(params)
       for (const block of params.messages.flatMap(m => m.content)) {
         if (block.type !== 'tool_result') continue

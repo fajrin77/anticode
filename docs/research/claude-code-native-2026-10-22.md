@@ -132,3 +132,20 @@ Temuan:
   (cache-write 11349), sehingga dibatalkan.
 - Perbaikan yang tersisa: pertahankan proses mesin antar-prompt dalam sesi yang sama.
   Belum dikerjakan karena menyentuh aturan tutup/buka run, steer, dan pemulihan sesi.
+
+## Engine dipertahankan antar-prompt (23 Oktober 2026)
+
+`ClaudeCodeProvider` kini menjaga mesin tetap hidup setelah jawaban akhir dan
+memakainya untuk prompt berikutnya di sesi yang sama; hanya pesan user baru yang
+dikirim, bukan seluruh transkrip. Signal prompt lama dilepas saat mesin diparkir,
+sehingga abort lama tidak menutupnya; abort prompt baru tetap menutupnya.
+Mesin ditutup dan dibuat ulang dari transkrip bila: model/token/daftar tool/system
+prompt/batas keluaran berubah, riwayat user diubah, dirombak, dikompaksi atau
+diputar balik, setelah 60 turn (maxTurns SDK), atau idle 10 menit.
+
+Probe nyata `probe-claude-tools.mjs` (sonnet-5-5, satu akun, bukan benchmark coding),
+prompt baru setelah run dengan tool: cache-write 11717 -> 179 dari input 12891.
+Dalam satu run angkanya sama seperti sebelumnya. Tes: 18 tes `claudeCode.test.ts`
+(fixture) termasuk reuse, pemulihan dari transkrip, dan pergantian model/token;
+`npm test` 67 file / 690 tes lulus. Catatan: proses skrip tidak berhenti sendiri
+karena mesin sengaja hidup; probe memanggil `process.exit`.
