@@ -103,7 +103,7 @@ export function ModelPicker({
 
   const typedIsNew = viewing !== '' && query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
   const tabs = status?.rotationEnabled === true
-    ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Rotate usage controls every session while it is on' }]
+    ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Rotate usage is on: this list picks the group, not a model' }]
     : visibleProviders.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
 
   return (
