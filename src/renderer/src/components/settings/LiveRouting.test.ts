@@ -23,6 +23,11 @@ describe('routingNodes', () => {
     expect(accountTitle({ id: 'custom:x', label: 'X' }, undefined)).toBe('X')
   })
 
+  it('does not repeat the identity already in the label', () => {
+    const base = { id: 'auth:claude', kind: 'claude' as const, label: 'Claude · dev@example.com', refreshable: true, createdAt: 1, usable: true }
+    expect(accountTitle({ id: 'auth:claude', label: 'claude' }, { ...base, account: 'dev@example.com' })).toBe('Claude · dev@example.com')
+  })
+
   it('is empty without requests', () => {
     expect(routingNodes([], 1)).toEqual([])
   })

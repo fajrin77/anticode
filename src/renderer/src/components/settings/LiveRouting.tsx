@@ -57,7 +57,8 @@ function position(index: number, count: number): { x: number; y: number } {
 export function accountTitle(node: Pick<RoutingNode, 'id' | 'label'>, account: AuthAccountSummary | undefined): string {
   if (account === undefined) return node.label
   const name = account.label || node.label
-  return account.account !== undefined && account.account !== '' && account.account !== name ? `${name} · ${account.account}` : name
+  const who = account.account ?? ''
+  return who !== '' && !name.includes(who) ? `${name} · ${who}` : name
 }
 
 function short(text: string, max: number): string {
@@ -170,9 +171,9 @@ export function LiveRouting(): JSX.Element {
               <g key={node.id}>
                 <title>{`${node.title} · ${node.model} · ${node.requests} req · ${node.tokens.toLocaleString('en-US')} tokens`}</title>
                 <rect
-                  x={x - 88}
+                  x={x - 104}
                   y={y - 24}
-                  width={176}
+                  width={208}
                   height={48}
                   rx={9}
                   fill={node.live ? '#1d2108' : '#17181b'}
@@ -181,7 +182,7 @@ export function LiveRouting(): JSX.Element {
                   filter={node.live ? 'url(#neural-glow)' : undefined}
                 />
                 <text x={x} y={y - 6} textAnchor="middle" fontSize={11.5} fill={node.live ? '#f1ffb8' : '#d4d4d8'}>
-                  {short(node.title, 28)}
+                  {short(node.title, 36)}
                 </text>
                 <text x={x} y={y + 9} textAnchor="middle" fontSize={9.5} fill="#8b8d95">
                   {short(node.model, 30)}
