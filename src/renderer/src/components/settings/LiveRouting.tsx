@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { AuthAccountSummary, UsageRecord } from '@shared/ipc'
 import { useSessionStore } from '../../store/session'
+import { routingLayout } from './routingLayout'
 
 /** A request this recent still counts as "being drawn from" right now. */
 export const LIVE_WINDOW_MS = 20_000
@@ -44,14 +45,7 @@ export function routingNodes(rows: UsageRecord[], now: number): RoutingNode[] {
 }
 
 const W = 720
-const H = 360
 const CX = W / 2
-const CY = H / 2
-
-function position(index: number, count: number): { x: number; y: number } {
-  const angle = (index / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2
-  return { x: CX + Math.cos(angle) * 270, y: CY + Math.sin(angle) * 130 }
-}
 
 /** The account behind a node: its name and sign-in identity when it is a stored account, else the provider label. */
 export function accountTitle(node: Pick<RoutingNode, 'id' | 'label'>, account: AuthAccountSummary | undefined): string {
@@ -116,6 +110,8 @@ export function LiveRouting(): JSX.Element {
     return { ...node, title: accountTitle(node, account) }
   })
   const liveCount = nodes.filter((node) => node.live).length
+  const { height: H, positions } = routingLayout(nodes.length)
+  const CY = H / 2
 
   return (
     <div className="glass-surface mb-5 rounded-xl border border-line p-4">
@@ -141,7 +137,7 @@ export function LiveRouting(): JSX.Element {
           </defs>
           <style>{`@keyframes neural-shimmer{0%,100%{stroke-opacity:.45}50%{stroke-opacity:.95}}`}</style>
           {nodes.map((node, index) => {
-            const { x, y } = position(index, nodes.length)
+            const { x, y } = positions[index]!
             const d = `M ${CX} ${CY} Q ${(CX + x) / 2} ${CY} ${x} ${y}`
             return (
               <g key={`line-${node.id}`}>
@@ -172,7 +168,7 @@ export function LiveRouting(): JSX.Element {
             <text x={CX} y={CY + 4} textAnchor="middle" fontSize={13} fill="#d1fa22">Anticode</text>
           </g>
           {nodes.map((node, index) => {
-            const { x, y } = position(index, nodes.length)
+            const { x, y } = positions[index]!
             return (
               <g key={node.id}>
                 <title>{`${node.title} · ${node.model} · ${node.requests} req · ${node.tokens.toLocaleString('en-US')} tokens`}</title>
