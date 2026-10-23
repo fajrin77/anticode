@@ -8,8 +8,8 @@ release/
 .env.local
 .env.*
 !.env.example
-/providers.json
-/auth-accounts.json
+providers.json
+auth-accounts.json
 *.log
 npm-debug.log*
 
@@ -19,3 +19,16 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .freebuff/
+
+# Data pengguna/perusahaan: konfigurasi provider, akun auth, sesi, usage.
+# Jangan pernah di-commit; lokasi aslinya di folder userData aplikasi.
+settings.json
+sessions.json
+schedules.json
+usage.jsonl
+checkpoints/
+draft-attachments/
+.anticode/
+*.sealed
+*.pem
+*.key
