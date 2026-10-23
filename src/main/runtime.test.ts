@@ -259,14 +259,13 @@ it('refuses Rotate while the pool is empty', () => {
   expect(() => selectProvider({ provider: ROTATE_PROVIDER, model: '' })).toThrow(/Rotate usage/)
 })
 
-it('applies Rotate usage globally to existing and new sessions and locks model picks', () => {
+it('applies Rotate usage globally to existing and new sessions', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
 
   applyRotationEnabled(true)
   expect(getStatus().provider).toBe(ROTATE_PROVIDER)
   expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
-  expect(() => selectProvider({ provider: 'two', model: 'm2' }, 'a')).toThrow(/Turn off Rotate usage/)
 
   createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
   expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
@@ -369,7 +368,6 @@ it('hands a failed turn to the next pool entry and rests the one that failed', (
 
   const pool = getStatus().rotation
   expect(pool.every((entry) => entry.coolingUntil !== null)).toBe(true)
-  expect(() => selectProvider({ provider: 'three', model: 'm3' }, 'a')).toThrow(/Turn off Rotate usage/)
 })
 
 it('offers no Rotate and counts nothing while Rotate usage is off', () => {
@@ -611,4 +609,65 @@ it('allows bounded in-run retry after a single account transport failure instead
   const agent=agentOf('single-transport')
   expect(agent.fallback?.(new Error('fetch failed'))).toBeNull()
   expect(agentOf('single-transport').provider.name).toBe('auth:codex-only')
+})
+
+it('leaves rotation for the picked session only, and the others keep rotating', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
+
+  selectProvider({ provider: 'three', model: 'm3' }, 'a')
+  // Session a now runs the model the user picked, session b stays on the pool,
+  // and the pool itself is untouched.
+  expect(getStatus('a')).toMatchObject({ provider: 'three', model: 'm3' })
+  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
+  expect(getStatus().rotationEnabled).toBe(true)
+
+  // The pick is also the fallback other sessions land on once rotation is off.
+  applyRotationEnabled(false)
+  expect(getStatus('b')).toMatchObject({ provider: 'three', model: 'm3' })
+})
+
+it('lets a draft ask for the pool even when a model was last picked', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }])
+  selectProvider({ provider: 'three', model: 'm3' })
+  expect(getStatus().provider).toBe('three')
+  applyRotationEnabled(true)
+  expect(getStatus().provider).toBe(ROTATE_PROVIDER)
+
+  // The dashboard draft has no session behind it; picking Rotate there is the
+  // only way back to the pool without touching an open session.
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' })
+  expect(getStatus().provider).toBe(ROTATE_PROVIDER)
+})
+
+it('never rewrites a model the user picked in a session when rotation is switched', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: 'three', model: 'm3' }, 'a')
+  applyRotationEnabled(true)
+  selectProvider({ provider: 'three', model: 'm3' }, 'a')
+
+  applyRotationEnabled(false)
+  // Toggling the switch touches the rotating session, not the pinned one.
+  expect(getStatus('a')).toMatchObject({ provider: 'three', model: 'm3' })
+  // Switching rotation back on is a mode change, so the pool covers every
+  // session again; only the pick made while it was on survives as a pin.
+  applyRotationEnabled(true)
+  expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
+  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
+})
+
+it('puts a session back on the pool when Rotate is picked again', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  selectProvider({ provider: 'three', model: 'm3' }, 'a')
+  expect(getStatus('a').provider).toBe('three')
+
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
 })

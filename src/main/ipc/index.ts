@@ -18,7 +18,7 @@ import { notify } from '../notify'
 import path from 'node:path'
 import { copyFile, readFile, stat } from 'node:fs/promises'
 import type { WebContents } from 'electron'
-import { IpcChannel } from '@shared/ipc'
+import { IpcChannel, contextWindowFor, historyBudgetFor } from '@shared/ipc'
 import type {
   AgentRequest,
   AppInfo,
@@ -28,6 +28,7 @@ import type {
   QuestionAnswer,
   RotationGroupInput,
   FilePreview,
+  ContextBudget,
   ModelCatalogue,
   ModelPrice,
   ProviderEdit,
@@ -115,7 +116,7 @@ import { setQueueSink } from '../queue'
 import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updateState } from '../updates'
 import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
-import { pricedModels, setCustomPrice } from '../pricing'
+import { listedContextWindow, pricedModels, setCustomPrice } from '../pricing'
 import { clearUsage as clearUsageLog, recentUsage, summarizeUsage } from '../usageLog'
 import { importMcp, listMcp, mcpSecrets, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
 import { credentialStatus, knownSecrets, moveEnvKeys, restrictEnvFile } from '../credentials'
@@ -820,6 +821,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.PRICING_SET, (_event, model: unknown, price: unknown) => {
     if (typeof model !== 'string') throw new Error('Name the model')
     setCustomPrice(model, price === null ? null : (price as ModelPrice))
+  })
+  // The meter asks what this id really takes: the window a provider published
+  // for it, or the built-in family table when none did.
+  ipcMain.handle(IpcChannel.CONTEXT_BUDGET, (_event, model: unknown): ContextBudget => {
+    const id = typeof model === 'string' ? model : ''
+    const listed = listedContextWindow(id)
+    return { window: contextWindowFor(id, listed), budget: historyBudgetFor(id, listed) }
   })
   ipcMain.handle(IpcChannel.ACCESS_REPORT, () => getAccessReport())
   ipcMain.handle(IpcChannel.ACCESS_TEST, () => testAllAccess())

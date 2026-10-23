@@ -17,6 +17,7 @@ import type {
   PricedModel,
   RemoteStatus,
   RoutedAgentEvent,
+  ContextBudget,
   ScheduleEntry,
   ScheduleInput,
   SessionSnapshot,
@@ -131,6 +132,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
   updateProvider: (id: ProviderId, edit: ProviderEdit) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_UPDATE, id, edit) as Promise<ProviderInfo[]>,
+  contextBudget: (model: string) =>
+    ipcRenderer.invoke(IpcChannel.CONTEXT_BUDGET, model) as Promise<ContextBudget>,
   startAuthLogin: (kind) =>
     ipcRenderer.invoke(IpcChannel.AUTH_LOGIN, kind) as ReturnType<AnticodeApi['startAuthLogin']>,
   submitAuthCode: (id, code) =>

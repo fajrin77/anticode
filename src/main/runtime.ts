@@ -33,6 +33,7 @@ import { createProvider, listProviders } from './providers'
 import { authProvider, isAuthProvider as isAuthId } from './auth/provider'
 import { isSubscriptionProvider, subscriptionEntries } from './subscriptions'
 import { fetchModels } from './providers/models'
+import { publishedContextWindow } from './pricing'
 import {
   activeRotationEntries,
   activeRotationGroupId,
@@ -79,6 +80,11 @@ interface LiveSession {
   choice?: ProviderSelection
   /** What the agent is actually talking to, under rotation, this run's entry. */
   selection?: ProviderSelection
+  /**
+   * Set when the user picked a model for this session while rotation is on:
+   * a pinned session keeps that model when the global switch is toggled.
+   */
+  pinned?: boolean
   /** Rotation only: prompts sent to `selection` since the session moved onto it. */
   promptsOnEntry?: number
   /** One entry per finished assistant turn, oldest first. */
@@ -250,12 +256,14 @@ function chosenFor(provider: ProviderId): string[] {
  * chosen for its provider, or to none, which asks for a pick. The stored
  * choice is kept, so switching its model back on brings it back.
  */
-function effective(choice: ProviderSelection): ProviderSelection {
+function effective(choice: ProviderSelection, pinned = false): ProviderSelection {
   if (choice.provider === ROTATE_PROVIDER) return choice
   // When rotation is off, applyRotationEnabled has already chosen the first
   // connected provider and its best known model. It remains usable even when
   // that model is not part of the (currently inactive) rotation pool.
-  if (!rotationEnabled()) return choice
+  // A model the user picked on purpose is never swapped for the provider's
+  // first one, even while rotation stays on for the other sessions.
+  if (!rotationEnabled() || pinned) return choice
   const chosen = chosenFor(choice.provider)
   return chosen.includes(choice.model) ? choice : { provider: choice.provider, model: chosen[0] ?? '' }
 }
@@ -266,14 +274,15 @@ function effective(choice: ProviderSelection): ProviderSelection {
  * until it ends (getSession never swaps a working session's provider). The
  * pick also becomes the default new sessions start on, with no session id,
  * that is all it changes.
+ *
+ * Picking a concrete model while Rotate usage is on leaves rotation for this
+ * session only; the other sessions keep rotating. Picking Rotate puts this
+ * session back on the pool.
  */
 export function selectProvider(next: ProviderSelection, sessionId?: string | null): void {
   const live = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
   if (sessionId !== null && sessionId !== undefined && live === undefined) throw new Error('Unknown session; reopen this tab')
   let chosen: ProviderSelection
-  if (rotationEnabled() && next.provider !== ROTATE_PROVIDER && live !== undefined) {
-    throw new Error('Turn off Rotate usage before choosing a model')
-  }
   if (next.provider === ROTATE_PROVIDER) {
     if (!rotationEnabled()) throw new Error('Rotate usage is off. Turn it on in Settings → Providers')
     if (activeRotationEntries().length === 0) throw new Error('Rotate usage has no models yet. Add them in Settings → Providers')
@@ -297,18 +306,35 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     if (model !== '' && !chosenFor(next.provider).includes(model)) {
       setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
     }
-    // No model named: the first one chosen for that provider, or none yet.
+    // Rotation is a pick, not a mode: a draft asking for it gets the pool even
+  // when the saved fallback happens to be a model.
+  if (next.provider === ROTATE_PROVIDER && model === '') {
+    chosen = { provider: ROTATE_PROVIDER, model: '' }
+    if (live === undefined) {
+      saveFallback(chosen)
+      return
+    }
+    pinSessions()
+    live.choice = chosen
+    delete live.promptsOnEntry
+    persistSessions()
+    selection = chosen
+    return
+  }
+  // No model named: the first one chosen for that provider, or none yet.
     chosen = {
       provider: next.provider,
       model: model !== '' ? model : (chosenFor(next.provider)[0] ?? providerInfo.defaultModel)
     }
   }
 
-  // The Providers page may change the saved fallback while rotation stays
-  // active. It does not unlock either composer or disturb rotating sessions.
+  // A pick with no session behind it (the Providers page, a new-session
+  // draft) only moves the saved fallback while rotation stays active; the
+  // rotating sessions are left alone. In a session, a concrete model simply
+  // leaves rotation for that session while the others keep rotating.
   if (rotationEnabled() && chosen.provider !== ROTATE_PROVIDER) {
     saveFallback(chosen)
-    return
+    if (live === undefined) return
   }
 
   pinSessions()
@@ -397,6 +423,9 @@ export function applyRotationEnabled(on: boolean): void {
   selection = chosen
   let changed = false
   for (const [sessionId, live] of sessions) {
+    // A session that left rotation by picking a model keeps that model: the
+    // global switch never rewrites a choice the user made on purpose.
+    if (live.pinned === true) continue
     if (live.choice?.provider !== chosen.provider || live.choice.model !== chosen.model) changed = true
     live.choice = { ...chosen }
     // Do not replace the provider beneath a run already in progress. Its next
@@ -440,7 +469,13 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
   if (cached && !refresh) return cached
   let catalogue: ModelCatalogue
   try {
-    catalogue = { provider, models: (await fetchModels(provider)).sort(), error: null }
+    const models = (await fetchModels(provider)).sort()
+    const windows: Record<string, number> = {}
+    for (const model of models) {
+      const window = publishedContextWindow(provider, model)
+      if (window !== null) windows[model] = window
+    }
+    catalogue = { provider, models, error: null, ...(Object.keys(windows).length > 0 ? { contextWindows: windows } : {}) }
   } catch (error) {
     catalogue = { provider, models: [], error: (error as Error).message }
   }
@@ -724,7 +759,7 @@ function readiness(
 }
 
 function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
-  const choice = effective(choiceOf(live))
+  const choice = effective(choiceOf(live), live.pinned === true)
   return {
     ...choice,
     ...readiness(choice, providers),
@@ -803,7 +838,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
   // picked meanwhile takes over from this session's next prompt.
   if (live.agent !== null && runForSession(sessionId) !== null) return live.agent
 
-  const choice = effective(choiceOf(live))
+  const choice = effective(choiceOf(live), live.pinned === true)
   let target: ProviderSelection
   let fallback: ProviderFallback | null = null
   if (choice.provider === ROTATE_PROVIDER) {

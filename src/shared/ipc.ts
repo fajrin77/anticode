@@ -53,6 +53,7 @@ export const IpcChannel = {
   MCP_UPDATED: 'mcp:updated',
   PRICING_LIST: 'pricing:list',
   PRICING_SET: 'pricing:set',
+  CONTEXT_BUDGET: 'context:budget',
   USAGE_SUMMARY: 'usage:summary',
   ACCESS_REPORT: 'usage:access-report',
   ACCESS_TEST: 'usage:access-test',
@@ -236,8 +237,13 @@ export function contextFamilyOf(model: string): string {
     .replace(/-\d{8}$/, '')
 }
 
-/** The vendor's documented window for this model, before reply headroom. */
-export function contextWindowFor(model: string): number {
+/**
+ * The vendor's documented window for this model, before reply headroom.
+ * `listedWindow` is what the provider's own model list says for this exact id;
+ * it wins over the family table, which cannot know a new model's real size.
+ */
+export function contextWindowFor(model: string, listedWindow?: number | null): number {
+  if (listedWindow !== undefined && listedWindow !== null && Number.isFinite(listedWindow) && listedWindow > 0) return Math.floor(listedWindow)
   const family = contextFamilyOf(model)
   // Longest prefix first, so `gpt-5.6-sol` reads as the 5.6 row, not `gpt-5`.
   const match = [...KNOWN_CONTEXT_WINDOWS]
@@ -250,8 +256,8 @@ export function contextWindowFor(model: string): number {
  * suffixed by snapshot dates and variants, so match on the normalised family
  * as well as the whole id. Never drops below the shared default: an unknown
  * model compacts early rather than overflowing mid-run. */
-export function historyBudgetFor(model: string): number {
-  const window = contextWindowFor(model)
+export function historyBudgetFor(model: string, listedWindow?: number | null): number {
+  const window = contextWindowFor(model, listedWindow)
   if (window <= HISTORY_TOKEN_BUDGET) return HISTORY_TOKEN_BUDGET
   return Math.max(HISTORY_TOKEN_BUDGET, window - REPLY_HEADROOM)
 }
@@ -353,6 +359,16 @@ export interface ModelCatalogue {
   models: string[]
   /** Set when the provider could not be queried; the UI then offers free text. */
   error: string | null
+  /** Context window the provider published for an id here, so the UI does not fall back to the 100k floor. */
+  contextWindows?: Record<string, number>
+}
+
+/** What the context meter shows for one model id. */
+export interface ContextBudget {
+  /** The vendor's window for the model, before reply headroom. */
+  window: number
+  /** The replay ceiling: the history is compacted before it passes this. */
+  budget: number
 }
 
 export interface ProviderSelection {
@@ -1352,6 +1368,12 @@ export interface AnticodeApi {
    */
   selectProvider: (selection: ProviderSelection, sessionId?: string | null) => Promise<SessionStatus>
   listModels: (provider: ProviderId, refresh?: boolean) => Promise<ModelCatalogue>
+  /**
+   * How much context this model id takes, and the replay ceiling after reply
+   * headroom. A window a provider published for the id wins over the built-in
+   * family table, so a new model is not measured against the 100k floor.
+   */
+  contextBudget: (model: string) => Promise<ContextBudget>
   /** Replaces the Rotate usage pool. */
   setRotation: (entries: RotationEntry[]) => Promise<SessionStatus>
   /** Starts every pool entry's token count from zero. */

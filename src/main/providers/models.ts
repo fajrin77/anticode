@@ -7,7 +7,7 @@ import { getCustomProvider } from './custom'
 import { presetAllowsModel } from '@shared/providerPresets'
 import { clinepassConfig } from './clinepass'
 import { anthropicBaseURL } from './anthropic'
-import { recordPublishedPrices } from '../pricing'
+import { recordPublishedContexts, recordPublishedPrices } from '../pricing'
 import { authModelsFor, fetchCodexModels, fetchClineModels, fetchClinePassModels, fetchClaudeModels, fetchFreeGatewayModels } from '../auth/catalogue'
 import { AUTH_MODELS } from '../auth/provider'
 import { getAuthAccount } from '../auth/store'
@@ -27,12 +27,18 @@ async function listOpenAICompatible(apiKey: string, baseURL?: string, provider?:
   })
   const ids: string[] = []
   const priced: { id: string; pricing?: unknown }[] = []
+  const sized: { id: string; context_length?: unknown }[] = []
   for await (const model of client.models.list()) {
     ids.push(model.id)
-    // Gateways in OpenRouter's mould say what each model costs; keep that.
+    // Gateways in OpenRouter's mould say what each model costs and how much
+    // context it takes; keep both.
     priced.push({ id: model.id, pricing: (model as unknown as { pricing?: unknown }).pricing })
+    sized.push({ id: model.id, context_length: (model as unknown as { context_length?: unknown }).context_length })
   }
-  if (provider !== undefined) recordPublishedPrices(provider, priced)
+  if (provider !== undefined) {
+    recordPublishedPrices(provider, priced)
+    recordPublishedContexts(provider, sized)
+  }
   return ids
 }
 

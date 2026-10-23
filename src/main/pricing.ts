@@ -106,6 +106,41 @@ export function recordPublishedPrices(provider: string, models: { id: string; pr
   }
 }
 
+/** Context windows the gateways published with their model lists, by provider and model. */
+const windows = new Map<string, number>()
+
+/**
+ * OpenRouter-style catalogues also list `context_length` in tokens. A gateway
+ * is authoritative for the ids it serves: a new model the family table in
+ * @shared/ipc has never heard of would otherwise keep the 100k floor, and the
+ * meter would read full while the window is still mostly empty. Anything that
+ * is not a positive finite number is ignored, never guessed.
+ */
+export function recordPublishedContexts(provider: string, models: { id: string; context_length?: unknown }[]): void {
+  for (const model of models) {
+    const window = Number(model.context_length)
+    if (model.context_length === undefined || !Number.isFinite(window) || window <= 0) continue
+    windows.set(key(provider, model.id), Math.floor(window))
+  }
+}
+
+/** The context window a model list published for this id, or null when none did. */
+export function publishedContextWindow(provider: string, model: string): number | null {
+  return windows.get(key(provider, model)) ?? null
+}
+
+/** The newest window seen for this id under any provider, for the UI that only knows the model id. */
+export function listedContextWindow(model: string): number | null {
+  let newest = 0
+  for (const [entry, window] of windows) if (entry.endsWith(`::${model}`) && window > newest) newest = window
+  return newest > 0 ? newest : null
+}
+
+/** For tests: forget what gateways published. */
+export function resetPublishedContexts(): void {
+  windows.clear()
+}
+
 /** A price typed in Settings for a model id, or null to go back to the others. */
 export function setCustomPrice(model: string, price: ModelPrice | null): void {
   const id = model.trim()

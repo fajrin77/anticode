@@ -272,3 +272,32 @@ bukan pengujian inference baru atau benchmark coding. Tidak ada secret disimpan
 di laporan. Sumber protokol akun:
 [account service resmi Cline](https://github.com/cline/cline/blob/main/sdk/packages/core/src/account/cline-account-service.ts),
 [dokumentasi ClinePass](https://github.com/cline/cline/blob/main/docs/getting-started/clinepass.mdx).
+
+## Jendela context dari katalog gateway (0.0.80)
+
+Meter Session usage dan compaction agent memakai `contextWindowFor` serta
+`historyBudgetFor` di `src/shared/ipc.ts`. Tabel keluarga bawaan hanya mengenal
+id yang sudah tercatat; id baru (`minimax/minimax-m3.1-flash`, `gpt-6.1-sol`,
+rute gateway lain) jatuh ke batas bawah 100.000 token, sehingga history
+di-compact jauh sebelum jendela model habis.
+
+Perbaikan: katalog `/models` dari gateway yang menyebut `context_length`
+(OpenRouter dan yang sejenisnya) dicatat di `src/main/pricing.ts` saat
+`listOpenAICompatible` membaca daftar model, per `providerId` dan id model.
+Angka itu dipakai untuk id yang sama pada provider tersebut, dengan urutan:
+jendela yang dipublikasikan katalog, lalu tabel keluarga bawaan, lalu batas
+100.000. Nilai yang bukan angka positif diabaikan, tidak ditebak. Gateway tanpa
+`context_length` dan akun subscription yang katalognya dikurasi (`auth:*`,
+`clinepass`) tetap memakai tabel keluarga, karena katalog mereka tidak
+menerbitkan ukuran jendela.
+
+Titik pemakaian: `agentHistoryBudget` di `src/main/agent/loop.ts` (compaction
+dan pruning hasil tool), `ModelCatalogue.contextWindows` di
+`src/main/runtime.ts`, dan IPC `context:budget` yang dibaca meter
+`src/renderer/src/components/TabBar.tsx`. Anticode tidak menanyakan jendela ke
+endpoint provider lain dan tidak mengubah rute atau batas subscription.
+
+Bukti: tes fixture `src/main/pricing.test.ts` dan
+`src/main/agent/loop.budget.test.ts`, ditambah `npm run typecheck` serta
+`npm test`. Ini bukan probe inference nyata dan tidak mengukur berapa banyak
+konteks yang benar-benar diterima setiap provider.

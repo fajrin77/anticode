@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { historyBudgetFor, maxOutputFor } from './loop'
+import { agentHistoryBudget, historyBudgetFor, maxOutputFor } from './loop'
 import { contextWindowFor } from '@shared/ipc'
+import { recordPublishedContexts, resetPublishedContexts } from '../pricing'
 
 describe('historyBudgetFor', () => {
   it('keeps the shared default for models with an unknown window', () => {
@@ -37,6 +38,37 @@ describe('historyBudgetFor', () => {
   it('never drops below the shared default', () => {
     expect(historyBudgetFor('glm-4.5')).toBe(104_000)
     expect(historyBudgetFor('gpt-4o')).toBe(104_000)
+  })
+
+  it('believes the window a provider published over the family table', () => {
+    // A model the table has never heard of would keep the 100k floor.
+    expect(historyBudgetFor('minimax/minimax-m3.1-flash')).toBe(100_000)
+    expect(historyBudgetFor('minimax/minimax-m3.1-flash', 1_000_000)).toBe(976_000)
+    // A known family still follows the provider that says it is smaller.
+    expect(historyBudgetFor('gpt-5.5', 128_000)).toBe(104_000)
+  })
+
+  it('ignores a published value that is not a usable window', () => {
+    expect(historyBudgetFor('glm-5.3-flash', 0)).toBe(176_000)
+    expect(historyBudgetFor('glm-5.3-flash', null)).toBe(176_000)
+    expect(historyBudgetFor('glm-5.3-flash', Number.NaN)).toBe(176_000)
+  })
+})
+
+describe('agentHistoryBudget', () => {
+  it('takes the window the provider published for the exact id', () => {
+    resetPublishedContexts()
+    recordPublishedContexts('custom:or', [{ id: 'minimax/minimax-m3.1-flash', context_length: 1_000_000 }])
+    expect(agentHistoryBudget({ id: 'custom:or', model: 'minimax/minimax-m3.1-flash' })).toBe(976_000)
+    // Another provider serving the same id is measured by the family table.
+    expect(agentHistoryBudget({ id: 'auth:cline', model: 'minimax/minimax-m3.1-flash' })).toBe(100_000)
+    resetPublishedContexts()
+  })
+
+  it('falls back to the family table when nothing was published', () => {
+    resetPublishedContexts()
+    expect(agentHistoryBudget({ id: 'custom:or', model: 'glm-5.3-flash' })).toBe(176_000)
+    expect(agentHistoryBudget({ model: 'glm-5.3-flash' })).toBe(176_000)
   })
 })
 

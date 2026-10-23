@@ -6,11 +6,23 @@ vi.mock('./settings', () => ({
   savePersistedSettings: (patch: typeof saved) => Object.assign(saved, patch)
 }))
 
-import { costOf, familyOf, priceFor, recordPublishedPrices, resetPublishedPrices, setCustomPrice } from './pricing'
+import {
+  costOf,
+  familyOf,
+  listedContextWindow,
+  priceFor,
+  publishedContextWindow,
+  recordPublishedContexts,
+  recordPublishedPrices,
+  resetPublishedContexts,
+  resetPublishedPrices,
+  setCustomPrice
+} from './pricing'
 
 beforeEach(() => {
   delete saved.pricing
   resetPublishedPrices()
+  resetPublishedContexts()
 })
 
 describe('model prices', () => {
@@ -53,4 +65,33 @@ it('keeps subscription token usage separate from per-token API estimates', () =>
     expect(priceFor(provider, 'claude-opus-5')).toEqual({ price: null, source: 'subscription' })
     expect(costOf(provider, 'claude-opus-5', 1000, 1000)).toBeNull()
   }
+})
+
+describe('published context windows', () => {
+  it('keeps what a gateway listed for its ids, per provider', () => {
+    // Parsed rather than trusted: a gateway that sends a string is still right.
+    const listed: { id: string; context_length?: unknown }[] = [{ id: 'minimax/minimax-m3.1-flash', context_length: '1000000' }, { id: 'no-window' }]
+    recordPublishedContexts('custom:or', listed)
+    expect(publishedContextWindow('custom:or', 'minimax/minimax-m3.1-flash')).toBe(1_000_000)
+    expect(publishedContextWindow('custom:other', 'minimax/minimax-m3.1-flash')).toBeNull()
+    expect(publishedContextWindow('custom:or', 'no-window')).toBeNull()
+  })
+
+  it('ignores a value that is not a positive number instead of guessing', () => {
+    const listed: { id: string; context_length?: unknown }[] = [
+      { id: 'empty', context_length: '' },
+      { id: 'blank', context_length: '   ' },
+      { id: 'zero', context_length: 0 },
+      { id: 'text', context_length: 'huge' },
+      { id: 'negative', context_length: -5 }
+    ]
+    recordPublishedContexts('custom:or', listed)
+    for (const model of ['empty', 'blank', 'zero', 'text', 'negative']) expect(publishedContextWindow('custom:or', model)).toBeNull()
+  })
+
+  it('finds the window again by model id alone, for the UI that has no provider', () => {
+    recordPublishedContexts('custom:or', [{ id: 'deepseek/deepseek-v4.1-flash', context_length: 1_048_576 }])
+    expect(listedContextWindow('deepseek/deepseek-v4.1-flash')).toBe(1_048_576)
+    expect(listedContextWindow('unknown-model')).toBeNull()
+  })
 })

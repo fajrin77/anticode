@@ -29,6 +29,7 @@ import { isOutOfUsage } from '../usageErrors'
 import { isTransient, canFailOver, isTransportFailure } from '../providers/failures'
 import { modelCannotSeeImages, modelIsBatchOnly } from '@shared/ipc'
 import { ProviderRequestError } from '../providers/requestError'
+import { publishedContextWindow } from '../pricing'
 
 const DEFAULT_MAX_TOKENS = 32_000
 const MAX_TOOL_OUTPUT = 10_000
@@ -202,8 +203,16 @@ interface FollowUp {
  * always agree on the ceiling.
  */
 
-export function historyBudgetFor(model: string): number {
-  return sharedHistoryBudgetFor(model)
+export function historyBudgetFor(model: string, listedWindow?: number | null): number {
+  return sharedHistoryBudgetFor(model, listedWindow)
+}
+
+/**
+ * The replay ceiling for the model this agent is on. A gateway that published
+ * the model's real window in its list decides; otherwise the family table does.
+ */
+export function agentHistoryBudget(provider: Pick<LLMProvider, 'id' | 'model'>): number {
+  return historyBudgetFor(provider.model, provider.id === undefined ? null : publishedContextWindow(provider.id, provider.model))
 }
 
 export { maxOutputFor }
@@ -765,7 +774,7 @@ export class AgentSession {
    */
   private condenseHistory(): void {
     // Keep evidence while it fits. Age alone is not a reason to erase facts.
-    if (replayCost(this.history) < historyBudgetFor(this.provider.model) * 0.65) return
+    if (replayCost(this.history) < agentHistoryBudget(this.provider) * 0.65) return
     let toolTurns = 0
     for (let i = this.history.length - 1; i >= 0; i--) {
       const message = this.history[i]
@@ -798,9 +807,10 @@ export class AgentSession {
    */
   private async compactHistory(params: RunParams): Promise<void> {
     // The budget is the model's own window when it is known (Claude 200k,
-    // GPT-5 400k, Gemini 1M…), and the shared default otherwise, so
-    // big-window models stop compacting long before their real limit.
-    const budget = historyBudgetFor(this.provider.model)
+    // GPT-5 400k, Gemini 1M…, or whatever the gateway published for this
+    // exact id), and the shared default otherwise, so big-window models stop
+    // compacting long before their real limit.
+    const budget = agentHistoryBudget(this.provider)
     const compactTarget = Math.floor(budget * 0.72)
     const before = replayCost(this.history)
     if (before <= budget) return

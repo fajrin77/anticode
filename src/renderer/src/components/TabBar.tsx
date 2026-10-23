@@ -62,9 +62,26 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
   // The same ceiling the loop compacts against, a 1M-window model is not
   // "85% full" at 85k tokens. `budget` is the replay ceiling (window minus
   // reply headroom); `window` is the vendor's documented size, shown so the
-  // number reads as "used of total" instead of a mystery denominator.
-  const budget = historyBudgetFor(session.model ?? '')
-  const modelWindow = contextWindowFor(session.model ?? '')
+  // number reads as "used of total" instead of a mystery denominator. Both
+  // come from the main process, which also knows a window a gateway published
+  // for this exact id rather than only the built-in family table.
+  const model = session.model ?? ''
+  const fallbackWindow = contextWindowFor(model)
+  const [sizes, setSizes] = useState<{ window: number; budget: number } | null>(null)
+  useEffect(() => {
+    let active = true
+    void window.anticode
+      .contextBudget(model)
+      .then((next) => {
+        if (active) setSizes(next)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [model])
+  const modelWindow = sizes?.window ?? fallbackWindow
+  const budget = sizes?.budget ?? historyBudgetFor(model, fallbackWindow)
   const used = session.lastInputTokens
   const contextPercent = Math.min(100, Math.round((used / budget) * 100))
   const remaining = Math.max(0, budget - used)
