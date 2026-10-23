@@ -1,5 +1,6 @@
 import { AccessReport } from './AccessReport'
 import { SubscriptionUsage } from './SubscriptionUsage'
+import { LiveRouting } from './LiveRouting'
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { UsageRecord, UsageSummary } from '@shared/ipc'
@@ -52,18 +53,18 @@ function errorText(failure: unknown): string {
  * right edge, so the type steps down instead of the number being cut off.
  */
 function valueSize(value: string): string {
-  if (value.length > 13) return 'text-[13px]'
-  if (value.length > 11) return 'text-[15px]'
-  if (value.length > 8) return 'text-[17px]'
-  return 'text-[19px]'
+  if (value.length > 13) return 'text-[12px]'
+  if (value.length > 11) return 'text-[13px]'
+  if (value.length > 8) return 'text-[15px]'
+  return 'text-[17px]'
 }
 
 function Card({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }): JSX.Element {
   return (
-    <div className="glass-surface flex min-w-0 flex-col items-center rounded-xl border border-line p-4 text-center">
+    <div className="glass-surface flex min-w-0 flex-col items-center rounded-xl border border-line px-2 py-3 text-center">
       <div className="w-full truncate text-[11px] tracking-wide text-faint uppercase">{label}</div>
       <div title={value} className={`mt-1 w-full tabular-nums ${valueSize(value)} ${accent ?? 'text-text'}`}>{value}</div>
-      {sub !== undefined && <div className="mt-0.5 text-[11px] text-faint">{sub}</div>}
+      {sub !== undefined && <div title={sub} className="mt-0.5 w-full truncate text-[10.5px] text-faint">{sub}</div>}
     </div>
   )
 }
@@ -141,6 +142,8 @@ export function Usage(): JSX.Element {
     <>
       <h1 className="text-[19px] text-text">Usage &amp; Analytics</h1>
 
+      <LiveRouting />
+
       <SubscriptionUsage />
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
@@ -183,7 +186,7 @@ export function Usage(): JSX.Element {
         <div className="text-[13px] text-faint">Loading usage…</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-5 gap-2">
             <Card label="Total requests" value={formatNumber(summary.requests)} />
             <Card label="Total input" value={formatNumber(summary.inputTokens)} />
             <Card label="Cached tokens" value={formatNumber(summary.cachedTokens)} sub="Served from cache" />
