@@ -609,7 +609,8 @@ export function App(): JSX.Element {
       {showUpdateBanner && availableVersion !== null && (
         <div
           role="status"
-          className="flex items-center justify-between gap-4 bg-raised px-6 py-2 text-[13px] text-text"
+          // On macOS the hidden-inset title bar puts the window buttons at the top left; keep the text clear of them.
+          className={`flex items-center justify-between gap-4 bg-raised py-2 pr-6 text-[13px] text-text ${/Mac/i.test(navigator.userAgent) ? 'pl-24' : 'pl-6'}`}
         >
           <span className="min-w-0 flex-1">
             {updateState?.status === 'ready'
