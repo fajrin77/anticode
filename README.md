@@ -1,8 +1,10 @@
 # anticode
 
-A desktop coding agent that runs on the subscriptions you already pay for.
+**Don't pay, just vibes.**
 
-No Anticode account, no sign-up, no middleman service. Install, connect your providers, and work.
+A desktop coding agent that runs on the accounts you already have: your ChatGPT and Claude
+subscriptions, plus the free tiers of other providers. No Anticode account, no sign-up, no
+middleman service, no API bill. Install, connect your providers, and work.
 Everything runs directly from your machine, with file, terminal, browser, and document tools
 working inside your project, plus control from your phone.
 
@@ -10,8 +12,9 @@ working inside your project, plus control from your phone.
 
 - **Your ChatGPT and Claude subscriptions.** Sign in through Auth provider and Anticode uses the
   quota of the plan you already have. No separate API billing, and no silent fallback to a paid route.
-- **Dozens of accounts, one pool.** Add as many accounts per service as you need. Rotate usage
-  picks an eligible account for each new prompt by how busy it is and how much it has used.
+- **Dozens of accounts and providers, one pool.** Add as many accounts per service as you need,
+  and free keys from the other providers alongside them. Rotate usage picks an eligible account
+  for each new prompt by how busy it is and how much it has used.
 - **Usage control you can see.** Per-account quota windows and reset times as reported by the
   provider, a live routing map of the provider group serving requests, and local token and cost
   history kept separate from subscription quota.
