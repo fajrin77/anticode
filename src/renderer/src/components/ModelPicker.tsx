@@ -57,13 +57,15 @@ export function ModelPicker({
   }, [])
   const [query, setQuery] = useState('')
   const provider = status?.provider ?? 'anthropic'
-  const rotating = provider === ROTATE_PROVIDER
   // The tab being looked at. Looking is not choosing: the session moves to
   // another provider only when one of its models is picked, so browsing a tab
   // with nothing chosen yet never leaves the session without a model.
   const [viewedId, setViewing] = useState<ProviderId>(provider)
   const visibleProviders = groupAuthProviders(providers.filter((entry) => entry.composerVisible === true))
-  const viewing = visibleProviders.find((entry) => (entry.accountIds ?? [entry.id]).includes(viewedId))?.id ?? visibleProviders[0]?.id ?? ''
+  const viewing = viewedId === ROTATE_PROVIDER && status?.rotationEnabled === true
+    ? ROTATE_PROVIDER
+    : visibleProviders.find((entry) => (entry.accountIds ?? [entry.id]).includes(viewedId))?.id ?? visibleProviders[0]?.id ?? ''
+  const rotating = viewing === ROTATE_PROVIDER
   const pool = status?.rotation ?? []
   // The models switched on in Settings → Models for this provider are the
   // whole list: a catalogue of hundreds is chosen from there, not from here.
@@ -102,9 +104,12 @@ export function ModelPicker({
   }, [query, picked.join('\n')])
 
   const typedIsNew = viewing !== '' && query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
-  const tabs = status?.rotationEnabled === true
-    ? [{ id: ROTATE_PROVIDER, label: 'Rotate', available: true, hint: 'Rotate usage is on: this list picks the group, not a model' }]
-    : visibleProviders.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
+  const tabs = [
+    ...visibleProviders.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` })),
+    ...(status?.rotationEnabled === true
+      ? [{ id: ROTATE_PROVIDER, label: 'Rotate usage', available: true, hint: 'Use the rotation pool for this session' }]
+      : [])
+  ]
 
   return (
     <div ref={menuRef} popover="manual" data-model-picker role="dialog" aria-label="Choose model" className="menu-glass fixed m-0 flex w-80 flex-col overflow-hidden rounded-xl border p-0">
@@ -116,8 +121,7 @@ export function ModelPicker({
               data-picker-provider={entry.id}
               type="button"
               onClick={() => {
-                if (entry.id === ROTATE_PROVIDER) onSelect(entry.id, '')
-                else if (entry.available) {
+                if (entry.available) {
                   setViewing(entry.id)
                   setQuery('')
                 }
@@ -139,6 +143,13 @@ export function ModelPicker({
 
       {rotating ? (
         <>
+          <button
+            type="button"
+            onClick={() => onSelect(ROTATE_PROVIDER, '')}
+            className="glass-ghost shrink-0 border-b border-line-soft px-3 py-2 text-left text-[12px] text-text hover:text-brand"
+          >
+            {provider === ROTATE_PROVIDER ? 'Using Rotate usage' : 'Use Rotate usage for this session'}
+          </button>
           {/* Which group every session rotates over, switched from here as
               in Settings: the main process owns it, so every composer and
               the phone follow at once. */}
