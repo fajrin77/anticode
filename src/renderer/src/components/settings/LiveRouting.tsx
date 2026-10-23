@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { UsageRecord } from '@shared/ipc'
+import type { AuthAccountSummary, UsageRecord } from '@shared/ipc'
 import { useSessionStore } from '../../store/session'
 
 /** A request this recent still counts as "being drawn from" right now. */
@@ -53,6 +53,13 @@ function position(index: number, count: number): { x: number; y: number } {
   return { x: CX + Math.cos(angle) * 270, y: CY + Math.sin(angle) * 130 }
 }
 
+/** The account behind a node: its name and sign-in identity when it is a stored account, else the provider label. */
+export function accountTitle(node: Pick<RoutingNode, 'id' | 'label'>, account: AuthAccountSummary | undefined): string {
+  if (account === undefined) return node.label
+  const name = account.label || node.label
+  return account.account !== undefined && account.account !== '' && account.account !== name ? `${name} · ${account.account}` : name
+}
+
 function short(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
@@ -66,6 +73,16 @@ export function LiveRouting(): JSX.Element {
   const [rows, setRows] = useState<UsageRecord[]>([])
   const [now, setNow] = useState(() => Date.now())
   const running = useSessionStore((state) => Object.keys(state.activeRuns).length)
+  const [accounts, setAccounts] = useState<AuthAccountSummary[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.anticode
+      .listAuthAccounts()
+      .then((next) => { if (!cancelled) setAccounts(next) })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -87,7 +104,10 @@ export function LiveRouting(): JSX.Element {
     }
   }, [])
 
-  const nodes = routingNodes(rows, now)
+  const nodes = routingNodes(rows, now).map((node) => {
+    const account = accounts.find((row) => row.id === node.id)
+    return { ...node, title: accountTitle(node, account) }
+  })
   const liveCount = nodes.filter((node) => node.live).length
 
   return (
@@ -103,20 +123,41 @@ export function LiveRouting(): JSX.Element {
         <div className="py-8 text-center text-[12px] text-faint">No requests yet. The map fills in as Anticode talks to a provider.</div>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Providers Anticode is drawing models from">
-          <style>{`@keyframes live-flow{to{stroke-dashoffset:-24}}`}</style>
+          <defs>
+            <filter id="neural-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="2.4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <style>{`@keyframes neural-shimmer{0%,100%{stroke-opacity:.45}50%{stroke-opacity:.95}}`}</style>
           {nodes.map((node, index) => {
             const { x, y } = position(index, nodes.length)
+            const d = `M ${CX} ${CY} Q ${(CX + x) / 2} ${CY} ${x} ${y}`
             return (
-              <path
-                key={`line-${node.id}`}
-                d={`M ${CX} ${CY} Q ${(CX + x) / 2} ${CY} ${x} ${y}`}
-                fill="none"
-                stroke={node.live ? '#d1fa22' : 'currentColor'}
-                strokeOpacity={node.live ? 1 : 0.18}
-                strokeWidth={node.live ? 2 : 1}
-                strokeDasharray={node.live ? '6 6' : undefined}
-                style={node.live ? { animation: 'live-flow 0.8s linear infinite' } : undefined}
-              />
+              <g key={`line-${node.id}`}>
+                <path d={d} fill="none" stroke="currentColor" strokeOpacity={node.live ? 0.12 : 0.16} strokeWidth={0.6} />
+                {node.live && (
+                  <>
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke="#d1fa22"
+                      strokeWidth={0.8}
+                      strokeLinecap="round"
+                      filter="url(#neural-glow)"
+                      style={{ animation: 'neural-shimmer 2.2s ease-in-out infinite' }}
+                    />
+                    {[0, 1].map((n) => (
+                      <circle key={n} r={1.8} fill="#f4ffb0" filter="url(#neural-glow)">
+                        <animateMotion dur="1.8s" begin={`${n * 0.9}s`} repeatCount="indefinite" path={d} />
+                      </circle>
+                    ))}
+                  </>
+                )}
+              </g>
             )
           })}
           <g>
@@ -127,23 +168,26 @@ export function LiveRouting(): JSX.Element {
             const { x, y } = position(index, nodes.length)
             return (
               <g key={node.id}>
-                <title>{`${node.label} · ${node.model} · ${node.requests} req · ${node.tokens.toLocaleString('en-US')} tokens`}</title>
+                <title>{`${node.title} · ${node.model} · ${node.requests} req · ${node.tokens.toLocaleString('en-US')} tokens`}</title>
                 <rect
-                  x={x - 78}
-                  y={y - 20}
-                  width={156}
-                  height={40}
+                  x={x - 88}
+                  y={y - 24}
+                  width={176}
+                  height={48}
                   rx={9}
-                  fill="rgba(0,0,0,0.25)"
-                  stroke={node.live ? '#d1fa22' : 'currentColor'}
-                  strokeOpacity={node.live ? 1 : 0.25}
-                  strokeWidth={node.live ? 1.8 : 1}
+                  fill={node.live ? '#1d2108' : '#17181b'}
+                  stroke={node.live ? '#d1fa22' : '#3a3c42'}
+                  strokeWidth={node.live ? 1.4 : 1}
+                  filter={node.live ? 'url(#neural-glow)' : undefined}
                 />
-                <text x={x} y={y - 3} textAnchor="middle" fontSize={11.5} fill="currentColor" opacity={node.live ? 1 : 0.7}>
-                  {short(node.label, 22)}
+                <text x={x} y={y - 6} textAnchor="middle" fontSize={11.5} fill={node.live ? '#f1ffb8' : '#d4d4d8'}>
+                  {short(node.title, 28)}
                 </text>
-                <text x={x} y={y + 11} textAnchor="middle" fontSize={9.5} fill="currentColor" opacity={0.5}>
-                  {short(node.model, 26)}
+                <text x={x} y={y + 9} textAnchor="middle" fontSize={9.5} fill="#8b8d95">
+                  {short(node.model, 30)}
+                </text>
+                <text x={x} y={y + 20} textAnchor="middle" fontSize={8.5} fill={node.live ? '#d1fa22' : '#6b6d75'}>
+                  {node.live ? 'in use' : `${node.requests} req`}
                 </text>
               </g>
             )

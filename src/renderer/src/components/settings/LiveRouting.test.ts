@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageRecord } from '@shared/ipc'
-import { LIVE_WINDOW_MS, routingNodes } from './LiveRouting'
+import { LIVE_WINDOW_MS, accountTitle, routingNodes } from './LiveRouting'
 
 const row = (provider: string, ts: number, tokens = 10, model = 'm'): UsageRecord => ({
   ts, sessionId: 's', runId: 'r', provider, providerLabel: provider.toUpperCase(), model,
@@ -14,6 +14,13 @@ describe('routingNodes', () => {
     expect(nodes.map((node) => [node.id, node.live, node.requests])).toEqual([['a', true, 2], ['b', false, 1]])
     expect(nodes[0]?.model).toBe('x')
     expect(nodes[0]?.tokens).toBe(15)
+  })
+
+  it('names the account behind a node so same-provider accounts differ', () => {
+    const base = { id: 'auth:claude-2', kind: 'claude' as const, label: 'Claude', refreshable: true, createdAt: 1, usable: true }
+    expect(accountTitle({ id: 'auth:claude-2', label: 'claude' }, { ...base, account: 'dev@example.com' })).toBe('Claude · dev@example.com')
+    expect(accountTitle({ id: 'auth:claude-2', label: 'claude' }, base)).toBe('Claude')
+    expect(accountTitle({ id: 'custom:x', label: 'X' }, undefined)).toBe('X')
   })
 
   it('is empty without requests', () => {
