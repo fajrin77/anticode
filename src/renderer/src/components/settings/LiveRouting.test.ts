@@ -8,6 +8,16 @@ const row = (provider: string, ts: number, tokens = 10, model = 'm'): UsageRecor
 })
 
 describe('routingNodes', () => {
+  it('keeps an active run lit after the recent-request window without fabricating usage', () => {
+    const nodes = routingNodes([row('a', 1)], 100_000, [{ provider: 'a', model: 'current' }])
+    expect(nodes[0]).toMatchObject({ live: true, model: 'current', requests: 1, tokens: 10 })
+    expect(routingNodes([row('a', 1)], 100_000)[0]?.live).toBe(false)
+  })
+
+  it('shows an active provider before its first usage report', () => {
+    expect(routingNodes([], 100_000, [{ provider: 'new', model: 'm' }])[0]).toMatchObject({ id: 'new', live: true, requests: 0, tokens: 0 })
+    expect(routingNodes([], 100_000, [{}])).toEqual([])
+  })
   it('groups by provider and lights only the one with a fresh request', () => {
     const now = 1_000_000
     const nodes = routingNodes([row('a', now - 1000, 5, 'x'), row('a', now - 90_000), row('b', now - LIVE_WINDOW_MS - 1)], now)

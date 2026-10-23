@@ -121,6 +121,8 @@ export interface UsageEntry {
 
 export interface ActiveRun {
   runId: string
+  provider?: string
+  model?: string
   messageId: string
   /** The session that owns this run; events must land there, not in the open tab. */
   sessionId: string
@@ -674,7 +676,9 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
 
   setRunModel: (sessionId, provider, model) =>
     set((state) => ({
-      sessions: mapSession(state, sessionId, (session) => ({ ...session, provider, model }))
+      sessions: mapSession(state, sessionId, (session) => ({ ...session, provider, model })),
+      activeRuns: Object.fromEntries(Object.entries(state.activeRuns).map(([id, run]) =>
+        [id, run.sessionId === sessionId ? { ...run, provider, model } : run]))
     })),
 
   setPlanMode: (sessionId, plan) =>

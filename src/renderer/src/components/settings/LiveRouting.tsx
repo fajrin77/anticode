@@ -24,7 +24,7 @@ export interface RoutingNode {
  * live while its newest request is inside the window; nothing is inferred
  * beyond what the usage log recorded.
  */
-export function routingNodes(rows: UsageRecord[], now: number): RoutingNode[] {
+export function routingNodes(rows: UsageRecord[], now: number, active: { provider?: string; model?: string }[] = []): RoutingNode[] {
   const groups = new Map<string, RoutingNode>()
   for (const row of rows) {
     const id = row.provider
@@ -38,9 +38,15 @@ export function routingNodes(rows: UsageRecord[], now: number): RoutingNode[] {
     found.tokens += tokens
     if (row.ts > found.lastTs) Object.assign(found, { lastTs: row.ts, model: row.model })
   }
+  for (const run of active) {
+    if (!run.provider) continue
+    const found = groups.get(run.provider)
+    if (found) Object.assign(found, { live: true, ...(run.model ? { model: run.model } : {}) })
+    else groups.set(run.provider, { id: run.provider, label: run.provider, lastTs: 0, model: run.model ?? '', requests: 0, tokens: 0, live: true })
+  }
   return [...groups.values()]
-    .map((node) => ({ ...node, live: now - node.lastTs <= LIVE_WINDOW_MS }))
-    .sort((a, b) => b.lastTs - a.lastTs)
+    .map((node) => ({ ...node, live: node.live || now - node.lastTs <= LIVE_WINDOW_MS }))
+    .sort((a, b) => Number(b.live) - Number(a.live) || b.lastTs - a.lastTs)
     .slice(0, MAX_NODES)
 }
 
@@ -73,7 +79,8 @@ function short(text: string, max: number): string {
 export function LiveRouting(): JSX.Element {
   const [rows, setRows] = useState<UsageRecord[]>([])
   const [now, setNow] = useState(() => Date.now())
-  const running = useSessionStore((state) => Object.keys(state.activeRuns).length)
+  const activeRuns = useSessionStore((state) => state.activeRuns)
+  const running = Object.keys(activeRuns).length
   const [accounts, setAccounts] = useState<AuthAccountSummary[]>([])
 
   useEffect(() => {
@@ -105,7 +112,7 @@ export function LiveRouting(): JSX.Element {
     }
   }, [])
 
-  const nodes = routingNodes(rows, now).map((node) => {
+  const nodes = routingNodes(rows, now, Object.values(activeRuns)).map((node) => {
     const account = accounts.find((row) => row.id === node.id)
     return { ...node, title: accountTitle(node, account) }
   })
@@ -203,7 +210,7 @@ export function LiveRouting(): JSX.Element {
         </svg>
       )}
       <div className="mt-1 text-[10.5px] text-faint">
-        Based on the last 150 logged requests; a group is lit while its latest request is under {LIVE_WINDOW_MS / 1000}s old.
+        Based on the last 150 logged requests. A group is lit while a run uses it or its latest request is under {LIVE_WINDOW_MS / 1000}s old. Active runs may be waiting for tools; token counts update when usage is reported.
       </div>
     </div>
   )
