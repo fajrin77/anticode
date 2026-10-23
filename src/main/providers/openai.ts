@@ -2,7 +2,8 @@ import OpenAI from 'openai'
 import { isAccountAccessFailure } from './failures'
 import { modelCannotSeeImages } from '@shared/ipc'
 import { ProviderRequestError } from './requestError'
-import { requestLimit } from './requestLimits'
+import { InputRequestLimitError, requestLimit } from './requestLimits'
+import { isRetiredRoute, RetiredRouteError } from './routeError'
 import type {
   ChatParams,
   ContentBlock,
@@ -323,9 +324,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
     } catch (error) {
       if (params.signal.aborted) throw error
+      if (isRetiredRoute(error)) throw new RetiredRouteError(this.model)
       const limit = requestLimit(error)
       if (limit?.kind === 'input') {
-        throw Object.assign(new ProviderRequestError(`This conversation sends ${limit.promptTokens} prompt tokens, but this key permits ${limit.limitTokens}. Reduce the conversation context or start a new chat. This is a request-size limit, not proof that all keys are exhausted.`, 402), { cause: error })
+        throw new InputRequestLimitError(limit.promptTokens ?? 0, limit.limitTokens ?? 0)
       }
       if (isAccountAccessFailure(error)) throw Object.assign(error as object, { scope: 'account' })
       if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()

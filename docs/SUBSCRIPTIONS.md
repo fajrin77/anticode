@@ -301,3 +301,28 @@ Bukti: tes fixture `src/main/pricing.test.ts` dan
 `src/main/agent/loop.budget.test.ts`, ditambah `npm run typecheck` serta
 `npm test`. Ini bukan probe inference nyata dan tidak mengukur berapa banyak
 konteks yang benar-benar diterima setiap provider.
+
+## Grup Rotate, kecocokan akun/model dan allowance request — 23 Oktober 2026
+
+Add model dalam grup dapat memilih layanan beserta seluruh akun yang terhubung,
+atau mencari nama model lintas akun. Katalog dibaca per akun dan ID rute asli
+selalu dipertahankan; model tidak disalin ke provider yang tidak menawarkannya.
+Penambahan massal model baru dibatasi ke sumber free/subscription; sumber
+metered/unknown hanya menyertakan model yang sudah dipilih secara eksplisit.
+Entri lama yang tidak cocok dengan katalog akun auth dilewati dan diberi alasan,
+bukan dihapus. Pemilihan manual dashboard diterapkan sebelum prompt pertama
+sesi baru tanpa mengubah pilihan sesi lain.
+
+Batas ukuran request key terpisah dari kuota habis. Agent dapat melakukan satu
+pemadatan lokal per rute/skema, menjaga prompt terbaru dan hasil tool yang telah
+terkonfirmasi. Bukti allowance dicache 60 detik dalam sesi agar Continue tidak
+mengirim ulang request yang tetap terlalu besar. Rotate hanya berpindah dalam
+grup aktif; manual hanya antar-akun layanan/model yang sama. Tidak ada cooldown
+kuota atau penambahan rute berbayar akibat batas input.
+
+Retirement eksplisit 404/410 disimpan per provider+model selama 24 jam, termasuk
+setelah restart. Refresh katalog tidak menghapus bukti penolakan karena daftar
+bisa stale; rute boleh diperiksa kembali setelah masa itu. Bare 404 dan
+penolakan kapabilitas/produk tidak diperlakukan sebagai retirement.
+
+Bukti fixture dan batas pengujian: [QA routing](QA-ROUTING-2026-10-23.md).

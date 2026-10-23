@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '@shared/ipc'
 import { CONTINUE_PROMPT } from '@shared/ipc'
 import { AgentSession, titleOf } from './loop'
+import { InputRequestLimitError } from '../providers/requestLimits'
 import { allowAll } from '../approval/types'
 import { editFileTool } from '../tools/editFile'
 import type {
@@ -1435,6 +1436,45 @@ it('does not repeat a key-limit compaction indefinitely if a smaller request is 
   await session.run({ runId: 'limit-retry', prompt: 'New request', signal: new AbortController().signal, emit: event => events.push(event) })
   expect(requests).toBe(2)
   expect(events.some(event => event.type === 'error' && event.message.includes('out of usage'))).toBe(false)
+})
+
+it('reduces large tool results within a single turn without replaying the tool or losing the original transcript', async () => {
+  await writeFile(path.join(root, 'large.txt'), 'Evidence before.\n' + 'verified evidence '.repeat(800) + '\nEvidence after.')
+  const sent: Message[][] = []
+  const provider: LLMProvider = { name: 'fixture', model: 'small', async *chat(params) {
+    sent.push(structuredClone(params.messages))
+    if (sent.length === 1) {
+      yield { type: 'response', response: turn([{ type: 'tool_use', id: 'read-once', name: 'read_file', input: { path: 'large.txt' } }], 'tool_use') }
+    } else if (sent.length === 2) throw new InputRequestLimitError(Math.ceil(JSON.stringify(params.messages).length / 4) + 200, 2500)
+    else yield { type: 'response', response: turn([{ type: 'text', text: 'Done using saved evidence.' }], 'end_turn') }
+  } }
+  const session = new AgentSession(provider, allowAll, 'code', root)
+  await session.run({ runId: 'small', prompt: 'Read the evidence and finish.', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  expect(sent).toHaveLength(3)
+  expect(JSON.stringify(sent[2])).toContain('Read the evidence and finish.')
+  expect(JSON.stringify(sent[2])).toContain('do not replay this completed call')
+  expect(JSON.stringify(sent[2]).length).toBeLessThan(JSON.stringify(sent[1]).length)
+  expect(events.filter(event => event.type === 'tool_end')).toHaveLength(1)
+  expect(JSON.stringify(session.snapshot()).length).toBeGreaterThan(JSON.stringify(sent[2]).length)
+})
+
+it('explains an irreducible request and locally blocks an unchanged Continue only on that route', async () => {
+  let requests = 0
+  const small: LLMProvider = { name: 'small', model: 'fixture', async *chat() {
+    requests++
+    throw new InputRequestLimitError(13114, 4064)
+  } }
+  const session = new AgentSession(small, allowAll, 'chat', null, [], 'small', { tools: [] })
+  const send = (prompt: string) => session.run({ runId: 'small', prompt, signal: new AbortController().signal, emit: event => events.push(event) })
+  await send('Finish the task.')
+  expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('instructions and tools') })
+  await send(CONTINUE_PROMPT)
+  expect(requests).toBe(1)
+  expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('larger request allowance') })
+  session.useProvider(new FakeProvider([turn([{ type: 'text', text: 'Larger route done.' }], 'end_turn')]))
+  await send(CONTINUE_PROMPT)
+  expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
 })
 
 it('recovers automatically after a partial network response and finishes without re-executing a completed write', async () => {

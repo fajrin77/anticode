@@ -1,6 +1,7 @@
 import { closeBrowser, closeSearchPage } from '../browser'
 import { ToolMarkupError, ToolMarkupGuard } from './toolMarkup'
-import { requestLimit } from '../providers/requestLimits'
+import { InputRequestLimitError, requestLimit } from '../providers/requestLimits'
+import { safeProviderErrorMessage } from '../providers/errorMessage'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -221,7 +222,7 @@ export { maxOutputFor }
 const isToolUse = (block: ContentBlock): block is ToolUseBlock => block.type === 'tool_use'
 
 function describeError(error: unknown, provider?: LLMProvider): string {
-  const message = error instanceof Error ? error.message : String(error)
+  const message = safeProviderErrorMessage(error, provider?.model)
   // Fetch reports a dropped stream in one bare word; say what happened. The
   // word also marks a transient network cut, not a wrong configuration, so
   // the wording asks for a retry rather than sending the user to settings.
@@ -307,6 +308,8 @@ export class AgentSession {
   private activePlan = false
   /** A fixed kit (a sub-agent's); otherwise the mode's tools, asked for fresh each step. */
   private readonly fixedTools: Tool[] | null
+  /** Short-lived, route-and-schema-specific evidence; never a model context-window guess. */
+  private readonly inputAllowances = new Map<string, { limit: number; overhead: number; checkedAt: number }>()
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   /**
@@ -658,10 +661,15 @@ export class AgentSession {
   }
 
   private async requestTurn(params: RunParams): Promise<LLMResponse> {
-    let reducedForKeyLimit = false
+    const reducedForKeyLimit = new Set<string>()
     let correctedToolMarkup = false
     for (let attempt = 0; ; attempt++) {
       try {
+        const allowance = this.inputAllowances.get(this.allowanceKey())
+        if (allowance && Date.now() - allowance.checkedAt < 60_000) {
+          const estimate = allowance.overhead + replayCost(this.requestMessages(params))
+          if (estimate > allowance.limit) throw new InputRequestLimitError(estimate, allowance.limit, false, true)
+        }
         return await this.streamTurn(params)
       } catch (error) {
         if (params.signal.aborted) throw error
@@ -687,9 +695,17 @@ export class AgentSession {
           continue
         }
         const limit = requestLimit(error)
-        if (!reducedForKeyLimit && limit?.kind === 'input' && this.reduceForKeyLimit(limit.promptTokens ?? 0, limit.limitTokens ?? 0, params)) {
-          reducedForKeyLimit = true
-          continue
+        if (limit?.kind === 'input') {
+          const key = this.allowanceKey()
+          const prompt = limit.promptTokens ?? 0, ceiling = limit.limitTokens ?? 0
+          if (!(error instanceof InputRequestLimitError && error.cached) && prompt > 0 && ceiling > 0) {
+            this.inputAllowances.set(key, { limit: ceiling, overhead: Math.max(0, prompt - replayCost(this.requestMessages(params))), checkedAt: Date.now() })
+          }
+          if (!reducedForKeyLimit.has(key)) {
+            reducedForKeyLimit.add(key)
+            if (this.reduceForKeyLimit(prompt, ceiling, params)) continue
+          }
+          error = new InputRequestLimitError(prompt, ceiling, true, error instanceof InputRequestLimitError && error.cached)
         }
         // Under rotation a provider that fails, rate limited, out of quota,
         // down, hands the turn to the next one at once rather than being
@@ -707,6 +723,10 @@ export class AgentSession {
     }
   }
 
+  private allowanceKey(): string {
+    return `${this.provider.id ?? this.provider.name}\n${this.provider.model}\n${createHash('sha256').update(this.systemPrompt()).update(JSON.stringify(definitionsOf(this.toolset()))).digest('hex')}`
+  }
+
   /** A credit-limited key may allow less context than the model itself. Keep
    * the latest complete turn and the full transcript; retry only once. This
    * digest is local so condensing cannot itself send the oversized request. */
@@ -714,23 +734,35 @@ export class AgentSession {
     if (!Number.isFinite(promptTokens) || !Number.isFinite(limitTokens) || limitTokens <= 0) return false
     const before = replayCost(this.history)
     const fixedCost = Math.max(0, promptTokens - before)
-    const budget = Math.floor(limitTokens * 0.8) - fixedCost
-    const cut = this.history.findLastIndex(isPlainPrompt)
-    if (cut <= 0) return false
+    const budget = Math.floor((limitTokens - fixedCost) * 0.8)
+    const cut = this.history.findLastIndex(isTypedPrompt)
+    if (cut < 0 || budget <= 0) return false
     const tail = this.history.slice(cut)
-    const memoryTokens = budget - replayCost(tail) - 64
-    if (memoryTokens < 256) return false
     const removed = this.history.slice(0, cut)
     const original = removed.find(isTypedPrompt)?.content.find(block => block.type === 'text' && !block.attachment && !block.internal)
     const goal = original?.type === 'text' ? `Original request: ${original.text.slice(0, 1000)}\n` : ''
-    const digest = clip(goal + summariseMessages(removed), Math.min(MEMORY_MAX_CHARS, Math.floor(memoryTokens * 4)))
-    const memory: Message = { role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${digest}` }] }
-    if (replayCost([memory, ...tail]) >= before) return false
-    this.history.splice(0, cut, memory)
-    const text = 'Konteks melebihi batas request key. Riwayat lama diringkas secara lokal untuk satu percobaan ulang; transkrip asli tetap tersimpan.'
-    this.recordDisplay('notice', text)
-    params.emit({ type: 'notice', runId: params.runId, text })
-    return true
+    for (const cap of [Infinity, 4096, 1024, 256]) {
+      // Keep the user's latest prompt, tool inputs, call/result identities and
+      // capability boundaries intact. Only replayed tool output/prose shrinks.
+      const kept: Message[] = tail.map(message => ({ ...message, content: message.content.map(block => {
+        if (block.type === 'tool_result' && block.content.length > cap) return { ...block, content: `[Earlier tool result shortened for request allowance; do not replay this completed call.]\n${clip(block.content, cap)}` }
+        if (message.role === 'assistant' && block.type === 'text' && block.text.length > cap) return { ...block, text: clip(block.text, cap) }
+        return block
+      }) }))
+      const memoryTokens = budget - replayCost(kept) - 64
+      if (memoryTokens < (cut > 0 ? 128 : 0)) continue
+      const digest = cut > 0 ? clip(goal + summariseMessages(removed), Math.min(MEMORY_MAX_CHARS, Math.floor(memoryTokens * 4))) : ''
+      const candidate: Message[] = cut > 0
+        ? [{ role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${digest}` }] }, ...kept]
+        : kept
+      if (replayCost(candidate) >= before || replayCost(candidate) > budget) continue
+      this.history.splice(0, this.history.length, ...candidate)
+      const text = 'Konteks melebihi batas request key. Riwayat dan hasil tool diringkas secara lokal untuk satu percobaan ulang; transkrip asli dan hasil pekerjaan tetap tersimpan.'
+      this.recordDisplay('notice', text)
+      params.emit({ type: 'notice', runId: params.runId, text })
+      return true
+    }
+    return false
   }
 
   /** Adapt replay without changing the saved transcript or the vision history. */

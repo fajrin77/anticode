@@ -1,3 +1,4 @@
+import { RotationBulkPicker } from './settings/RotationBulkPicker'
 import { AccountGroup } from './settings/AccountGroup'
 import { ComposerGroupVisibility } from './settings/ComposerVisibility'
 import { groupAuthProviders } from '@shared/providerGroups'
@@ -606,7 +607,7 @@ function Providers({
         )}
       </div>
 
-      {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+      {error !== null && <p className="mt-2 whitespace-pre-wrap text-[12px] text-del [overflow-wrap:anywhere]">{error}</p>}
 
 
       <RotateUsage status={status} providers={providers} />
@@ -936,6 +937,7 @@ function RotateUsage({
   const usable = providers.filter((entry) => entry.credentialAvailable && (!status?.subscriptionOnly || (entry.billing === 'subscription' || entry.billing === 'free')))
   const [viewing, setViewing] = useState<string | null>(inUseId)
   const [adding, setAdding] = useState<Adding | null>(null)
+  const [bulk, setBulk] = useState(false)
   const [catalogue, setCatalogue] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -1154,6 +1156,7 @@ function RotateUsage({
   }
 
   function startAdding(replacing?: RotationEntryStatus): void {
+    setBulk(viewed !== null && replacing === undefined)
     const first = usable[0]
     if (replacing !== undefined) {
       setAdding({ provider: replacing.provider, model: '', replacing: plainEntry(replacing) })
@@ -1236,7 +1239,7 @@ function RotateUsage({
         </div>
       </div>
 
-      {!enabled && error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+      {!enabled && error !== null && <p className="mt-2 whitespace-pre-wrap text-[12px] text-del [overflow-wrap:anywhere]">{error}</p>}
 
       {enabled && (
         <>
@@ -1372,7 +1375,7 @@ function RotateUsage({
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] text-text">All {label} models</div>
-                    <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                    <div className="mt-0.5 whitespace-pre-wrap text-[11.5px] text-faint [overflow-wrap:anywhere]">
                       {count === 0
                         ? 'None switched on yet. Switch some on in Settings → Models.'
                         : `${providerReady}/${count} ready in Settings → Models · ones switched on later join too`}
@@ -1409,7 +1412,7 @@ function RotateUsage({
                       >
                         {entry.model}
                       </span>
-                      {!entry.ready && <Tag>needs key</Tag>}
+                      {entry.unavailableReason ? <Tag>unavailable</Tag> : !entry.ready && <Tag>needs key</Tag>}
                       {!providers.some((info) => info.id === entry.provider) && <Tag>provider gone</Tag>}
                       {spent !== null && (
                         <span
@@ -1422,16 +1425,16 @@ function RotateUsage({
                       {resting && spent === null && <Tag>resting</Tag>}
                     </div>
                     <div
-                      className="mt-0.5 truncate text-[11.5px] text-faint"
-                      title={spent !== null ? spent.reason : undefined}
+                      className="mt-0.5 whitespace-pre-wrap text-[11.5px] text-faint [overflow-wrap:anywhere]"
+                      title={entry.unavailableReason ?? (spent !== null ? spent.reason : undefined)}
                     >
                       {entry.label} ·{' '}
-                      {spent !== null
+                      {entry.unavailableReason ? entry.unavailableReason : spent !== null
                         ? `ran out ${sinceLabel(spent.since)}. Replace it, or it is tried only when nothing else is left.`
                         : `${compactTokens(entry.inputTokens)} in · ${compactTokens(entry.outputTokens)} out`}
                     </div>
                   </div>
-                  {spent !== null && (
+                  {(spent !== null || entry.unavailableReason) && (
                     <button
                       type="button"
                       data-rotation-replace={entry.model}
@@ -1472,7 +1475,19 @@ function RotateUsage({
                   : 'No models in this group yet. Add the ones that suit its work, or every model of one provider.'}
               </div>
             )}
-            {adding !== null && (
+            {adding !== null && bulk && viewed !== null && <RotationBulkPicker
+              key={viewed.id}
+              providers={usable}
+              selected={pool}
+              onIndividual={() => setBulk(false)}
+              onCancel={() => setAdding(null)}
+              onAdd={async entries => {
+                const saved = await saveGroups(groupsWith(viewed.id, group => ({ ...group, entries: [...group.entries, ...entries] })))
+                if (saved) setAdding(null)
+                return saved
+              }}
+            />}
+            {adding !== null && (!bulk || viewed === null) && (
               <div
                 className="flex items-center gap-2 border-t border-line-soft px-5 py-3"
                 onKeyDown={(event) => {
@@ -1546,7 +1561,7 @@ function RotateUsage({
             )}
           </div>
 
-          {error !== null && <p className="mt-2 text-[12px] text-del">{error}</p>}
+          {error !== null && <p className="mt-2 whitespace-pre-wrap text-[12px] text-del [overflow-wrap:anywhere]">{error}</p>}
           {notice !== null && (
             <p className="mt-2 text-[12px] text-dim">
               {notice}{' '}

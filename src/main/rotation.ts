@@ -9,6 +9,9 @@ import { loadPersistedSettings, savePersistedSettings } from './settings'
 import { isOutOfUsage } from './usageErrors'
 import { canFailOver, isTransportFailure } from './providers/failures'
 import { modelIsBatchOnly } from '@shared/ipc'
+import { isRetiredRoute } from './providers/routeError'
+import { markRetiredRoute, unavailableRoute } from './routeAvailability'
+import { safeProviderErrorMessage } from './providers/errorMessage'
 
 export { isOutOfUsage }
 
@@ -364,7 +367,7 @@ export function outOfUsage(entry: RotationEntry, now = Date.now()): OutOfUsage |
 export function markOutOfUsage(entry: RotationEntry, error: unknown, now = Date.now()): void {
   const key = rotationKey(entry)
   if (!load().some((item) => rotationKey(item) === key)) return
-  const message = error instanceof Error ? error.message : String(error)
+  const message = safeProviderErrorMessage(error, entry.model)
   const reason = message.replace(/\s+/g, ' ').trim().slice(0, 160)
   const detail = error as { resetAt?: number; scope?: 'account' | 'model' } | null
   const resetAt = typeof detail?.resetAt === 'number' && Number.isFinite(detail.resetAt) && detail.resetAt > now ? detail.resetAt : undefined
@@ -417,6 +420,7 @@ export function rankRotation(options: {
       modelSpent: total(usage.get(rotationKey(entry)) ?? { inputTokens: 0, outputTokens: 0 })
     }))
     .filter(({ spentOut, resting }) => !plansOnly || (spentOut === 0 && resting === 0))
+    .filter(({ entry }) => unavailableRoute(entry.provider, entry.model) === null)
     .filter(({ entry }) => options.ready(entry) && !(options.exclude?.has(rotationKey(entry)) ?? false))
     .sort((a, b) =>
       a.spentOut - b.spentOut || a.resting - b.resting || a.busy - b.busy || a.spent - b.spent || a.modelSpent - b.modelSpent || a.index - b.index)
@@ -448,6 +452,10 @@ export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMPr
           yield event
         }
       } catch (error) {
+        if (params.signal?.aborted !== true && isRetiredRoute(error)) {
+          markRetiredRoute(entry.provider, entry.model)
+          changeSink?.()
+        }
         if (params.signal?.aborted !== true) observeAccessFailure(entry.provider, entry.model, error)
         if (params.signal?.aborted !== true && canFailOver(error)) coolDown(entry, Date.now(), error)
         if (params.signal?.aborted !== true && isOutOfUsage(error)) markOutOfUsage(entry, error)

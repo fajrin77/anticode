@@ -6,14 +6,18 @@ import type { ApprovalGate } from './approval/types'
 import type { ProviderFallback } from './agent/loop'
 import type { Message } from './providers/types'
 import type { ProviderInfo } from '@shared/ipc'
-const extra = vi.hoisted(() => ({ providers: [] as ProviderInfo[] }))
+const extra = vi.hoisted(() => ({ providers: [] as ProviderInfo[], retired: new Map<string, string>(), models: [] as string[] }))
+vi.mock('./routeAvailability', () => ({
+  unavailableRoute: (provider: string, model: string) => extra.retired.get(`${provider}\n${model}`) ?? null,
+  markRetiredRoute: (provider: string, model: string) => extra.retired.set(`${provider}\n${model}`, 'Route retired')
+}))
 vi.mock('./auth/provider', async (original) => ({ ...await original<typeof import('./auth/provider')>(), authProvider: (id: string, model: string) => ({ name: id, model, async *chat() { yield { type: 'response', response: { content: [], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } } } } }) }))
 
 const userData = mkdtempSync(path.join(tmpdir(), 'anticode-runtime-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
 vi.mock('./settings', () => ({ loadPersistedSettings: () => ({}), savePersistedSettings: () => undefined }))
 vi.mock('./web', () => ({ clearWeb: () => undefined, restoreWeb: () => undefined, webRecord: () => undefined }))
-vi.mock('./providers/models', () => ({ fetchModels: async () => [] }))
+vi.mock('./providers/models', () => ({ fetchModels: async () => extra.models }))
 vi.mock('./providers', () => ({
   listProviders: () => [
     { id: 'one', billing: 'subscription', models: ['m1', 'm1b'], label: 'One', defaultModel: 'm1', credentialAvailable: true, configured: true, credentialHint: '' },
@@ -71,6 +75,8 @@ import {
 import { countedProvider, isOutOfUsage, recordRotationUsage, resetRotationForTests, resetRotationUsage } from './rotation'
 import { beginRun, finishRun } from './runs'
 import { modelLabel, ROTATE_PROVIDER } from '@shared/ipc'
+import { RetiredRouteError } from './providers/routeError'
+import { InputRequestLimitError } from './providers/requestLimits'
 
 const gate = {} as ApprovalGate
 type FakeAgent = {
@@ -82,12 +88,13 @@ const agentOf = (sessionId: string): FakeAgent => getSession(sessionId, gate) as
 const modelOf = (sessionId: string): string => agentOf(sessionId).provider.model
 
 it.each(['codex', 'claude', 'cline', 'opencode-go', 'codebuddy'] as const)('hands %s requests to another account on connection/quota failures with the same model', (authKind) => {
-  extra.providers = [1, 2].map((number) => ({ id: `auth:${authKind}-${number}`, label: 'Fixture', authKind, kind: 'auth', models: ['same'], defaultModel: 'same', credentialAvailable: true, configured: true, credentialHint: '' }))
+  const model = authKind === 'claude' ? 'claude-fixture' : 'same'
+  extra.providers = [1, 2].map((number) => ({ id: `auth:${authKind}-${number}`, label: 'Fixture', authKind, kind: 'auth', models: [model], defaultModel: model, credentialAvailable: true, configured: true, credentialHint: '' }))
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
-  selectProvider({ provider: extra.providers[0]!.id, model: 'same' }, 'a')
+  selectProvider({ provider: extra.providers[0]!.id, model }, 'a')
   const agent = agentOf('a')
   expect(agent.provider.name).toBe(extra.providers[0]!.id)
-  expect(agent.fallback?.(new Error('fetch failed'))).toMatchObject({ name: extra.providers[1]!.id, model: 'same' })
+  expect(agent.fallback?.(new Error('fetch failed'))).toMatchObject({ name: extra.providers[1]!.id, model })
   expect(() => agent.fallback?.(Object.assign(new Error('usage limit reached'), { status: 429 }))).toThrow('usage limit')
   expect(agentOf('a').provider.name).toBe(extra.providers[0]!.id) // A network failure did not exhaust this account.
 })
@@ -115,11 +122,38 @@ it('remembers a failed single account when a second one is added later', () => {
 
 beforeEach(() => {
   extra.providers = []
+  extra.retired.clear()
+  extra.models = []
   resetRotationForTests()
   applyRotation([])
   applyRotationEnabled(false)
   selectProvider({ provider: 'one', model: 'm1' })
-  for (const id of ['a', 'b', 'c', 'fork', 'copy']) deleteSession(id)
+  for (const id of ['a', 'b', 'c', 'fork', 'copy', 'laguna']) deleteSession(id)
+})
+
+it('skips only the explicitly retired route, stays inside the active group, and preserves pool membership', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }])
+  applyRotationGroups([{ name: 'Selected', entries: [{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }] }])
+  applyRotationGroup(getStatus().rotationGroups[0]!.id)
+  applyRotationEnabled(true)
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  const agent = agentOf('a')
+  expect(agent.provider.model).toBe('m1')
+  expect(agent.fallback?.(new RetiredRouteError('m1'))?.model).toBe('m2')
+  expect(getStatus().rotation.find(entry => entry.model === 'm1')).toMatchObject({ ready: false, unavailableReason: 'Route retired', outOfUsage: null, coolingUntil: null })
+  expect(getStatus().rotation).toHaveLength(3)
+  expect(agent.fallback?.(new RetiredRouteError('m2'))).toBeNull()
+  expect(getStatus('a').providerReady).toBe(false)
+  expect(() => agentOf('a')).toThrow(/No model/)
+})
+
+it('rotates a request that cannot fit without cooling down the source or calling it exhausted', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  applyRotationEnabled(true)
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  const agent = agentOf('a')
+  expect(agent.fallback?.(new InputRequestLimitError(13114, 4064, true))?.model).toBe('m2')
+  expect(getStatus().rotation[0]).toMatchObject({ ready: true, outOfUsage: null, coolingUntil: null })
 })
 afterEach(() => {
   finishRun('run-a')
@@ -678,4 +712,32 @@ it('puts a session back on the pool when Rotate is picked again', () => {
   selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
   expect(getStatus('a').provider).toBe(ROTATE_PROVIDER)
   expect(['m1', 'm2']).toContain(modelOf('a'))
+})
+
+it('skips legacy Laguna-on-Claude entries before creating an adapter, including after repeated prompts', () => {
+  const laguna = 'poolside/laguna-xs-2.1:free'
+  extra.providers = [
+    { id: 'auth:claude', kind: 'auth', authKind: 'claude', label: 'Claude', models: ['claude-sonnet-5-5'], defaultModel: 'claude-sonnet-5-5', credentialAvailable: true, configured: true, credentialHint: '' },
+    { id: 'auth:cline', kind: 'auth', authKind: 'cline', label: 'Cline', billing: 'free', models: [laguna], defaultModel: laguna, credentialAvailable: true, configured: true, credentialHint: '' }
+  ]
+  applyRotation([{ provider: 'auth:claude', model: laguna }, { provider: 'auth:cline', model: laguna }])
+  applyRotationEnabled(true)
+  createSession({ sessionId: 'laguna', mode: 'chat', workspaceRoot: null })
+  expect(getStatus().rotation[0]).toMatchObject({ ready: false, unavailableReason: expect.stringContaining('not offered by Claude') })
+  for (let index = 0; index < 5; index++) expect(agentOf('laguna').provider).toMatchObject({ name: 'auth:cline', model: laguna })
+  expect(() => selectProvider({ provider: 'auth:claude', model: laguna }, 'laguna')).toThrow('not offered by Claude')
+  // Preserve the user's configuration for review instead of silently deleting it.
+  expect(getStatus().rotation).toHaveLength(2)
+})
+
+it('tries another same-service account for an input allowance without quota cooldown or model changes', () => {
+  const model = 'deepseek-v4.1-flash:free'
+  extra.providers = [1, 2].map(index => ({ id: `auth:cline-${index}`, kind: 'auth', authKind: 'cline', label: 'Cline', models: [model], billing: 'free', defaultModel: model, credentialAvailable: true, configured: true, credentialHint: '' }))
+  applyRotation(extra.providers.map(provider => ({ provider: provider.id, model })))
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: extra.providers[0]!.id, model }, 'a')
+  const agent = agentOf('a')
+  expect(agent.fallback?.(new InputRequestLimitError(57245, 3299, true))).toMatchObject({ name: 'auth:cline-2', model })
+  expect(getStatus().rotation[0]).toMatchObject({ outOfUsage: null, coolingUntil: null })
+  expect(() => agent.fallback?.(new InputRequestLimitError(57245, 3299, true))).toThrow('3299')
 })

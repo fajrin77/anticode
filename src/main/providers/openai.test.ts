@@ -44,6 +44,22 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
 })
 
+it('normalizes an explicit retired Cline free route carried inside HTTP 200 SSE', async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/event-stream' })
+    const message = 'Failed to create stream: request failed with status 404: ' + JSON.stringify({ error: { message: 'The :free variant has been retired; use paid/model instead.', code: 404 }, user_id: 'private-fixture-account' })
+    response.end('data: ' + JSON.stringify({ error: { code: 'stream_initialization_failed', message } }) + '\n\ndata: [DONE]\n\n')
+  })
+  servers.push(server)
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw Error('No fixture address')
+  const provider = new OpenAICompatibleProvider('cline', 'minimax/model:free', { apiKey: 'fixture', baseURL: `http://127.0.0.1:${address.port}/v1`, maxTokensField: 'max_tokens' })
+  const consume = async () => { for await (const _ of provider.chat({ system: '', messages: [], tools: [], maxTokens: 128, signal: new AbortController().signal })) { /* consume */ } }
+  await expect(consume()).rejects.toMatchObject({ status: 404, code: 'MODEL_ROUTE_RETIRED', scope: 'model' })
+  await expect(consume()).rejects.not.toThrow(/private-fixture-account|paid\/model|user_id/)
+})
+
 it('fails over quickly when an OpenAI-compatible provider sends no first data', async () => {
   const server = createServer((_request, response) => {
     response.writeHead(200, {

@@ -29,13 +29,14 @@ it('starts a new monthly accounting period without inventing provider quota', ()
   expect(settings.accountRoutingUsage).toEqual({ month: new Date().toISOString().slice(0, 7), accounts: { 'auth:cline-2': 5 } })
 })
 it.each<AuthKind>(['codex', 'claude', 'clinepass', 'cline', 'codebuddy', 'opencode-go', 'minimax-plan', 'kilo', 'openrouter'])('distributes 25 prompts evenly over five %s accounts before any account is exhausted', (authKind) => {
-  const five = Array.from({ length: 5 }, (_, index) => ({ ...accounts[0]!, authKind, id: `auth:${authKind}-${index + 1}` }))
-  const candidates = accountCandidates({ provider: five[0]!.id, model: 'free-model' }, five)
+  const model = authKind === 'claude' ? 'claude-fixture' : 'free-model'
+  const five = Array.from({ length: 5 }, (_, index) => ({ ...accounts[0]!, authKind, models: [model], id: `auth:${authKind}-${index + 1}` }))
+  const candidates = accountCandidates({ provider: five[0]!.id, model }, five)
   const prompts: Record<string, number> = {}
   const order: string[] = []
   for (let prompt = 0; prompt < 25; prompt++) {
     const next = rankAccounts(candidates, () => true, () => 0)[0]!
-    expect(next.model).toBe('free-model')
+    expect(next.model).toBe(model)
     order.push(next.provider)
     prompts[next.provider] = (prompts[next.provider] ?? 0) + 1
     recordAccountUsage(next.provider, 100, 20)
@@ -45,9 +46,10 @@ it.each<AuthKind>(['codex', 'claude', 'clinepass', 'cline', 'codebuddy', 'openco
 })
 
 it.each<AuthKind>(['codex', 'claude', 'clinepass', 'cline', 'codebuddy', 'opencode-go', 'minimax-plan', 'kilo', 'openrouter'])('excludes disabled %s accounts even when selected or less used', (authKind) => {
-  const rows = accounts.map((row, i) => ({ ...row, authKind, composerVisible: i !== 0 }))
-  const choices = accountCandidates(selected, rows)
-  expect(choices).toEqual([{ provider: 'auth:cline-2', model: 'free-model' }])
+  const model = authKind === 'claude' ? 'claude-fixture' : 'free-model'
+  const rows = accounts.map((row, i) => ({ ...row, authKind, models: [model], composerVisible: i !== 0 }))
+  const choices = accountCandidates({ ...selected, model }, rows)
+  expect(choices).toEqual([{ provider: 'auth:cline-2', model }])
   recordAccountUsage('auth:cline-2', 1000, 200)
   expect(rankAccounts(choices, () => true, () => 0)[0]?.provider).toBe('auth:cline-2')
   expect(accountCandidates(selected, rows.map(row => ({ ...row, composerVisible: false })))).toEqual([])

@@ -207,6 +207,9 @@ class AuthProvider implements LLMProvider {
 
   private async client(force = false, sessionId?: string, signal?: AbortSignal): Promise<LLMProvider> {
     const requested = this.model || AUTH_DEFAULT_MODELS[this.kind]
+    if ((['claude', 'codex', 'codebuddy', 'opencode-go'] as AuthKind[]).includes(this.kind) && (!authModelsFor(this.id, this.kind).includes(requested) || (this.kind === 'claude' && !requested.startsWith('claude-')))) {
+      throw new ProviderRequestError('The selected model is not in this account’s catalogue. Choose a supported model; saved Rotate entries do not grant model access.', 400)
+    }
     if (this.kind === 'minimax-plan' && !authModelsFor(this.id, this.kind).includes(requested)) throw new ProviderRequestError('Choose a model reported by this MiniMax Token Plan. Wallet/PAYG model aliases are not substituted.', 400)
     if ((this.kind === 'kilo' || this.kind === 'openrouter') && (!presetAllowsModel(this.kind === 'kilo' ? 'kilo-free' : 'openrouter-free', requested) || !authModelsFor(this.id, this.kind).includes(requested))) {
       throw new ProviderRequestError('This browser connection uses current free model routes only. Refresh the model list or choose a free model; paid fallback is disabled.', 400)

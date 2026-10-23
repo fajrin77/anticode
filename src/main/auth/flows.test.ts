@@ -260,7 +260,9 @@ it('renews a Cline session token and keeps the old one as fallback', async () =>
   expect(next.refreshToken).toBe('rt')
 })
 
-it('renews an expired Claude token mid-turn and retries once', async () => {  saveAuthAccount(
+it('renews an expired Claude token mid-turn and retries once', async () => {
+  savePersistedSettings({ authModelCatalogues: { 'auth:claude': { models: ['claude-sonnet-4-5'], checkedAt: Date.now() } } })
+  saveAuthAccount(
     { id: 'auth:claude', kind: 'claude', label: 'Claude', createdAt: Date.now(), refreshable: true },
     { accessToken: 'stale', refreshToken: 'rt', expiresAt: Date.now() - 1000 }
   )
@@ -610,4 +612,14 @@ it('keeps ClinePass subscription identity and selected plan models across token 
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({success:true,data:{accessToken:'next-access',refreshToken:'next-refresh',email:'plan@example.test'}})))
   const next = await refreshCline({accessToken:'old-access',refreshToken:'old-refresh',meta:{accountId:'subscription-identity',planModels:'["cline-pass/test"]'}})
   expect(next.meta).toMatchObject({accountId:'subscription-identity',planModels:'["cline-pass/test"]'})
+})
+
+it('rejects a foreign model before auth refresh, Claude access checks or inference', async () => {
+  saveAuthAccount({ id: 'auth:claude-foreign', kind: 'claude', label: 'Claude', createdAt: Date.now(), refreshable: true }, { accessToken: 'fixture', refreshToken: 'fixture', expiresAt: Date.now() + 3600000 })
+  const fetch = vi.fn(() => { throw new Error('Must not contact Claude for Laguna') })
+  vi.stubGlobal('fetch', fetch)
+  await expect(async () => {
+    for await (const _ of authProvider('auth:claude-foreign', 'poolside/laguna-xs-2.1:free').chat({ system: '', messages: [], tools: [], maxTokens: 10, signal: new AbortController().signal })) { /* consume */ }
+  }).rejects.toThrow('not in this account’s catalogue')
+  expect(fetch).not.toHaveBeenCalled()
 })

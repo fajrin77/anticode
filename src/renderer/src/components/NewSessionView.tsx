@@ -1,7 +1,8 @@
+import { providerModelIssue } from '@shared/providerModel'
 import { DASHBOARD_DRAFT, stageDraftAttachments, useAttachmentJobs, fileAttachmentJob } from '../draftAttachments'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { modelLabel } from '@shared/ipc'
+import { modelLabel, ROTATE_PROVIDER } from '@shared/ipc'
 import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 import { useSessionStore } from '../store/session'
 import type { MessagePart, Session } from '../store/session'
@@ -53,22 +54,29 @@ function Chip({
  * when the first prompt is actually sent.
  */
 function DashboardComposer({
-  status,
+  status: globalStatus,
   providers,
-  onSelectProvider,
   onToggleAutoApprove,
   extra,
   fill
 }: {
   status: SessionStatus | null
   providers: ProviderInfo[]
-  onSelectProvider: (provider: ProviderId, model: string, sessionId?: string | null) => void
   onToggleAutoApprove: (enabled: boolean) => void
   extra: JSX.Element
   /** { text, pulse }, a pulse bump re-applies the same preset text. */
   fill: { text: string; pulse: number }
 }): JSX.Element {
   const savedDraft = useSessionStore(state => state.drafts[DASHBOARD_DRAFT])
+  const selected = savedDraft?.selection
+  const selectedProvider = providers.find(provider => provider.id === selected?.provider)
+  const manual = selected !== undefined && selected.provider !== ROTATE_PROVIDER
+  const denial = manual ? globalStatus?.rotation.find(entry => entry.provider === selected.provider && entry.model === selected.model)?.unavailableReason ?? (selectedProvider ? providerModelIssue(selectedProvider, selected.model) : null) : null
+  const blockedReason = denial ?? (manual && !selectedProvider?.credentialAvailable ? 'Provider unavailable. Configure its credentials first.' :
+    manual && globalStatus?.subscriptionOnly && selectedProvider?.billing !== 'free' && selectedProvider?.billing !== 'subscription' ? 'Choose a free or subscription provider.' : null)
+  const status = globalStatus === null ? null : manual
+    ? { ...globalStatus, ...selected, providerReady: blockedReason === null && selected.model !== '', blockedReason, lastUsed: null }
+    : globalStatus
   const mode = savedDraft?.mode ?? 'code'
   const folder = savedDraft?.folder ?? null
   const draft = savedDraft?.text ?? ''
@@ -83,6 +91,7 @@ function DashboardComposer({
     const current = useSessionStore.getState().drafts[DASHBOARD_DRAFT]?.attachments ?? []
     update(DASHBOARD_DRAFT, { attachments: typeof next === 'function' ? next(current) : next })
   }
+  const pickVersion = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<'none' | 'model' | 'mode'>('none')
   const [shake, setShake] = useState(false)
@@ -203,6 +212,7 @@ function DashboardComposer({
 
     try {
       await window.anticode.createSession({ sessionId, mode, workspaceRoot: mode === 'code' ? folder : null })
+      if (selected !== undefined && (selected.provider !== ROTATE_PROVIDER || globalStatus?.rotationEnabled)) await window.anticode.selectProvider(selected, sessionId)
       await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the hero.
@@ -219,9 +229,9 @@ function DashboardComposer({
   return (
     <div className="shrink-0 px-10">
       <div className="mx-auto max-w-3xl" ref={boxRef}>
-        {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
+        {error !== null && <div role="alert" className="mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap px-1 text-[12.5px] text-del [overflow-wrap:anywhere]">{error}</div>}
         {pending > 0 && <div role="status" className="mb-2 px-1 text-[12.5px] text-dim">Preparing attachments… ({pending})</div>}
-        {attachmentErrors.length > 0 && <div role="alert" className="mb-2 px-1 text-[12.5px] text-del">
+        {attachmentErrors.length > 0 && <div role="alert" className="mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap px-1 text-[12.5px] text-del [overflow-wrap:anywhere]">
           {attachmentErrors.map((message, index) => <div key={index}>{message}</div>)}
           <button type="button" onClick={() => update(DASHBOARD_DRAFT, { attachmentErrors: [] })} className="mt-1 text-dim transition-colors hover:text-brand">Dismiss attachment errors</button>
         </div>}
@@ -235,8 +245,13 @@ function DashboardComposer({
               status={status}
               providers={providers}
               onSelect={(provider, model) => {
-                onSelectProvider(provider, model)
-                if (model !== '') setMenu('none')
+                const version = ++pickVersion.current
+                void window.anticode.selectProvider({ provider, model }).then(() => {
+                  if (version !== pickVersion.current) return
+                  update(DASHBOARD_DRAFT, { selection: { provider, model } })
+                  setError(null)
+                  if (model !== '') setMenu('none')
+                }).catch((failure: Error) => { if (version === pickVersion.current) setError(failure.message) })
               }}
               onClose={() => setMenu('none')}
             />
@@ -337,10 +352,8 @@ function DashboardComposer({
                 +
               </button>
 
-              {/* Under Rotate usage the model is not picked per session, but the
-                  group every session rotates over is, so with groups made,
-                  the chip opens on that choice. */}
-              <Chip disabled={status?.rotationEnabled === true && (status.rotationGroups ?? []).length === 0} onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
+              {/* A dashboard draft may leave Rotate just like an existing session. */}
+              <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
                 <span className="max-w-56 truncate font-mono">
                   {modelLabel(status)}
                 </span>
@@ -618,7 +631,6 @@ export function NewSessionView({
           <DashboardComposer
             status={status}
             providers={providers}
-            onSelectProvider={onSelectProvider}
             onToggleAutoApprove={onToggleAutoApprove}
             extra={heroExtra}
             fill={{ text: fillText, pulse: fillPulse }}

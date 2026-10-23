@@ -18,6 +18,7 @@ export interface PersistedSettings {
   composerProviders?: Record<string, boolean>
   accessObservations?: Record<string, { lastSuccessAt?: number; observations: import('@shared/ipc').AccessObservation[] }>
   providerKeyCooldowns?: Record<string, number>
+  unavailableRoutes?: Record<string, Record<string, { reason: string; since: number }>>
   accountRoutingUsage?: { month: string; accounts: Record<string, number> }
   provider?: string | null
   model?: string | null

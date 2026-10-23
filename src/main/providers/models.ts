@@ -11,6 +11,7 @@ import { recordPublishedContexts, recordPublishedPrices } from '../pricing'
 import { authModelsFor, fetchCodexModels, fetchClineModels, fetchClinePassModels, fetchClaudeModels, fetchFreeGatewayModels } from '../auth/catalogue'
 import { AUTH_MODELS } from '../auth/provider'
 import { getAuthAccount } from '../auth/store'
+import { safeProviderErrorMessage } from './errorMessage'
 
 const TIMEOUT_MS = 15_000
 
@@ -89,7 +90,7 @@ async function listGoogle(apiKey: string): Promise<string[]> {
  * an empty list and the UI falls back to a free-text id.
  */
 function sanitizeModelFetchError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error)
+  const raw = safeProviderErrorMessage(error)
   const status = (error as { status?: unknown }).status
   const noTags = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   const clipped = noTags.length > 160 ? `${noTags.slice(0, 160)}…` : noTags

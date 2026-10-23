@@ -692,6 +692,7 @@ try {
   // Put one ready model in the group before activating it. Models already in
   // this group disappear from later suggestions.
   await addRotation.click(); await window.waitForTimeout(300)
+  await window.getByRole('button', { name: 'Choose one account / model', exact: true }).click()
   await window.locator('[data-provider-combo]').getByRole('option', { name: 'Clinepass' }).click(); await window.waitForTimeout(300)
   let combo = window.locator('[data-model-combo]')
   const option = combo.locator('[role="option"]').first()
@@ -715,6 +716,7 @@ try {
   // the provider names wear — not the OS datalist, loose over the window in
   // bold white.
   await addRotation.click(); await window.waitForTimeout(300)
+  await window.getByRole('button', { name: 'Choose one account / model', exact: true }).click()
   await window.locator('[data-provider-combo]').getByRole('option', { name: 'Clinepass' }).click(); await window.waitForTimeout(300)
   combo = window.locator('[data-model-combo]')
   check('settings: rotate usage models open in the app’s own menu', String(await combo.count()), '1')

@@ -1,3 +1,4 @@
+import { providerModelIssue } from '@shared/providerModel'
 import { groupAuthProviders } from '@shared/providerGroups'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
@@ -92,6 +93,14 @@ export function ModelPicker({
   const picked = offered
   const providerLabel = visibleProviders.find((entry) => entry.id === viewing)?.label ?? viewing
   const current = (id: string): boolean => (viewedProvider?.accountIds ?? [viewing]).includes(provider) && id === status?.model
+  const manualRoute = (model: string): { provider: string; reason: string | null } => {
+    const ids = viewedProvider?.accountIds ?? [viewing]
+    const available = ids.find(id => {
+      const account = providers.find(provider => provider.id === id)
+      return account?.credentialAvailable && account.composerVisible !== false && providerModelIssue(account, model) === null && !pool.find(entry => entry.provider === id && entry.model === model)?.unavailableReason
+    })
+    return { provider: available ?? viewing, reason: available !== undefined ? null : pool.find(entry => ids.includes(entry.provider) && entry.model === model)?.unavailableReason ?? 'No enabled account offers this model. Refresh its catalogue in Settings.' }
+  }
   // Rotating, the list is what sessions rotate over: the group in use, or all.
   const rotatingOver = activeRotationEntries(status)
   const group = activeRotationGroup(status)
@@ -203,9 +212,11 @@ export function ModelPicker({
                 )}
                 <span
                   className={`shrink-0 ${entry.outOfUsage !== null ? 'text-del' : 'text-faint'}`}
-                  title={entry.outOfUsage?.reason}
+                  title={entry.unavailableReason ?? entry.outOfUsage?.reason}
                 >
-                  {!entry.ready
+                  {entry.unavailableReason
+                    ? 'unavailable'
+                    : !entry.ready
                     ? 'no key'
                     : entry.outOfUsage !== null
                       ? 'out of usage'
@@ -258,12 +269,15 @@ export function ModelPicker({
                 key={id}
                 data-picker-model={id}
                 type="button"
-                onClick={() => onSelect(viewing, id)}
+                disabled={manualRoute(id).reason !== null}
+                title={manualRoute(id).reason ?? undefined}
+                onClick={() => onSelect(manualRoute(id).provider, id)}
                 className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover hover:text-brand ${
                   current(id) ? 'text-text' : 'text-dim'
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{id}</span>
+                {manualRoute(id).reason && <span className="shrink-0 text-faint">unavailable</span>}
                 {freeClineAccount && <span className="shrink-0 text-faint">free</span>}
                 {current(id) && <span className="shrink-0">✓</span>}
               </button>

@@ -1,3 +1,4 @@
+import { providerModelIssue } from '@shared/providerModel'
 import type { ProviderInfo, ProviderSelection } from '@shared/ipc'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
@@ -16,7 +17,7 @@ export function recordAccountUsage(id: string, input: number, output: number): v
 export function accountCandidates(choice: ProviderSelection, providers: ProviderInfo[]): ProviderSelection[] {
   const selected = providers.find((provider) => provider.id === choice.provider)
   if (!selected?.authKind) return [choice]
-  return providers.filter((provider) => provider.authKind === selected.authKind && provider.composerVisible !== false && provider.credentialAvailable && provider.models?.includes(choice.model))
+  return providers.filter((provider) => provider.authKind === selected.authKind && provider.composerVisible !== false && provider.credentialAvailable && provider.models?.includes(choice.model) && providerModelIssue(provider, choice.model) === null)
     .map((provider) => ({ provider: provider.id, model: choice.model }))
 }
 export function rankAccounts(candidates: ProviderSelection[], available: (entry: ProviderSelection) => boolean, busy: (entry: ProviderSelection) => number): ProviderSelection[] {

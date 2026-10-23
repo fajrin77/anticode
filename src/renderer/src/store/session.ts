@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
+  ProviderSelection,
   AttachmentInfo,
   AttachmentRef,
   QueuedPrompt,
@@ -144,10 +145,10 @@ interface SessionPreset {
 interface SessionState {
   readPositions: Record<string, { top: number; following: boolean; prompts: number }>
   /** `quote` is a passage from the transcript the next prompt answers. */
-  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null }>
+  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null; selection?: ProviderSelection }>
   updateDraft: (
     id: string,
-    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null }>
+    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null; selection?: ProviderSelection }>
   ) => void
   /** Named prompt starters, saved by the user and listed on the dashboard. */
   presets: SessionPreset[]

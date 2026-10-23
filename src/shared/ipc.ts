@@ -449,6 +449,8 @@ export interface RotationEntry {
 }
 
 export interface RotationEntryStatus extends RotationEntry {
+  /** Exact route denied as retired; separate from credentials and exhausted quota. */
+  unavailableReason?: string | null
   label: string
   /** Tokens this model has used since the last reset, from every session. */
   inputTokens: number

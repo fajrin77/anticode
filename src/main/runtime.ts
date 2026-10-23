@@ -1,3 +1,5 @@
+import { safeProviderErrorMessage } from './providers/errorMessage'
+import { providerModelIssue } from '@shared/providerModel'
 import { isOutOfUsage } from './usageErrors'
 import { canFailOver, isTransient } from './providers/failures'
 import { accountCandidates, rankAccounts } from './auth/sharing'
@@ -33,6 +35,9 @@ import { createProvider, listProviders } from './providers'
 import { authProvider, isAuthProvider as isAuthId } from './auth/provider'
 import { isSubscriptionProvider, subscriptionEntries } from './subscriptions'
 import { fetchModels } from './providers/models'
+import { isRetiredRoute } from './providers/routeError'
+import { requestLimit } from './providers/requestLimits'
+import { markRetiredRoute, unavailableRoute } from './routeAvailability'
 import { publishedContextWindow } from './pricing'
 import {
   activeRotationEntries,
@@ -295,6 +300,8 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     }
     const model = next.model.trim()
     if (modelIsBatchOnly(model)) throw new Error('Batch models cannot be used in interactive chat. Choose a model without :batch.')
+    const issue = providerModelIssue(providerInfo, model || chosenFor(next.provider)[0] || providerInfo.defaultModel)
+    if (issue !== null) throw new Error(issue)
     const knownModels = providerInfo.models ?? []
     // A provider that publishes/configures a model list is authoritative.
     // Search text in the composer must not silently turn a typo into the
@@ -456,7 +463,7 @@ export function cachedCatalogue(provider: ProviderId): string[] | null {
 
 export async function listModels(provider: ProviderId, refresh = false): Promise<ModelCatalogue> {
   const cached = catalogues.get(provider)
-  if (cached && !refresh) return cached
+  if (cached && !refresh) return { ...cached, models: cached.models.filter(model => unavailableRoute(provider, model) === null) }
   let catalogue: ModelCatalogue
   try {
     const models = (await fetchModels(provider)).sort()
@@ -465,9 +472,9 @@ export async function listModels(provider: ProviderId, refresh = false): Promise
       const window = publishedContextWindow(provider, model)
       if (window !== null) windows[model] = window
     }
-    catalogue = { provider, models, error: null, ...(Object.keys(windows).length > 0 ? { contextWindows: windows } : {}) }
+    catalogue = { provider, models: models.filter(model => unavailableRoute(provider, model) === null), error: null, ...(Object.keys(windows).length > 0 ? { contextWindows: windows } : {}) }
   } catch (error) {
-    catalogue = { provider, models: [], error: (error as Error).message }
+    catalogue = { provider, models: [], error: safeProviderErrorMessage(error) }
   }
   catalogues.set(provider, catalogue)
   // The catalogue is only what can be chosen in Settings → Models; it never
@@ -707,8 +714,13 @@ export function rememberedSpec(sessionId: string): SessionSpec | undefined {
 
 type Providers = ReturnType<typeof listProviders>
 
+function routeIssue(entry: RotationEntry, providers: Providers): string | null {
+  const info = providers.find(provider => provider.id === entry.provider)
+  return unavailableRoute(entry.provider, entry.model) ?? (info ? providerModelIssue(info, entry.model) : null)
+}
+
 function entryReady(entry: RotationEntry, providers: Providers): boolean {
-  return !modelIsBatchOnly(entry.model) && providers.some((provider) => provider.id === entry.provider && provider.credentialAvailable &&
+  return routeIssue(entry, providers) === null && !modelIsBatchOnly(entry.model) && providers.some((provider) => provider.id === entry.provider && provider.credentialAvailable &&
     (!provider.authKind || provider.composerVisible !== false) &&
     (provider.billing !== 'free' || (provider.models ?? []).includes(entry.model)) &&
     (!subscriptionOnly() || (isSubscriptionProvider(provider) &&
@@ -739,6 +751,10 @@ function readiness(
     blockedReason =
       info === undefined
         ? 'No provider set up. Add one in Settings → Providers'
+        : unavailableRoute(choice.provider, choice.model) !== null && (!info.authKind || !accountCandidates(choice, providers).some(entry => unavailableRoute(entry.provider, entry.model) === null))
+          ? unavailableRoute(choice.provider, choice.model)
+        : providerModelIssue(info, choice.model) !== null
+          ? providerModelIssue(info, choice.model)
         : !info.credentialAvailable
           ? `${info.label} has no ${info.credentialHint} yet. Add it in Settings → Providers`
           : choice.model === ''
@@ -765,6 +781,7 @@ function rotationStatus(providers: Providers): RotationEntryStatus[] {
     ...rotationUsage(entry),
     label: providers.find((provider) => provider.id === entry.provider)?.label ?? entry.provider,
     ready: entryReady(entry, providers),
+    unavailableReason: routeIssue(entry, providers),
     coolingUntil: coolingUntil(entry),
     outOfUsage: outOfUsage(entry)
   }))
@@ -807,6 +824,8 @@ export function getStatus(sessionId?: string | null): SessionStatus {
 
 /** Every session talks through this, so pooled models count what they spend. */
 function providerFor(target: ProviderSelection): LLMProvider {
+  const issue = routeIssue(target, listProviders())
+  if (issue !== null) throw new Error(issue)
   const inner = isAuthId(target.provider) ? authProvider(target.provider, target.model) : createProvider(target.provider, target.model)
   return countedProvider(target, inner)
 }
@@ -883,8 +902,13 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     tried.add(rotationKey(first))
     target = first
     fallback = (error) => {
-      if (!canFailOver(error)) return null
-      if (live.selection !== undefined) coolDown(live.selection, Date.now(), error)
+      const retired = isRetiredRoute(error)
+      const capacity = requestLimit(error)?.kind === 'input'
+      if (!retired && !capacity && !canFailOver(error)) return null
+      if (live.selection !== undefined) {
+        if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
+        else if (!capacity) coolDown(live.selection, Date.now(), error)
+      }
       const following = next()
       if (following === undefined) {
         if (isTransient(error) && !isOutOfUsage(error)) return null
@@ -906,19 +930,25 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       if (candidates.length > 0) {
         const tried = new Set<string>()
         const next = (): ProviderSelection | undefined => rankAccounts(candidates,
-          (entry) => !tried.has(entry.provider) && coolingUntil(entry) === null && outOfUsage(entry) === null, busyOn)[0]
+          (entry) => !tried.has(entry.provider) && routeIssue(entry, providers) === null && coolingUntil(entry) === null && outOfUsage(entry) === null, busyOn)[0]
         const first = next()
         if (!first) {
           const retryAt = candidates.flatMap(entry => { const at = coolingUntil(entry); return at === null || outOfUsage(entry) !== null ? [] : [at] }).sort((a,b)=>a-b)[0]
-          throw new Error(retryAt !== undefined
+          const issue = candidates.map(entry => routeIssue(entry, providers)).find(reason => reason !== null)
+          throw new Error(issue ?? (retryAt !== undefined
             ? `Provider sedang membatasi request model ini sementara. Coba lagi dalam ${Math.max(1,Math.ceil((retryAt-Date.now())/1000))} detik.`
-            : 'Semua akun aktif untuk model ini melaporkan batas kuota provider. Tunggu reset kuota atau pilih akun/model lain yang tersedia.')
+            : 'Semua akun aktif untuk model ini melaporkan batas kuota provider. Tunggu reset kuota atau pilih akun/model lain yang tersedia.'))
         }
         target = first
         tried.add(first.provider)
         fallback = (error) => {
-          if (!canFailOver(error)) return null
-          if (live.selection) coolDown(live.selection, Date.now(), error)
+          const retired = isRetiredRoute(error)
+          const capacity = requestLimit(error)?.kind === 'input'
+          if (!retired && !capacity && !canFailOver(error)) return null
+          if (live.selection) {
+            if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
+            else if (!capacity) coolDown(live.selection, Date.now(), error)
+          }
           const following = next()
           if (!following) { if (isTransient(error) && !isOutOfUsage(error)) return null; throw error }
           tried.add(following.provider)
