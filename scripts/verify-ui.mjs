@@ -1251,6 +1251,8 @@ try {
     const activeId = () => window.evaluate(() => window.__store.getState().activeSessionId)
     const narrowest = await tabs.evaluateAll((items) => Math.min(...items.map((item) => item.getBoundingClientRect().width)))
     check('tabs: a crowded tab keeps a usable width', narrowest >= 88 ? 'usable' : String(narrowest), 'usable')
+    check('tabs: a scrolling strip draws no scrollbar', await strip.evaluate((el) =>
+      el.scrollWidth > el.clientWidth && el.offsetHeight === el.clientHeight ? 'none' : `scroll ${el.scrollWidth}/${el.clientWidth}, bar ${el.offsetHeight - el.clientHeight}px`), 'none')
 
     const target = tabs.first()
     await target.scrollIntoViewIfNeeded()

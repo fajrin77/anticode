@@ -236,6 +236,24 @@ body {
   border-radius: 6px;
 }
 
+/* Unstyled, Chromium paints the track, its arrow buttons and the corner
+   white: a lone white square appeared once the tab strip began to scroll. */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* The tab strip scrolls by trackpad/wheel; a scrollbar would only cover tabs. */
+[data-session-tabs] {
+  scrollbar-width: none;
+}
+[data-session-tabs]::-webkit-scrollbar {
+  display: none;
+}
+
 /* The rail appears only while the pane is actually being hovered, so an
    idle transcript shows no gutter line at all. */
 .transcript-scroll::-webkit-scrollbar-thumb {
