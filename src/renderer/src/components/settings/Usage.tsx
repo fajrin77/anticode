@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { UsageRecord, UsageSummary } from '@shared/ipc'
 import { formatUsd } from '../../money'
+import { usageModelTotals } from './usageModelTotals'
 
 type RangeId = 'today' | 'month' | '24h' | '7d' | '30d' | '60d' | 'all'
 
@@ -250,7 +251,7 @@ export function Usage(): JSX.Element {
                         <span className="text-violet-400">Cache: {formatNumber(day.cachedTokens)}</span>
                         <span className="text-amber-400">Output: {formatNumber(day.outputTokens)}</span>
                       </div>
-                      {(day.models ?? []).map(model => <div key={`${model.provider}-${model.model}`} className="mt-2 flex flex-wrap justify-between gap-1 text-[11.5px]">
+                      {usageModelTotals(day.models ?? []).map(model => <div key={model.model} className="mt-2 flex flex-wrap justify-between gap-1 text-[11.5px]">
                         <span className="break-all text-dim">{model.model}</span>
                         <span className="tabular-nums text-faint">Input {formatNumber(model.inputTokens)} · cache {formatNumber(model.cachedTokens)} · output {formatNumber(model.outputTokens)}</span>
                       </div>)}
