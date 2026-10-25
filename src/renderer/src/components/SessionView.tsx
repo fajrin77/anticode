@@ -5,6 +5,7 @@ import type { Message, MessagePart } from '../store/session'
 import type { ProviderSelection, RotationEntryStatus } from '@shared/ipc'
 import { PHASE_LABEL } from '@shared/ipc'
 import { ToolBlock } from './ToolBlock'
+import { activitySummary } from './activity'
 import { RichText, linkify } from './RichText'
 import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
@@ -91,9 +92,7 @@ function ToolGroup({
         <span className="min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand">
           {running
             ? `${phaseLabel ?? 'working'} · ${stepCount(parts.length)}`
-            : failed > 0
-              ? `ran ${stepCount(parts.length)} · ${failed} failed`
-              : `ran ${stepCount(parts.length)}`}
+            : `${activitySummary(parts) || `Ran ${stepCount(parts.length)}`}${failed > 0 ? ` · ${failed} failed` : ''}`}
         </span>
         <span
           className={`shrink-0 text-[11px] text-faint transition-opacity ${
