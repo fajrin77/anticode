@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { randomUUID } from 'node:crypto'
 import type { RiskTier } from '@shared/ipc'
 import type { Tool } from '../tools/types'
 import { ToolError } from '../tools/types'
@@ -117,7 +118,10 @@ async function connectClaude(id: string, state: AccountState): Promise<void> {
   // One connector failing to start does not hide the others.
   await Promise.all(servers.map(async (server) => {
     try {
-      const client = await open(id, `${CLAUDE_PROXY_URL}${encodeURIComponent(server.id)}`, () => claudeHeaders(id), state)
+      // The proxy requires a client session id per connection, as Claude Code sends.
+      const session = randomUUID()
+      const headers = async (): Promise<Record<string, string>> => ({ ...(await claudeHeaders(id)), 'x-mcp-client-session-id': session })
+      const client = await open(id, `${CLAUDE_PROXY_URL}${encodeURIComponent(server.id)}`, headers, state)
       const tools = await client.listTools()
       if (accounts.get(id) !== state) return
       state.tools.push(...tools.map((info) => ({ connector: server.display_name, info, client })))
@@ -222,6 +226,22 @@ export function accountConnectorTools(providerId: string | undefined): Tool[] {
     taken.add(name)
     return asTool(providerId, offered, name)
   })
+}
+
+export interface AccountConnectorStatus {
+  connecting: boolean
+  error: string | null
+  /** Connector name → number of tools offered. */
+  connectors: Record<string, number>
+}
+
+/** What an account's connectors look like right now; null when never started. */
+export function accountConnectorStatus(id: string): AccountConnectorStatus | null {
+  const state = accounts.get(id)
+  if (state === undefined) return null
+  const connectors: Record<string, number> = {}
+  for (const tool of state.tools) connectors[tool.connector] = (connectors[tool.connector] ?? 0) + 1
+  return { connecting: state.connecting, error: state.error, connectors }
 }
 
 /** Lets go of accounts that were removed or signed out. */

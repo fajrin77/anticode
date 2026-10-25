@@ -1,4 +1,4 @@
-# Cara ChatGPT/Codex mengedit Google Drive (25 Oktober 2026)
+# Konektor ChatGPT dan claude.ai di Anticode (25 Oktober 2026)
 
 Investigasi statis ChatGPT.app 26.1016.62342 (macOS arm64) yang terpasang, untuk meniru
 kemampuan “Used Google Drive integration, edited a file” di Anticode. Tidak ada kredensial
@@ -58,9 +58,38 @@ Dibaca statis dari biner `~/.local/share/claude/versions/2.1.307`:
   Token wajib punya scope `user:mcp_servers`, dan login Claude Anticode sudah memintanya.
 - Tiap konektor dicapai lewat proxy `https://mcp-proxy.anthropic.com/v1/mcp/{server_id}`
   (transport `claudeai-proxy`, HTTP streamable). Entri dengan `eligible: false` dilewati.
-- Probe nyata belum bisa dilakukan. Token Claude Code di keychain Mac ini sudah dicabut (401),
-  dan token akun Claude di Anticode tersegel safeStorage, jadi hanya bisa dibuka di dalam
-  aplikasi. Token Claude Code sengaja tidak di-refresh agar login Claude Code tidak rusak.
+- Proxy mewajibkan header `X-Mcp-Client-Session-Id` (UUID per koneksi). Tanpa header itu
+  jawabannya HTTP 400 `header.X-Mcp-Client-Session-Id: Field required`. Ini ditemukan
+  lewat probe nyata dan sudah diperbaiki.
+
+### REA pada Claude.app 3.6556.2
+
+REA 6.5.0 sekarang berjalan. Helper Swift REA dikompilasi lewat wrapper
+`REA_DARWIN_SWIFTC_PATH`, yang menyembunyikan `bridging.modulemap` ganda milik Command Line
+Tools dengan VFS overlay, tanpa mengubah file sistem. `analyze-javascript-application` pada
+`.vite/build/index.chunk-0EQutPPD.js` (1,2 MB) selesai dengan exit 0: 317.720 node AST,
+20.552 node semantik, dan 136 temuan. Fungsi yang relevan:
+
+- `oauthTokenFromFd` dan `oauthScopesFromFd`: Claude.app memberi token OAuth akun ke Claude
+  Code bawaannya lewat file descriptor.
+- `setMcpServers`, `connectSdkMcpServer`, `mcpServerStatus`: server MCP dikelola melalui
+  Claude Code. Konektor claude.ai dimuat oleh Claude Code sendiri dengan
+  `MCP_PROXY_URL: "https://mcp-proxy.anthropic.com"` dan `MCP_PROXY_PATH: "/v1/mcp/{server_id}"`
+  (konfigurasi yang sama dengan di biner CLI).
+
+### Probe nyata konektor Claude dan ChatGPT di Electron (25 Oktober 2026)
+
+Proses Electron bernama `anticode` membuka token akun Anticode yang tersegel lewat
+`safeStorage`, dari profil asli secara read-only. Profil Chromium-nya dibuat sementara. Kode
+yang dijalankan adalah `accountConnectors.ts` asli; auth store diganti stub yang tidak pernah
+me-refresh atau menulis token. Hanya tool baca yang dipanggil.
+
+| Akun | Konektor | Panggilan baca |
+|---|---|---|
+| ChatGPT (`auth:codex`) | 569 tool: Vercel 240, GitHub 91, Canva 45, Google Drive 45, Lovable 41, Sites 39, Supabase 29, Gmail 21, Google Calendar 15, Google Contacts 3 | `google_drive.get_profile` OK |
+| Claude (`auth:claude`) | 292 tool: Vercel 244, Supabase 29, Google Drive 11, Claude Docs 8 | Drive `list_recent_files` OK |
+| Claude (`auth:claude-2`) | 19 tool: Google Drive 11, Claude Docs 8. Airtable gagal 401 karena izinnya di claude.ai sudah kedaluwarsa; konektor lain tetap jalan | Drive `list_recent_files` OK |
+| Cline (5 akun) | Tidak ada, sesuai rancangan | - |
 
 Akun Cline, ClinePass, Kilo, CodeBuddy, OpenRouter dan lainnya tidak punya konektor yang
 di-host, sehingga tidak ada yang bisa dipakai ulang.
