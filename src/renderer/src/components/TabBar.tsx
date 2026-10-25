@@ -303,6 +303,19 @@ export function TabBar({
   // for the length of one drag: the tab itself is moved around inside the
   // strip, and pointer capture would not survive that.
   const strip = useRef<HTMLDivElement>(null)
+  // Crowded: the tabs are narrow enough that a hover-revealed × would cover
+  // most of what is left to click.
+  const [crowded, setCrowded] = useState(false)
+  const openCount = sessions.filter((session) => !session.closed).length
+  useEffect(() => {
+    const host = strip.current
+    if (host === null) return
+    const measure = (): void => setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [openCount])
   const drag = useRef<number | null>(null)
   const dragged = useRef(false)
 
@@ -435,7 +448,7 @@ export function TabBar({
               >
                 {session.title}
               </button>
-              <button
+              {(isActive || !crowded) && <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -444,15 +457,15 @@ export function TabBar({
                 // Not pressing a drag start either: closing never reorders.
                 onPointerDown={(event) => event.stopPropagation()}
                 aria-label="Close tab"
-                // An inactive tab shows no × until hovered, and an invisible ×
-                // takes no clicks, so a click near a narrow tab's edge selects
-                // it instead of silently closing it.
+                // An invisible × takes no clicks. Once the strip is crowded,
+                // inactive tabs carry no × at all (as in Chrome): a click on a
+                // narrow tab selects it and never closes it by surprise.
                 className={`shrink-0 text-faint transition-[opacity,color] hover:text-brand focus-visible:opacity-100 ${
                   isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
                 }`}
               >
                 ×
-              </button>
+              </button>}
               {/* Reorder by dragging the tab itself anywhere along the strip;
                   a plain click still just selects it. Right-click on an edge
                   nudges it one slot, for anyone who prefers no dragging. */}

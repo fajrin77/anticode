@@ -1237,6 +1237,54 @@ try {
     check('plan: collapse survives switching to another tab and back', 'needs two sessions', 'false')
   }
 
+  // Many tabs: the strip crushed them to a sliver where only the title took
+  // a click. The whole tab selects, keeps a usable width, and a click wobble
+  // or a click where an inactive tab's hidden × sits still just selects it.
+  {
+    const strip = window.locator('[data-session-tabs]')
+    for (let i = 0; i < 12; i++) {
+      await window.locator('header').getByRole('button',{name:'New tab',exact:true}).first().click(); await window.waitForTimeout(120)
+    }
+    const tabs = strip.locator('[data-tab-id]')
+    const count = await tabs.count()
+    check('tabs: many tabs are open', count >= 10 ? 'many' : String(count), 'many')
+    const activeId = () => window.evaluate(() => window.__store.getState().activeSessionId)
+    const narrowest = await tabs.evaluateAll((items) => Math.min(...items.map((item) => item.getBoundingClientRect().width)))
+    check('tabs: a crowded tab keeps a usable width', narrowest >= 88 ? 'usable' : String(narrowest), 'usable')
+
+    const target = tabs.first()
+    await target.scrollIntoViewIfNeeded()
+    const targetId = await target.getAttribute('data-tab-id')
+    // The badge on the left, not the title.
+    const first = await target.boundingBox()
+    await window.mouse.click(first.x + 22, first.y + first.height / 2); await window.waitForTimeout(250)
+    check('tabs: clicking the badge selects the tab', await activeId(), targetId)
+
+    const second = tabs.nth(1)
+    await second.scrollIntoViewIfNeeded()
+    const secondId = await second.getAttribute('data-tab-id')
+    const box = await second.boundingBox()
+    // A press with a small wobble that does not reorder anything.
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await window.mouse.down()
+    await window.mouse.move(box.x + box.width / 2 + 8, box.y + box.height / 2, { steps: 4 })
+    await window.mouse.up(); await window.waitForTimeout(250)
+    check('tabs: a click with a small wobble still selects', await activeId(), secondId)
+    check('tabs: the wobble did not reorder the strip', await tabs.nth(1).getAttribute('data-tab-id'), secondId)
+
+    const third = tabs.nth(2)
+    await third.scrollIntoViewIfNeeded()
+    const thirdId = await third.getAttribute('data-tab-id')
+    const before = await tabs.count()
+    const edge = await third.boundingBox()
+    // Where the hidden × sits, approached without hovering first.
+    await window.mouse.click(edge.x + edge.width - 14, edge.y + edge.height / 2); await window.waitForTimeout(250)
+    check('tabs: a click on the right edge selects', await activeId(), thirdId)
+    check('tabs: a click on the right edge never closes a tab unasked',
+      (await tabs.count()) === before ? 'kept' : 'closed', 'kept')
+    await shot('tabs-crowded')
+  }
+
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
   if (process.argv.includes('--keep-open')) await new Promise(()=>{})
