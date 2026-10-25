@@ -62,6 +62,11 @@ export interface Tool {
    */
   readOnly: boolean
   prepare: (rawInput: unknown) => PreparedCall
+  /**
+   * Set on tools of a hosted connector of the session's own account (ChatGPT
+   * apps, claude.ai connectors). Such tools load per connector, by name.
+   */
+  connector?: string
 }
 
 interface ToolSpec<S extends z.ZodType> {

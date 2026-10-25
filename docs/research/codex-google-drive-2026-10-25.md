@@ -49,16 +49,40 @@ kali: dengan skrip probe dan dengan `HttpTransport` + `McpClient` milik Anticode
 Belum ada tool tulis yang dipanggil dalam probe. Pengeditan sungguhan baru terjadi saat
 pengguna memintanya di sesi, melalui gerbang persetujuan.
 
+## Konektor claude.ai (Claude Code 2.1.307)
+
+Dibaca statis dari biner `~/.local/share/claude/versions/2.1.307`:
+
+- Daftar konektor: `GET https://api.anthropic.com/v1/mcp_servers?limit=1000` dengan token OAuth
+  akun Claude, `anthropic-version: 2023-06-01` dan `anthropic-beta: mcp-servers-2025-12-04`.
+  Token wajib punya scope `user:mcp_servers`, dan login Claude Anticode sudah memintanya.
+- Tiap konektor dicapai lewat proxy `https://mcp-proxy.anthropic.com/v1/mcp/{server_id}`
+  (transport `claudeai-proxy`, HTTP streamable). Entri dengan `eligible: false` dilewati.
+- Probe nyata belum bisa dilakukan. Token Claude Code di keychain Mac ini sudah dicabut (401),
+  dan token akun Claude di Anticode tersegel safeStorage, jadi hanya bisa dibuka di dalam
+  aplikasi. Token Claude Code sengaja tidak di-refresh agar login Claude Code tidak rusak.
+
+Akun Cline, ClinePass, Kilo, CodeBuddy, OpenRouter dan lainnya tidak punya konektor yang
+di-host, sehingga tidak ada yang bisa dipakai ulang.
+
 ## Implementasi di Anticode
 
-- `src/main/mcp/chatgptApps.ts` menghubungkan akun ChatGPT (Codex) pertama yang tersimpan ke
-  endpoint di atas. Header (token yang diperbarui otomatis) diambil ulang setiap request.
-- Hanya tool `google_drive.*` yang ditawarkan, dengan nama `mcp__Google_Drive__…` di grup
-  `integrations` pada `load_tools`. Tool baca berisiko rendah, tool tulis meminta persetujuan
-  kecuali mode Auto aktif, dan tool destruktif selalu meminta persetujuan.
-- Tidak ada fallback berbayar atau identitas baru. Header sama dengan provider Codex
-  Anticode. Bila akun ChatGPT belum ada atau Drive belum dihubungkan di ChatGPT, tool tidak
-  muncul atau mengembalikan pesan yang jelas. Setelah gagal, koneksi dicoba lagi paling
-  cepat 60 detik kemudian.
+- `src/main/mcp/accountConnectors.ts` mengikuti akun yang sedang dipakai sesi
+  (`provider.id`, ikut berpindah saat Rotate usage berganti akun):
+  - Akun ChatGPT (Codex) memakai semua app dari ChatGPT → Apps lewat `/backend-api/ps/mcp`,
+    kecuali plumbing internal ChatGPT (Plugin Management, Safety Settings, Codex Document
+    Control, Pets, Hotline, Search Service).
+  - Akun Claude memakai konektor claude.ai lewat proxy di atas.
+  - Provider lain tidak mendapat konektor.
+- Karena satu akun bisa membawa ratusan tool (ChatGPT: 569, Vercel saja 240), tiap konektor
+  dimuat per nama: `load_tools({ connectors: ["Google Drive"] })`. Deskripsi `load_tools`
+  menyebut konektor yang tersedia untuk akun sesi itu. Konektor yang pernah dipakai
+  dimuat ulang dari riwayat saat sesi dibuka kembali.
+- Tool baca berisiko rendah, tool tulis meminta persetujuan kecuali mode Auto aktif, dan
+  tool destruktif selalu meminta persetujuan.
+- Tidak ada fallback berbayar atau identitas baru: header sama dengan provider akun itu.
+  Setelah gagal, koneksi dicoba lagi paling cepat 60 detik kemudian.
+- Probe nyata ChatGPT lewat modul ini: 569 tool di 10 konektor, dan
+  `google_drive.get_profile` berhasil.
 
-Keterbatasan: endpoint ini internal OpenAI dan dapat berubah tanpa pemberitahuan.
+Keterbatasan: endpoint ini internal OpenAI dan Anthropic, dan dapat berubah tanpa pemberitahuan.

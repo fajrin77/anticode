@@ -18,6 +18,8 @@ export interface McpToolInfo {
   description: string
   inputSchema: Record<string, unknown>
   annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; title?: string }
+  /** The server's `_meta`, e.g. which hosted connector a tool belongs to. */
+  meta?: Record<string, unknown>
 }
 
 export interface McpContent {
@@ -216,7 +218,7 @@ export class McpClient {
     let cursor: string | undefined
     for (let page = 0; page < 50; page++) {
       const result = (await this.request('tools/list', cursor !== undefined ? { cursor } : {})) as {
-        tools?: McpToolInfo[]
+        tools?: (McpToolInfo & { _meta?: Record<string, unknown> })[]
         nextCursor?: string
       }
       for (const tool of result?.tools ?? []) {
@@ -226,7 +228,8 @@ export class McpClient {
           description: typeof tool.description === 'string' ? tool.description : '',
           inputSchema:
             tool.inputSchema !== null && typeof tool.inputSchema === 'object' ? tool.inputSchema : { type: 'object', properties: {} },
-          ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {})
+          ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
+          ...(tool._meta !== null && typeof tool._meta === 'object' ? { meta: tool._meta } : {})
         })
       }
       if (typeof result?.nextCursor !== 'string' || result.nextCursor === '') break

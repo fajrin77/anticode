@@ -93,9 +93,10 @@ const SUBAGENT_TOOL_NAMES = new Set([
  * Asked on every request, since servers connect and change their lists while
  * sessions are open.
  */
-let external: () => Tool[] = () => []
+let external: (providerId?: string) => Tool[] = () => []
 
-export function setExternalTools(source: () => Tool[]): void {
+/** `providerId` is the session's current provider, so account connectors follow it. */
+export function setExternalTools(source: (providerId?: string) => Tool[]): void {
   external = source
 }
 
@@ -104,9 +105,14 @@ export function setExternalTools(source: () => Tool[]): void {
  * boundary is the workspace root: anticode uses the selected project, while
  * antichat uses a private folder owned by that session.
  */
-export function toolsFor(_mode: SessionMode): Tool[] {
-  const builtIn = new Set([...tools.map((tool) => tool.name), 'load_tools', 'apply_patch'])
-  return [...tools, ...external().filter((tool) => !builtIn.has(tool.name))]
+export function toolsFor(_mode: SessionMode, providerId?: string): Tool[] {
+  const taken = new Set([...tools.map((tool) => tool.name), 'load_tools', 'apply_patch'])
+  const extra = external(providerId).filter((tool) => {
+    if (taken.has(tool.name)) return false
+    taken.add(tool.name)
+    return true
+  })
+  return [...tools, ...extra]
 }
 
 export function subagentTools(): Tool[] {

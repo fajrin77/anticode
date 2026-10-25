@@ -362,7 +362,8 @@ export class AgentSession {
   }
 
   /** What the model is offered now, MCP servers may have come or gone since the last step. */
-  private readonly toolCatalog = new SessionToolCatalog(() => toolsFor(this.mode))
+  // Account connectors follow the provider the session is on right now.
+  private readonly toolCatalog = new SessionToolCatalog(() => toolsFor(this.mode, this.provider.id))
 
   private toolset(): Tool[] {
     return this.fixedTools ?? modelTools(this.toolCatalog.tools(this.history), this.provider.model)
