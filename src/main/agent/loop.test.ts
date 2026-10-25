@@ -147,7 +147,7 @@ describe('AgentSession', () => {
     expect(events.filter(event => event.type === 'tool_end')).toEqual([])
   })
 
-  it.each(['deepseek-v4.1-flash:free', 'deepseek/deepseek-v4.1-flash', 'laguna-s-2.1'])('continues text after an old image with %s and restores original images for vision', async (model) => {
+  it.each(['deepseek-v3-flash:free', 'deepseek/deepseek-v3', 'laguna-s-2.1'])('continues text after an old image with %s and restores original images for vision', async (model) => {
     const history: Message[] = [
       { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }, { type: 'text', text: 'jelaskan gambar' }] },
       { role: 'assistant', content: [{ type: 'text', text: 'Catatan teks sebelumnya.' }] }
@@ -170,7 +170,7 @@ describe('AgentSession', () => {
 
   it('refuses a new image on a text model before calling the provider', async () => {
     let called = false
-    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-v4.1-flash:free', async *chat() { called = true; yield { type: 'response', response: turn([], 'end_turn') } } }
+    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-v3:free', async *chat() { called = true; yield { type: 'response', response: turn([], 'end_turn') } } }
     const session = new AgentSession(provider, allowAll, 'chat')
     await session.run({ runId: 'new-image', prompt: 'baca gambar ini', attachments: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }], signal: new AbortController().signal, emit: (event) => events.push(event) })
     expect(called).toBe(false)
@@ -179,7 +179,7 @@ describe('AgentSession', () => {
 
   it('can resume with a text model after a previous vision turn', async () => {
     const sent: Message[][] = []
-    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-v4.1-flash:free', async *chat(params) {
+    const provider: LLMProvider = { name: 'fixture', model: 'deepseek-v3:free', async *chat(params) {
       sent.push(structuredClone(params.messages))
       yield { type: 'response', response: turn([{ type: 'text', text: 'lanjut' }], 'end_turn') }
     } }
@@ -189,6 +189,19 @@ describe('AgentSession', () => {
     ])
     await session.run({ runId: 'resume', prompt: CONTINUE_PROMPT, signal: new AbortController().signal, emit: (event) => events.push(event) })
     expect(sent).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
+  it.each(['deepseek-ai/deepseek-v4.1-flash-1017', 'deepseek-v4.1-flash:free'])('passes new images to %s without assuming its route is text-only', async model => {
+    const sent: Message[][] = []
+    const provider: LLMProvider = { name: 'fixture', model, async *chat(params) {
+      sent.push(structuredClone(params.messages))
+      yield { type: 'response', response: turn([{ type: 'text', text: 'fixture response, not a vision capability probe' }], 'end_turn') }
+    } }
+    const session = new AgentSession(provider, allowAll, 'chat')
+    await session.run({ runId: 'v41-image', prompt: 'baca gambar', attachments: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }], signal: new AbortController().signal, emit: event => events.push(event) })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.flatMap(message => message.content)).toContainEqual(expect.objectContaining({ type: 'image', data: 'fixture' }))
     expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
   })
 

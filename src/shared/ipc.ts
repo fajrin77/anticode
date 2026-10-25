@@ -741,7 +741,10 @@ export function modelIsBatchOnly(model: string): boolean {
 /** Conservative known-text-only check; unknown models avoid a false warning. */
 export function modelCannotSeeImages(model: string | null | undefined): boolean {
   if (model === undefined || model === null || model === '') return false
-  return /deepseek-(?:v[34].*flash|chat|coder)|llama3\.2(?!.*vision)|minimax-m3\.1-flash|(?:^|\/)laguna-(?:xs|s)-2\.1(?:$|[:\-])/i.test(model)
+  // Do not extrapolate V3's text-only limitation to V4/V4.1 or dated aliases.
+  // Unknown routes must reach their selected provider rather than be rejected
+  // locally on an unverified family-name assumption.
+  return /deepseek-(?:v3(?:[.\-:/]|$)|chat(?:$|[:/])|coder(?:$|[:/]))|llama3\.2(?!.*vision)|minimax-m3\.1-flash|(?:^|\/)laguna-(?:xs|s)-2\.1(?:$|[:\-])/i.test(model)
 }
 
 /**
