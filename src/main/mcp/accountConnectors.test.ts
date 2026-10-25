@@ -2,6 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getVersion: () => '0.0.0', getPath: () => '/tmp' }, BrowserWindow: { getAllWindows: () => [] } }))
 const stored = vi.hoisted(() => ({ accounts: [] as { id: string; kind: string }[] }))
+const settings = vi.hoisted(() => ({ codex: true, claude: false }))
+vi.mock('./connectorSettings', () => ({ getConnectorSettings: () => ({ ...settings }) }))
 vi.mock('../auth/store', () => ({
   listAuthAccounts: () => stored.accounts,
   getAuthAccount: (id: string) => stored.accounts.find((account) => account.id === id)
@@ -11,6 +13,8 @@ vi.mock('../auth/provider', () => ({ ensureFreshAuthTokens: async () => ({ acces
 const { accountConnectorStatus, accountConnectorTools, chatgptConnectorOf, closeAccountConnectors, connectorKind, connectorRisk, CHATGPT_APPS_URL, CLAUDE_PROXY_URL } = await import('./accountConnectors')
 
 afterEach(async () => {
+  settings.codex = true
+  settings.claude = false
   stored.accounts = []
   await closeAccountConnectors()
   vi.unstubAllGlobals()
@@ -52,7 +56,8 @@ it('offers nothing while no ChatGPT or Claude account is stored', () => {
   expect(CLAUDE_PROXY_URL).toBe('https://mcp-proxy.anthropic.com/v1/mcp/')
 })
 
-it.skip('reaches claude.ai connectors through the proxy with a client session id per connection (temporarily disabled)', async () => {
+it('reaches claude.ai connectors when enabled, then hides them when switched off', async () => {
+  settings.claude = true
   const seen: { url: string; headers: Record<string, string> }[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: { headers: Record<string, string>; body?: string; method?: string }) => {
     seen.push({ url, headers: init.headers })
@@ -75,6 +80,10 @@ it.skip('reaches claude.ai connectors through the proxy with a client session id
   expect(new Set(proxied.map((call) => call.headers['x-mcp-client-session-id'])).size).toBe(1)
   expect(proxied[0]!.headers['x-mcp-client-session-id']).toMatch(/^[0-9a-f-]{36}$/)
   expect(proxied[0]!.headers['anthropic-beta']).toContain('mcp-servers-2025-12-04')
+  settings.claude = false
+  expect(accountConnectorTools('auth:claude')).toEqual([])
+  expect(() => tools[0]!.prepare({})).not.toThrow()
+  await expect(tools[0]!.prepare({}).execute({ signal: new AbortController().signal } as never)).rejects.toThrow('not connected')
 })
 
 it('shares ChatGPT connectors with every model and tells duplicates apart', async () => {

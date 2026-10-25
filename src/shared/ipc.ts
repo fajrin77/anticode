@@ -101,6 +101,8 @@ export const IpcChannel = {
   ROTATION_ENABLE: 'rotation:enable',
   SUBSCRIPTION_ROUTING: 'subscription:routing',
   SUBSCRIPTION_QUOTAS: 'subscription:quotas',
+  CONNECTOR_GET: 'connectors:get',
+  CONNECTOR_SET: 'connectors:set',
   ROTATION_GROUPS_SET: 'rotation:groups',
   ROTATION_GROUP_SELECT: 'rotation:group',
   REMOTE_STATUS: 'remote:status',
@@ -1384,6 +1386,8 @@ export interface AnticodeApi {
   setRotationEnabled: (enabled: boolean) => Promise<SessionStatus>
   setSubscriptionRouting: (enabled: boolean) => Promise<SessionStatus>
   getSubscriptionQuotas: () => Promise<SubscriptionQuota[]>
+  getConnectorSettings: () => Promise<{ codex: boolean; claude: boolean }>
+  setConnectorSettings: (settings: { codex: boolean; claude: boolean }) => Promise<{ codex: boolean; claude: boolean }>
   /** Replaces the Rotate usage groups; a model a group names joins the pool. */
   setRotationGroups: (groups: RotationGroupInput[]) => Promise<SessionStatus>
   /** The group every session rotates over from its next prompt; null for the whole pool. */

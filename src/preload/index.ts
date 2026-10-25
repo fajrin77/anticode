@@ -94,6 +94,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_ROUTING, enabled) as ReturnType<AnticodeApi['setSubscriptionRouting']>,
   getSubscriptionQuotas: () =>
     ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_QUOTAS) as ReturnType<AnticodeApi['getSubscriptionQuotas']>,
+  getConnectorSettings: () => ipcRenderer.invoke(IpcChannel.CONNECTOR_GET),
+  setConnectorSettings: (settings) => ipcRenderer.invoke(IpcChannel.CONNECTOR_SET, settings),
   setRotationGroups: (groups: RotationGroupInput[]) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_GROUPS_SET, groups) as Promise<SessionStatus>,
   selectRotationGroup: (id: string | null) =>

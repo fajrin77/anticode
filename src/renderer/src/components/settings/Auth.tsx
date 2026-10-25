@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { ComposerVisibility, ComposerGroupVisibility } from './ComposerVisibility'
 import { Toggle } from './controls'
+import { Connectors } from './Connectors'
 import { AccountGroup } from './AccountGroup'
 import type { AuthAccountSummary, AuthKind, AuthLoginState, ProviderInfo, SessionStatus, SubscriptionQuota } from '@shared/ipc'
 
@@ -489,6 +490,7 @@ export function Auth({
         </div>
       </div>
 
+      <Connectors />
       <div className="glass-surface overflow-hidden rounded-xl border border-line">
         {VENDORS.map(vendor => {
           const mine = accounts.filter(row => row.kind === vendor.kind)

@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { getConnectorSettings } from './connectorSettings'
 import type { RiskTier } from '@shared/ipc'
 import type { Tool } from '../tools/types'
 import { ToolError } from '../tools/types'
@@ -36,8 +37,7 @@ const CHATGPT_INTERNAL = new Set(['plugin management', 'safety settings', 'codex
 export type ConnectorKind = 'codex' | 'claude'
 
 export function connectorKind(kind: string | undefined): ConnectorKind | null {
-  // claude.ai connectors are temporarily disabled; Claude inference is unaffected.
-  return kind === 'codex' ? kind : null
+  return (kind === 'codex' || kind === 'claude') && getConnectorSettings()[kind] ? kind : null
 }
 
 /** The connector a ChatGPT apps tool belongs to, or null for ChatGPT internals. */
@@ -207,7 +207,7 @@ function asTool(id: string, offered: Offered, name: string, connector: string): 
           detail: `${connector} (${vendor} connector)\nTool: ${info.name}\n\n${JSON.stringify(raw ?? {}, null, 2)}`
         }),
         execute: async (context) => {
-          if (!(accounts.get(id)?.tools.includes(offered) ?? false)) {
+          if (connectorKind(getAuthAccount(id)?.kind) === null || !(accounts.get(id)?.tools.includes(offered) ?? false)) {
             throw new ToolError(`${connector} is not connected right now. Check that it is still connected in ${vendor} and try again.`)
           }
           const result = await offered.client.callTool(info.name, raw ?? {}, context.signal)

@@ -1,4 +1,5 @@
 import { getAccessReport } from '../accessReport'
+import { getConnectorSettings, setConnectorSettings } from '../mcp/connectorSettings'
 import { testAllAccess } from '../accessProbe'
 import { APP_VERSION } from '../version'
 import { listSchedules, addSchedule, updateSchedule, removeSchedule } from '../scheduler'
@@ -451,6 +452,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.ROTATION_SET, (_event, entries: unknown): SessionStatus => setRotation(entries))
   ipcMain.handle(IpcChannel.ROTATION_RESET, (): SessionStatus => resetRotation())
+  ipcMain.handle(IpcChannel.CONNECTOR_GET, () => getConnectorSettings())
+  ipcMain.handle(IpcChannel.CONNECTOR_SET, (_event, settings: unknown) => setConnectorSettings(settings))
   ipcMain.handle(IpcChannel.SUBSCRIPTION_QUOTAS, () => getSubscriptionQuotas())
   ipcMain.handle(IpcChannel.SUBSCRIPTION_ROUTING, async (_event, enabled: unknown): Promise<SessionStatus> => {
     if (typeof enabled !== 'boolean') throw new Error('Expected on or off')
