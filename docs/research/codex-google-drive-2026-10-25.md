@@ -114,4 +114,19 @@ di-host, sehingga tidak ada yang bisa dipakai ulang.
 - Probe nyata ChatGPT lewat modul ini: 569 tool di 10 konektor, dan
   `google_drive.get_profile` berhasil.
 
+### Konektor bersama untuk semua model
+
+Konektor tidak lagi dibatasi pada akun yang sedang dipakai sesi. Semua konektor dari semua akun
+ChatGPT dan Claude yang tersimpan tersedia untuk setiap model (Cline, Kilo, OpenRouter, dan
+lainnya). Pemanggilan konektor memakai token akun pemilik konektor, bukan inference, jadi
+tidak memindahkan rute model ke jalur berbayar.
+
+- Urutan mengikuti urutan akun tersimpan agar nama tetap stabil saat Rotate usage berganti
+  akun dan saat sesi dibuka kembali. Akun pertama memakai nama polos ("Google Drive"). Konektor
+  yang sama di akun berikutnya diberi label akun, misalnya "Google Drive (claude-2)" dengan nama
+  tool `mcp__claude-2_Google_Driv__…` (label akun di depan karena prefix dipotong 20 karakter).
+- Probe nyata di Electron: sesi akun Cline mendapat 880 tool dari 16 konektor (ChatGPT 10,
+  `auth:claude` 4, `auth:claude-2` 2), dan `list_recent_files` Google Drive milik `claude-2`
+  berhasil dari sesi Cline itu.
+
 Keterbatasan: endpoint ini internal OpenAI dan Anthropic, dan dapat berubah tanpa pemberitahuan.

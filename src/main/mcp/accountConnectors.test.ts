@@ -1,15 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getVersion: () => '0.0.0', getPath: () => '/tmp' }, BrowserWindow: { getAllWindows: () => [] } }))
+const stored = vi.hoisted(() => ({ accounts: [] as { id: string; kind: string }[] }))
 vi.mock('../auth/store', () => ({
-  listAuthAccounts: () => [],
-  getAuthAccount: (id: string) => (id === 'auth:cline' ? { id, kind: 'cline' } : id === 'auth:claude' ? { id, kind: 'claude' } : undefined)
+  listAuthAccounts: () => stored.accounts,
+  getAuthAccount: (id: string) => stored.accounts.find((account) => account.id === id)
 }))
 vi.mock('../auth/provider', () => ({ ensureFreshAuthTokens: async () => ({ accessToken: 't' }) }))
 
 const { accountConnectorStatus, accountConnectorTools, chatgptConnectorOf, closeAccountConnectors, connectorKind, connectorRisk, CHATGPT_APPS_URL, CLAUDE_PROXY_URL } = await import('./accountConnectors')
 
 afterEach(async () => {
+  stored.accounts = []
   await closeAccountConnectors()
   vi.unstubAllGlobals()
 })
@@ -33,7 +35,7 @@ it('lets reads run, asks for writes, and always asks for destructive calls', () 
   expect(connectorRisk({ annotations: { readOnlyHint: true, destructiveHint: true } })).toBe('high')
 })
 
-it('offers nothing to providers without hosted connectors', () => {
+it('offers nothing while no ChatGPT or Claude account is stored', () => {
   expect(accountConnectorTools(undefined)).toEqual([])
   expect(accountConnectorTools('openrouter')).toEqual([])
   expect(accountConnectorTools('auth:cline')).toEqual([])
@@ -53,6 +55,7 @@ it('reaches claude.ai connectors through the proxy with a client session id per 
     if (message.method === 'initialize') return json({ jsonrpc: '2.0', id: message.id, result: { serverInfo: { name: 'proxy' } } })
     return json({ jsonrpc: '2.0', id: message.id, result: { tools: [{ name: 'list_recent_files', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] } })
   }))
+  stored.accounts = [{ id: 'auth:claude', kind: 'claude' }]
   accountConnectorTools('auth:claude')
   for (let i = 0; i < 50 && accountConnectorStatus('auth:claude')?.connecting !== false; i++) await new Promise((r) => setTimeout(r, 10))
   expect(accountConnectorStatus('auth:claude')).toMatchObject({ error: null, connectors: { 'Google Drive': 1 } })
@@ -63,4 +66,27 @@ it('reaches claude.ai connectors through the proxy with a client session id per 
   expect(new Set(proxied.map((call) => call.headers['x-mcp-client-session-id'])).size).toBe(1)
   expect(proxied[0]!.headers['x-mcp-client-session-id']).toMatch(/^[0-9a-f-]{36}$/)
   expect(proxied[0]!.headers['anthropic-beta']).toContain('mcp-servers-2025-12-04')
+})
+
+it('shares every account connector with every model and tells duplicates apart', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body?: string; method?: string }) => {
+    const json = (value: unknown): Response => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } })
+    if (url.includes('/v1/mcp_servers')) return json({ data: [{ id: 'srv', display_name: 'Google Drive' }] })
+    if (init.method === 'DELETE') return new Response(null, { status: 204 })
+    const message = JSON.parse(init.body ?? '{}') as { id?: number; method: string }
+    if (message.id === undefined) return new Response(null, { status: 202 })
+    if (message.method === 'initialize') return json({ jsonrpc: '2.0', id: message.id, result: {} })
+    return json({ jsonrpc: '2.0', id: message.id, result: { tools: [{ name: 'list_recent_files', inputSchema: { type: 'object' } }] } })
+  }))
+  stored.accounts = [{ id: 'auth:claude', kind: 'claude' }, { id: 'auth:cline', kind: 'cline' }, { id: 'auth:claude-2', kind: 'claude' }]
+  accountConnectorTools('auth:cline')
+  for (let i = 0; i < 50 && [accountConnectorStatus('auth:claude'), accountConnectorStatus('auth:claude-2')].some((s) => s?.connecting !== false); i++) {
+    await new Promise((r) => setTimeout(r, 10))
+  }
+  // A Cline session gets both Claude accounts' connectors, in stored order.
+  expect(accountConnectorTools('auth:cline').map((tool) => [tool.name, tool.connector])).toEqual([
+    ['mcp__Google_Drive__list_recent_files', 'Google Drive'],
+    ['mcp__claude-2_Google_Driv__list_recent_files', 'Google Drive (claude-2)']
+  ])
+  expect(accountConnectorTools('openrouter').map((tool) => tool.name)).toEqual(accountConnectorTools('auth:claude-2').map((tool) => tool.name))
 })

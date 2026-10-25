@@ -180,8 +180,13 @@ export function initAccountConnectors(): void {
   for (const stored of listAuthAccounts()) if (connectorKind(stored.kind) !== null) ensureAccountConnectors(stored.id)
 }
 
-function asTool(id: string, offered: Offered, name: string): Tool {
-  const { info, connector } = offered
+/** A short account label for telling apart the same connector on two accounts. */
+function accountLabel(id: string): string {
+  return id.replace(/^auth:/, '')
+}
+
+function asTool(id: string, offered: Offered, name: string, connector: string): Tool {
+  const { info } = offered
   const vendor = accounts.get(id)?.kind === 'claude' ? 'claude.ai' : 'ChatGPT'
   return {
     name,
@@ -212,20 +217,43 @@ function asTool(id: string, offered: Offered, name: string): Tool {
   }
 }
 
-/** The connectors of the account behind `providerId`; none for any other provider. */
-export function accountConnectorTools(providerId: string | undefined): Tool[] {
-  if (providerId === undefined) return []
-  ensureAccountConnectors(providerId)
-  const state = accounts.get(providerId)
-  if (state === undefined) return []
+/**
+ * The connectors of every stored ChatGPT and Claude account, shared by every
+ * session whatever model it runs on (Cline, Kilo, OpenRouter, …). Accounts go
+ * in stored order so names stay stable across Rotate usage and reopened
+ * sessions: the first account with a connector keeps its plain name ("Google
+ * Drive"); the same connector on a later account is "Google Drive (claude-2)".
+ */
+export function accountConnectorTools(_providerId?: string): Tool[] {
+  const ids = listAuthAccounts().filter((stored) => connectorKind(stored.kind) !== null).map((stored) => stored.id)
+  const claimed = new Set<string>()
   const taken = new Set<string>()
-  return state.tools.map((offered) => {
-    const base = mcpToolName(offered.connector, offered.info.name)
-    let name = base
-    for (let n = 2; taken.has(name); n++) name = `${base.slice(0, 60)}_${n}`
-    taken.add(name)
-    return asTool(providerId, offered, name)
-  })
+  const out: Tool[] = []
+  for (const id of ids) {
+    ensureAccountConnectors(id)
+    const state = accounts.get(id)
+    if (state === undefined) continue
+    const keys = new Map<string, { key: string; prefix: string }>()
+    for (const offered of state.tools) {
+      let named = keys.get(offered.connector)
+      if (named === undefined) {
+        const duplicate = claimed.has(offered.connector.toLowerCase())
+        named = duplicate
+          // Tool-name prefixes keep 20 characters: the account goes first so it survives.
+          ? { key: `${offered.connector} (${accountLabel(id)})`, prefix: `${accountLabel(id)} ${offered.connector}` }
+          : { key: offered.connector, prefix: offered.connector }
+        keys.set(offered.connector, named)
+        claimed.add(named.key.toLowerCase())
+      }
+      const key = named.key
+      const base = mcpToolName(named.prefix, offered.info.name)
+      let name = base
+      for (let n = 2; taken.has(name); n++) name = `${base.slice(0, 60)}_${n}`
+      taken.add(name)
+      out.push(asTool(id, offered, name, key))
+    }
+  }
+  return out
 }
 
 export interface AccountConnectorStatus {
