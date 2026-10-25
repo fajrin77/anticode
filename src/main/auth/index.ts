@@ -23,6 +23,8 @@ import { loginCodex, accountLabel as codexLabel } from './codex'
 import { loginClaude, accountLabel as claudeLabel } from './claude'
 import { loginCline, accountLabel as clineLabel } from './cline'
 import { loginCodebuddy, accountLabel as codebuddyLabel } from './codebuddy'
+import { DIRECT_AUTH_LABELS, isDirectAuthKind } from '@shared/directAuthProviders'
+import { loginDirectApi } from './directApi'
 import { forgetAuthCatalogue } from './catalogue'
 import { ensureFreshAuthTokens } from './provider'
 import { withRelogin } from './types'
@@ -64,6 +66,7 @@ export function isAuthProvider(id: string): boolean {
 }
 
 export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
+  ...DIRECT_AUTH_LABELS,
   'minimax-plan': 'MiniMax Token Plan',
   kilo: 'Kilo Free',
   vercel: 'Vercel AI Gateway',
@@ -80,6 +83,7 @@ export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
 }
 
 function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
+  if (isDirectAuthKind(kind)) return loginDirectApi(kind, callbacks)
   switch (kind) {
     case 'clinepass': return loginClinePass(callbacks)
     case 'minimax-plan': return loginMiniMaxPlan(callbacks)
@@ -103,6 +107,7 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
 }
 
 function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
+  if (isDirectAuthKind(kind)) return tokens.meta?.account
   switch (kind) {
     case 'cursor':
     case 'copilot':
@@ -194,6 +199,7 @@ export async function loginAuthAccount(
 
 /** True when the vendor has a refresh grant we can call for this account. */
 export function canRefreshAuthAccount(kind: AuthKind): boolean {
+  if (isDirectAuthKind(kind)) return false
   return !['cursor', 'copilot', 'opencode-go', 'kilo', 'openrouter', 'vercel', 'minimax-plan'].includes(kind)
 }
 

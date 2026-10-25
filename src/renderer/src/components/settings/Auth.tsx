@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { ComposerVisibility, ComposerGroupVisibility } from './ComposerVisibility'
 import { Toggle } from './controls'
+import { DIRECT_AUTH_PROVIDERS, DIRECT_AUTH_REFRESH, isDirectAuthKind, type DirectAuthKind } from '@shared/directAuthProviders'
 import { Connectors } from './Connectors'
 import { AccountGroup } from './AccountGroup'
 import type { AuthAccountSummary, AuthKind, AuthLoginState, ProviderInfo, SessionStatus, SubscriptionQuota } from '@shared/ipc'
@@ -17,6 +18,7 @@ import type { AuthAccountSummary, AuthKind, AuthLoginState, ProviderInfo, Sessio
  */
 
 const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
+  ...Object.entries(DIRECT_AUTH_PROVIDERS).map(([kind, config]) => ({ kind: kind as DirectAuthKind, title: config.label, hint: config.hint })),
   {
     kind: 'codex',
     title: 'ChatGPT (Codex)',
@@ -44,6 +46,7 @@ const HIDDEN = new Set<AuthKind>(['opencode-go', 'minimax-plan'])
 
 /** Manual renewal is also available for providers with refresh grants. */
 const RENEWABLE: Record<AuthKind, boolean> = {
+  ...DIRECT_AUTH_REFRESH,
   'minimax-plan': false,
   kilo: false,
   openrouter: false,
@@ -497,14 +500,15 @@ export function Auth({
       </div>
 
       <Connectors />
-      <div className="glass-surface overflow-hidden rounded-xl border border-line">
+      <p className="text-[12px] text-faint">Direct account connections. API-key routes may incur charges and are not subscription OAuth. Scroll to see all providers.</p>
+      <div data-auth-providers tabIndex={0} role="region" aria-label="Auth providers — scroll for all providers" className="glass-surface max-h-[660px] overflow-y-auto overscroll-contain rounded-xl border border-line">
         {VENDORS.map(vendor => {
           const mine = accounts.filter(row => row.kind === vendor.kind)
           const running = live.some(state => state.kind === vendor.kind)
           // OpenCode Go stays supported but off the list; an account already
           // connected still shows so it can be renamed or removed.
           if (HIDDEN.has(vendor.kind) && mine.length === 0 && !running) return null
-          const keyConnection = vendor.kind === 'opencode-go' || vendor.kind === 'minimax-plan'
+          const keyConnection = isDirectAuthKind(vendor.kind) || vendor.kind === 'opencode-go' || vendor.kind === 'minimax-plan'
           return (
             <div key={vendor.kind} data-auth-vendor={vendor.kind} className="border-b border-line-soft last:border-b-0">
               <AccountGroup id={`auth-${vendor.kind}`} title={vendor.title} count={mine.length}

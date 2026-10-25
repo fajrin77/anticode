@@ -1,4 +1,5 @@
 import { CLINEPASS_MODELS } from '../providers/clinepass'
+import { DIRECT_AUTH_DEFAULTS, DIRECT_AUTH_LABELS, DIRECT_AUTH_MODELS, DIRECT_AUTH_PROVIDERS, isDirectAuthKind } from '@shared/directAuthProviders'
 import { randomUUID } from 'node:crypto'
 import { presetAllowsModel } from '@shared/providerPresets'
 import { APP_VERSION } from '../version'
@@ -51,6 +52,7 @@ const REFRESH_AHEAD_MS = 5 * 60 * 1000
  * Cline OAuth is restricted to free aliases. The first entry starts new sessions.
  */
 export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
+  ...DIRECT_AUTH_MODELS,
   clinepass: CLINEPASS_MODELS as [string, ...string[]],
   copilot: [''],
   cursor: [''],
@@ -79,6 +81,7 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
 
 /** Every model the vendor starts on when the user has not picked one. */
 export const AUTH_DEFAULT_MODELS: Record<AuthKind, string> = {
+  ...DIRECT_AUTH_DEFAULTS,
   clinepass: CLINEPASS_MODELS[0]!,
   copilot: '',
   cursor: '',
@@ -99,6 +102,7 @@ function isStale(tokens: AuthTokens): boolean {
 }
 
 async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> {
+  if (isDirectAuthKind(kind)) return tokens
   switch (kind) {
     case 'minimax-plan': return tokens
     case 'kilo':
@@ -191,6 +195,7 @@ export function ensureFreshAuthTokens(id: string, force = false): Promise<AuthTo
 
 /** Only used inside error text, so it stays here rather than in the UI layer. */
 const AUTH_KIND_NAMES: Record<AuthKind, string> = {
+  ...DIRECT_AUTH_LABELS,
   copilot: 'GitHub Copilot',
   'minimax-plan': 'MiniMax Token Plan',
   cursor: 'Cursor',
@@ -224,6 +229,7 @@ class AuthProvider implements LLMProvider {
 
   private async client(force = false, sessionId?: string, signal?: AbortSignal): Promise<LLMProvider> {
     const requested = this.model || AUTH_DEFAULT_MODELS[this.kind]
+    if (isDirectAuthKind(this.kind) && (!requested || !authModelsFor(this.id, this.kind).includes(requested))) throw new ProviderRequestError('Refresh the API-key account catalogue and select an available model.', 400)
     if (['cursor', 'antigravity'].includes(this.kind) && (!requested || !authModelsFor(this.id, this.kind).includes(requested))) throw new ProviderRequestError('Refresh the account model catalogue and select an available model.', 400)
     if (this.kind === 'copilot' && (!requested || !authModelsFor(this.id, 'copilot').includes(requested))) throw new ProviderRequestError('Select a model reported by this GitHub Copilot account. Refresh the model catalogue first.', 400)
     if ((['claude', 'codex', 'codebuddy', 'opencode-go'] as AuthKind[]).includes(this.kind) && (!authModelsFor(this.id, this.kind).includes(requested) || (this.kind === 'claude' && !requested.startsWith('claude-')))) {
@@ -246,6 +252,7 @@ class AuthProvider implements LLMProvider {
     const account = getAuthAccount(this.id)
     if (account === undefined) throw new Error(`The account ${this.id} is gone`)
     const model = this.model === '' ? AUTH_DEFAULT_MODELS[this.kind] : this.model
+    if (isDirectAuthKind(this.kind)) return new OpenAICompatibleProvider(this.kind, model, { apiKey: tokens.accessToken, baseURL: DIRECT_AUTH_PROVIDERS[this.kind].baseURL, maxTokensField: 'max_tokens' })
 
     switch (this.kind) {
       case 'minimax-plan':

@@ -1,5 +1,6 @@
 import type { AuthKind, ProviderInfo } from './ipc'
-const labels: Record<AuthKind, string> = { cursor: 'Cursor', antigravity: 'Antigravity', copilot: 'GitHub Copilot', codex: 'ChatGPT (Codex)', cline: 'Cline Free', clinepass: 'ClinePass', claude: 'Claude Code', codebuddy: 'CodeBuddy', 'opencode-go': 'OpenCode Go', kilo: 'Kilo Free', openrouter: 'OpenRouter Free', vercel: 'Vercel AI Gateway', 'minimax-plan': 'MiniMax Token Plan' }
+import { DIRECT_AUTH_LABELS } from './directAuthProviders'
+const labels: Record<AuthKind, string> = { ...DIRECT_AUTH_LABELS, cursor: 'Cursor', antigravity: 'Antigravity', copilot: 'GitHub Copilot', codex: 'ChatGPT (Codex)', cline: 'Cline Free', clinepass: 'ClinePass', claude: 'Claude Code', codebuddy: 'CodeBuddy', 'opencode-go': 'OpenCode Go', kilo: 'Kilo Free', openrouter: 'OpenRouter Free', vercel: 'Vercel AI Gateway', 'minimax-plan': 'MiniMax Token Plan' }
 
 /** Account identity stays intact; only the model-selection UI is grouped. */
 export function groupAuthProviders(providers: ProviderInfo[]): ProviderInfo[] {

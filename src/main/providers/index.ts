@@ -1,6 +1,7 @@
 import { migrateClinePassAccount } from '../auth/clinepassMigration'
 import type { ProviderId, ProviderInfo } from '@shared/ipc'
 import { modelIsBatchOnly } from '@shared/ipc'
+import { isDirectAuthKind } from '@shared/directAuthProviders'
 import { keyringProvider } from './keyring'
 import { withOpenCodeSession } from './opencodeGo'
 import { composerProviders } from './visibility'
@@ -70,7 +71,7 @@ export function listProviders(): ProviderInfo[] {
       models,
       kind: 'auth',
       authKind: account.kind,
-      billing: ['cursor', 'antigravity', 'copilot', 'codex', 'claude', 'opencode-go', 'minimax-plan', 'clinepass'].includes(account.kind) ? 'subscription' : ['cline', 'kilo', 'openrouter', 'vercel'].includes(account.kind) ? 'free' : 'unknown',
+      billing: isDirectAuthKind(account.kind) ? 'metered' : ['cursor', 'antigravity', 'copilot', 'codex', 'claude', 'opencode-go', 'minimax-plan', 'clinepass'].includes(account.kind) ? 'subscription' : ['cline', 'kilo', 'openrouter', 'vercel'].includes(account.kind) ? 'free' : 'unknown',
       baseURL: '',
       hasKey: tokens !== null
     }

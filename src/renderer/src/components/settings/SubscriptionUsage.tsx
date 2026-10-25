@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { AuthKind, SubscriptionQuota } from '@shared/ipc'
 import { quotaResetLabel, quotaWindowLabel } from './subscriptionUsageFormat'
+import { DIRECT_AUTH_LABELS } from '@shared/directAuthProviders'
 
 /** Which quota groups the user left open; kept across leaving and reopening Settings. */
 let openState: Record<string, boolean> = {}
 
-const LABELS: Record<AuthKind, string> = { cursor: 'Cursor', antigravity: 'Antigravity', copilot: 'GitHub Copilot', claude: 'Claude Code', codex: 'ChatGPT', cline: 'Cline Free', clinepass: 'ClinePass', codebuddy: 'CodeBuddy', 'opencode-go': 'OpenCode Go', 'minimax-plan': 'MiniMax Token Plan', kilo: 'Kilo', openrouter: 'OpenRouter', vercel: 'Vercel AI Gateway' }
+const LABELS: Record<AuthKind, string> = { ...DIRECT_AUTH_LABELS, cursor: 'Cursor', antigravity: 'Antigravity', copilot: 'GitHub Copilot', claude: 'Claude Code', codex: 'ChatGPT', cline: 'Cline Free', clinepass: 'ClinePass', codebuddy: 'CodeBuddy', 'opencode-go': 'OpenCode Go', 'minimax-plan': 'MiniMax Token Plan', kilo: 'Kilo', openrouter: 'OpenRouter', vercel: 'Vercel AI Gateway' }
 
 export function SubscriptionUsage(): JSX.Element {
   const [quotas, setQuotas] = useState<SubscriptionQuota[] | null>(null)

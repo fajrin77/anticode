@@ -605,6 +605,11 @@ try {
   await window.getByRole('button',{name:/Auth provider/}).click(); await window.waitForTimeout(300)
   const codexVendor = window.locator('[data-auth-vendor="codex"]')
   check('auth: GitHub Copilot authorize is offered', await window.locator('[data-auth-vendor="copilot"]').count(), 1)
+  for (const kind of ['nvidia-nim', 'ollama-cloud', 'xai', 'kimi-api', 'byteplus-api', 'kimchi-api', 'airforce-api', 'bazaarlink-api']) {
+    check(`auth: direct ${kind} key connection offered`, await window.locator(`[data-auth-vendor="${kind}"]`).count(), 1)
+  }
+  check('auth: list is bounded and scrollable', await window.locator('[data-auth-providers]').evaluate(el => getComputedStyle(el).overflowY === 'auto' && el.scrollHeight > el.clientHeight && el.clientHeight <= 660), true)
+  check('auth: list scroll reaches later accounts', await window.locator('[data-auth-providers]').evaluate(el => { el.scrollTop = el.scrollHeight; const moved = el.scrollTop > 0; el.scrollTop = 0; return moved }), true)
   check('auth: Cursor browser authorize is offered', await window.locator('[data-auth-vendor="cursor"]').count(), 1)
   check('auth: Antigravity browser authorize is offered', await window.locator('[data-auth-vendor="antigravity"]').count(), 1)
   check('auth: Vercel is no longer offered for new accounts', await window.locator('[data-auth-vendor="vercel"]').count(), 0)

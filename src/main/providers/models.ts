@@ -12,6 +12,7 @@ import { authModelsFor, fetchCodexModels, fetchClineModels, fetchClinePassModels
 import { AUTH_MODELS } from '../auth/provider'
 import { getAuthAccount } from '../auth/store'
 import { fetchDirectAccountCatalogue } from '../auth/catalogue'
+import { isDirectAuthKind } from '@shared/directAuthProviders'
 import { safeProviderErrorMessage } from './errorMessage'
 
 const TIMEOUT_MS = 15_000
@@ -114,7 +115,7 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
   // catalogue, and it is written down next to the adapter that uses it.
   if (id.startsWith('auth:') || getAuthAccount(id)) {
     const account = getAuthAccount(id)
-    if (account && ['copilot', 'cursor', 'antigravity'].includes(account.kind)) {
+    if (account && (isDirectAuthKind(account.kind) || ['copilot', 'cursor', 'antigravity'].includes(account.kind))) {
       const models = await fetchDirectAccountCatalogue(id)
       return models
     }
