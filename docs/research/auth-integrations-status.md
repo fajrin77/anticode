@@ -38,6 +38,12 @@ Antigravity memakai browser authorization-code PKCE dan callback localhost port
 Operator harus memasok `ANTICODE_ANTIGRAVITY_CLIENT_ID` dan
 `ANTICODE_ANTIGRAVITY_CLIENT_SECRET` melalui environment lokal (lihat `.env.example`),
 lalu restart aplikasi. Tanpa konfigurasi ini, login berhenti dengan pesan yang jelas;
+Alternatif lokal: Anticode sekarang dapat membaca pasangan client OAuth dari
+instalasi npm 9router yang sudah ada (`ANTICODE_9ROUTER_PATH` opsional menunjuk folder
+package). Pembacaan statis, tanpa mengeksekusi bundle, membaca token akun, atau
+meneruskan inference ke server 9router. Environment eksplisit tetap prioritas.
+Format bundle yang tidak dikenali tetap gagal dengan pesan konfigurasi; konfigurasi
+tidak disalin ke kode/rilis. Diuji pada instalasi lokal yang melayani port 20128.
 authorize akun tetap melalui browser, bukan tempel token akun. Ini persyaratan
 rilis 0.0.97 untuk menghindari distribusi kredensial pihak ketiga.
 Tidak membuat Cloud project/onboarding berbayar: akun harus sudah diaktifkan dalam
@@ -70,3 +76,9 @@ Tidak ada benchmark coding provider nyata pada tahap ini.
 
 Rilis 0.0.97 juga menyelaraskan Input, Cache, dan Output rincian harian dalam
 kolom grid bersama per model, sehingga panjang angka berbeda tidak menggeser kolom.
+
+Investigasi lanjutan: skill REA lokal Downloads dibaca dan CLI analisis dicoba;
+analisis TypeScript melewati timeout, sehingga bukan bukti REA sukses. Inspeksi
+statis manual pada bundle 9router lokal dan layanan OAuth upstream digunakan
+sebagai bukti konfigurasi. GitHub tetap device flow tanpa email; instruksi UI
+diperjelas agar kode Anticode dimasukkan ke halaman GitHub lalu disetujui.

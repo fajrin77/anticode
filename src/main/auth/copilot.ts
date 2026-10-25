@@ -15,7 +15,7 @@ export async function loginCopilot(callbacks: AuthLoginCallbacks): Promise<AuthT
   if (!response.ok) throw new Error(`GitHub device authorization failed (${response.status})`)
   const device = await response.json() as { device_code?: string; user_code?: string; verification_uri?: string; expires_in?: number; interval?: number }
   if (!device.device_code || !device.user_code || device.verification_uri !== 'https://github.com/login/device') throw new Error('GitHub returned an invalid device authorization')
-  callbacks.onUpdate({ message: `Authorize GitHub Copilot in your browser. Enter code: ${device.user_code}`, url: device.verification_uri })
+  callbacks.onUpdate({ message: `Enter this device code on GitHub: ${device.user_code}. This code comes from Anticode, not email. Click Continue, then approve access in GitHub. Anticode will connect automatically.`, url: device.verification_uri })
   await shell.openExternal(device.verification_uri)
   const deadline = Date.now() + Math.min(device.expires_in ?? 900, 1800) * 1000
   let interval = Math.max(device.interval ?? 5, 5) * 1000

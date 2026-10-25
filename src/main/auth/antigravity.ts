@@ -3,12 +3,7 @@ import { makeVerifier, makeChallenge, makeState } from './pkce'
 import { waitForCallback } from './server'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
 
-function oauthClient(): { id: string; secret: string } {
-  const id = process.env.ANTICODE_ANTIGRAVITY_CLIENT_ID?.trim()
-  const secret = process.env.ANTICODE_ANTIGRAVITY_CLIENT_SECRET?.trim()
-  if (!id || !secret) throw new Error('Antigravity OAuth client is not configured. Set ANTICODE_ANTIGRAVITY_CLIENT_ID and ANTICODE_ANTIGRAVITY_CLIENT_SECRET, then restart Anticode. Account authorization still happens in your browser.')
-  return { id, secret }
-}
+import { antigravityOAuthClient as oauthClient } from './antigravityClient'
 const REDIRECT = 'http://localhost:51121/oauth-callback'
 export const ANTIGRAVITY_BASE = 'https://daily-cloudcode-pa.sandbox.googleapis.com'
 const metadata = { ideType: 'ANTIGRAVITY' }

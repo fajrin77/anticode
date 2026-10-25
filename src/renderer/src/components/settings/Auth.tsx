@@ -265,6 +265,7 @@ export function Auth({
               {state.url}
             </a>
           )}
+          {state.kind === 'copilot' && !state.done && !state.error && <p className="mt-2 text-[12px] text-faint">The device code is shown above, not sent by email. Enter it on GitHub, click Continue, then approve access. If GitHub separately requests account verification or 2FA, complete that on GitHub.</p>}
           {state.kind === 'opencode-go' && state.needsCode && <p className="mt-2 text-[12px] text-faint">Turn off Extra usage in OpenCode Console to stay within plan limits.</p>}
           {state.needsCode && (
             <div className="mt-3 flex items-center gap-2">
