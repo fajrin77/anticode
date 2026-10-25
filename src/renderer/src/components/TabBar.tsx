@@ -326,11 +326,17 @@ export function TabBar({
     const onMove = (move: PointerEvent): void => {
       if (move.pointerId !== drag.current) return
       if (!moved && Math.abs(move.clientX - startX) < 6) return
-      moved = true
-      dragged.current = true
       const host = strip.current
       if (host === null) return
-      moveSessionTo(sessionId, dropIndex(host, move.clientX, sessionId))
+      const tabs = [...host.querySelectorAll<HTMLElement>('[data-tab-id]')]
+      const from = tabs.findIndex((tab) => tab.dataset.tabId === sessionId)
+      const to = dropIndex(host, move.clientX, sessionId)
+      // A wobble during a click that would leave the tab where it is, is a
+      // click, not a drag: only an actual reorder swallows the click.
+      if (!moved && to === from) return
+      moved = true
+      dragged.current = true
+      if (to !== from) moveSessionTo(sessionId, to)
     }
     const onUp = (): void => {
       drag.current = null
@@ -392,7 +398,13 @@ export function TabBar({
               // reads at a glance even among many dark tabs; inactive tabs stay
               // bare and gain the box only under the cursor.
               data-tab-id={session.id}
-              className={`region-no-drag group relative flex h-9 min-w-0 flex-1 basis-0 max-w-48 items-center gap-2 rounded-lg px-3 transition-colors ${
+              // The whole tab selects, not only its title: with many tabs the
+              // title shrinks to a sliver and clicks on the badge or padding
+              // used to do nothing. Tabs keep a minimum width and the strip
+              // scrolls instead of crushing them.
+              role="tab"
+              aria-selected={isActive}
+              className={`region-no-drag group relative flex h-9 min-w-[5.5rem] flex-1 basis-0 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-lg px-3 transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
               onPointerDown={(event) => startDrag(session.id, event)}
@@ -401,6 +413,7 @@ export function TabBar({
                 event.preventDefault()
                 event.stopPropagation()
               }}
+              onClick={() => onSelectSession(session.id)}
             >
               {isActive && (
                 <span
@@ -415,7 +428,6 @@ export function TabBar({
               />
               <button
                 type="button"
-                onClick={() => onSelectSession(session.id)}
                 title={session.title}
                 className={`min-w-0 flex-1 truncate text-left text-[14px] transition-colors group-hover:text-brand ${
                   isActive ? 'text-text' : 'text-dim'
@@ -425,9 +437,19 @@ export function TabBar({
               </button>
               <button
                 type="button"
-                onClick={() => close(session.id)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  close(session.id)
+                }}
+                // Not pressing a drag start either: closing never reorders.
+                onPointerDown={(event) => event.stopPropagation()}
                 aria-label="Close tab"
-                className="shrink-0 text-faint opacity-0 transition-[opacity,color] group-hover:opacity-100 hover:text-brand focus-visible:opacity-100"
+                // An inactive tab shows no × until hovered, and an invisible ×
+                // takes no clicks, so a click near a narrow tab's edge selects
+                // it instead of silently closing it.
+                className={`shrink-0 text-faint transition-[opacity,color] hover:text-brand focus-visible:opacity-100 ${
+                  isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+                }`}
               >
                 ×
               </button>
