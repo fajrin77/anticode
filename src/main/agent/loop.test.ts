@@ -1439,6 +1439,34 @@ it('locally condenses oversized key-limited history once while preserving the or
   expect(JSON.stringify(session.snapshot().messages)).toContain(oldText)
 })
 
+it('reduces the replay again for the next route instead of refusing it on the first route evidence', async () => {
+  const sent: string[] = []
+  // The fallback hands back the provider itself, not a route name. Both routes
+  // refuse the unreduced replay, as a credit-limited key does.
+  const wide: LLMProvider = { name: 'wide-key', model: 'large', async *chat(params) {
+    const replay = JSON.stringify(params.messages)
+    sent.push('wide:' + replay.length)
+    if (replay.length > 20000) throw new InputRequestLimitError(45000, 12000)
+    yield { type: 'response', response: turn([{ type: 'text', text: 'Continued on the wider route.' }], 'end_turn') }
+  } }
+  // A key whose request limit is below its own instructions and tools cannot
+  // be reduced into: it is refused on every attempt, which is what used to
+  // consume the whole turn's single reduction before the next route saw it.
+  const tight: LLMProvider = { name: 'tight-key', model: 'small', async *chat(params) {
+    sent.push('tight:' + JSON.stringify(params.messages).length)
+    throw new InputRequestLimitError(45000, 12000)
+  } }
+  const session = new AgentSession(tight, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'text', text: 'Keep the original project goal.' }] }, { role: 'assistant', content: [{ type: 'text', text: 'past work '.repeat(18000) }] }], 'rotation', { tools: [] })
+  session.useProvider(tight, () => wide)
+  await session.run({ runId: 'rotation', prompt: 'Carry on.', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(sent.map(entry => entry.split(':')[0])).toEqual(['tight', 'tight', 'wide'])
+  expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  // One line for the whole turn: the second route is reduced without another
+  // identical notice in the transcript.
+  const lines = JSON.stringify(session.snapshot().messages).match(/Konteks melebihi batas request key/g) ?? []
+  expect(lines).toHaveLength(1)
+})
+
 it('does not repeat a key-limit compaction indefinitely if a smaller request is refused too', async () => {
   let requests = 0
   const provider: LLMProvider = { name: 'fixture', model: 'fixture-large-window', async *chat() {

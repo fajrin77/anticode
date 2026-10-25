@@ -720,6 +720,10 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
             message.blocks[0].text === CONTINUE_PROMPT
           ) {
             const previous = converted.at(-1)
+            const alreadyMarked = previous?.role === 'assistant' &&
+              previous.parts.at(-1)?.kind === 'notice' &&
+              (previous.parts.at(-1) as { text: string }).text === RESUME_LABEL
+            if (alreadyMarked) continue
             if (previous?.role === 'assistant') previous.parts.push({ kind: 'notice', text: RESUME_LABEL })
             else converted.push({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'notice', text: RESUME_LABEL }], pending: false })
             continue

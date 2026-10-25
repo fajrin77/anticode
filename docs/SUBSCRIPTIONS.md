@@ -314,9 +314,15 @@ bukan dihapus. Pemilihan manual dashboard diterapkan sebelum prompt pertama
 sesi baru tanpa mengubah pilihan sesi lain.
 
 Batas ukuran request key terpisah dari kuota habis. Agent dapat melakukan satu
-pemadatan lokal per rute/skema, menjaga prompt terbaru dan hasil tool yang telah
-terkonfirmasi. Bukti allowance dicache 60 detik dalam sesi agar Continue tidak
-mengirim ulang request yang tetap terlalu besar. Rotate hanya berpindah dalam
+pemadatan lokal per rute/skema **per giliran**, menjaga prompt terbaru dan hasil
+tool yang telah terkonfirmasi. Jatah itu milik rute, bukan milik giliran: rute
+berikutnya yang menerima hand-over (Rotate atau akun lain) tetap boleh memadatkan
+replay-nya sendiri, sehingga satu rute yang batasnya lebih kecil dari instruksi
+dan tool-nya tidak lagi menghabiskan jatah sebelum rute lain mendapat giliran.
+Satu baris pemadatan yang sama tidak ditulis dua kali ke transkrip. Bukti
+allowance dicache 60 detik dalam sesi agar Continue tidak mengirim ulang request
+yang tetap terlalu besar (lihat [QA routing](QA-ROUTING-2026-10-23.md) untuk
+batas pengukurannya). Rotate hanya berpindah dalam
 grup aktif; manual hanya antar-akun layanan/model yang sama. Tidak ada cooldown
 kuota atau penambahan rute berbayar akibat batas input.
 

@@ -310,6 +310,10 @@ export class AgentSession {
   private readonly fixedTools: Tool[] | null
   /** Short-lived, route-and-schema-specific evidence; never a model context-window guess. */
   private readonly inputAllowances = new Map<string, { limit: number; overhead: number; checkedAt: number }>()
+  /** The route this turn has already reduced its replay for, so it tries once. */
+  private reducedForKeyLimitFor: string | null = null
+  /** The line this session wrote last, so the same one is never repeated. */
+  private lastDisplayText: string | null = null
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   /**
@@ -337,6 +341,11 @@ export class AgentSession {
     private readonly options: AgentOptions = {}
   ) {
     this.fixedTools = options.tools ?? null
+    // A notice already in a restored transcript is the last line it wrote.
+    this.lastDisplayText = initialHistory
+      .flatMap((message) => message.content)
+      .filter((block): block is Extract<ContentBlock, { type: 'display' }> => block.type === 'display' && block.kind === 'notice')
+      .at(-1)?.text ?? null
     // A sub-agent only reads; it has nothing to take back.
     this.checkpoints =
       workspaceRoot === null || options.subagent === true
@@ -377,6 +386,7 @@ export class AgentSession {
     this.running = true
     this.activeSignal = params.signal
     this.activePlan = params.plan === true
+    this.reducedForKeyLimitFor = null
     try {
       await this.runExclusive(params)
     } finally {
@@ -662,12 +672,14 @@ export class AgentSession {
   }
 
   private async requestTurn(params: RunParams): Promise<LLMResponse> {
-    const reducedForKeyLimit = new Set<string>()
     let correctedToolMarkup = false
     for (let attempt = 0; ; attempt++) {
       try {
+        // A route this turn already reduced its replay for has nothing left to
+        // cut; its first request may still be under the ceiling, and once it
+        // fails the allowance is checked again rather than pre-empting it.
         const allowance = this.inputAllowances.get(this.allowanceKey())
-        if (allowance && Date.now() - allowance.checkedAt < 60_000) {
+        if (allowance && Date.now() - allowance.checkedAt < 60_000 && this.reducedForKeyLimitFor !== this.allowanceKey()) {
           const estimate = allowance.overhead + replayCost(this.requestMessages(params))
           if (estimate > allowance.limit) throw new InputRequestLimitError(estimate, allowance.limit, false, true)
         }
@@ -702,8 +714,11 @@ export class AgentSession {
           if (!(error instanceof InputRequestLimitError && error.cached) && prompt > 0 && ceiling > 0) {
             this.inputAllowances.set(key, { limit: ceiling, overhead: Math.max(0, prompt - replayCost(this.requestMessages(params))), checkedAt: Date.now() })
           }
-          if (!reducedForKeyLimit.has(key)) {
-            reducedForKeyLimit.add(key)
+          // One reduction per route and per turn: rotation hands the turn to
+          // another route, which has to be allowed its own reduction rather
+          // than inherit the earlier route's used-up one.
+          if (this.reducedForKeyLimitFor !== key) {
+            this.reducedForKeyLimitFor = key
             if (this.reduceForKeyLimit(prompt, ceiling, params)) continue
           }
           error = new InputRequestLimitError(prompt, ceiling, true, error instanceof InputRequestLimitError && error.cached)
@@ -759,6 +774,9 @@ export class AgentSession {
       if (replayCost(candidate) >= before || replayCost(candidate) > budget) continue
       this.history.splice(0, this.history.length, ...candidate)
       const text = 'Konteks melebihi batas request key. Riwayat dan hasil tool diringkas secara lokal untuk satu percobaan ulang; transkrip asli dan hasil pekerjaan tetap tersimpan.'
+      // A transcript that shows the same line twice reads as a fault. The
+      // retry still happens; only the repeated line is left out.
+      if (this.lastDisplayText === text) return true
       this.recordDisplay('notice', text)
       params.emit({ type: 'notice', runId: params.runId, text })
       return true
@@ -933,6 +951,7 @@ export class AgentSession {
   async compact(signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<{ before: number; after: number }> {
     if (this.running) throw new Error('Pause this session before compacting it')
     this.running = true
+    this.reducedForKeyLimitFor = null
     try {
       const before = replayCost(this.history)
       let cut = -1
@@ -1169,6 +1188,7 @@ export class AgentSession {
 
   /** Adds durable UI state without feeding it back to the model. */
   private recordDisplay(kind: 'notice' | 'error', text: string): void {
+    this.lastDisplayText = text
     const last = this.transcript.at(-1)
     if (last?.role === 'assistant') {
       this.transcript[this.transcript.length - 1] = {
