@@ -119,7 +119,6 @@ export function Updates(): JSX.Element {
             (state?.canInstall === true ? (
               confirming ? (
                 <>
-                  <span className="text-[12px] text-faint">anticode quits; runs in progress are paused.</span>
                   <button
                     type="button"
                     onClick={() => void act(() => window.anticode.installUpdate())}
