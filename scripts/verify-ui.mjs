@@ -3,7 +3,7 @@
 // paid API calls. Screenshots land in the directory printed at the end.
 import { _electron as electron } from 'playwright'
 import { createServer } from 'node:http'
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -592,6 +592,37 @@ try {
   await limeOnHover('settings: sidebar auth provider', window.getByRole('button',{name:/Auth provider/}))
   await window.getByRole('button',{name:/Auth provider/}).click(); await window.waitForTimeout(300)
   const codexVendor = window.locator('[data-auth-vendor="codex"]')
+  const connectors = window.locator('[data-connectors]')
+  const chatgptConnector = connectors.getByRole('switch', { name: 'ChatGPT connectors', exact: true })
+  const claudeConnector = connectors.getByRole('switch', { name: 'Claude connectors', exact: true })
+  await chatgptConnector.waitFor({ state: 'visible' })
+  check('connectors: panel follows subscription routing', await window.evaluate(() => {
+    const routing = document.querySelector('[data-subscription-routing]')
+    const panel = document.querySelector('[data-connectors]')
+    return routing && panel && routing.nextElementSibling === panel ? 'below' : 'wrong position'
+  }), 'below')
+  check('connectors: ChatGPT defaults on', await chatgptConnector.getAttribute('aria-checked'), 'true')
+  check('connectors: Claude defaults off', await claudeConnector.getAttribute('aria-checked'), 'false')
+  async function checkConnectorSelection(label, codex, claude) {
+    await window.waitForFunction(() => [...document.querySelectorAll('[data-connectors] button[role="switch"]')].every(button => !button.disabled))
+    check(`connectors: ${label} UI`, JSON.stringify([
+      await chatgptConnector.getAttribute('aria-checked'), await claudeConnector.getAttribute('aria-checked')
+    ]), JSON.stringify([String(codex), String(claude)]))
+    check(`connectors: ${label} backend`, await window.evaluate(async () => JSON.stringify(await window.anticode.getConnectorSettings())), JSON.stringify({ codex, claude }))
+    check(`connectors: ${label} persisted`, JSON.stringify(JSON.parse(await readFile(path.join(profile, 'connector-settings.json'), 'utf8'))), JSON.stringify({ codex, claude }))
+  }
+  await claudeConnector.click()
+  await checkConnectorSelection('both on', true, true)
+  await chatgptConnector.click()
+  await checkConnectorSelection('Claude only', false, true)
+  await claudeConnector.click()
+  await checkConnectorSelection('both off', false, false)
+  await chatgptConnector.click()
+  await checkConnectorSelection('ChatGPT only', true, false)
+  await window.getByRole('button', { name: 'Providers', exact: true }).click()
+  await window.getByRole('button', { name: /Auth provider/ }).click()
+  await checkConnectorSelection('reopened panel', true, false)
+  await shot('connectors-chatgpt-only')
   await limeOnHover('settings: auth sign in', codexVendor.getByRole('button',{name:'Add account'}))
   // A vendor with no account still renders its count, so the first sign-in
   // does not shift the row it lands in.
