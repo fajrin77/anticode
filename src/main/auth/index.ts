@@ -3,6 +3,9 @@ import { isTransient } from '../providers/failures'
 import { loginOpenCodeGo } from './opencodeGo'
 import { loginOpenRouter } from './openrouter'
 import { loginKilo } from './kilo'
+import { loginCopilot } from './copilot'
+import { loginCursor } from './cursor'
+import { loginAntigravity } from './antigravity'
 import { loginVercel } from './vercel'
 import { loginMiniMaxPlan } from './minimaxPlan'
 import { randomUUID } from 'node:crypto'
@@ -64,6 +67,9 @@ export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
   'minimax-plan': 'MiniMax Token Plan',
   kilo: 'Kilo Free',
   vercel: 'Vercel AI Gateway',
+  copilot: 'GitHub Copilot',
+  cursor: 'Cursor',
+  antigravity: 'Antigravity',
   openrouter: 'OpenRouter Free',
   codex: 'ChatGPT (Codex)',
   claude: 'Claude Code',
@@ -90,11 +96,17 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
       return loginCodebuddy(callbacks)
     case 'vercel':
       return loginVercel(callbacks)
+    case 'copilot': return loginCopilot(callbacks)
+    case 'cursor': return loginCursor(callbacks)
+    case 'antigravity': return loginAntigravity(callbacks)
   }
 }
 
 function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
   switch (kind) {
+    case 'cursor':
+    case 'copilot':
+    case 'antigravity': return tokens.meta?.account
     case 'minimax-plan': return undefined
     case 'kilo': return tokens.meta?.email || undefined
     case 'openrouter': return undefined
@@ -182,7 +194,7 @@ export async function loginAuthAccount(
 
 /** True when the vendor has a refresh grant we can call for this account. */
 export function canRefreshAuthAccount(kind: AuthKind): boolean {
-  return !['opencode-go', 'kilo', 'openrouter', 'vercel', 'minimax-plan'].includes(kind)
+  return !['cursor', 'copilot', 'opencode-go', 'kilo', 'openrouter', 'vercel', 'minimax-plan'].includes(kind)
 }
 
 /**

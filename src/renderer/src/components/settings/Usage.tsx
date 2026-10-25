@@ -251,10 +251,16 @@ export function Usage(): JSX.Element {
                         <span className="text-violet-400">Cache: {formatNumber(day.cachedTokens)}</span>
                         <span className="text-amber-400">Output: {formatNumber(day.outputTokens)}</span>
                       </div>
-                      {usageModelTotals(day.models ?? []).map(model => <div key={model.model} className="mt-2 flex flex-wrap justify-between gap-1 text-[11.5px]">
-                        <span className="break-all text-dim">{model.model}</span>
-                        <span className="tabular-nums text-faint">Input {formatNumber(model.inputTokens)} · cache {formatNumber(model.cachedTokens)} · output {formatNumber(model.outputTokens)}</span>
-                      </div>)}
+                      <div className="mt-2 overflow-x-auto">
+                        <div data-usage-model-grid className="grid grid-cols-[minmax(120px,1fr)_max-content_max-content_max-content] items-baseline gap-x-5 gap-y-2 text-[11.5px]">
+                          {usageModelTotals(day.models ?? []).map(model => <div key={model.model} className="contents">
+                            <span className="break-all text-dim">{model.model}</span>
+                            <span data-usage-column="input" className="whitespace-nowrap tabular-nums text-faint">Input {formatNumber(model.inputTokens)}</span>
+                            <span data-usage-column="cache" className="whitespace-nowrap tabular-nums text-faint">Cache {formatNumber(model.cachedTokens)}</span>
+                            <span data-usage-column="output" className="whitespace-nowrap tabular-nums text-faint">Output {formatNumber(model.outputTokens)}</span>
+                          </div>)}
+                        </div>
+                      </div>
                     </div>
                   })()}
                 </div>

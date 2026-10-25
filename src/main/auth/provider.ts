@@ -4,6 +4,11 @@ import { presetAllowsModel } from '@shared/providerPresets'
 import { APP_VERSION } from '../version'
 import { MINIMAX_PLAN_MODELS } from './minimaxPlan'
 import { VERCEL_GATEWAY_BASE } from './vercel'
+import { COPILOT_BASE, COPILOT_HEADERS } from './copilot'
+import { validCursorTokens } from './cursor'
+import { refreshAntigravity } from './antigravity'
+import { CursorCliProvider } from '../providers/cursorCli'
+import { AntigravityProvider } from '../providers/antigravity'
 import { failureStatus, isTransient } from '../providers/failures'
 import { ProviderRequestError } from '../providers/requestError'
 import { clearLoginCooldown } from '../rotation'
@@ -47,6 +52,9 @@ const REFRESH_AHEAD_MS = 5 * 60 * 1000
  */
 export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   clinepass: CLINEPASS_MODELS as [string, ...string[]],
+  copilot: [''],
+  cursor: [''],
+  antigravity: [''],
   'minimax-plan': MINIMAX_PLAN_MODELS,
   kilo: ['minimax/minimax-m3.1-flash:free'],
   // Only free routes; the live catalogue adds whatever else the key allows.
@@ -72,6 +80,9 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
 /** Every model the vendor starts on when the user has not picked one. */
 export const AUTH_DEFAULT_MODELS: Record<AuthKind, string> = {
   clinepass: CLINEPASS_MODELS[0]!,
+  copilot: '',
+  cursor: '',
+  antigravity: '',
   'minimax-plan': MINIMAX_PLAN_MODELS[0],
   kilo: AUTH_MODELS.kilo[0],
   vercel: AUTH_MODELS.vercel[0],
@@ -102,6 +113,9 @@ async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> 
     case 'opencode-go': return tokens
     // A gateway key is long-lived and has no renewal endpoint.
     case 'vercel': return tokens
+    case 'copilot': return tokens
+    case 'cursor': return validCursorTokens(tokens)
+    case 'antigravity': return refreshAntigravity(tokens)
     case 'codebuddy': return refreshCodebuddy(tokens)
   }
 }
@@ -177,7 +191,10 @@ export function ensureFreshAuthTokens(id: string, force = false): Promise<AuthTo
 
 /** Only used inside error text, so it stays here rather than in the UI layer. */
 const AUTH_KIND_NAMES: Record<AuthKind, string> = {
+  copilot: 'GitHub Copilot',
   'minimax-plan': 'MiniMax Token Plan',
+  cursor: 'Cursor',
+  antigravity: 'Antigravity',
   kilo: 'Kilo',
   vercel: 'Vercel AI Gateway',
   openrouter: 'OpenRouter',
@@ -207,6 +224,8 @@ class AuthProvider implements LLMProvider {
 
   private async client(force = false, sessionId?: string, signal?: AbortSignal): Promise<LLMProvider> {
     const requested = this.model || AUTH_DEFAULT_MODELS[this.kind]
+    if (['cursor', 'antigravity'].includes(this.kind) && (!requested || !authModelsFor(this.id, this.kind).includes(requested))) throw new ProviderRequestError('Refresh the account model catalogue and select an available model.', 400)
+    if (this.kind === 'copilot' && (!requested || !authModelsFor(this.id, 'copilot').includes(requested))) throw new ProviderRequestError('Select a model reported by this GitHub Copilot account. Refresh the model catalogue first.', 400)
     if ((['claude', 'codex', 'codebuddy', 'opencode-go'] as AuthKind[]).includes(this.kind) && (!authModelsFor(this.id, this.kind).includes(requested) || (this.kind === 'claude' && !requested.startsWith('claude-')))) {
       throw new ProviderRequestError('The selected model is not in this account’s catalogue. Choose a supported model; saved Rotate entries do not grant model access.', 400)
     }
@@ -236,11 +255,12 @@ class AuthProvider implements LLMProvider {
       case 'openrouter':
         return new OpenAICompatibleProvider(this.kind, model, { apiKey: tokens.accessToken, baseURL: this.kind === 'kilo' ? 'https://ai-gateway.kilo.ai/api/v1' : 'https://openrouter.ai/api/v1', maxTokensField: 'max_tokens', defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' } })
       case 'vercel':
-        return new OpenAICompatibleProvider('vercel', model, {
+      case 'copilot':
+        return new OpenAICompatibleProvider(this.kind, model, {
           apiKey: tokens.accessToken,
-          baseURL: VERCEL_GATEWAY_BASE,
+          baseURL: this.kind === 'copilot' ? COPILOT_BASE : VERCEL_GATEWAY_BASE,
           maxTokensField: 'max_tokens',
-          defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' }
+          defaultHeaders: this.kind === 'copilot' ? COPILOT_HEADERS : { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' }
         })
       case 'codex':
         // The Codex backend wants the numeric ChatGPT account id from the id
@@ -249,6 +269,8 @@ class AuthProvider implements LLMProvider {
       case 'claude':
         await checkClaudeSubscription(this.id, tokens, signal)
         return new ClaudeCodeProvider(this.id, model, tokens.accessToken)
+      case 'cursor': return new CursorCliProvider(validCursorTokens(tokens).accessToken, model)
+      case 'antigravity': return new AntigravityProvider(tokens, model)
       case 'clinepass':
       case 'cline':
         return new OpenAICompatibleProvider('cline', model, {

@@ -62,7 +62,7 @@ function toGeminiSchema(schema: unknown): Schema {
   return out as Schema
 }
 
-function toDeclarations(tools: ToolDefinition[]): FunctionDeclaration[] {
+export function toDeclarations(tools: ToolDefinition[]): FunctionDeclaration[] {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -81,7 +81,7 @@ function mapCallNames(messages: Message[]): Map<string, string> {
   return names
 }
 
-function toContents(messages: Message[]): Content[] {
+export function toContents(messages: Message[]): Content[] {
   const clean = dropInvalidToolCalls(messages, 64)
   const names = mapCallNames(clean)
 

@@ -34,7 +34,9 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
   },
   { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
   { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Login dan setujui akses di browser; Anticode menerima kodenya otomatis lewat localhost. Hanya rute model gratis yang dipakai.' },
-  { kind: 'vercel', title: 'Vercel AI Gateway Free', hint: 'Buat API key di dashboard Vercel AI Gateway lalu tempel di sini; hanya rute :free yang dipakai.' }
+  { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
+  { kind: 'cursor', title: 'Cursor', hint: 'Browser authorization. Requires the official Cursor Agent CLI. Text/tool adapter; native CLI tools are denied.' },
+  { kind: 'antigravity', title: 'Antigravity', hint: 'Google browser authorization. Uses your activated Antigravity account directly; Gemini models only.' }
 ]
 
 /** Vendors kept in code but not offered for new sign-ins. */
@@ -47,6 +49,9 @@ const RENEWABLE: Record<AuthKind, boolean> = {
   openrouter: false,
   // A gateway key is pasted once and never renews.
   vercel: false,
+  copilot: false,
+  cursor: false,
+  antigravity: true,
   codex: true,
   claude: true,
   cline: true,

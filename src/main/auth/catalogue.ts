@@ -1,8 +1,11 @@
 import { isExplicitClineFreeModel, preferredClineFreeRoute } from '@shared/clineModels'
 import { presetAllowsModel } from '@shared/providerPresets'
-import { readAuthTokens } from './store'
+import { readAuthTokens, getAuthAccount } from './store'
 import { MINIMAX_PLAN_MODELS } from './minimaxPlan'
 import { VERCEL_GATEWAY_BASE } from './vercel'
+import { copilotModels } from './copilot'
+import { antigravityModels } from './antigravity'
+import { cursorModels } from '../providers/cursorCli'
 import { ensureFreshAuthTokens, AUTH_MODELS } from './provider'
 import { CLINE_API_BASE, CLINE_HEADERS, clineApiToken } from '../providers/clineConfig'
 import { CODEX_BASE_URL, CODEX_CLIENT_VERSION } from '../providers/codexConfig'
@@ -10,8 +13,19 @@ import type { AuthKind } from './types'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 import { checkClaudeSubscription } from './claudeAccess'
 import { CLAUDE_CODE_HEADERS } from '../providers/anthropic'
+export async function fetchDirectAccountCatalogue(id: string): Promise<string[]> {
+  const tokens = await ensureFreshAuthTokens(id)
+  const kind = getAuthAccount(id)?.kind
+  const models = kind === 'cursor' ? await cursorModels(tokens.accessToken) : kind === 'antigravity' ? await antigravityModels(tokens) : await copilotModels(tokens.accessToken)
+  savePersistedSettings({ authModelCatalogues: { ...loadPersistedSettings().authModelCatalogues, [id]: { models, checkedAt: Date.now() } } })
+  return models
+}
 
 export function authModelsFor(id: string, kind: AuthKind): string[] {
+  if (['copilot', 'cursor', 'antigravity'].includes(kind)) {
+    const models = loadPersistedSettings().authModelCatalogues?.[id]?.models
+    return Array.isArray(models) ? models.filter((m): m is string => typeof m === 'string' && !!m.trim()) : []
+  }
   if (kind === 'minimax-plan') {
     try {
       const models: unknown = JSON.parse(readAuthTokens(id)?.meta?.planModels ?? '[]')

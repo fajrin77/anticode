@@ -27,14 +27,14 @@ const tokens = (email: string, key: string): AuthTokens => ({ accessToken: key, 
 beforeEach(() => { rmSync(path.join(profile, 'auth-accounts.json'), { force: true }); resetAuthStoreForTests(); vi.clearAllMocks() })
 
 it.each<AuthKind>(['codex', 'clinepass', 'cline', 'claude', 'codebuddy', 'kilo'])('keeps multiple %s identities separate and reconnects a duplicate without another usage slot', async kind => {
-  flows[kind].mockResolvedValueOnce(tokens('one@example.test', 'first-secret'))
+  flows[kind as keyof typeof flows].mockResolvedValueOnce(tokens('one@example.test', 'first-secret'))
   const first = await loginAuthAccount(kind, callbacks())
-  flows[kind].mockResolvedValueOnce(tokens('two@example.test', 'second-secret'))
+  flows[kind as keyof typeof flows].mockResolvedValueOnce(tokens('two@example.test', 'second-secret'))
   const second = await loginAuthAccount(kind, callbacks())
   expect(first.id).toBe(`auth:${kind}`)
   expect(second.id).toBe(`auth:${kind}-2`)
   renameAuthAccount(first.id, 'Personal')
-  flows[kind].mockResolvedValueOnce(tokens('ONE@example.test', 'renewed-secret'))
+  flows[kind as keyof typeof flows].mockResolvedValueOnce(tokens('ONE@example.test', 'renewed-secret'))
   const renewed = await loginAuthAccount(kind, callbacks())
   expect(renewed.id).toBe(first.id)
   expect(renewed.label).toBe('Personal')
