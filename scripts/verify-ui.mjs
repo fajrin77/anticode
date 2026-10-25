@@ -917,6 +917,22 @@ try {
   const composerModel = window.locator('[data-composer-box] button:has(span.font-mono)').first()
   check('model picker: composer can leave Rotate while it is on', String(await composerModel.isDisabled()), 'false')
   check('model picker: composer shows Rotate globally', (await composerModel.textContent()).trim(), 'rotate')
+  // Rotate stayed at the end of the tab row, so accounts added above it pushed
+  // the live pool out of the scroller and the picker looked switched off.
+  await composerModel.click(); await window.waitForTimeout(300)
+  const rotateTab = window.locator('[data-picker-provider="rotate"]')
+  check('model picker: the Rotate tab is offered while Rotate is on', String(await rotateTab.count()), '1')
+  check('model picker: the Rotate tab comes first', await rotateTab.evaluate((el) => {
+    const tabs = [...el.parentElement.querySelectorAll('[data-picker-provider]')]
+    return tabs[0] === el ? 'first' : 'buried'
+  }), 'first')
+  check('model picker: the Rotate tab shows without scrolling the tab row', await rotateTab.evaluate((el) => {
+    const tab = el.getBoundingClientRect(); const row = el.parentElement
+    const rowBox = row.getBoundingClientRect(); const menu = el.closest('.menu-glass').getBoundingClientRect()
+    return tab.width > 0 && tab.left >= rowBox.left - 0.5 && tab.right <= rowBox.right + 0.5 && tab.top >= menu.top && tab.bottom <= menu.bottom ? 'in view' : `clipped ${Math.round(tab.left - rowBox.left)}/${Math.round(tab.right - rowBox.right)}`
+  }), 'in view')
+  check('model picker: it names the pool, not a provider', (await rotateTab.textContent()).trim(), 'Rotate usage')
+  await window.keyboard.press('Escape'); await window.waitForTimeout(200)
   // A group put in use shows in the composer at once, with no reload.
   await window.evaluate(async () => {
     const status = await window.anticode.setRotationGroups([{ name: 'code only', entries: [{ provider: 'clinepass', model: 'test-model' }] }])

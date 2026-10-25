@@ -113,11 +113,14 @@ export function ModelPicker({
   }, [query, picked.join('\n')])
 
   const typedIsNew = viewing !== '' && query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
+  // Rotate leads the tab row. It used to sit last, so every account added
+  // above it pushed the active pool out of the visible part of the scroller
+  // and the picker looked as if Rotate usage had been turned off.
   const tabs = [
-    ...visibleProviders.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` })),
     ...(status?.rotationEnabled === true
       ? [{ id: ROTATE_PROVIDER, label: 'Rotate usage', available: true, hint: 'Use the rotation pool for this session' }]
-      : [])
+      : []),
+    ...visibleProviders.map((entry) => ({ id: entry.id, label: entry.label, available: entry.credentialAvailable, hint: entry.credentialAvailable ? entry.label : `Needs ${entry.credentialHint}` }))
   ]
 
   return (
