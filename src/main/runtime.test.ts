@@ -677,6 +677,40 @@ it('lets a draft ask for the pool even when a model was last picked', () => {
   expect(getStatus().provider).toBe(ROTATE_PROVIDER)
 })
 
+it('keeps a model picked in a not-yet-created tab while Rotate usage is on', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  applyRotationEnabled(true)
+
+  // The "+" tab exists only in the renderer; its pick must stay on its chip.
+  selectProvider({ provider: 'three', model: 'm3' }, 'c')
+  expect(getStatus('c')).toMatchObject({ provider: 'three', model: 'm3' })
+  expect(getStatus().sessions.c).toMatchObject({ provider: 'three', model: 'm3' })
+  // The default for other new tabs stays on the pool.
+  expect(getStatus().provider).toBe(ROTATE_PROVIDER)
+
+  createSession({ sessionId: 'c', mode: 'chat', workspaceRoot: null })
+  expect(getStatus('c')).toMatchObject({ provider: 'three', model: 'm3' })
+  expect(modelOf('c')).toBe('m3')
+})
+
+it('starts a new session on the pool even after another session picked a model', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  applyRotationEnabled(true)
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: 'three', model: 'm3' }, 'a')
+  expect(getStatus('a')).toMatchObject({ provider: 'three', model: 'm3' })
+
+  // A fresh tab picks Rotate (or keeps the default) and must not inherit m3.
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'b')
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
+  expect(['m1', 'm2']).toContain(modelOf('b'))
+
+  createSession({ sessionId: 'copy', mode: 'chat', workspaceRoot: null })
+  expect(getStatus('copy').provider).toBe(ROTATE_PROVIDER)
+  expect(['m1', 'm2']).toContain(modelOf('copy'))
+})
+
 it('never rewrites a model the user picked in a session when rotation is switched', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })

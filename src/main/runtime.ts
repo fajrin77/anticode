@@ -101,6 +101,12 @@ let selection: ProviderSelection | null = null
 /** The explicit provider/model to restore whenever global rotation is off. */
 let fallbackSelection: ProviderSelection | null = null
 const sessions = new Map<string, LiveSession>()
+/**
+ * Picks made in a tab whose session does not exist in the main process yet
+ * (a "+" draft). The pick belongs to that tab: it is shown on its chip and
+ * becomes the session's model the moment the first prompt creates it.
+ */
+const draftChoices = new Map<string, { choice: ProviderSelection; pinned: boolean }>()
 const catalogues = new Map<ProviderId, ModelCatalogue>()
 /** Next badge colour, round-robin, so fresh sessions tell apart at a glance. */
 let nextColour = 0
@@ -216,6 +222,9 @@ export async function initPersistedState(): Promise<void> {
  */
 export function forgetProvider(provider: ProviderId): void {
   forgetRotationProvider(provider)
+  for (const [draftId, draft] of draftChoices) {
+    if (draft.choice.provider === provider) draftChoices.delete(draftId)
+  }
   let changed = false
   for (const live of sessions.values()) {
     if (live.choice?.provider === provider) {
@@ -326,6 +335,11 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   // draft) only moves the saved fallback while rotation stays active; the
   // rotating sessions are left alone. In a session, a concrete model simply
   // leaves rotation for that session while the others keep rotating.
+  // A tab without a created session keeps its own pick until it is created.
+  if (live === undefined && sessionId !== null && sessionId !== undefined) {
+    draftChoices.set(sessionId, { choice: { ...chosen }, pinned: chosen.provider !== ROTATE_PROVIDER })
+  }
+
   if (rotationEnabled() && chosen.provider !== ROTATE_PROVIDER) {
     saveFallback(chosen)
     if (live === undefined) return
@@ -342,7 +356,9 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     delete live.promptsOnEntry
     persistSessions()
   }
-  selection = chosen
+  // While Rotate usage is on, new sessions start on the pool. A model picked
+  // in one session must not silently become what the next session runs on.
+  if (!rotationEnabled() || chosen.provider === ROTATE_PROVIDER) selection = chosen
   if (chosen.provider !== ROTATE_PROVIDER) saveFallback(chosen)
 }
 
@@ -430,6 +446,9 @@ export function applyRotationEnabled(on: boolean): void {
     // prompt follows the newly applied global mode.
     if (runForSession(sessionId) === null) delete live.selection
     delete live.promptsOnEntry
+  }
+  for (const [draftId, draft] of draftChoices) {
+    if (!draft.pinned) draftChoices.delete(draftId)
   }
   if (changed) persistSessions()
 }
@@ -556,14 +575,19 @@ export function createSession(spec: SessionSpec): SessionSpec {
     // A draft given instructions before its first prompt keeps them when bound.
     ...(previous?.spec.instructions !== undefined ? { instructions: previous.spec.instructions } : {})
   }
+  // A draft rebound to its folder on first send keeps the model it was given;
+  // a tab created only now takes the model picked in it beforehand.
+  const drafted = previous === undefined ? draftChoices.get(spec.sessionId) : undefined
+  draftChoices.delete(spec.sessionId)
+  const inherited = previous?.choice ?? drafted?.choice ??
+    (rotationEnabled() ? { provider: ROTATE_PROVIDER, model: '' } : undefined)
   const live: LiveSession = {
     spec: settled,
     agent: null,
     messages: [],
     summaries: [],
-    // A draft rebound to its folder on first send keeps the model it was given.
-    ...(previous?.choice !== undefined ? { choice: previous.choice } : {}),
-    ...(previous?.pinned === true ? { pinned: true } : {})
+    ...(inherited !== undefined ? { choice: { ...inherited } } : {}),
+    ...(previous?.pinned === true || drafted?.pinned === true ? { pinned: true } : {})
   }
   sessions.set(spec.sessionId, live)
   rememberSpec(settled)
@@ -684,6 +708,7 @@ export function closeSession(sessionId: string): void {
 export function deleteSession(sessionId: string): void {
   cancelSessionRuns(sessionId)
   clearPause(sessionId)
+  draftChoices.delete(sessionId)
   const live = sessions.get(sessionId)
   live?.agent?.dispose()
   // antichat's folder holds only copies it was sent and files it made for
@@ -802,7 +827,15 @@ export function getStatus(sessionId?: string | null): SessionStatus {
   const standard = rotationEnabled() && fitted.provider !== ROTATE_PROVIDER
     ? { provider: ROTATE_PROVIDER, model: '' }
     : fitted
-  const top = own !== undefined ? choiceStatus(own, providers) : { ...standard, ...readiness(standard, providers), lastUsed: null }
+  const draftOf = (id: string): ModelChoice | undefined => {
+    const draft = draftChoices.get(id)
+    if (draft === undefined || sessions.has(id)) return undefined
+    const choice = effective(draft.choice, draft.pinned)
+    return { ...choice, ...readiness(choice, providers), lastUsed: null }
+  }
+  const ownDraft = own === undefined && sessionId !== null && sessionId !== undefined ? draftOf(sessionId) : undefined
+  const top = own !== undefined ? choiceStatus(own, providers) : ownDraft ?? { ...standard, ...readiness(standard, providers), lastUsed: null }
+  const drafts = [...draftChoices.keys()].flatMap((id) => { const status = draftOf(id); return status === undefined ? [] : [[id, status] as const] })
   return {
     workspaceRoot,
     provider: top.provider,
@@ -814,7 +847,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     providerReady: top.providerReady,
     blockedReason: top.blockedReason,
     lastUsed: top.lastUsed,
-    sessions: Object.fromEntries([...sessions].map(([id, live]) => [id, choiceStatus(live, providers)])),
+    sessions: Object.fromEntries([...drafts, ...[...sessions].map(([id, live]) => [id, choiceStatus(live, providers)] as const)]),
     rotation: rotationStatus(providers),
     rotationEnabled: rotationEnabled(),
     subscriptionOnly: subscriptionOnly(),
