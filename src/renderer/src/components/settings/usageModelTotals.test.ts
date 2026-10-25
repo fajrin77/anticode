@@ -14,3 +14,24 @@ it('totals the same model across accounts without mutating source rows', () => {
   expect(rows[0]!.inputTokens).toBe(60_000_000)
   expect(usageModelTotals([])).toEqual([])
 })
+
+it('ranks aggregated models by total input and output without double-counting cache', () => {
+  const rows = [
+    { model: 'small', inputTokens: 10, cachedTokens: 0, outputTokens: 5 },
+    { model: 'combined', inputTokens: 60, cachedTokens: 0, outputTokens: 0 },
+    { model: 'cached', inputTokens: 100, cachedTokens: 100, outputTokens: 0 },
+    { model: 'output-heavy', inputTokens: 20, cachedTokens: 0, outputTokens: 120 },
+    { model: 'combined', inputTokens: 90, cachedTokens: 0, outputTokens: 0 }
+  ]
+  expect(usageModelTotals(rows).map(row => row.model)).toEqual([
+    'combined', 'output-heavy', 'cached', 'small'
+  ])
+  expect(rows.map(row => row.model)).toEqual(['small', 'combined', 'cached', 'output-heavy', 'combined'])
+})
+
+it('preserves original order for equal totals and keeps different aliases separate', () => {
+  expect(usageModelTotals([
+    { model: 'alias-b', inputTokens: 5, cachedTokens: 5, outputTokens: 5 },
+    { model: 'alias-a', inputTokens: 10, cachedTokens: 0, outputTokens: 0 }
+  ]).map(row => row.model)).toEqual(['alias-b', 'alias-a'])
+})

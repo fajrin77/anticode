@@ -5,7 +5,7 @@ interface ModelTokens {
   outputTokens: number
 }
 
-/** Combine accounts/providers of the same exact model without merging aliases. */
+/** Combine exact model names, then rank by input + output (cache is part of input). */
 export function usageModelTotals(rows: readonly ModelTokens[]): ModelTokens[] {
   const totals = new Map<string, ModelTokens>()
   for (const row of rows) {
@@ -16,5 +16,7 @@ export function usageModelTotals(rows: readonly ModelTokens[]): ModelTokens[] {
       total.outputTokens += row.outputTokens
     } else totals.set(row.model, { model: row.model, inputTokens: row.inputTokens, cachedTokens: row.cachedTokens, outputTokens: row.outputTokens })
   }
-  return [...totals.values()]
+  return [...totals.values()].sort((a, b) =>
+    (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens)
+  )
 }
