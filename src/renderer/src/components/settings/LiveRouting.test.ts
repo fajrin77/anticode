@@ -43,6 +43,18 @@ describe('routingNodes', () => {
     expect(titleParts('X')).toEqual({ name: 'X', who: '' })
   })
 
+  it('lights the account node a run is served by instead of adding an engine-named twin', () => {
+    const now = 1_000_000
+    const nodes = routingNodes(
+      [row('auth:claude-2', now - 60_000, 5, 'claude-opus-5-5'), row('auth:codex', now - 60_000, 5, 'gpt-6.1-sol')],
+      now,
+      [{ provider: 'claude', model: 'claude-opus-5-5' }]
+    )
+    expect(nodes).toHaveLength(2)
+    expect(nodes[0]).toMatchObject({ id: 'auth:claude-2', live: true, model: 'claude-opus-5-5' })
+    expect(nodes[1]).toMatchObject({ id: 'auth:codex', live: false })
+  })
+
   it('is empty without requests', () => {
     expect(routingNodes([], 1)).toEqual([])
   })

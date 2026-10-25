@@ -40,7 +40,7 @@ export function routingNodes(rows: UsageRecord[], now: number, active: { provide
   }
   for (const run of active) {
     if (!run.provider) continue
-    const found = groups.get(run.provider)
+    const found = groups.get(run.provider) ?? accountGroupFor(run.provider, run.model, groups)
     if (found) Object.assign(found, { live: true, ...(run.model ? { model: run.model } : {}) })
     else groups.set(run.provider, { id: run.provider, label: run.provider, lastTs: 0, model: run.model ?? '', requests: 0, tokens: 0, live: true })
   }
@@ -48,6 +48,24 @@ export function routingNodes(rows: UsageRecord[], now: number, active: { provide
     .map((node) => ({ ...node, live: node.live || now - node.lastTs <= LIVE_WINDOW_MS }))
     .sort((a, b) => Number(b.live) - Number(a.live) || b.lastTs - a.lastTs)
     .slice(0, MAX_NODES)
+}
+
+/**
+ * A run reports its engine's name ("claude"), while the usage log records the
+ * account that served it ("auth:claude-2"). The run belongs to that account's
+ * node, the newest one of that service on the same model, not to a second,
+ * account-less node for the same model.
+ */
+function accountGroupFor(provider: string, model: string | undefined, groups: Map<string, RoutingNode>): RoutingNode | undefined {
+  const name = provider.toLowerCase()
+  const sameService = (id: string): boolean => {
+    const bare = id.toLowerCase().replace(/^auth:/, '').replace(/-\d+$/, '')
+    // Exact service only: "cline" must not swallow a "clinepass" account.
+    return bare === name || bare.startsWith(`${name}-`)
+  }
+  return [...groups.values()]
+    .filter((node) => sameService(node.id) && (model === undefined || model === '' || node.model === model))
+    .sort((a, b) => b.lastTs - a.lastTs)[0]
 }
 
 const W = 720
