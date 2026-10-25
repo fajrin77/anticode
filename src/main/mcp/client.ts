@@ -135,14 +135,20 @@ export class HttpTransport implements Transport {
 
   constructor(
     private readonly url: string,
-    private readonly headers: Record<string, string>
+    /** Fixed headers, or a function asked before every request (fresh tokens). */
+    private readonly headerSource: Record<string, string> | (() => Promise<Record<string, string>>)
   ) {}
+
+  private async headers(): Promise<Record<string, string>> {
+    return typeof this.headerSource === 'function' ? await this.headerSource() : this.headerSource
+  }
 
   async start(onMessage: (message: JsonRpcMessage) => void): Promise<void> {
     this.deliver = onMessage
   }
 
   async send(message: JsonRpcMessage): Promise<void> {
+    const extra = await this.headers()
     const response = await fetch(this.url, {
       method: 'POST',
       headers: {
@@ -150,7 +156,7 @@ export class HttpTransport implements Transport {
         accept: 'application/json, text/event-stream',
         'mcp-protocol-version': PROTOCOL_VERSION,
         ...(this.session !== null ? { 'mcp-session-id': this.session } : {}),
-        ...this.headers
+        ...extra
       },
       body: JSON.stringify(message),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 5)
@@ -174,7 +180,8 @@ export class HttpTransport implements Transport {
   async close(): Promise<void> {
     if (this.session === null) return
     // Ending the session is a courtesy; a server that ignores it is fine.
-    await fetch(this.url, { method: 'DELETE', headers: { 'mcp-session-id': this.session, ...this.headers }, signal: AbortSignal.timeout(3_000) }).catch(() => undefined)
+    const extra = await this.headers().catch(() => ({}))
+    await fetch(this.url, { method: 'DELETE', headers: { 'mcp-session-id': this.session, ...extra }, signal: AbortSignal.timeout(3_000) }).catch(() => undefined)
     this.session = null
   }
 }

@@ -13,6 +13,7 @@ import { mainWindow, setMainWindow, showMainWindow } from './windows'
 import { applyTray, configureQuickCapture, QUICK_CAPTURE_SHORTCUT, showQuickCapture } from './tray'
 import { onPreferences, preferences } from './preferences'
 import { closeMcp, initMcp, mcpTools } from './mcp/manager'
+import { chatgptAppsTools, closeChatgptApps, ensureChatgptApps } from './mcp/chatgptApps'
 import { setExternalTools } from './tools'
 import { warmPdfParser } from './tools/pdf'
 
@@ -121,8 +122,11 @@ void app.whenReady().then(async () => {
   initUpdates()
   // MCP servers start in the background; their tools join anticode sessions
   // as each one becomes ready.
-  setExternalTools(mcpTools)
+  // Google Drive through the signed-in ChatGPT account's connector, as the
+  // ChatGPT/Codex app does, alongside the MCP servers set up in Settings.
+  setExternalTools(() => [...mcpTools(), ...chatgptAppsTools()])
   initMcp()
+  ensureChatgptApps()
   configureQuickCapture({
     preload: join(import.meta.dirname, '../preload/index.mjs'),
     url: !app.isPackaged && process.env['ELECTRON_RENDERER_URL'] ? process.env['ELECTRON_RENDERER_URL'] : null,
@@ -163,4 +167,5 @@ app.on('before-quit', () => {
   flushPersistedSessions()
   void closeBrowser()
   void closeMcp()
+  void closeChatgptApps()
 })

@@ -24,7 +24,7 @@ export class SessionToolCatalog {
   constructor(private readonly source: () => Tool[]) {
     this.loader = defineTool({
       name: 'load_tools',
-      description: 'Load additional tools before using them: documents (Excel, Word, PDF); browser (interactive navigation, clicking, filling, screenshots, network); media (desktop screenshot, image generation); integrations (connected MCP tools). Tools become callable on the next turn. Core coding, web_search and fetch_url are already available.',
+      description: 'Load additional tools before using them: documents (Excel, Word, PDF); browser (interactive navigation, clicking, filling, screenshots, network); media (desktop screenshot, image generation); integrations (connected MCP tools, including Google Drive/Docs/Sheets/Slides editing through the signed-in ChatGPT account when available; prefer it over the browser for files in Drive). Tools become callable on the next turn. Core coding, web_search and fetch_url are already available.',
       readOnly: false,
       risk: 'low',
       schema: z.object({ groups: z.array(z.enum(['documents', 'browser', 'media', 'integrations'])).min(1) }),
