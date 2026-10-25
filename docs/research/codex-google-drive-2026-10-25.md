@@ -129,4 +129,22 @@ tidak memindahkan rute model ke jalur berbayar.
   `auth:claude` 4, `auth:claude-2` 2), dan `list_recent_files` Google Drive milik `claude-2`
   berhasil dari sesi Cline itu.
 
+### Status terbaru: konektor Claude dinonaktifkan sementara
+
+Atas permintaan pengguna, konektor claude.ai dinonaktifkan. Hanya konektor akun ChatGPT
+yang dibagikan ke semua model. Akun dan inference Claude tidak diubah. Hasil Claude dan
+880 tool di atas adalah catatan pengujian sebelum penonaktifan, bukan status saat ini.
+
+Verifikasi setelah penonaktifan:
+
+- Typecheck, seluruh suite Vitest, build, dan skrip UI Electron berhasil.
+- Probe read-only memakai kode konektor asli di Electron dan token safeStorage akun nyata:
+  569 tool dari 10 konektor ChatGPT tersedia untuk katalog Cline, Claude, dan OpenRouter
+  dengan daftar nama tool yang sama. Panggilan `google_drive.get_profile` berhasil.
+- Instrumentasi jaringan pada probe mencatat **0 permintaan konektor ke Anthropic**.
+  Ini uji katalog/tool, bukan benchmark inference ketiga model tersebut.
+- Aplikasi macOS arm64 hasil paket berhasil menjalani empat smoke test: profil kosong,
+  sesi baru/composer, Settings/Remote, dan tidak ada error startup.
+- Tidak ada file Drive yang diedit dan tidak ada token yang diperbarui dalam probe.
+
 Keterbatasan: endpoint ini internal OpenAI dan Anthropic, dan dapat berubah tanpa pemberitahuan.
