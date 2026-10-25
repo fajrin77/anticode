@@ -14,6 +14,22 @@ brew install --cask wine-stable
 npm run pack:win          # anticode Setup <versi>.exe + .blockmap + latest.yml di release/
 ```
 
+Pada rilis 0.0.92, `npx electron-builder --win --x64 --publish never` di macOS arm64
+berhasil tanpa wine (build tidak ditandatangani). Dua hal wajib diperiksa:
+
+- **Modul native.** `node_modules` di Mac hanya berisi biner darwin. Sebelum build Windows,
+  tambahkan biner Windows tanpa mengubah lockfile, lalu pastikan
+  `release/win-unpacked/resources/app.asar.unpacked` berisi `sharp-win32-x64` dan
+  `canvas-win32-x64-msvc`:
+  ```sh
+  npm install --no-save --force @napi-rs/canvas-win32-x64-msvc@<versi canvas>
+  npm pack @img/sharp-win32-x64@<versi sharp>   # npm melewatinya di macOS; ekstrak manual
+  # ke node_modules/@img/sharp-win32-x64
+  ```
+- **Nama aset.** Installer bernama `anticode Setup <versi>.exe`, sedangkan `latest.yml`
+  menunjuk `anticode-Setup-<versi>.exe`. Unggah salinan dengan nama bertanda hubung
+  (installer dan `.blockmap`), bukan `release/*.exe` apa adanya.
+
 Kalau wine tidak dipakai, jalankan `npm run pack:win` di mesin Windows, lalu unggah
 `anticode Setup <versi>.exe` + `.blockmap` + `latest.yml` ke release yang sama.
 Tanpa `latest.yml` di release, app Windows tidak akan pernah menawarkan update —
