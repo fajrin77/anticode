@@ -36,7 +36,8 @@ const CHATGPT_INTERNAL = new Set(['plugin management', 'safety settings', 'codex
 export type ConnectorKind = 'codex' | 'claude'
 
 export function connectorKind(kind: string | undefined): ConnectorKind | null {
-  return kind === 'codex' || kind === 'claude' ? kind : null
+  // claude.ai connectors are temporarily disabled; Claude inference is unaffected.
+  return kind === 'codex' ? kind : null
 }
 
 /** The connector a ChatGPT apps tool belongs to, or null for ChatGPT internals. */
