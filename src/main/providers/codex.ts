@@ -202,8 +202,12 @@ export class CodexProvider implements LLMProvider {
     for await (const event of sse(response.body)) {
       const type = typeof event.type === 'string' ? event.type : ''
       if (type === 'error' || type === 'response.failed') {
-        const failure = event.response as { error?: { message?: string } } | undefined
-        throw new Error(`Codex stream failed: ${failure?.error?.message ?? 'provider rejected the response'}`)
+        const failure = event.response as { error?: { message?: string; code?: string } } | undefined
+        const direct = event.error as { message?: string; code?: string } | undefined
+        const message = failure?.error?.message ?? direct?.message ?? (typeof event.message === 'string' ? event.message : undefined)
+        const code = failure?.error?.code ?? direct?.code ?? (typeof event.code === 'string' ? event.code : undefined)
+        // Do not serialize the event: it may include input or partial outputs.
+        throw new Error(`Codex stream failed${code ? ` (${code})` : ''}: ${message ?? 'provider rejected the response without an error reason'}`)
       }
       if (type === 'response.incomplete') throw new Error('Codex response was incomplete; no tool calls were executed.')
       if (type === 'response.output_text.delta' && typeof event.delta === 'string') {

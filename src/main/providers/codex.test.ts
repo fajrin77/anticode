@@ -34,6 +34,15 @@ it('turns a model-not-supported 400 into advice to pick another model', async ()
   )
 })
 
+it.each([
+  { type: 'error', message: 'Request rejected by backend', code: 'invalid_request' },
+  { type: 'error', error: { message: 'Request rejected by backend', code: 'invalid_request' } },
+  { type: 'response.failed', response: { error: { message: 'Request rejected by backend', code: 'invalid_request' } } }
+])('retains the stream reason and code across error envelope shapes: %j', async event => {
+  vi.stubGlobal('fetch', async () => new Response(`data: ${JSON.stringify(event)}\n\n`))
+  await expect(drain(new CodexProvider('at', 'fixture', 'acct'))).rejects.toThrow('Codex stream failed (invalid_request): Request rejected by backend')
+})
+
 it('keeps the raw backend error for anything else', async () => {
   vi.stubGlobal('fetch', async () => new Response('{"detail":"boom"}', { status: 500 }))
   await expect(drain(new CodexProvider('at', 'gpt-5.1-codex', 'acct_9'))).rejects.toThrow(/Codex returned 500/)
