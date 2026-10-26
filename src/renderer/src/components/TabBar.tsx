@@ -307,8 +307,8 @@ export function TabBar({
   // most of what is left to click.
   const [crowded, setCrowded] = useState(false)
   const openCount = sessions.filter((session) => !session.closed).length
-  // Keep titles below twelve tabs; narrow windows can scroll the strip.
-  const iconOnly = openCount >= 12
+  // Keep short titles through twelve tabs; narrow windows can scroll.
+  const iconOnly = openCount > 12
   useEffect(() => {
     const host = strip.current
     if (host === null) return
