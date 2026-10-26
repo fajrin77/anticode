@@ -18,12 +18,12 @@ import type { AuthAccountSummary, AuthKind, AuthLoginState, ProviderInfo, Sessio
  */
 
 const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
-  ...Object.entries(DIRECT_AUTH_PROVIDERS).map(([kind, config]) => ({ kind: kind as DirectAuthKind, title: config.label, hint: config.hint })),
   {
     kind: 'codex',
     title: 'ChatGPT (Codex)',
     hint: 'Sign in with a ChatGPT Plus/Pro/Business account; Codex models run under your plan.'
   },
+  { kind: 'antigravity', title: 'Antigravity', hint: 'Google browser authorization. Uses your activated Antigravity account directly; Gemini models only.' },
   { kind: 'claude', title: 'Claude Code', hint: 'Uses the official Claude Code engine with your Claude subscription. Extra usage must be off; no 9Router required.' },
   { kind: 'clinepass', title: 'ClinePass', hint: 'Subscription ClinePass dengan akun Cline.' },
   { kind: 'cline', title: 'Cline Free', hint: 'Sign in to your Cline account; the provider talks to api.cline.bot.' },
@@ -38,7 +38,7 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
   { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Login dan setujui akses di browser; Anticode menerima kodenya otomatis lewat localhost. Hanya rute model gratis yang dipakai.' },
   { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
   { kind: 'cursor', title: 'Cursor', hint: 'Browser authorization. Requires the official Cursor Agent CLI. Text/tool adapter; native CLI tools are denied.' },
-  { kind: 'antigravity', title: 'Antigravity', hint: 'Google browser authorization. Uses your activated Antigravity account directly; Gemini models only.' }
+  ...Object.entries(DIRECT_AUTH_PROVIDERS).map(([kind, config]) => ({ kind: kind as DirectAuthKind, title: config.label, hint: config.hint }))
 ]
 
 /** Vendors kept in code but not offered for new sign-ins. */
