@@ -1485,6 +1485,20 @@ it('says the reduction line once per turn, and again in a later turn', async () 
   expect(lines).toHaveLength(2)
 })
 
+it('retries once with a text stand-in when the provider says it rejects images', async () => {
+  const sent: string[] = []
+  const provider: LLMProvider = { name: 'fixture', model: 'text-only-x', async *chat(params) {
+    const replay = JSON.stringify(params.messages)
+    sent.push(replay)
+    if (replay.includes('"type":"image"')) throw Object.assign(new Error("400 Model 'text-only-x' does not accept image input."), { status: 400 })
+    yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
+  } }
+  const session = new AgentSession(provider, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', mediaType: 'image/png', data: 'AAAA' } as never] }, { role: 'assistant', content: [{ type: 'text', text: 'seen' }] }], 'img', { tools: [] })
+  await session.run({ runId: 'img', prompt: 'lanjut', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(sent).toHaveLength(2)
+  expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+})
+
 it('does not repeat a key-limit compaction indefinitely if a smaller request is refused too', async () => {
   let requests = 0
   const provider: LLMProvider = { name: 'fixture', model: 'fixture-large-window', async *chat() {

@@ -314,6 +314,8 @@ export class AgentSession {
   private reducedForKeyLimitFor: string | null = null
   /** What this turn already said in the app's own voice, so it says it once. */
   private saidThisTurn = new Set<string>()
+  /** Models that refused images in this session, on the provider's own word. */
+  private readonly imageRejectedBy = new Set<string>()
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   /**
@@ -700,6 +702,16 @@ export class AgentSession {
           await delay(retryDelay(error, attempt), params.signal)
           continue
         }
+        // The provider itself says this route reads text only. Believe that
+        // evidence for this session: images stay in the transcript, the replay
+        // carries a text stand-in, and the same route is tried once more.
+        const message = error instanceof Error ? error.message : ''
+        if (/does not accept image input|does not support image|cannot inspect images/i.test(message) &&
+            !this.imageRejectedBy.has(this.provider.model) &&
+            this.history.some((entry) => entry.content.some((block) => block.type === 'image'))) {
+          this.imageRejectedBy.add(this.provider.model)
+          continue
+        }
         const limit = requestLimit(error)
         if (limit?.kind === 'input') {
           const key = this.allowanceKey()
@@ -781,11 +793,12 @@ export class AgentSession {
   private replayNoticeModel: string | null = null
 
   private requestMessages(params: RunParams): Message[] {
-    if (!modelCannotSeeImages(this.provider.model)) return this.history
+    const rejected = this.imageRejectedBy.has(this.provider.model)
+    if (!rejected && !modelCannotSeeImages(this.provider.model)) return this.history
     const latest = this.history.findLastIndex((message) => isTypedPrompt(message) || message.role === 'user' && message.content.some((block) => block.type === 'text' && block.text === CONTINUE_PROMPT))
     const messages = this.history.map((message, index) => ({ ...message, content: message.content.map((block): ContentBlock => {
       if (block.type !== 'image') return block
-      if (index >= latest) throw new ProviderRequestError('Model ini hanya membaca teks. Gambar baru membutuhkan model vision; pilih model vision atau kirim pertanyaan teks berikutnya.', 400)
+      if (index >= latest && !rejected) throw new ProviderRequestError('Model ini hanya membaca teks. Gambar baru membutuhkan model vision; pilih model vision atau kirim pertanyaan teks berikutnya.', 400)
       return { type: 'text', text: '[Earlier image retained in the conversation but unavailable to this text-only model. Use only the existing textual evidence; do not invent image details.]' }
     }) }))
     if (this.replayNoticeModel !== this.provider.model && this.history.some((message) => message.content.some((block) => block.type === 'image'))) {
