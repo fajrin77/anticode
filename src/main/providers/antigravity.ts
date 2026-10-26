@@ -27,7 +27,11 @@ export class AntigravityProvider implements LLMProvider {
       method: 'POST', headers: antigravityHeaders(this.tokens.accessToken), signal: params.signal,
       body: JSON.stringify({ project, model: this.model, userAgent: 'anticode', requestType: 'agent', requestId: randomUUID(), request: { contents: toContents(params.messages), systemInstruction: { parts: [{ text: params.system }] }, generationConfig: { maxOutputTokens: params.maxTokens }, ...(params.tools.length ? { tools: [{ functionDeclarations: toDeclarations(params.tools) }] } : {}) } })
     })
-    if (!response.ok) throw new ProviderRequestError(`Antigravity request failed (${response.status})`, response.status, response.status === 401 || response.status === 403 ? 'account' : 'model')
+    if (!response.ok) {
+      // Keep the provider's own reason (never the request) so a 400 is diagnosable.
+      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
+      throw new ProviderRequestError(`Antigravity request failed (${response.status})${detail ? `: ${detail}` : ''}`, response.status, response.status === 401 || response.status === 403 ? 'account' : 'model')
+    }
     return antigravityResponse(await response.json(), this.model)
   }
   async *chat(params: ChatParams): AsyncGenerator<ProviderEvent> {
