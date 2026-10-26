@@ -98,8 +98,8 @@ const api: AnticodeApi = {
   setConnectorSettings: (settings) => ipcRenderer.invoke(IpcChannel.CONNECTOR_SET, settings),
   setRotationGroups: (groups: RotationGroupInput[]) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_GROUPS_SET, groups) as Promise<SessionStatus>,
-  selectRotationGroup: (id: string | null) =>
-    ipcRenderer.invoke(IpcChannel.ROTATION_GROUP_SELECT, id) as Promise<SessionStatus>,
+  selectRotationGroup: (id: string | null, sessionId?: string | null) =>
+    ipcRenderer.invoke(IpcChannel.ROTATION_GROUP_SELECT, id, sessionId) as Promise<SessionStatus>,
   setAutoApprove: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
   setFollowUpMode: (mode: 'steer' | 'queue') =>

@@ -534,6 +534,27 @@ it('forgets out-of-usage marks when counts are reset', async () => {
   expect(getStatus().rotation[0]?.outOfUsage).toBeNull()
 })
 
+it('keeps rotation groups separate across sessions and skips exhausted members', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }])
+  applyRotationGroups([
+    { name: 'deepseek', entries: [{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }] },
+    { name: 'glm', entries: [{ provider: 'three', model: 'm3' }] }
+  ])
+  const [deepseek, glm] = getStatus().rotationGroups
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  applyRotationGroup(deepseek!.id, 'a')
+  applyRotationGroup(glm!.id, 'b')
+  expect(['m1', 'm2']).toContain(modelOf('a'))
+  expect(modelOf('b')).toBe('m3')
+  await drain(spentProvider({ provider: 'one', model: 'm1' }))
+  expect(modelOf('a')).toBe('m2')
+  expect(modelOf('b')).toBe('m3')
+  expect(getStatus().sessions.a?.rotationGroup).toBe(deepseek!.id)
+  expect(getStatus().sessions.b?.rotationGroup).toBe(glm!.id)
+})
+
 it('rotates only over the group in use, and every session follows a group change at once', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }, { provider: 'three', model: 'm3' }])
   applyRotationGroups([

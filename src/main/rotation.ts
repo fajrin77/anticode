@@ -201,9 +201,9 @@ export function activeRotationGroupId(): string | null {
 }
 
 /** What sessions rotate over: the group in use, or the whole pool. */
-export function activeRotationEntries(): RotationEntry[] {
+export function activeRotationEntries(groupId?: string | null): RotationEntry[] {
   const list = load()
-  const group = groups.find((item) => item.id === activeGroup)
+  const group = groups.find((item) => item.id === (groupId === undefined ? activeGroup : groupId))
   return group === undefined ? [...list] : membersOf(group)
 }
 
@@ -400,6 +400,7 @@ export function rankRotation(options: {
   ready: (entry: RotationEntry) => boolean
   busy: (entry: RotationEntry) => number
   exclude?: Set<string>
+  groupId?: string | null | undefined
   now?: number
 }): RotationEntry[] {
   const now = options.now ?? Date.now()
@@ -409,7 +410,7 @@ export function rankRotation(options: {
     const provider = key.slice(0, key.indexOf('\n'))
     if ((provider.startsWith('auth:') || provider === 'clinepass')) accountUsage.set(provider, (accountUsage.get(provider) ?? 0) + total(tally))
   }
-  return activeRotationEntries()
+  return activeRotationEntries(options.groupId)
     .map((entry, index) => ({
       entry,
       index,

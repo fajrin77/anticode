@@ -320,9 +320,9 @@ export function setRotationGroups(groups: unknown): SessionStatus {
 }
 
 /** The group every session rotates over, picked on either screen; null is the whole pool. */
-export function selectRotationGroup(id: unknown): SessionStatus {
+export function selectRotationGroup(id: unknown, sessionId?: string | null): SessionStatus {
   if (id !== null && typeof id !== 'string') throw new Error('Expected a group')
-  applyRotationGroup(id)
+  applyRotationGroup(id, sessionId)
   announceStatus()
   return getStatus()
 }
@@ -465,7 +465,7 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IpcChannel.ROTATION_ENABLE, (_event, enabled: unknown): SessionStatus => enableRotation(enabled))
   ipcMain.handle(IpcChannel.ROTATION_GROUPS_SET, (_event, groups: unknown): SessionStatus => setRotationGroups(groups))
-  ipcMain.handle(IpcChannel.ROTATION_GROUP_SELECT, (_event, id: unknown): SessionStatus => selectRotationGroup(id))
+  ipcMain.handle(IpcChannel.ROTATION_GROUP_SELECT, (_event, id: unknown, sessionId?: string | null): SessionStatus => selectRotationGroup(id, sessionId))
   // A quota that runs out mid-run shows in Settings and on the phone at once.
   setRotationChangeSink(announceStatus)
 

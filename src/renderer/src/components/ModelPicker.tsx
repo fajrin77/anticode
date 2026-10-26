@@ -6,6 +6,7 @@ import { activeRotationEntries, activeRotationGroup, ROTATE_PROVIDER } from '@sh
 import type { ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 
 interface ModelPickerProps {
+  sessionId?: string | null
   status: SessionStatus | null
   providers: ProviderInfo[]
   onSelect: (provider: ProviderId, model: string) => void
@@ -20,6 +21,7 @@ export function compactTokens(value: number): string {
 }
 
 export function ModelPicker({
+  sessionId,
   status,
   providers,
   onSelect,
@@ -182,7 +184,7 @@ export function ModelPicker({
                     if (choice.id === (group?.id ?? null)) return
                     setGroupError(null)
                     void window.anticode
-                      .selectRotationGroup(choice.id)
+                      .selectRotationGroup(choice.id, sessionId)
                       .catch((failure: Error) =>
                         setGroupError(failure.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
                       )

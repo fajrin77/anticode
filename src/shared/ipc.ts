@@ -511,6 +511,7 @@ export interface RotationGroupInput {
 
 /** A session's own model, each tab keeps the one it was given. */
 export interface ModelChoice extends ProviderSelection {
+  rotationGroup?: string | null
   providerReady: boolean
   blockedReason: string | null
   /** Rotation only: where the session's latest prompt went. */
@@ -1394,7 +1395,7 @@ export interface AnticodeApi {
   /** Replaces the Rotate usage groups; a model a group names joins the pool. */
   setRotationGroups: (groups: RotationGroupInput[]) => Promise<SessionStatus>
   /** The group every session rotates over from its next prompt; null for the whole pool. */
-  selectRotationGroup: (id: string | null) => Promise<SessionStatus>
+  selectRotationGroup: (id: string | null, sessionId?: string | null) => Promise<SessionStatus>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
   setFollowUpMode: (mode: 'steer' | 'queue') => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */

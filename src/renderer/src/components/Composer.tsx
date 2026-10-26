@@ -557,6 +557,7 @@ export function Composer({  status: sharedStatus,
         <div className="relative">
           {menu === 'model' && (
             <ModelPicker
+              sessionId={session?.id ?? null}
               status={status}
               providers={providers}
               onSelect={(provider, model) => {

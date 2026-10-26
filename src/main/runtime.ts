@@ -83,6 +83,7 @@ interface LiveSession {
    * a pick made in another tab never moves it.
    */
   choice?: ProviderSelection
+  rotationGroupId?: string | null
   /** What the agent is actually talking to, under rotation, this run's entry. */
   selection?: ProviderSelection
   /**
@@ -107,6 +108,7 @@ const sessions = new Map<string, LiveSession>()
  * becomes the session's model the moment the first prompt creates it.
  */
 const draftChoices = new Map<string, { choice: ProviderSelection; pinned: boolean }>()
+const sessionRotationGroups = new Map<string, string | null>()
 const catalogues = new Map<ProviderId, ModelCatalogue>()
 /** Next badge colour, round-robin, so fresh sessions tell apart at a glance. */
 let nextColour = 0
@@ -402,11 +404,20 @@ export function applyRotationGroups(next: unknown[]): void {
 }
 
 /**
- * Puts a group in use for every session at once, like Rotate usage itself:
- * each composer shows it straight away, and each session's next prompt goes
- * to one of its models.
+ * A composer pick belongs to its session. Calls without an id intentionally
+ * change the global default (Settings/dashboard).
  */
-export function applyRotationGroup(id: string | null): void {
+export function applyRotationGroup(id: string | null, sessionId?: string | null): void {
+  if (sessionId) {
+    const live = sessions.get(sessionId)
+    if (id !== null && !rotationGroups().some(group => group.id === id)) throw new Error('Unknown rotation group')
+    sessionRotationGroups.set(sessionId, id)
+    if (!live) return
+    live.rotationGroupId = id
+    delete live.selection
+    live.promptsOnEntry = 0
+    return
+  }
   if (id === activeRotationGroupId()) return
   setActiveRotationGroup(id)
   releaseRotatingSessions()
@@ -586,6 +597,7 @@ export function createSession(spec: SessionSpec): SessionSpec {
     agent: null,
     messages: [],
     summaries: [],
+    ...(sessionRotationGroups.has(spec.sessionId) ? { rotationGroupId: sessionRotationGroups.get(spec.sessionId)! } : {}),
     ...(inherited !== undefined ? { choice: { ...inherited } } : {}),
     ...(previous?.pinned === true || drafted?.pinned === true ? { pinned: true } : {})
   }
@@ -718,6 +730,7 @@ export function deleteSession(sessionId: string): void {
   const kept = checkpointDir(sessionId)
   if (kept !== null) void rm(kept, { recursive: true, force: true }).catch(() => undefined)
   sessions.delete(sessionId)
+  sessionRotationGroups.delete(sessionId)
   announcedTitles.delete(sessionId)
   clearWeb(sessionId)
   if (live !== undefined) rememberSpec(live.spec)
@@ -797,6 +810,7 @@ function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
   return {
     ...choice,
     ...readiness(choice, providers),
+    rotationGroup: live.rotationGroupId === undefined ? activeRotationGroupId() : live.rotationGroupId,
     lastUsed: choice.provider === ROTATE_PROVIDER && live.selection !== undefined ? { ...live.selection } : null
   }
 }
@@ -831,7 +845,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     const draft = draftChoices.get(id)
     if (draft === undefined || sessions.has(id)) return undefined
     const choice = effective(draft.choice, draft.pinned)
-    return { ...choice, ...readiness(choice, providers), lastUsed: null }
+    return { ...choice, ...readiness(choice, providers), rotationGroup: sessionRotationGroups.has(id) ? sessionRotationGroups.get(id)! : activeRotationGroupId(), lastUsed: null }
   }
   const ownDraft = own === undefined && sessionId !== null && sessionId !== undefined ? draftOf(sessionId) : undefined
   const top = own !== undefined ? choiceStatus(own, providers) : ownDraft ?? { ...standard, ...readiness(standard, providers), lastUsed: null }
@@ -899,10 +913,10 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     if (!rotationEnabled()) throw new Error(readiness(choice, providers).blockedReason ?? 'Rotate usage is off')
     const ready = (entry: RotationEntry): boolean => entryReady(entry, providers)
     const tried = new Set<string>()
-    const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried })[0]
+    const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried, groupId: live.rotationGroupId }).find(entry => outOfUsage(entry) === null)
     const current = live.selection
-    // The group in use, or the whole pool: a model outside it is never kept.
-    const pool = activeRotationEntries()
+    // The session group, or default pool: a model outside it is never kept.
+    const pool = activeRotationEntries(live.rotationGroupId)
     // Resting or out of quota, it is no model to stay on.
     const usable = (entry: RotationEntry): boolean =>
       pool.some((item) => rotationKey(item) === rotationKey(entry)) &&
