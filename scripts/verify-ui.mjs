@@ -807,7 +807,10 @@ try {
   await limeOnHover('model picker: a rotate group', pickAll)
   await pickAll.click(); await window.waitForTimeout(400)
   check('model picker: switching the group reaches the main process',
-    await window.evaluate(async () => String((await window.anticode.getStatus()).rotationGroup)), 'null')
+    await window.evaluate(async () => {
+      const status = await window.anticode.getStatus()
+      return String(status.sessions[window.__store.getState().activeSessionId]?.rotationGroup ?? null)
+    }), 'null')
   await window.locator('[data-picker-group="code only"]').click(); await window.waitForTimeout(400)
   check('model picker: and back again', await window.evaluate(async () => {
     const status = await window.anticode.getStatus()
@@ -939,7 +942,7 @@ try {
   // A group put in use shows in the composer at once, with no reload.
   await window.evaluate(async () => {
     const status = await window.anticode.setRotationGroups([{ name: 'code only', entries: [{ provider: 'clinepass', model: 'test-model' }] }])
-    await window.anticode.selectRotationGroup(status.rotationGroups[0].id)
+    await window.anticode.selectRotationGroup(status.rotationGroups[0].id, window.__store.getState().activeSessionId)
   }); await window.waitForTimeout(300)
   check('model picker: composer follows the group in use at once', (await composerModel.textContent()).trim(), 'rotate · code only')
   await window.evaluate(() => window.anticode.setRotationGroups([])); await window.waitForTimeout(300)
