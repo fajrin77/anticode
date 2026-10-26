@@ -306,16 +306,14 @@ export function TabBar({
   // Crowded: the tabs are narrow enough that a hover-revealed × would cover
   // most of what is left to click.
   const [crowded, setCrowded] = useState(false)
-  // Keep a short title while tabs can still fit at 72px each, including gaps.
-  // Do not measure using icon widths: that would oscillate between modes.
-  const [iconOnly, setIconOnly] = useState(false)
   const openCount = sessions.filter((session) => !session.closed).length
+  // Keep titles below twelve tabs; narrow windows can scroll the strip.
+  const iconOnly = openCount >= 12
   useEffect(() => {
     const host = strip.current
     if (host === null) return
     const measure = (): void => {
       setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
-      setIconOnly(openCount > 0 && (host.clientWidth - Math.max(0, openCount - 1) * 2) / openCount < 72)
     }
     measure()
     const observer = new ResizeObserver(measure)
