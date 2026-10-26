@@ -7,7 +7,8 @@ import assert from 'node:assert/strict'
 const directory = await mkdtemp(path.join(tmpdir(), 'anticode-usage-range-'))
 await writeFile(path.join(directory, 'settings.json'), JSON.stringify({ remote: { enabled: false }, updates: { autoCheck: false } }))
 const today = new Date(); today.setHours(12, 0, 0, 0)
-const rows = [0, 2, 12, 40, 90].map((days, index) => {
+// Keep the oldest row safely inside the 90-day retention window at any hour.
+const rows = [0, 2, 12, 40, 80].map((days, index) => {
   const date = new Date(today); date.setDate(date.getDate() - days)
   return { ts: date.getTime(), sessionId: 'fixture', runId: String(index), provider: 'fixture', providerLabel: 'Fixture', model: `range-model-${index}`, inputTokens: 100 * (index + 1), cachedTokens: 10, outputTokens: 20, costUsd: 0, estimated: false, subagent: false }
 })
