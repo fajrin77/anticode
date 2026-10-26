@@ -312,8 +312,8 @@ export class AgentSession {
   private readonly inputAllowances = new Map<string, { limit: number; overhead: number; checkedAt: number }>()
   /** The route this turn has already reduced its replay for, so it tries once. */
   private reducedForKeyLimitFor: string | null = null
-  /** The line this session wrote last, so the same one is never repeated. */
-  private lastDisplayText: string | null = null
+  /** What this turn already said in the app's own voice, so it says it once. */
+  private saidThisTurn = new Set<string>()
   /** Images produced by tools this turn; appended after their tool results. */
   private pendingImages: ContentBlock[] = []
   /**
@@ -341,11 +341,6 @@ export class AgentSession {
     private readonly options: AgentOptions = {}
   ) {
     this.fixedTools = options.tools ?? null
-    // A notice already in a restored transcript is the last line it wrote.
-    this.lastDisplayText = initialHistory
-      .flatMap((message) => message.content)
-      .filter((block): block is Extract<ContentBlock, { type: 'display' }> => block.type === 'display' && block.kind === 'notice')
-      .at(-1)?.text ?? null
     // A sub-agent only reads; it has nothing to take back.
     this.checkpoints =
       workspaceRoot === null || options.subagent === true
@@ -387,6 +382,7 @@ export class AgentSession {
     this.activeSignal = params.signal
     this.activePlan = params.plan === true
     this.reducedForKeyLimitFor = null
+    this.saidThisTurn = new Set<string>()
     try {
       await this.runExclusive(params)
     } finally {
@@ -675,11 +671,8 @@ export class AgentSession {
     let correctedToolMarkup = false
     for (let attempt = 0; ; attempt++) {
       try {
-        // A route this turn already reduced its replay for has nothing left to
-        // cut; its first request may still be under the ceiling, and once it
-        // fails the allowance is checked again rather than pre-empting it.
         const allowance = this.inputAllowances.get(this.allowanceKey())
-        if (allowance && Date.now() - allowance.checkedAt < 60_000 && this.reducedForKeyLimitFor !== this.allowanceKey()) {
+        if (allowance && Date.now() - allowance.checkedAt < 60_000) {
           const estimate = allowance.overhead + replayCost(this.requestMessages(params))
           if (estimate > allowance.limit) throw new InputRequestLimitError(estimate, allowance.limit, false, true)
         }
@@ -776,7 +769,7 @@ export class AgentSession {
       const text = 'Konteks melebihi batas request key. Riwayat dan hasil tool diringkas secara lokal untuk satu percobaan ulang; transkrip asli dan hasil pekerjaan tetap tersimpan.'
       // A transcript that shows the same line twice reads as a fault. The
       // retry still happens; only the repeated line is left out.
-      if (this.lastDisplayText === text) return true
+      if (this.saidThisTurn.has(text)) return true
       this.recordDisplay('notice', text)
       params.emit({ type: 'notice', runId: params.runId, text })
       return true
@@ -1188,7 +1181,7 @@ export class AgentSession {
 
   /** Adds durable UI state without feeding it back to the model. */
   private recordDisplay(kind: 'notice' | 'error', text: string): void {
-    this.lastDisplayText = text
+    this.saidThisTurn.add(text)
     const last = this.transcript.at(-1)
     if (last?.role === 'assistant') {
       this.transcript[this.transcript.length - 1] = {

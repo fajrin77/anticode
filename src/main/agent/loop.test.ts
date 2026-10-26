@@ -1467,6 +1467,24 @@ it('reduces the replay again for the next route instead of refusing it on the fi
   expect(lines).toHaveLength(1)
 })
 
+it('says the reduction line once per turn, and again in a later turn', async () => {
+  let requests = 0
+  // A normal session whose route is only occasionally squeezed by the key
+  // limit: nothing about the fix may silence the line in a later turn.
+  const provider: LLMProvider = { name: 'fixture', model: 'fixture-large-window', async *chat(params) {
+    requests++
+    const replay = JSON.stringify(params.messages)
+    if (requests % 2 === 1) throw new InputRequestLimitError(9000 + replay.length / 4, 12000)
+    yield { type: 'response', response: turn([{ type: 'text', text: 'past work '.repeat(4000) }], 'end_turn') }
+  } }
+  const session = new AgentSession(provider, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'text', text: 'Old goal' }] }, { role: 'assistant', content: [{ type: 'text', text: 'past work '.repeat(2000) }] }], 'per-turn', { tools: [] })
+  const send = (prompt: string) => session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: event => events.push(event) })
+  await send('First request')
+  await send('Second request')
+  const lines = JSON.stringify(session.snapshot().messages).match(/Konteks melebihi batas request key/g) ?? []
+  expect(lines).toHaveLength(2)
+})
+
 it('does not repeat a key-limit compaction indefinitely if a smaller request is refused too', async () => {
   let requests = 0
   const provider: LLMProvider = { name: 'fixture', model: 'fixture-large-window', async *chat() {
