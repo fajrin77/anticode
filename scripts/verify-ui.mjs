@@ -604,6 +604,9 @@ try {
   await limeOnHover('settings: sidebar auth provider', window.getByRole('button',{name:/Auth provider/}))
   await window.getByRole('button',{name:/Auth provider/}).click(); await window.waitForTimeout(300)
   const codexVendor = window.locator('[data-auth-vendor="codex"]')
+  const authOrder = await window.locator('[data-auth-vendor]').evaluateAll(items => items.map(item => item.dataset.authVendor))
+  check('auth: ChatGPT and Antigravity lead the list', JSON.stringify(authOrder.slice(0, 2)), JSON.stringify(['codex', 'antigravity']))
+  check('auth: API-key providers are last', JSON.stringify(authOrder.slice(-8)), JSON.stringify(['nvidia-nim', 'ollama-cloud', 'xai', 'kimi-api', 'byteplus-api', 'kimchi-api', 'airforce-api', 'bazaarlink-api']))
   check('auth: GitHub Copilot authorize is offered', await window.locator('[data-auth-vendor="copilot"]').count(), 1)
   for (const kind of ['nvidia-nim', 'ollama-cloud', 'xai', 'kimi-api', 'byteplus-api', 'kimchi-api', 'airforce-api', 'bazaarlink-api']) {
     check(`auth: direct ${kind} key connection offered`, await window.locator(`[data-auth-vendor="${kind}"]`).count(), 1)
@@ -1318,9 +1321,10 @@ try {
     check('tabs: many tabs are open', count >= 10 ? 'many' : String(count), 'many')
     const activeId = () => window.evaluate(() => window.__store.getState().activeSessionId)
     const narrowest = await tabs.evaluateAll((items) => Math.min(...items.map((item) => item.getBoundingClientRect().width)))
-    check('tabs: a crowded tab keeps a usable width', narrowest >= 88 ? 'usable' : String(narrowest), 'usable')
-    check('tabs: a scrolling strip draws no scrollbar', await strip.evaluate((el) =>
-      el.scrollWidth > el.clientWidth && el.offsetHeight === el.clientHeight ? 'none' : `scroll ${el.scrollWidth}/${el.clientWidth}, bar ${el.offsetHeight - el.clientHeight}px`), 'none')
+    check('tabs: crowded tabs use clickable icons', narrowest >= 32 && narrowest <= 40 ? 'icons' : String(narrowest), 'icons')
+    check('tabs: icon-only tabs retain title tooltips', await tabs.evaluateAll(items => items.every(item => Boolean(item.title))), true)
+    check('tabs: compact strip fits without a scrollbar', await strip.evaluate((el) =>
+      el.scrollWidth <= el.clientWidth && el.offsetHeight === el.clientHeight ? 'fits' : `scroll ${el.scrollWidth}/${el.clientWidth}, bar ${el.offsetHeight - el.clientHeight}px`), 'fits')
 
     const target = tabs.first()
     await target.scrollIntoViewIfNeeded()

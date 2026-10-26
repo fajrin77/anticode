@@ -12,7 +12,7 @@ await mkdir(workspace)
 await writeFile(path.join(workspace, 'facts.txt'), 'Important beginning.\n' + 'verified facts '.repeat(1600) + '\nImportant end.')
 await writeFile(path.join(directory, 'providers.json'), JSON.stringify({ providers: [], builtin: { clinepass: { removed: true } } }))
 await writeFile(path.join(directory, 'settings.json'), JSON.stringify({ remote: { enabled: false }, updates: { autoCheck: false } }))
-const models = ['retired-fixture:free', 'healthy-fixture:free', 'small-fixture', 'compact-fixture']
+const models = ['retired-fixture:free', 'healthy-fixture:free', 'small-fixture', 'compact-fixture', 'credit-fixture:free']
 const counts = new Map()
 const requests = []
 let compactLimit
@@ -28,6 +28,7 @@ const server = createServer(async (req, res) => {
   const error = (status, message) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { code: status, message }, user_id: 'private-fixture-account' })) }
   if (body.model === 'retired-fixture:free') { error(404, 'The :free variant has been retired; use paid/model instead ($1/M).'); return }
   if (body.model === 'small-fixture') { error(402, 'Prompt tokens limit exceeded: 13114 > 4064'); return }
+  if (body.model === 'credit-fixture:free') { error(402, 'This request requires more credits, or fewer max_tokens. You requested up to 16000 tokens, but can only afford 228.'); return }
   if (body.model === 'compact-fixture' && count === 2) {
     const emptyResults = { ...body, messages: body.messages.map(message => message.role === 'tool' ? { ...message, content: '' } : message) }
     compactLimit = tokens(emptyResults) + Math.floor((tokens(body) - tokens(emptyResults)) * 0.55)
@@ -108,6 +109,33 @@ try {
   assert.equal(counts.get('compact-fixture'), 3)
   assert.ok(compacted.some(event => event.type === 'notice' && event.text.includes('diringkas secara lokal')))
   console.log('PASS: a long tool-result turn is reduced once, fits the reported allowance, and completes without replaying the tool')
+  const alternate = await page.evaluate(async ({ baseURL, provider }) => {
+    const api = window.anticode
+    const list = await api.addProvider({ kind: 'openai', label: 'Alternate credit fixture', baseURL, apiKey: 'fixture-other-account', models: ['healthy-fixture:free'] })
+    const alternate = list.find(item => item.label === 'Alternate credit fixture').id
+    await api.setProviderVisibility(alternate, true)
+    await api.setRotation([{ provider, model: 'credit-fixture:free' }])
+    await api.setRotationEnabled(true)
+    await api.createSession({ sessionId: 'credit', mode: 'chat', workspaceRoot: null })
+    return alternate
+  }, { baseURL: `http://127.0.0.1:${server.address().port}/v1`, provider })
+  const creditFallback = await send('credit')
+  // First prove the only route is exhausted, then make a second provider
+  // available and ensure Rotate skips the exhausted route on the next turn.
+  assert.equal(creditFallback.at(-1).type, 'error')
+  await page.evaluate(async ({ provider, alternate }) => {
+    await window.anticode.setRotation([{ provider, model: 'credit-fixture:free' }, { provider: alternate, model: 'healthy-fixture:free' }])
+  }, { provider, alternate })
+  const continuedCredit = await send('credit')
+  assert.equal(continuedCredit.at(-1).reason, 'complete', JSON.stringify(continuedCredit.at(-1)))
+  const creditStatus = await page.evaluate(() => window.anticode.getStatus())
+  assert.ok(creditStatus.rotation.find(entry => entry.model === 'credit-fixture:free').outOfUsage)
+  assert.equal(creditStatus.rotation.find(entry => entry.provider === alternate).outOfUsage, null)
+  assert.equal(counts.get('credit-fixture:free'), 1)
+  console.log('PASS: output-credit 402 marks out of usage and completes on another enabled provider')
+  await page.evaluate(async provider => {
+    await window.anticode.setRotation([{ provider, model: 'retired-fixture:free' }, { provider, model: 'healthy-fixture:free' }])
+  }, provider)
   await app.close()
   page = await launch()
   const restored = await page.evaluate(() => window.anticode.getStatus())

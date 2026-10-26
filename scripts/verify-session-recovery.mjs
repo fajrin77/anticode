@@ -53,7 +53,7 @@ try {
   let page = await app.firstWindow()
   const provider = await page.evaluate(async baseURL => {
     const api = window.anticode
-    const list = await api.addProvider({ kind: 'openai', label: 'Recovery fixture', baseURL, apiKey: 'fixture', models: ['vision-fixture', 'deepseek-v4.1-flash:free', 'moonshotai/kimi-k3:batch'] })
+    const list = await api.addProvider({ kind: 'openai', label: 'Recovery fixture', baseURL, apiKey: 'fixture', models: ['vision-fixture', 'deepseek-v3:free', 'moonshotai/kimi-k3:batch'] })
     const id = list.find(item => item.label === 'Recovery fixture').id
     await api.createSession({ sessionId: 'recovery', title: 'Recovery fixture', mode: 'chat', workspaceRoot: null })
     return id
@@ -77,23 +77,23 @@ try {
   }, { provider, model, prompt, attachmentPaths })
   await send('vision-fixture', 'Jelaskan gambar fixture.', [image])
   assert.ok(JSON.stringify(requests.at(-1)).includes('image_url'))
-  const text = await send('deepseek-v4.1-flash:free', 'Lanjutkan pekerjaan teks.')
+  const text = await send('deepseek-v3:free', 'Lanjutkan pekerjaan teks.')
   assert.equal(text.at(-1).reason, 'complete')
   assert.ok(text.some(event => event.type === 'notice' && event.text.includes('Gambar')))
   assert.ok(!JSON.stringify(requests.at(-1)).includes('image_url'))
   await send('vision-fixture', 'Periksa gambar lama kembali.')
   assert.ok(JSON.stringify(requests.at(-1)).includes('image_url'))
   const before = requests.length
-  const refused = await send('deepseek-v4.1-flash:free', 'Baca gambar baru.', [image])
+  const refused = await send('deepseek-v3:free', 'Baca gambar baru.', [image])
   assert.equal(refused.at(-1).type, 'error')
   assert.equal(requests.length, before)
   interruptions = 1
-  const recovered = await send('deepseek-v4.1-flash:free', 'Pulihkan gangguan sementara.')
+  const recovered = await send('deepseek-v3:free', 'Pulihkan gangguan sementara.')
   assert.equal(recovered.at(-1).reason, 'complete')
   assert.ok(recovered.some(event => event.type === 'notice' && event.text.includes('Melanjutkan')))
   assert.equal(requests.length, before + 2)
   interruptions = 6
-  const cut = await send('deepseek-v4.1-flash:free', 'Kerjakan pertanyaan teks berikutnya.')
+  const cut = await send('deepseek-v3:free', 'Kerjakan pertanyaan teks berikutnya.')
   assert.equal(cut.at(-1).retryable, true)
   assert.equal(cut.at(-1).summary.outcome, 'error')
   assert.equal(requests.length, before + 8)
@@ -111,7 +111,7 @@ try {
   const restored = await restarted.evaluate(() => window.anticode.getSessionSnapshot('recovery'))
   assert.equal(restored.summaries.at(-1).outcome, 'error')
   assert.ok(JSON.stringify(restored.messages).includes('Bagian yang sudah diterima.'))
-  const continued = await send('deepseek-v4.1-flash:free', 'lanjut')
+  const continued = await send('deepseek-v3:free', 'lanjut')
   assert.equal(continued.at(-1).reason, 'complete')
   assert.ok(!JSON.stringify(requests.at(-1)).includes('image_url'))
   console.log('PASS: old image replay, new image refusal, vision restoration, automatic partial stream recovery, retry exhaustion, durable interrupted outcome')
