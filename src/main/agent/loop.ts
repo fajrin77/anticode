@@ -707,9 +707,9 @@ export class AgentSession {
         // carries a text stand-in, and the same route is tried once more.
         const message = error instanceof Error ? error.message : ''
         if (/does not accept image input|does not support image|cannot inspect images/i.test(message) &&
-            !this.imageRejectedBy.has(this.provider.model) &&
+            !this.imageRejectedBy.has(this.imageRouteKey()) &&
             this.history.some((entry) => entry.content.some((block) => block.type === 'image'))) {
-          this.imageRejectedBy.add(this.provider.model)
+          this.imageRejectedBy.add(this.imageRouteKey())
           continue
         }
         const limit = requestLimit(error)
@@ -792,8 +792,12 @@ export class AgentSession {
   /** Adapt replay without changing the saved transcript or the vision history. */
   private replayNoticeModel: string | null = null
 
+  private imageRouteKey(): string {
+    return JSON.stringify([this.provider.id ?? this.provider.name, this.provider.model])
+  }
+
   private requestMessages(params: RunParams): Message[] {
-    const rejected = this.imageRejectedBy.has(this.provider.model)
+    const rejected = this.imageRejectedBy.has(this.imageRouteKey())
     if (!rejected && !modelCannotSeeImages(this.provider.model)) return this.history
     const latest = this.history.findLastIndex((message) => isTypedPrompt(message) || message.role === 'user' && message.content.some((block) => block.type === 'text' && block.text === CONTINUE_PROMPT))
     const messages = this.history.map((message, index) => ({ ...message, content: message.content.map((block): ContentBlock => {
@@ -801,9 +805,11 @@ export class AgentSession {
       if (index >= latest && !rejected) throw new ProviderRequestError('Model ini hanya membaca teks. Gambar baru membutuhkan model vision; pilih model vision atau kirim pertanyaan teks berikutnya.', 400)
       return { type: 'text', text: '[Earlier image retained in the conversation but unavailable to this text-only model. Use only the existing textual evidence; do not invent image details.]' }
     }) }))
-    if (this.replayNoticeModel !== this.provider.model && this.history.some((message) => message.content.some((block) => block.type === 'image'))) {
-      this.replayNoticeModel = this.provider.model
-      const text = 'Model ini hanya membaca teks. Gambar dari pesan terdahulu tetap tersimpan, tetapi tidak dikirim ke model ini; gunakan model vision untuk memeriksanya kembali.'
+    if (this.replayNoticeModel !== this.imageRouteKey() && this.history.some((message) => message.content.some((block) => block.type === 'image'))) {
+      this.replayNoticeModel = this.imageRouteKey()
+      const text = rejected
+        ? 'Rute provider ini menolak input gambar. Gambar tidak dikirim ulang ke rute ini, tetapi tetap tersimpan dalam percakapan. Penolakan ini tidak berlaku otomatis pada provider lain dengan nama model yang sama.'
+        : 'Rute yang dipilih tidak mendukung input gambar. Gambar terdahulu tetap tersimpan, tetapi tidak dikirim ke rute ini; pilih rute vision untuk memeriksanya kembali.'
       this.recordDisplay('notice', text)
       params.emit({ type: 'notice', runId: params.runId, text })
     }

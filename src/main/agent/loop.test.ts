@@ -1499,6 +1499,27 @@ it('retries once with a text stand-in when the provider says it rejects images',
   expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
 })
 
+it('does not carry an image rejection to another provider serving the same model', async () => {
+  const received: boolean[] = []
+  const rejecting: LLMProvider = { id: 'account-a', name: 'fixture', model: 'deepseek-v4.1-flash', async *chat(params) {
+    if (JSON.stringify(params.messages).includes('"type":"image"')) throw new Error('400 does not accept image input')
+    yield { type: 'response', response: turn([{ type: 'text', text: 'text reply' }], 'end_turn') }
+  } }
+  const vision: LLMProvider = { id: 'account-b', name: 'fixture', model: rejecting.model, async *chat(params) {
+    received.push(JSON.stringify(params.messages).includes('"type":"image"'))
+    yield { type: 'response', response: turn([{ type: 'text', text: 'vision reply' }], 'end_turn') }
+  } }
+  const session = new AgentSession(rejecting, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }] }], 'route-images', { tools: [] })
+  const send = (prompt: string) => session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: event => events.push(event) })
+  await send('first')
+  expect(JSON.stringify(events)).toContain('Rute provider ini menolak input gambar')
+  expect(JSON.stringify(events)).not.toContain('Model ini hanya membaca teks')
+  session.useProvider(vision)
+  await send('second')
+  expect(received).toEqual([true])
+  expect(JSON.stringify(session.snapshot().messages)).toContain('"type":"image"')
+})
+
 it('does not repeat a key-limit compaction indefinitely if a smaller request is refused too', async () => {
   let requests = 0
   const provider: LLMProvider = { name: 'fixture', model: 'fixture-large-window', async *chat() {
