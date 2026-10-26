@@ -306,8 +306,8 @@ export function TabBar({
   // Crowded: the tabs are narrow enough that a hover-revealed × would cover
   // most of what is left to click.
   const [crowded, setCrowded] = useState(false)
-  // Icons only: so many tabs that even the minimum width (5.5rem) no longer
-  // fits, where the strip used to overflow and could not be scrolled.
+  // Keep a short title while tabs can still fit at 72px each, including gaps.
+  // Do not measure using icon widths: that would oscillate between modes.
   const [iconOnly, setIconOnly] = useState(false)
   const openCount = sessions.filter((session) => !session.closed).length
   useEffect(() => {
@@ -315,7 +315,7 @@ export function TabBar({
     if (host === null) return
     const measure = (): void => {
       setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
-      setIconOnly(openCount > 0 && host.clientWidth / openCount < 92)
+      setIconOnly(openCount > 0 && (host.clientWidth - Math.max(0, openCount - 1) * 2) / openCount < 72)
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -423,7 +423,7 @@ export function TabBar({
               // scrolls instead of crushing them.
               role="tab"
               aria-selected={isActive}
-              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'w-9 min-w-0 justify-center px-0' : 'min-w-[5.5rem] flex-1 basis-0 max-w-48 gap-2 px-3'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
+              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'w-9 min-w-0 justify-center px-0' : 'min-w-[4.5rem] flex-1 basis-0 max-w-48 gap-1.5 px-2'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
               onPointerDown={(event) => startDrag(session.id, event)}
