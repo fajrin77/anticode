@@ -307,7 +307,9 @@ export function TabBar({
   // most of what is left to click.
   const [crowded, setCrowded] = useState(false)
   const openCount = sessions.filter((session) => !session.closed).length
-  // Keep short titles through ten tabs; narrow windows can scroll.
+  // Fixed threshold instead of width measurement: through ten tabs every tab
+  // keeps its title (the strip scrolls when narrow); past ten the whole bar
+  // turns into icons at once, so no tab is left title-less beside them.
   const iconOnly = openCount > 10
   useEffect(() => {
     const host = strip.current
