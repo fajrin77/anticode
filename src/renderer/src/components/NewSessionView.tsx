@@ -1,4 +1,5 @@
 import { providerModelIssue } from '@shared/providerModel'
+import { useAttachmentFocus } from '../useAttachmentFocus'
 import { DASHBOARD_DRAFT, stageDraftAttachments, useAttachmentJobs, fileAttachmentJob } from '../draftAttachments'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
@@ -98,6 +99,7 @@ function DashboardComposer({
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  useAttachmentFocus(DASHBOARD_DRAFT, attached, promptRef)
 
   const openSession = useSessionStore((state) => state.openSession)
   const addMessage = useSessionStore((state) => state.addMessage)

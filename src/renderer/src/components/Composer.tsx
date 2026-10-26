@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useAttachmentFocus } from '../useAttachmentFocus'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
@@ -124,6 +125,7 @@ export function Composer({  status: sharedStatus,
   const boxRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  useAttachmentFocus(session?.id, attached, promptRef)
 
   // Standing by: the composer takes the caret as soon as it appears, a new
   // tab, a slide to another tab, a fresh session, so typing starts without
