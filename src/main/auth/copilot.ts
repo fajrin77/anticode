@@ -44,8 +44,15 @@ export async function loginCopilot(callbacks: AuthLoginCallbacks): Promise<AuthT
 export async function copilotModels(token: string, signal?: AbortSignal): Promise<string[]> {
   const response = await fetch(`${COPILOT_BASE}/models`, { headers: { ...COPILOT_HEADERS, Authorization: `Bearer ${token}` }, signal: signal ?? AbortSignal.timeout(15000) })
   if (!response.ok) throw new Error(`GitHub Copilot models unavailable (${response.status}); check your subscription and authorize the client`)
-  const body = await response.json() as { data?: { id?: string; model_picker_enabled?: boolean; policy?: { state?: string }; supported_endpoints?: string[] }[] }
-  const models = (body.data ?? []).filter((m) => m.id && m.model_picker_enabled !== false && m.policy?.state !== 'disabled' && m.supported_endpoints?.includes('/chat/completions')).map((m) => m.id!)
-  if (!models.length) throw new Error('This Copilot account offers no supported chat-completions models')
+  const body = await response.json() as { data?: { id?: string; model_picker_enabled?: boolean; policy?: { state?: string }; supported_endpoints?: string[]; capabilities?: { type?: string } }[] }
+  const listed = (body.data ?? []).filter((m) => m.id)
+  // Capability must be explicit: a model that does not list /chat/completions is not assumed to work.
+  const usable = (m: (typeof listed)[number]): boolean => m.policy?.state !== 'disabled' && (m.capabilities?.type === undefined || m.capabilities.type === 'chat') &&
+    m.supported_endpoints?.includes('/chat/completions') === true
+  const models = listed.filter((m) => m.model_picker_enabled !== false && usable(m)).map((m) => m.id!)
+  if (!models.length) {
+    const policy = listed.filter((m) => m.policy?.state === 'disabled').length
+    throw new Error(`This Copilot account offers no supported chat-completions models (${listed.length} listed, ${listed.filter((m) => m.supported_endpoints?.includes('/chat/completions')).length} with chat-completions, ${policy} disabled by policy). Enable models in GitHub Copilot settings, then sign in again.`)
+  }
   return [...new Set(models)]
 }
