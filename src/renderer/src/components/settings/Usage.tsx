@@ -84,6 +84,7 @@ export function Usage(): JSX.Element {
   const [range, setRangeState] = useState<RangeId>(lastRange)
   const setRange = (next: RangeId): void => {
     lastRange = next
+    setSelectedDay(null)
     setRangeState(next)
   }
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
@@ -221,13 +222,13 @@ export function Usage(): JSX.Element {
                     <span><i className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-amber-400" />Output</span>
                   </div>
                   <div className="flex h-40 items-end gap-2 overflow-x-auto" aria-label="Tokens per day">
-                    {summary.byDay.map(day => {
+                    {[...summary.byDay].sort((a, b) => a.day.localeCompare(b.day)).map(day => {
                       const total = day.inputTokens + day.outputTokens
                       const cached = Math.min(day.inputTokens, Math.max(0, day.cachedTokens ?? 0))
                       const input = Math.max(0, day.inputTokens - cached)
                       const height = maxDay ? Math.max(2, total / maxDay * 100) : 0
                       return <button key={day.day} type="button" aria-pressed={selectedDay === day.day}
-                        onClick={() => setSelectedDay(day.day)}
+                        onClick={() => setSelectedDay(current => current === day.day ? null : day.day)}
                         className="group flex h-full min-w-[44px] max-w-[96px] flex-1 flex-col items-center justify-end gap-1 rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-brand"
                         title={`${day.day}: input non-cache ${formatNumber(input)}, cache ${formatNumber(cached)}, output ${formatNumber(day.outputTokens)}`}>
                         <span className="text-[10px] tabular-nums text-dim">{Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(total)}</span>
@@ -243,9 +244,13 @@ export function Usage(): JSX.Element {
                     })}
                   </div>
                   {(() => {
-                    const day = summary.byDay.find(day => day.day === selectedDay) ?? summary.byDay.at(-1)!
+                    const selected = summary.byDay.find(day => day.day === selectedDay)
+                    const day = selected ?? { ...summary, models: summary.byModel }
                     return <div className="mt-4 border-t border-line-soft pt-3" data-day-breakdown>
-                      <p className="text-[12px] text-text">{day.day} · {formatNumber(day.requests)} requests</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[12px] text-text">{selected?.day ?? `Total ${RANGES.find(item => item.id === range)?.label}`} · {formatNumber(day.requests)} requests</p>
+                        {selected && <button type="button" className="text-[12px] text-brand" onClick={() => setSelectedDay(null)}>Show range total</button>}
+                      </div>
                       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] tabular-nums">
                         <span className="text-sky-400">Input non-cache: {formatNumber(Math.max(0, day.inputTokens - day.cachedTokens))}</span>
                         <span className="text-violet-400">Cache: {formatNumber(day.cachedTokens)}</span>
