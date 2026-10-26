@@ -456,7 +456,7 @@ export function TabBar({
               >
                 {session.title}
               </button>}
-              {!iconOnly && (isActive || !crowded) && <button
+              {(iconOnly || isActive || !crowded) && <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -468,9 +468,11 @@ export function TabBar({
                 // An invisible × takes no clicks. Once the strip is crowded,
                 // inactive tabs carry no × at all (as in Chrome): a click on a
                 // narrow tab selects it and never closes it by surprise.
-                className={`shrink-0 text-faint transition-[opacity,color] hover:text-brand focus-visible:opacity-100 ${
-                  isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
-                }`}
+                className={iconOnly
+                  ? 'absolute right-0 top-0 z-10 flex h-3 w-3 items-center justify-center rounded bg-surface text-text opacity-0 pointer-events-none transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 hover:text-brand'
+                  : `shrink-0 text-faint transition-[opacity,color] hover:text-brand focus-visible:opacity-100 ${
+                    isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+                  }`}
               >
                 ×
               </button>}

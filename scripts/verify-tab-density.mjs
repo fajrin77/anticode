@@ -30,6 +30,11 @@ try {
   })
   await page.waitForFunction(() => document.querySelectorAll('[data-tab-id]').length === 30 && [...document.querySelectorAll('[data-tab-id]')].every(tab => tab.title))
   assert.equal(await tabs.first().locator('button[title]').count(), 0)
+  const closedId = await tabs.first().getAttribute('data-tab-id')
+  await tabs.first().hover()
+  await tabs.first().getByRole('button', { name: 'Close tab', exact: true }).click()
+  await page.waitForFunction(id => !document.querySelector(`[data-tab-id="${id}"]`), closedId)
+  assert.equal(await tabs.count(), 29)
   await page.evaluate(() => {
     const store = window.__store.getState()
     for (const session of store.sessions.filter(item => !item.closed).slice(12)) store.closeSession(session.id)

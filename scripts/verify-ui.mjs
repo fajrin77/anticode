@@ -1339,9 +1339,9 @@ try {
     const secondId = await second.getAttribute('data-tab-id')
     const box = await second.boundingBox()
     // A press with a small wobble that does not reorder anything.
-    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await window.mouse.move(box.x + 2, box.y + box.height / 2)
     await window.mouse.down()
-    await window.mouse.move(box.x + box.width / 2 + 8, box.y + box.height / 2, { steps: 4 })
+    await window.mouse.move(box.x + 7, box.y + box.height / 2, { steps: 4 })
     await window.mouse.up(); await window.waitForTimeout(250)
     check('tabs: a click with a small wobble still selects', await activeId(), secondId)
     check('tabs: the wobble did not reorder the strip', await tabs.nth(1).getAttribute('data-tab-id'), secondId)
@@ -1351,8 +1351,8 @@ try {
     const thirdId = await third.getAttribute('data-tab-id')
     const before = await tabs.count()
     const edge = await third.boundingBox()
-    // Where the hidden × sits, approached without hovering first.
-    await window.mouse.click(edge.x + edge.width - 14, edge.y + edge.height / 2); await window.waitForTimeout(250)
+    // The outer edge selects; the center now intentionally exposes × on hover.
+    await window.mouse.click(edge.x + edge.width - 3, edge.y + edge.height / 2); await window.waitForTimeout(250)
     check('tabs: a click on the right edge selects', await activeId(), thirdId)
     check('tabs: a click on the right edge never closes a tab unasked',
       (await tabs.count()) === before ? 'kept' : 'closed', 'kept')
