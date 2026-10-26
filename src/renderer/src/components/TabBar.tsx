@@ -306,11 +306,17 @@ export function TabBar({
   // Crowded: the tabs are narrow enough that a hover-revealed × would cover
   // most of what is left to click.
   const [crowded, setCrowded] = useState(false)
+  // Icons only: so many tabs that even the minimum width (5.5rem) no longer
+  // fits, where the strip used to overflow and could not be scrolled.
+  const [iconOnly, setIconOnly] = useState(false)
   const openCount = sessions.filter((session) => !session.closed).length
   useEffect(() => {
     const host = strip.current
     if (host === null) return
-    const measure = (): void => setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
+    const measure = (): void => {
+      setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
+      setIconOnly(openCount > 0 && host.clientWidth / openCount < 92)
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(host)
@@ -417,7 +423,7 @@ export function TabBar({
               // scrolls instead of crushing them.
               role="tab"
               aria-selected={isActive}
-              className={`region-no-drag group relative flex h-9 min-w-[5.5rem] flex-1 basis-0 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-lg px-3 transition-colors ${
+              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'w-9 min-w-0 justify-center px-0' : 'min-w-[5.5rem] flex-1 basis-0 max-w-48 gap-2 px-3'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
               onPointerDown={(event) => startDrag(session.id, event)}
@@ -427,11 +433,13 @@ export function TabBar({
                 event.stopPropagation()
               }}
               onClick={() => onSelectSession(session.id)}
+              title={iconOnly ? session.title : undefined}
+              onAuxClick={(event) => { if (iconOnly && event.button === 1) close(session.id) }}
             >
               {isActive && (
                 <span
                   aria-hidden
-                  className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-brand"
+                  className={`absolute -bottom-px h-0.5 rounded-full bg-brand ${iconOnly ? 'inset-x-1.5' : 'inset-x-3'}`}
                 />
               )}
               <Badge
@@ -439,7 +447,7 @@ export function TabBar({
                 colour={session.colour}
                 spinning={running}
               />
-              <button
+              {!iconOnly && <button
                 type="button"
                 title={session.title}
                 className={`min-w-0 flex-1 truncate text-left text-[14px] transition-colors group-hover:text-brand ${
@@ -447,8 +455,8 @@ export function TabBar({
                 }`}
               >
                 {session.title}
-              </button>
-              {(isActive || !crowded) && <button
+              </button>}
+              {!iconOnly && (isActive || !crowded) && <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation()
