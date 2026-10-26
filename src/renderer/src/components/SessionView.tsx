@@ -620,7 +620,14 @@ function OldTurn({
 
           return null
         })}
-        {allParts.some((part) => part.kind === 'tool') && <ToolGroup parts={allParts.filter((part): part is ToolPart => part.kind === 'tool')} />}
+        {/* A question the agent asked and the answer it got are part of the conversation, not a step to fold away. */}
+        {allParts.filter((part): part is ToolPart => part.kind === 'tool' && part.name === 'ask_question').map((part) => (
+          <div key={`asked-${part.toolUseId}`} className="my-2 border-l-2 border-line pl-3 text-[14px] text-dim">
+            <div className="text-text">{typeof (part.input as { question?: unknown } | null)?.question === 'string' ? (part.input as { question: string }).question : 'Pertanyaan'}</div>
+            {part.output !== '' && <div className="mt-0.5">{part.output}</div>}
+          </div>
+        ))}
+        {allParts.some((part) => part.kind === 'tool' && part.name !== 'ask_question') && <ToolGroup parts={allParts.filter((part): part is ToolPart => part.kind === 'tool' && part.name !== 'ask_question')} />}
         {summary !== undefined && (
           <div className="group my-1 flex flex-col items-center">
             <button
