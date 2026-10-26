@@ -23,3 +23,15 @@ it('retains input allowance through normalized and serialized errors, including 
     expect(isTransient(error)).toBe(false)
   }
 })
+
+it('recognizes byte-size limits without declaring the account exhausted or transient', () => {
+  for (const error of [
+    { status: 413, message: 'Request too large' },
+    { cause: { statusCode: 413 } },
+    new Error('413 This request is larger than 4.5 MB. Requests this large are available on paid plans.')
+  ]) {
+    expect(requestLimit(error)).toEqual({ kind: 'payload' })
+    expect(isOutOfUsage(error)).toBe(false)
+    expect(isTransient(error)).toBe(false)
+  }
+})

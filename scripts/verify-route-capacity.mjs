@@ -12,7 +12,7 @@ await mkdir(workspace)
 await writeFile(path.join(workspace, 'facts.txt'), 'Important beginning.\n' + 'verified facts '.repeat(1600) + '\nImportant end.')
 await writeFile(path.join(directory, 'providers.json'), JSON.stringify({ providers: [], builtin: { clinepass: { removed: true } } }))
 await writeFile(path.join(directory, 'settings.json'), JSON.stringify({ remote: { enabled: false }, updates: { autoCheck: false } }))
-const models = ['retired-fixture:free', 'healthy-fixture:free', 'small-fixture', 'compact-fixture', 'credit-fixture:free']
+const models = ['retired-fixture:free', 'healthy-fixture:free', 'small-fixture', 'compact-fixture', 'credit-fixture:free', 'payload-fixture:free']
 const counts = new Map()
 const requests = []
 let compactLimit
@@ -28,6 +28,7 @@ const server = createServer(async (req, res) => {
   const error = (status, message) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { code: status, message }, user_id: 'private-fixture-account' })) }
   if (body.model === 'retired-fixture:free') { error(404, 'The :free variant has been retired; use paid/model instead ($1/M).'); return }
   if (body.model === 'small-fixture') { error(402, 'Prompt tokens limit exceeded: 13114 > 4064'); return }
+  if (body.model === 'payload-fixture:free') { error(413, 'This request is larger than 4.5 MB. Requests this large are available on paid plans.'); return }
   if (body.model === 'credit-fixture:free') { error(402, 'This request requires more credits, or fewer max_tokens. You requested up to 16000 tokens, but can only afford 228.'); return }
   if (body.model === 'compact-fixture' && count === 2) {
     const emptyResults = { ...body, messages: body.messages.map(message => message.role === 'tool' ? { ...message, content: '' } : message) }
@@ -97,6 +98,22 @@ try {
   await send('rotation')
   assert.equal(counts.get('retired-fixture:free'), 1)
   console.log('PASS: explicit retirement moves Rotate to another selected free route; no paid request or account cooldown')
+  await page.evaluate(async provider => {
+    const api = window.anticode
+    await api.setRotation([{ provider, model: 'payload-fixture:free' }])
+    await api.createSession({ sessionId: 'payload', mode: 'chat', workspaceRoot: null })
+    // Select the first route while it is the sole member, then enable an alternate.
+    await api.selectProvider({ provider: 'rotate', model: '' }, 'payload')
+    await api.setRotation([{ provider, model: 'payload-fixture:free' }, { provider, model: 'healthy-fixture:free' }])
+  }, provider)
+  const payload = await send('payload')
+  assert.equal(payload.at(-1).reason, 'complete', JSON.stringify(payload.at(-1)))
+  assert.equal(counts.get('payload-fixture:free'), 1)
+  const payloadStatus = await page.evaluate(() => window.anticode.getStatus())
+  const oversized = payloadStatus.rotation.find(entry => entry.model === 'payload-fixture:free')
+  assert.equal(oversized.outOfUsage, null)
+  assert.equal(oversized.coolingUntil, null)
+  console.log('PASS: HTTP 413 switches to another selected route within the same run without exhausting the account')
   const small = await send('small', 'small-fixture')
   assert.equal(small.at(-1).type, 'error')
   assert.match(small.at(-1).message, /larger request allowance/)

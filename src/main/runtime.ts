@@ -937,7 +937,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     target = first
     fallback = (error) => {
       const retired = isRetiredRoute(error)
-      const capacity = (requestLimit(error)?.kind === 'input' || requestLimit(error)?.kind === 'output')
+      const capacity = ['input', 'output', 'payload'].includes(requestLimit(error)?.kind ?? '')
       if (!retired && !capacity && !canFailOver(error)) return null
       if (live.selection !== undefined) {
         if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
@@ -977,7 +977,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
         tried.add(first.provider)
         fallback = (error) => {
           const retired = isRetiredRoute(error)
-          const capacity = (requestLimit(error)?.kind === 'input' || requestLimit(error)?.kind === 'output')
+          const capacity = ['input', 'output', 'payload'].includes(requestLimit(error)?.kind ?? '')
           if (!retired && !capacity && !canFailOver(error)) return null
           if (live.selection) {
             if (retired) markRetiredRoute(live.selection.provider, live.selection.model)

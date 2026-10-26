@@ -1,6 +1,6 @@
 /** Request size/concurrency errors are different from an exhausted account. */
 export interface RequestLimit {
-  kind: 'input' | 'output' | 'inflight'
+  kind: 'input' | 'output' | 'inflight' | 'payload'
   promptTokens?: number
   limitTokens?: number
 }
@@ -23,10 +23,11 @@ export function requestLimit(error: unknown): RequestLimit | null {
   for (let depth = 0; depth < 16 && pending.length; depth++) {
     const current = pending.shift()
     if (!current || typeof current !== 'object') continue
-    const record = current as { message?: unknown; cause?: unknown; error?: unknown; requestLimit?: RequestLimit }
+    const record = current as { status?: unknown; statusCode?: unknown; message?: unknown; cause?: unknown; error?: unknown; requestLimit?: RequestLimit }
     const limit = record.requestLimit
     if (limit?.kind === 'input' && Number.isFinite(limit.promptTokens) && Number.isFinite(limit.limitTokens) && limit.limitTokens! > 0) return { ...limit }
     const text = typeof record.message === 'string' ? record.message : ''
+    if (record.status === 413 || record.statusCode === 413 || /\b413\b.*(?:request|payload).*(?:larger|large|size)/i.test(text)) return { kind: 'payload' }
     const match = /prompt tokens limit exceeded:\s*(\d+)\s*>\s*(\d+)/i.exec(text) ?? /conversation sends (\d+) prompt tokens, but this key permits (\d+)/i.exec(text)
     if (match) return { kind: 'input', promptTokens: Number(match[1]), limitTokens: Number(match[2]) }
     if (/available credits.+in[- ]flight requests/i.test(text)) return { kind: 'inflight' }
