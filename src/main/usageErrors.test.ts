@@ -8,6 +8,7 @@ describe('isOutOfUsage', () => {
     ['OpenAI-style quota', { status: 429, error: { code: 'insufficient_quota', message: 'You exceeded your current quota.' } }],
     ['Anthropic-style balance', { status: 400, error: { message: 'Your credit balance is too low to access the API.' } }],
     ['OpenRouter-style credits', { status: 402, message: 'Insufficient credits' }],
+    ['OpenRouter output affordability', { status: 402, message: 'This request requires more credits, or fewer max_tokens. You requested up to 16000 tokens, but can only afford 228.' }],
     ['an OpenAI-compatible spending cap', { status: 429, message: 'Organization spending limit reached.' }],
     ['a nested SDK cause', { cause: { cause: { statusCode: 402, message: 'Payment Required' } } }]
   ])('recognises spent usage from %s', (_providerShape, error) => {
@@ -18,7 +19,9 @@ describe('isOutOfUsage', () => {
     { status: 429, message: 'Rate limit reached. Retry in 30 seconds.' },
     { status: 429, message: 'Too many requests per minute.' },
     { status: 503, message: 'The provider is temporarily overloaded.' },
-    { status: 401, message: 'Invalid API key.' }
+    { status: 401, message: 'Invalid API key.' },
+    { status: 402, message: 'prompt tokens limit exceeded: 30000 > 10000' },
+    { status: 402, message: 'Insufficient available credits for in-flight requests' }
   ])('does not classify a temporary or configuration error as spent quota', (error) => {
     expect(isOutOfUsage(error)).toBe(false)
   })

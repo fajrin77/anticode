@@ -510,6 +510,22 @@ it('marks a model out of usage, rotates past it, and clears it once it answers a
   expect(getStatus().rotation.find((entry) => entry.model === 'm1')?.outOfUsage).toBeNull()
 })
 
+it('marks output-credit exhaustion and selects another enabled provider', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  const failing = countedProvider({ provider: 'one', model: 'm1' }, {
+    name: 'one', model: 'm1',
+    async *chat() {
+      throw Object.assign(new Error('This request requires more credits, or fewer max_tokens. You requested up to 16000 tokens, but can only afford 228.'), { status: 402 })
+    }
+  }) as unknown as { chat: (params: unknown) => AsyncIterable<unknown> }
+  await drain(failing)
+  expect(getStatus().rotation.find(entry => entry.model === 'm1')?.outOfUsage?.reason).toContain('more credits')
+  expect(getStatus().rotation.find(entry => entry.model === 'm2')?.outOfUsage).toBeNull()
+  expect(modelOf('a')).toBe('m2')
+})
+
 it('forgets out-of-usage marks when counts are reset', async () => {
   applyRotation([{ provider: 'one', model: 'm1' }])
   await drain(spentProvider({ provider: 'one', model: 'm1' }))

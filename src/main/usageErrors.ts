@@ -14,7 +14,13 @@ const SPENT =
   /insufficient[_ -]?(quota|credits?|balance|funds)|exceeded[_ ](your[_ ])?(current[_ ])?quota|quota[_ ](exceeded|exhausted)|out of (credits?|quota|tokens)|credit balance|no credits? (left|remaining)|(?:reached|exceeded) your (?:monthly )?[^\n.]{0,40}limit|usage limit|spend(?:ing)? limit|payment required|余额不足|额度/i
 
 export function isOutOfUsage(error: unknown): boolean {
-  if (requestLimit(error) || isSubscriptionCheckFailure(error)) return false
+  if (isSubscriptionCheckFailure(error)) return false
+  const limit = requestLimit(error)
+  // Credit insufficient for the requested output makes this route unusable
+  // for this run, even when the account has a small balance remaining.
+  // Do not confuse it with input size or credits reserved by in-flight work.
+  if (limit?.kind === 'output') return true
+  if (limit) return false
   let current: unknown = error
   const said: Array<string | number> = []
 
