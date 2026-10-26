@@ -232,7 +232,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
     if (modelCannotSeeImages(this.model) && params.messages.some((message) => message.content.some((block) => block.type === 'image'))) {
-      throw new ProviderRequestError(`${this.model} cannot inspect images in this conversation. Choose a vision model or start a text-only chat.`, 400)
+      throw new ProviderRequestError(`${this.model} does not accept image input. Choose a vision model or start a text-only chat.`, 400)
     }
     params.signal.throwIfAborted()
     // Some OpenAI-compatible gateways reject an empty tools array, so the key
