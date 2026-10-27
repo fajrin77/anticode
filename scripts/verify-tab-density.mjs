@@ -62,4 +62,19 @@ try {
   await titled(10)
   assert.equal(await tabs.count(), 10)
   console.log(`PASS: 10 tabs keep titles (${Math.round(titleWidth)}px wide); 11 turn every tab into an icon; closing one restores titles`)
+  for (const width of [900, 1400]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 850), width)
+    const last = tabs.last()
+    await last.hover()
+    const close = last.getByRole('button', { name: 'Close tab', exact: true })
+    await close.click({ trial: true })
+    assert.ok(await close.evaluate(el => {
+      const button = el.getBoundingClientRect()
+      const strip = el.closest('[data-session-tabs]').getBoundingClientRect()
+      return button.left >= strip.left && button.right <= strip.right + 1
+    }), `last close is clipped at width ${width}`)
+  }
+  await tabs.last().getByRole('button', { name: 'Close tab', exact: true }).click()
+  await titled(9)
+  console.log('PASS: final tab close remains clickable at narrow/wide widths; actual close removes the final tab')
 } finally { await app.close() }

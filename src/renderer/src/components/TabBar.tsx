@@ -324,6 +324,22 @@ export function TabBar({
     observer.observe(host)
     return () => observer.disconnect()
   }, [openCount])
+  useEffect(() => {
+    const host = strip.current
+    if (!host) return
+    const revealActive = (): void => {
+      const active = host.querySelector<HTMLElement>('[aria-selected="true"]')
+      if (!active) return
+      const bounds = host.getBoundingClientRect()
+      const tab = active.getBoundingClientRect()
+      if (tab.right > bounds.right) host.scrollLeft += tab.right - bounds.right
+      else if (tab.left < bounds.left) host.scrollLeft -= bounds.left - tab.left
+    }
+    revealActive()
+    const observer = new ResizeObserver(revealActive)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [activeSessionId, openCount, iconOnly])
   const drag = useRef<number | null>(null)
   const dragged = useRef(false)
 
@@ -425,7 +441,7 @@ export function TabBar({
               // scrolls instead of crushing them.
               role="tab"
               aria-selected={isActive}
-              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'min-w-10 flex-1 basis-0 justify-center px-2' : 'max-w-44 min-w-[5rem] flex-1 basis-0 gap-2 px-2.5'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
+              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'min-w-12 flex-1 basis-0 justify-center pl-1 pr-5' : 'max-w-44 min-w-[6.5rem] flex-1 basis-0 gap-2 pl-2.5 pr-7'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
               onPointerDown={(event) => startDrag(session.id, event)}
@@ -471,9 +487,7 @@ export function TabBar({
                 // An invisible × takes no clicks. Once the strip is crowded,
                 // inactive tabs carry no × at all (as in Chrome): a click on a
                 // narrow tab selects it and never closes it by surprise.
-                className={iconOnly
-                  ? 'absolute right-0.5 top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded bg-surface text-text opacity-0 pointer-events-none transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 hover:text-brand'
-                  : `shrink-0 text-faint transition-[opacity,color] hover:text-brand focus-visible:opacity-100 ${
+                className={`absolute right-1 top-2 z-10 flex h-5 w-5 items-center justify-center rounded text-faint transition-[opacity,color] hover:text-brand focus-visible:pointer-events-auto focus-visible:opacity-100 ${
                     isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
                   }`}
               >
