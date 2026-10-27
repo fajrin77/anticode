@@ -1,4 +1,4 @@
-// Isolated Electron: titles through ten tabs, icons from eleven on.
+// Isolated Electron: titles through nine tabs, icons from ten on.
 import { _electron as electron } from 'playwright'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -20,7 +20,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 850))
   await page.evaluate(() => {
     const store = window.__store.getState()
-    for (let i = 0; i < 10; i++) store.openSession('code', `/fixture/project-${i}`)
+    for (let i = 0; i < 9; i++) store.openSession('code', `/fixture/project-${i}`)
   })
   const tabs = page.locator('[data-session-tabs] [data-tab-id]')
   const assertNewTabVisible = async () => {
@@ -35,8 +35,8 @@ try {
     const tabs = [...document.querySelectorAll('[data-tab-id]')]
     return tabs.length === expected && tabs.every(tab => tab.querySelector('button[title]'))
   }, count)
-  await titled(10)
-  assert.equal(await tabs.count(), 10)
+  await titled(9)
+  assert.equal(await tabs.count(), 9)
   assert.ok(await tabs.first().locator('button[title]').isVisible())
   // The title takes real horizontal room, not a one-pixel sliver.
   const titleWidth = await tabs.first().locator('button[title]').evaluate(el => el.getBoundingClientRect().width)
@@ -45,7 +45,7 @@ try {
   await page.evaluate(() => window.__store.getState().openSession('chat', null))
   await page.waitForFunction(() => {
     const tabs = [...document.querySelectorAll('[data-tab-id]')]
-    return tabs.length === 11 && tabs.every(tab => tab.title && tab.querySelector('button[title]') === null)
+    return tabs.length === 10 && tabs.every(tab => tab.title && tab.querySelector('button[title]') === null)
   })
   assert.equal(await tabs.first().locator('button[title]').count(), 0)
   assert.equal(await tabs.last().locator('button[title]').count(), 0)
@@ -59,9 +59,9 @@ try {
   await tabs.first().hover()
   await tabs.first().getByRole('button', { name: 'Close tab', exact: true }).click()
   await page.waitForFunction(id => !document.querySelector(`[data-tab-id="${id}"]`), closedId)
-  await titled(10)
-  assert.equal(await tabs.count(), 10)
-  console.log(`PASS: 10 tabs keep titles (${Math.round(titleWidth)}px wide); 11 turn every tab into an icon; closing one restores titles`)
+  await titled(9)
+  assert.equal(await tabs.count(), 9)
+  console.log(`PASS: 9 tabs keep titles (${Math.round(titleWidth)}px wide); 10 turn every tab into an icon; closing one restores titles`)
   for (const width of [900, 1400]) {
     await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 850), width)
     const last = tabs.last()
@@ -73,8 +73,11 @@ try {
       const strip = el.closest('[data-session-tabs]').getBoundingClientRect()
       return button.left >= strip.left && button.right <= strip.right + 1
     }), `last close is clipped at width ${width}`)
+    const plus = await page.getByRole('button', { name: 'New tab', exact: true }).boundingBox()
+    const lastBox = await last.boundingBox()
+    assert.ok(plus && lastBox && plus.x >= lastBox.x + lastBox.width - 1, 'plus must sit to the right of the final tab without overlapping')
   }
   await tabs.last().getByRole('button', { name: 'Close tab', exact: true }).click()
-  await titled(9)
+  await titled(8)
   console.log('PASS: final tab close remains clickable at narrow/wide widths; actual close removes the final tab')
 } finally { await app.close() }
