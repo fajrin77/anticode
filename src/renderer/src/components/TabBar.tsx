@@ -504,19 +504,20 @@ export function TabBar({
           )
         })}
 
-        <button
-          type="button"
-          onClick={onNewTab}
-          aria-label="New tab"
-          className="glass-ghost region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-faint hover:text-brand"
-        >
-          +
-        </button>
       </div>
 
       {/* Usage and settings sit on the same row as the session tabs, outside
           the scrolling strip, whose overflow would clip the usage popover. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
+        <button
+          type="button"
+          onClick={onNewTab}
+          aria-label="New tab"
+          title="New tab"
+          className="glass-ghost region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
+        >
+          +
+        </button>
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
         {activeSession !== undefined && <UsageButton session={activeSession} />}
         <button

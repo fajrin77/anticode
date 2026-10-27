@@ -6,9 +6,11 @@ import { isRetiredRoute, RetiredRouteError } from './routeError'
 export function safeProviderErrorMessage(error: unknown, model = 'ini'): string {
   const limit = requestLimit(error)
   if (limit?.kind === 'input') return new InputRequestLimitError(limit.promptTokens ?? 0, limit.limitTokens ?? 0, error instanceof InputRequestLimitError && error.minimumRequest).message
+  if (limit?.kind === 'payload') return 'Request melebihi batas ukuran provider (HTTP 413). Gambar asli dan hasil pekerjaan tetap tersimpan. Ringkas percakapan atau kurangi lampiran terbaru sebelum mencoba kembali. Batas paket gratis tidak dinaikkan otomatis dan tidak dialihkan ke rute berbayar.'
   if (isRetiredRoute(error)) return new RetiredRouteError(model).message
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : typeof (error as { message?: unknown })?.message === 'string' ? (error as { message: string }).message : 'Provider menolak request.'
   const status = failureStatus(error)
+  if (status === 403) return 'Provider menolak akses ke rute model ini (HTTP 403). Periksa izin model, akun/key, atau endpoint di Settings → Providers. Request tidak dicoba berulang untuk melewati pembatasan dan tidak dialihkan otomatis ke rute berbayar.'
   if (/[{[]\s*"|\b(?:user_id|account_id|org_id|metadata|previous_errors)\b|<html/i.test(message)) {
     return `Provider menolak request${status !== undefined ? ` (HTTP ${status})` : ''}. ${status === 404 ? 'Rute atau endpoint tidak tersedia; perbarui katalog model dan periksa koneksi provider.' : 'Periksa akses model dan status provider, lalu coba kembali.'}`
   }

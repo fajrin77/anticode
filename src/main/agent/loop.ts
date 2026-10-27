@@ -1,4 +1,5 @@
 import { closeBrowser, closeSearchPage } from '../browser'
+import { withoutHistoricalImages } from './payloadReplay'
 import { ToolMarkupError, ToolMarkupGuard } from './toolMarkup'
 import { InputRequestLimitError, requestLimit } from '../providers/requestLimits'
 import { safeProviderErrorMessage } from '../providers/errorMessage'
@@ -312,6 +313,7 @@ export class AgentSession {
   private readonly inputAllowances = new Map<string, { limit: number; overhead: number; checkedAt: number }>()
   /** The route this turn has already reduced its replay for, so it tries once. */
   private reducedForKeyLimitFor: string | null = null
+  private readonly payloadReducedRoutes = new Set<string>()
   /** What this turn already said in the app's own voice, so it says it once. */
   private saidThisTurn = new Set<string>()
   /** Models that refused images in this session, on the provider's own word. */
@@ -713,6 +715,23 @@ export class AgentSession {
           continue
         }
         const limit = requestLimit(error)
+        if (limit?.kind === 'payload' && !this.payloadReducedRoutes.has(this.imageRouteKey())) {
+          const replay = this.requestMessages(params)
+          const reduced = withoutHistoricalImages(replay)
+          const removedImages = JSON.stringify(reduced).length < JSON.stringify(replay).length
+          // Byte limits also apply to text-only routes; do not invent a
+          // provider token allowance or change the persisted transcript.
+          const condensedText = !removedImages && this.reduceForKeyLimit(replayCost(this.history), Math.floor(replayCost(this.history) * 0.4), params)
+          if (removedImages || condensedText) {
+            this.payloadReducedRoutes.add(this.imageRouteKey())
+            const text = removedImages
+              ? 'Ukuran request melebihi batas provider. Gambar historis tidak dikirim ulang; gambar terbaru, transkrip asli dan hasil tool tetap tersimpan. Mencoba sekali dengan replay lebih kecil tanpa pindah ke rute berbayar.'
+              : 'Ukuran request melebihi batas provider. Riwayat teks diringkas secara lokal untuk satu percobaan ulang; instruksi terbaru, identitas tool dan transkrip asli tetap tersimpan. Tidak pindah ke rute berbayar.'
+            this.recordDisplay('notice', text)
+            params.emit({ type: 'notice', runId: params.runId, text })
+            continue
+          }
+        }
         if (limit?.kind === 'input') {
           const key = this.allowanceKey()
           const prompt = limit.promptTokens ?? 0, ceiling = limit.limitTokens ?? 0
@@ -798,7 +817,7 @@ export class AgentSession {
 
   private requestMessages(params: RunParams): Message[] {
     const rejected = this.imageRejectedBy.has(this.imageRouteKey())
-    if (!rejected && !modelCannotSeeImages(this.provider.model)) return this.history
+    if (!rejected && !modelCannotSeeImages(this.provider.model)) return this.payloadReducedRoutes.has(this.imageRouteKey()) ? withoutHistoricalImages(this.history) : this.history
     const latest = this.history.findLastIndex((message) => isTypedPrompt(message) || message.role === 'user' && message.content.some((block) => block.type === 'text' && block.text === CONTINUE_PROMPT))
     const messages = this.history.map((message, index) => ({ ...message, content: message.content.map((block): ContentBlock => {
       if (block.type !== 'image') return block

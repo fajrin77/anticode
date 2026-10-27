@@ -3,6 +3,7 @@
 // Needs a logged-in `gh` (gh auth login). Never reads or stores credentials.
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { normalizeReleaseArtifacts } from './release-version.mjs'
 
 const REPO = 'fajrin77/anticode'
 const env = { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}` }
@@ -26,6 +27,7 @@ if (dirty !== '') {
 }
 
 if (!process.argv.includes('--skip-build')) run('npm', ['run', 'pack:mac'])
+normalizeReleaseArtifacts(version)
 
 const files = [
   `release/anticode-${version}-arm64-mac.zip`,

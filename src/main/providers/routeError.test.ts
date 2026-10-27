@@ -27,6 +27,14 @@ it('accepts explicit retirement for dotted model ids and its normalized error', 
 it('never echoes JSON or account metadata for an ordinary provider refusal', () => {
   const message = safeProviderErrorMessage(Object.assign(new Error('HTTP 403: {"error":{"message":"Forbidden"},"user_id":"private-account"}'), { status: 403 }))
   expect(message).toContain('HTTP 403')
+  expect(message).toContain('tidak dicoba berulang')
   expect(message).not.toMatch(/private-account|user_id|\{|Forbidden/)
   expect(safeProviderErrorMessage(new Error('Invalid key sk-private-key'))).not.toContain('sk-private')
+})
+
+it('explains payload limits without echoing upsell links or upstream metadata', () => {
+  const message = safeProviderErrorMessage(Object.assign(new Error('413 This request is larger than 4 MB. Top up at https://example.com/dashboard'), { status: 413 }))
+  expect(message).toContain('HTTP 413')
+  expect(message).toContain('tetap tersimpan')
+  expect(message).not.toMatch(/example.com|Top up/)
 })

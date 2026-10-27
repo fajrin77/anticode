@@ -1419,6 +1419,54 @@ it('instructs coding models to batch independent tools instead of spending one t
   expect(systems[0]).toContain('Only serialize calls when one result is genuinely required')
 })
 
+it.each([false, true])('reduces a 413 historical-image payload once without mutating originals (still rejected: %s)', async stillRejected => {
+  const sent: Message[][] = []
+  const provider: LLMProvider = { name: 'fixture', model: 'vision-fixture', async *chat(params) {
+    sent.push(structuredClone(params.messages))
+    if (sent.length === 1 || stillRejected) throw Object.assign(new Error('413 Request too large'), { status: 413 })
+    yield { type: 'response', response: turn([{ type: 'text', text: 'Done' }], 'end_turn') }
+  } }
+  const original: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'earlier screenshot' }, { type: 'image', mediaType: 'image/png', data: 'a'.repeat(50000) }] }]
+  const session = new AgentSession(provider, allowAll, 'chat', null, original, 'payload-test', { tools: [] })
+  await session.run({ runId: 'payload-test', prompt: 'Continue from confirmed results', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(sent).toHaveLength(2)
+  expect(JSON.stringify(sent[1]).length).toBeLessThan(JSON.stringify(sent[0]).length)
+  expect(JSON.stringify(session.snapshot().messages)).toContain('a'.repeat(50000))
+  expect(sent[1]?.at(-1)?.content).toEqual(sent[0]?.at(-1)?.content)
+  if (stillRejected) expect(events.some(event => event.type === 'error' && event.message.includes('HTTP 413'))).toBe(true)
+  else expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+})
+
+it('does not retry a 413 without removable historical images or a generic 403', async () => {
+  for (const status of [413, 403]) {
+    let requests = 0
+    const provider: LLMProvider = { name: 'fixture', model: 'fixture', async *chat() {
+      requests++
+      throw Object.assign(new Error(`HTTP ${status}`), { status })
+    } }
+    await run(provider)
+    expect(requests).toBe(1)
+  }
+})
+
+it('recovers a text-only payload limit locally without repeating tools', async () => {
+  const sent: Message[][] = []
+  const provider: LLMProvider = { name: 'fixture', model: 'fixture', async *chat(params) {
+    sent.push(structuredClone(params.messages))
+    if (sent.length === 1) throw Object.assign(new Error('413 Request too large'), { status: 413 })
+    yield { type: 'response', response: turn([{ type: 'text', text: 'Done' }], 'end_turn') }
+  } }
+  const oldText = 'Earlier verified results '.repeat(5000)
+  const history: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'Original goal' }] }, { role: 'assistant', content: [{ type: 'text', text: oldText }] }]
+  const session = new AgentSession(provider, allowAll, 'chat', null, history, 'payload-text', { tools: [] })
+  await session.run({ runId: 'payload-text', prompt: 'Finish from verified work', signal: new AbortController().signal, emit: event => events.push(event) })
+  expect(sent).toHaveLength(2)
+  expect(JSON.stringify(sent[1]).length).toBeLessThan(JSON.stringify(sent[0]).length)
+  expect(JSON.stringify(sent[1])).toContain('Finish from verified work')
+  expect(JSON.stringify(session.snapshot().messages)).toContain(oldText)
+  expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+})
+
 it('locally condenses oversized key-limited history once while preserving the original transcript', async () => {
   const oldText = 'Earlier verified work and decisions. '.repeat(5000)
   const sent: Message[][] = []
