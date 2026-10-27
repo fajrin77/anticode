@@ -1,5 +1,13 @@
 import { expect, it } from 'vitest'
-import { canFailOver, isTransient } from './failures'
+import { canFailOver, canRotateAfterRefusal, isTransient } from './failures'
+
+it('allows a generic inference 403 only for explicit pool rotation, not transient retry', () => {
+  const error = { cause: { statusCode: 403 }, message: 'Forbidden' }
+  expect(canRotateAfterRefusal(error)).toBe(true)
+  expect(canFailOver(error)).toBe(false)
+  expect(isTransient(error)).toBe(false)
+  expect(canRotateAfterRefusal({ status: 400 })).toBe(false)
+})
 
 it.each([401, 402, 408, 429, 500, 503])('allows failover for HTTP %s', (status) => {
   expect(canFailOver({ cause: { statusCode: status } })).toBe(true)

@@ -808,12 +808,12 @@ describe('AgentSession', () => {
     expect(recovered.sent[0]?.[1]?.content).toEqual([{ type: 'text', text: 'bagian yang sudah diterima' }])
   })
 
-  it('hands a rate-limited turn to the fallback at once and reports the new model', async () => {
+  it.each([429, 403])('hands HTTP %s to an eligible fallback before output and reports the new model', async status => {
     const limited: LLMProvider = {
       name: 'first',
       model: 'first-model',
       async *chat() {
-        throw Object.assign(new Error('rate limited'), { status: 429 })
+        throw Object.assign(new Error('provider refusal'), { status })
       }
     }
     const spare = new FakeProvider([turn([{ type: 'text', text: 'dari cadangan' }], 'end_turn')])

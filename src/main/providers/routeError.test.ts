@@ -27,7 +27,7 @@ it('accepts explicit retirement for dotted model ids and its normalized error', 
 it('never echoes JSON or account metadata for an ordinary provider refusal', () => {
   const message = safeProviderErrorMessage(Object.assign(new Error('HTTP 403: {"error":{"message":"Forbidden"},"user_id":"private-account"}'), { status: 403 }))
   expect(message).toContain('HTTP 403')
-  expect(message).toContain('tidak dicoba berulang')
+  expect(message).toContain('Rute yang ditolak tidak diulang')
   expect(message).not.toMatch(/private-account|user_id|\{|Forbidden/)
   expect(safeProviderErrorMessage(new Error('Invalid key sk-private-key'))).not.toContain('sk-private')
 })

@@ -104,7 +104,7 @@ it('does not rotate on unsupported capability/product access and rejects stale b
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
   applyRotationEnabled(true)
   const agent = agentOf('a')
-  for (const status of [400, 403, 404]) expect(agent.fallback?.(Object.assign(new Error('unsupported'), { status }))).toBeNull()
+  for (const status of [400, 404]) expect(agent.fallback?.(Object.assign(new Error('unsupported'), { status }))).toBeNull()
   expect(getStatus().rotation.every((entry) => entry.coolingUntil === null)).toBe(true)
   applyRotationEnabled(false)
   expect(() => selectProvider({ provider: 'three', model: 'moonshotai/kimi-k3:batch' }, 'a')).toThrow(/Batch/)
@@ -650,6 +650,20 @@ it('routes subscriptions internally and never falls back into a metered pool ent
   expect(agent.fallback?.(Object.assign(new Error('rate limited'), { scope: 'account', retryAt: Date.now() + 60_000 }))).toMatchObject({ name: 'two' })
   expect(() => agent.fallback?.(Object.assign(new Error('usage limit reached'), { scope: 'account' }))).toThrow(/usage limit/)
   expect(getStatus().rotation.find((entry) => entry.provider === 'three')?.ready).toBe(false)
+})
+
+it('skips each forbidden inference route once within the subscription pool, never metered entries', () => {
+  applyRotation([{ provider: 'three', model: 'm3' }])
+  applySubscriptionRouting(true)
+  createSession({ sessionId: 'forbidden', mode: 'chat', workspaceRoot: null })
+  const agent = agentOf('forbidden')
+  const refusal = Object.assign(new Error('Forbidden'), { status: 403 })
+  expect(agent.provider.name).toBe('one')
+  // Provider one explicitly offers two routes; rejection is model-scoped.
+  expect(agent.fallback?.(refusal)).toMatchObject({ name: 'one', model: 'm1b' })
+  expect(agent.fallback?.(refusal)).toMatchObject({ name: 'two' })
+  expect(() => agent.fallback?.(refusal)).toThrow('Forbidden')
+  expect(getStatus().rotation.find(entry => entry.provider === 'three')?.ready).toBe(false)
 })
 
 it('retains the configured pool when native subscription routing is switched off', () => {

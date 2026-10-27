@@ -1,7 +1,7 @@
 import { safeProviderErrorMessage } from './providers/errorMessage'
 import { providerModelIssue } from '@shared/providerModel'
 import { isOutOfUsage } from './usageErrors'
-import { canFailOver, isTransient } from './providers/failures'
+import { canFailOver, canRotateAfterRefusal, isTransient } from './providers/failures'
 import { accountCandidates, rankAccounts } from './auth/sharing'
 import { cpSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
@@ -952,7 +952,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     fallback = (error) => {
       const retired = isRetiredRoute(error)
       const capacity = ['input', 'output', 'payload'].includes(requestLimit(error)?.kind ?? '')
-      if (!retired && !capacity && !canFailOver(error)) return null
+      if (!retired && !capacity && !canFailOver(error) && !canRotateAfterRefusal(error)) return null
       if (live.selection !== undefined) {
         if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
         else if (!capacity) coolDown(live.selection, Date.now(), error)

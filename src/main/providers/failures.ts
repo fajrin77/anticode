@@ -1,4 +1,5 @@
 import { isOutOfUsage } from '../usageErrors'
+import { isSubscriptionCheckFailure } from './requestError'
 import { requestLimit } from './requestLimits'
 
 export function failureStatus(error: unknown): number | undefined {
@@ -38,6 +39,12 @@ export function isTransient(error: unknown): boolean {
 }
 
 /** Replay only before useful output; callers enforce that boundary. */
+export function canRotateAfterRefusal(error: unknown): boolean {
+  // An inference refusal can skip this exact route inside the user's pool;
+  // a failed subscription safety check must not be treated as inference.
+  return failureStatus(error) === 403 && !isSubscriptionCheckFailure(error)
+}
+
 export function canFailOver(error: unknown): boolean {
   return isOutOfUsage(error) || failureStatus(error) === 401 || isAccountAccessFailure(error) || isTransient(error)
 }
