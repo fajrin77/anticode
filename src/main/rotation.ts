@@ -348,11 +348,28 @@ export function coolingUntil(entry: RotationEntry, now = Date.now()): number | n
   return latest
 }
 
+/** Quota windows providers renew on their own, used when no reset time is sent. */
+const DAILY_RESET_MS = 24 * 60 * 60 * 1000
+/** A card's own reported expiry is usually days away; renew sooner than that. */
+const FREE_TIER_RESET_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * When an exhausted mark lapses without a provider reset time: daily and free
+ * quotas renew, so they are retried the next day instead of staying dead. A
+ * subscription account stays blocked until the provider reports its reset,
+ * because its window may be weekly or monthly.
+ */
+function expiryOf(mark: OutOfUsage, model: string): number {
+  if (mark.resetAt !== undefined) return mark.resetAt
+  if (mark.scope === 'account') return Number.POSITIVE_INFINITY
+  return mark.since + (/free/i.test(model) ? FREE_TIER_RESET_MS : DAILY_RESET_MS)
+}
+
 export function outOfUsage(entry: RotationEntry, now = Date.now()): OutOfUsage | null {
   load()
   let changed = false
   for (const [key, mark] of exhausted) {
-    if (mark.resetAt !== undefined && mark.resetAt <= now) {
+    if (expiryOf(mark, key.slice(key.indexOf('\n') + 1)) <= now) {
       exhausted.delete(key)
       changed = true
     }

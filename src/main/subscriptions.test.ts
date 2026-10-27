@@ -44,6 +44,23 @@ it('blocks an exhausted account across its models, persists reset time, and reco
   expect(rank(21_000)).toEqual([a, b, other])
 })
 
+it('retries a daily model the next day and a free card after its recheck, but keeps accounts blocked without a reset time', () => {
+  const daily = { provider: 'tokenharbor', model: 'deepseek-v4.1-flash' }
+  const free = { provider: 'tokenharbor', model: 'deepseek-v4.1-flash:free' }
+  const account = { provider: 'auth:claude', model: 'claude-sonnet' }
+  setRotationEntries([daily, free, account])
+  setRotationEnabled(true)
+  const day = 24 * 60 * 60 * 1000
+  markOutOfUsage(daily, new ProviderRequestError('quota exhausted', 429, 'model'), 1_000)
+  markOutOfUsage(free, new ProviderRequestError('quota exhausted', 429, 'model'), 1_000)
+  markOutOfUsage(account, new ProviderRequestError('usage limit reached', 429, 'account'), 1_000)
+  expect(outOfUsage(daily, 1_000 + day - 1)).not.toBeNull()
+  expect(outOfUsage(daily, 1_000 + day + 1)).toBeNull()
+  expect(outOfUsage(free, 1_000 + day + 1)).not.toBeNull()
+  expect(outOfUsage(free, 1_000 + 7 * day + 1)).toBeNull()
+  expect(outOfUsage(account, 1_000 + 365 * day)).not.toBeNull()
+})
+
 it('keeps absent quota facts unknown and filters model metadata without inventing entitlement', () => {
   expect(parseChatGPTQuota({ rate_limit: { primary_window: { used_percent: 40, reset_at: 123 } }, plan_type: 'plus' })).toEqual({ plan: 'plus', windows: [{ label: 'Primary window', usedPercent: 40, resetAt: 123000 }] })
   expect(parseChatGPTQuota({ rate_limit: { primary_window: {} } }).windows).toEqual([])
