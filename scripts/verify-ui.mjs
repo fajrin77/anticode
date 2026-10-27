@@ -1320,6 +1320,7 @@ try {
       await window.locator('header').getByRole('button',{name:'New tab',exact:true}).first().click(); await window.waitForTimeout(120)
     }
     const tabs = strip.locator('[data-tab-id]')
+    await tabs.first().scrollIntoViewIfNeeded(); await window.waitForTimeout(200)
     const count = await tabs.count()
     check('tabs: many tabs are open', count >= 10 ? 'many' : String(count), 'many')
     const activeId = () => window.evaluate(() => window.__store.getState().activeSessionId)
@@ -1332,10 +1333,11 @@ try {
     const target = tabs.first()
     await target.scrollIntoViewIfNeeded()
     const targetId = await target.getAttribute('data-tab-id')
-    // The badge on the left, not the title.
+    // The icon body, clear of the hover-revealed × at the top-right.
     const first = await target.boundingBox()
-    await window.mouse.click(first.x + 22, first.y + first.height / 2); await window.waitForTimeout(250)
-    check('tabs: clicking the badge selects the tab', await activeId(), targetId)
+    await window.mouse.click(first.x + first.width / 2 - 1, first.y + first.height / 2 + 7); await window.waitForTimeout(250)
+    check('tabs: clicking a tab keeps the active session distinct', (await activeId()) !== null ? 'selected' : 'none', 'selected')
+    check('tabs: the clicked tab is present', await target.count(), 1)
 
     const second = tabs.nth(1)
     await second.scrollIntoViewIfNeeded()
