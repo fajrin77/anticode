@@ -441,7 +441,7 @@ export function TabBar({
               // scrolls instead of crushing them.
               role="tab"
               aria-selected={isActive}
-              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'min-w-12 flex-1 basis-0 justify-center pl-1 pr-5' : 'max-w-44 min-w-[6.5rem] flex-1 basis-0 gap-2 pl-2.5 pr-7'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
+              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'min-w-[32px] flex-1 basis-0 justify-center' : 'max-w-44 min-w-[6.5rem] flex-1 basis-0 gap-2 pl-2.5 pr-7'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
               onPointerDown={(event) => startDrag(session.id, event)}

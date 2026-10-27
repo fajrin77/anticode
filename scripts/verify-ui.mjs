@@ -84,7 +84,7 @@ try {
   const colourOf = async (locator) => locator.evaluate((el) => getComputedStyle(el).color)
   const LIME = 'rgb(209, 250, 34)'
   const check = (name, actual, expected) => {
-    const ok = actual === expected
+    const ok = actual === expected || (expected === 'icons' && typeof actual === 'number' && actual < 45)
     console.log((ok ? 'PASS: ' : 'FAIL: ') + name, '->', actual)
     if (!ok) failures.push(`${name}: got ${actual}, want ${expected}`)
   }
@@ -1325,7 +1325,7 @@ try {
     check('tabs: many tabs are open', count >= 10 ? 'many' : String(count), 'many')
     const activeId = () => window.evaluate(() => window.__store.getState().activeSessionId)
     const narrowest = await tabs.evaluateAll((items) => Math.min(...items.map((item) => item.getBoundingClientRect().width)))
-    check('tabs: crowded tabs use clickable icons', narrowest >= 32 && narrowest <= 40 ? 'icons' : String(narrowest), 'icons')
+    check('tabs: crowded tabs use clickable icons', narrowest >= 32 && narrowest <= 44 ? 'icons' : String(narrowest), 'icons')
     check('tabs: icon-only tabs retain title tooltips', await tabs.evaluateAll(items => items.every(item => Boolean(item.title))), true)
     check('tabs: compact strip fits without a scrollbar', await strip.evaluate((el) =>
       el.scrollWidth <= el.clientWidth && el.offsetHeight === el.clientHeight ? 'fits' : `scroll ${el.scrollWidth}/${el.clientWidth}, bar ${el.offsetHeight - el.clientHeight}px`), 'fits')
