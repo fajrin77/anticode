@@ -311,20 +311,13 @@ export function TabBar({
   // keeps its title (the strip scrolls when narrow); past ten the whole bar
   // turns into icons at once, so no tab is left title-less beside them.
   const iconOnly = openCount > 10
-  // A narrow strip still gives every title a fair share; wide windows stop
-  // tabs from stretching and instead balance the remaining space as padding.
-  const [stripWidth, setStripWidth] = useState(0)
-  const tabMax = 176
-  const gap = 4
-  const perTab = openCount > 0 ? (stripWidth - (openCount - 1) * gap) / openCount : 0
-  const spread = !iconOnly && perTab > tabMax
-  const stripPad = spread ? Math.max(0, stripWidth - (openCount * tabMax + (openCount - 1) * gap)) : 0
+  // Share the available strip in icon mode instead of leaving an empty tail.
+  // Keep a usable minimum and scroll rather than crushing the badges.
   useEffect(() => {
     const host = strip.current
     if (host === null) return
     const measure = (): void => {
       setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
-      setStripWidth(host.clientWidth)
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -410,7 +403,6 @@ export function TabBar({
 
       <div
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-        style={stripPad > 0 ? { paddingLeft: stripPad / 2, paddingRight: stripPad / 2 } : undefined}
         ref={strip}
         data-session-tabs
         aria-label="Session tabs, swipe with two fingers to switch"
@@ -433,7 +425,7 @@ export function TabBar({
               // scrolls instead of crushing them.
               role="tab"
               aria-selected={isActive}
-              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'w-9 min-w-0 justify-center px-0' : 'max-w-44 min-w-[5rem] flex-1 basis-0 gap-2 px-2.5'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
+              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'min-w-10 flex-1 basis-0 justify-center px-2' : 'max-w-44 min-w-[5rem] flex-1 basis-0 gap-2 px-2.5'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
                 isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
               }`}
               onPointerDown={(event) => startDrag(session.id, event)}
@@ -455,6 +447,7 @@ export function TabBar({
               <Badge
                 label={badgeName(session)}
                 colour={session.colour}
+                size={iconOnly ? 'md' : 'sm'}
                 spinning={running}
               />
               {!iconOnly && <button
@@ -479,7 +472,7 @@ export function TabBar({
                 // inactive tabs carry no × at all (as in Chrome): a click on a
                 // narrow tab selects it and never closes it by surprise.
                 className={iconOnly
-                  ? 'absolute left-2.5 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded bg-surface text-text opacity-0 pointer-events-none transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 hover:text-brand'
+                  ? 'absolute right-0.5 top-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded bg-surface text-text opacity-0 pointer-events-none transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 hover:text-brand'
                   : `shrink-0 text-faint transition-[opacity,color] hover:text-brand focus-visible:opacity-100 ${
                     isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
                   }`}
