@@ -1263,6 +1263,9 @@ export function SessionView(): JSX.Element {
                 <div key={turn.prompt?.id ?? `turn-${turnIndex}`}>
                   {turn.prompt !== null && renderMessage(turn.prompt)}
                   {turn.replies.map((reply) => renderMessage(reply))}
+                  {turn.replies.some(reply => reply.role === 'assistant') && !turn.replies.some(reply => reply.pending) && (
+                    <SessionChangedFiles messages={turn.prompt !== null ? [turn.prompt, ...turn.replies] : turn.replies} />
+                  )}
                 </div>
               )
             }
