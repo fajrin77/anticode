@@ -375,8 +375,8 @@ export function outOfUsage(entry: RotationEntry, now = Date.now()): OutOfUsage |
     }
   }
   if (changed) persist()
-  const mark = exhausted.get(rotationKey(entry)) ?? [...exhausted].find(([key, value]) =>
-    value.scope === 'account' && key.startsWith(`${entry.provider}\n`))?.[1]
+  const mark = exhausted.get(rotationKey(entry)) ?? [...exhausted].find(([key, mark]) =>
+    mark.scope === 'account' && key.startsWith(`${entry.provider}\n`))?.[1]
   return mark === undefined ? null : { ...mark }
 }
 

@@ -759,11 +759,13 @@ function routeIssue(entry: RotationEntry, providers: Providers): string | null {
 }
 
 function entryReady(entry: RotationEntry, providers: Providers): boolean {
-  return routeIssue(entry, providers) === null && !modelIsBatchOnly(entry.model) && providers.some((provider) => provider.id === entry.provider && provider.credentialAvailable &&
-    (!provider.authKind || provider.composerVisible !== false) &&
-    (provider.billing !== 'free' || (provider.models ?? []).includes(entry.model)) &&
-    (!subscriptionOnly() || (isSubscriptionProvider(provider) &&
-      (provider.billing === 'free' ? provider.models ?? [] : cachedCatalogue(provider.id) ?? provider.models ?? [provider.defaultModel]).includes(entry.model) && coolingUntil(entry) === null && outOfUsage(entry) === null)))
+  const provider = providers.find(provider => provider.id === entry.provider)
+  return !!(provider && routeIssue(entry, providers) === null && !modelIsBatchOnly(entry.model) && provider.credentialAvailable &&
+    (!subscriptionOnly() ||
+      (isSubscriptionProvider(provider) && (provider.billing === 'free' ? (provider.models ?? []).includes(entry.model)
+        : (cachedCatalogue(entry.provider) ?? provider.models ?? [provider.defaultModel]).includes(entry.model)) &&
+        coolingUntil(entry) === null && outOfUsage(entry) === null)) &&
+    (!provider.authKind || accountCandidates(entry, providers).some(e => e.provider === entry.provider)))
 }
 
 function readiness(
