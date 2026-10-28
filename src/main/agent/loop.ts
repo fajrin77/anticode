@@ -48,6 +48,13 @@ function retryBudget(error: unknown): number {
 }
 /** Tool-result turns newer than this keep their verbatim output. */
 const RECENT_TOOL_TURNS = 3
+/**
+ * In plan mode the model prepares the work and changes nothing. The prompt
+ * asks for that; this set enforces it for the tools that write to the project,
+ * so a model that ignores the instruction cannot edit files behind the user's
+ * back. Read-only tools and the terminal stay available for inspection.
+ */
+const PLAN_BLOCKED_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'apply_patch'])
 /** Older tool outputs are squashed to a short tail so the outcome still shows. */
 const STUB_CHARS = 300
 /** Stubbing only pays off once there is real bulk to remove. */
@@ -1079,6 +1086,18 @@ export class AgentSession {
 
     if (this.workspaceRoot === null) {
       return this.finishCall(params, call.id, 'This session has no file access.', true)
+    }
+    // Plan mode is a promise, not a hint: a file-changing tool is refused here
+    // rather than left to the prompt. Read-only tools and the terminal stay
+    // open, so the model can still inspect the project and describe the work.
+    if (this.activePlan && tool.readOnly !== true && PLAN_BLOCKED_TOOLS.has(tool.name)) {
+      return this.finishCall(
+        params,
+        call.id,
+        `Plan mode: ${tool.name} tidak dijalankan. Rencanakan saja tanpa mengubah file; ` +
+          'isi rencananya, lalu tunggu persetujuan pengguna sebelum mengerjakan.',
+        true
+      )
     }
     const context = {
       workspaceRoot: this.workspaceRoot,

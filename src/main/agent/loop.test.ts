@@ -1643,3 +1643,72 @@ it('does not abort useful work because one familiar file is checked alongside ne
   await run(provider)
   expect(events.at(-1)).toMatchObject({type:'end',reason:'complete'})
 })
+
+describe('plan mode', () => {
+  const planRun = async (provider: LLMProvider): Promise<void> => {
+    await new AgentSession(provider, allowAll, 'code', root).run({
+      runId: 'plan-1',
+      prompt: 'rencanakan dulu',
+      plan: true,
+      signal: new AbortController().signal,
+      emit: (event) => events.push(event)
+    })
+  }
+
+  it('refuses file-changing tools so a model that ignores the prompt cannot edit', async () => {
+    const provider = new FakeProvider([
+      turn(
+        [
+          { type: 'tool_use', id: 'w1', name: 'write_file', input: { path: 'made.txt', content: 'x' } },
+          { type: 'tool_use', id: 'e1', name: 'edit_file', input: { path: 'made.txt', old_string: 'x', new_string: 'y' } },
+          { type: 'tool_use', id: 'd1', name: 'delete_file', input: { path: 'made.txt' } }
+        ],
+        'tool_use'
+      ),
+      turn([{ type: 'text', text: 'Rencana: ubah berkas konfigurasi.' }], 'end_turn')
+    ])
+
+    await planRun(provider)
+
+    // Nothing was written: the file never came into existence.
+    await expect(readFile(path.join(root, 'made.txt'), 'utf8')).rejects.toThrow()
+    const results = lastContent(provider, 1)
+    expect(results).toHaveLength(3)
+    expect(results.every((block) => block.type === 'tool_result' && block.isError === true)).toBe(true)
+    expect(results.every((block) => block.type === 'tool_result' && block.content.includes('Plan mode'))).toBe(true)
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
+  it('still lets the model inspect the workspace and the terminal while planning', async () => {
+    await writeFile(path.join(root, 'a.txt'), 'isi asli')
+    const provider = new FakeProvider([
+      turn(
+        [
+          { type: 'tool_use', id: 'r1', name: 'read_file', input: { path: 'a.txt' } },
+          { type: 'tool_use', id: 'l1', name: 'list_directory', input: { path: '.' } },
+          { type: 'tool_use', id: 'c1', name: 'run_command', input: { command: 'echo halo' } }
+        ],
+        'tool_use'
+      ),
+      turn([{ type: 'text', text: 'Rencana siap.' }], 'end_turn')
+    ])
+
+    await planRun(provider)
+
+    const results = lastContent(provider, 1)
+    expect(results).toHaveLength(3)
+    expect(results.every((block) => block.type === 'tool_result' && block.isError !== true)).toBe(true)
+    expect(results.some((block) => block.type === 'tool_result' && block.content.includes('isi asli'))).toBe(true)
+  })
+
+  it('leaves a normal build run free to write files', async () => {
+    const provider = new FakeProvider([
+      turn([{ type: 'tool_use', id: 'w1', name: 'write_file', input: { path: 'built.txt', content: 'jadi' } }], 'tool_use'),
+      turn([{ type: 'text', text: 'Selesai.' }], 'end_turn')
+    ])
+
+    await run(provider)
+
+    expect(await readFile(path.join(root, 'built.txt'), 'utf8')).toBe('jadi')
+  })
+})
