@@ -760,11 +760,16 @@ function routeIssue(entry: RotationEntry, providers: Providers): string | null {
 
 function entryReady(entry: RotationEntry, providers: Providers): boolean {
   const provider = providers.find(provider => provider.id === entry.provider)
-  return !!(provider && routeIssue(entry, providers) === null && !modelIsBatchOnly(entry.model) && provider.credentialAvailable &&
-    (!subscriptionOnly() ||
-      (isSubscriptionProvider(provider) && (provider.billing === 'free' ? (provider.models ?? []).includes(entry.model)
-        : (cachedCatalogue(entry.provider) ?? provider.models ?? [provider.defaultModel]).includes(entry.model)) &&
-        coolingUntil(entry) === null && outOfUsage(entry) === null)) &&
+  if (provider === undefined) return false
+  // Cooldown and spent-quota marks gate every entry, whatever the routing
+  // mode: a resting or exhausted route is never "ready", so rotation hands
+  // the turn on instead of parking a prompt on a model that just said 429.
+  const cooldownOk = coolingUntil(entry) === null && outOfUsage(entry) === null
+  const subscriptionOk = !subscriptionOnly() ||
+    (isSubscriptionProvider(provider) && (provider.billing === 'free' ? (provider.models ?? []).includes(entry.model)
+      : (cachedCatalogue(entry.provider) ?? provider.models ?? [provider.defaultModel]).includes(entry.model)))
+  return !!(routeIssue(entry, providers) === null && !modelIsBatchOnly(entry.model) && provider.credentialAvailable &&
+    cooldownOk && subscriptionOk &&
     (!provider.authKind || accountCandidates(entry, providers).some(e => e.provider === entry.provider)))
 }
 
@@ -873,6 +878,57 @@ export function getStatus(sessionId?: string | null): SessionStatus {
 }
 
 /** Every session talks through this, so pooled models count what they spend. */
+/** Total in-run wait budget for rotation cooldowns, over every hand-over. */
+const ROTATION_MAX_WAIT_MS = 10 * 60_000
+/** Longest single stretch spent waiting out one cooldown. */
+const ROTATION_MAX_SINGLE_WAIT_MS = 90_000
+/** Poll period while waiting for a cooldown to lapse. */
+const ROTATION_WAIT_TICK_MS = 2_000
+
+/** The pool entry whose cooldown lapses soonest, ignoring spent-out ones. */
+function soonestCoolingOff(pool: RotationEntry[]): { entry: RotationEntry; at: number } | null {
+  let best: { entry: RotationEntry; at: number } | null = null
+  for (const entry of pool) {
+    if (outOfUsage(entry) !== null) continue
+    const at = coolingUntil(entry)
+    if (at === null) continue
+    if (best === null || at < best.at) best = { entry, at }
+  }
+  return best
+}
+
+/**
+ * A stand-in provider for the gap when every pool entry is resting: it waits
+ * out the soonest cooldown (bounded), then hands the turn back to rotation by
+ * yielding the next picked entry's stream. Never used for a spent-out pool —
+ * that failure stands, so the user sees the quota truth.
+ */
+function waitingProvider(
+  entry: RotationEntry,
+  until: number,
+  pickNext: () => RotationEntry | undefined,
+  adopt: (entry: RotationEntry) => void
+): LLMProvider {
+  const wait = Math.min(until - Date.now(), ROTATION_MAX_SINGLE_WAIT_MS)
+  return {
+    name: `rotate-wait (${entry.provider})`,
+    id: entry.provider,
+    model: entry.model,
+    async *chat(params) {
+      // Wait out the cooldown in small ticks so an abort lands promptly.
+      const deadline = Date.now() + wait
+      while (Date.now() < deadline && !params.signal.aborted) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(ROTATION_WAIT_TICK_MS, deadline - Date.now())))
+      }
+      if (params.signal.aborted) throw new Error('dibatalkan')
+      const following = pickNext()
+      if (following === undefined) throw new Error('No model in Rotate usage is ready after waiting')
+      adopt(following)
+      yield* countedProvider(following, providerFor(following)).chat(params)
+    }
+  }
+}
+
 function providerFor(target: ProviderSelection): LLMProvider {
   const issue = routeIssue(target, listProviders())
   if (issue !== null) throw new Error(issue)
@@ -915,7 +971,11 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     if (!rotationEnabled()) throw new Error(readiness(choice, providers).blockedReason ?? 'Rotate usage is off')
     const ready = (entry: RotationEntry): boolean => entryReady(entry, providers)
     const tried = new Set<string>()
-    const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried, groupId: live.rotationGroupId }).find(entry => outOfUsage(entry) === null)
+    // Total time this session's run may spend waiting out cooldowns mid-run
+    // instead of stopping: the pool recovers on its own, so a run only halts
+    // once quotas are truly spent or this budget is exhausted.
+    let waitedTotal = 0
+    const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried, groupId: live.rotationGroupId }).find(entry => coolingUntil(entry) === null && outOfUsage(entry) === null)
     const current = live.selection
     // The session group, or default pool: a model outside it is never kept.
     const pool = activeRotationEntries(live.rotationGroupId)
@@ -961,7 +1021,26 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       }
       const following = next()
       if (following === undefined) {
-        if (isTransient(error) && !isOutOfUsage(error)) return null
+        // Nothing left to hand the turn to right now. While entries are only
+        // resting (rate limit, blip) the run waits out the cooldown instead of
+        // stopping; it stops only once a quota is truly spent or the wait
+        // budget is gone — the user's rule: halt only when every model's
+        // tokens are gone, never mid-run on a recoverable 429.
+        if (isTransient(error) && !isOutOfUsage(error) && waitedTotal < ROTATION_MAX_WAIT_MS) {
+          const soonest = soonestCoolingOff(pool)
+          const remaining = soonest === null ? 0 : soonest.at - Date.now()
+          const wait = Math.min(Math.max(0, remaining), ROTATION_MAX_SINGLE_WAIT_MS)
+          if (soonest !== null && wait > 0 && waitedTotal + wait <= ROTATION_MAX_WAIT_MS) {
+            waitedTotal += wait
+            return waitingProvider(soonest.entry, Date.now() + wait, () => {
+              tried.clear()
+              return next()
+            }, (entry) => {
+              live.selection = { ...entry }
+              live.promptsOnEntry = 1
+            })
+          }
+        }
         if (subscriptionOnly()) throw error
         return null
       }

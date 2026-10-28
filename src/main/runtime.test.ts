@@ -397,8 +397,11 @@ it('hands a failed turn to the next pool entry and rests the one that failed', (
   expect(agent.provider.model).toBe('m1')
   const next = agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429 }))
   expect(next?.model).toBe('m2')
-  // Nothing left to try in this turn.
-  expect(agent.fallback?.(Object.assign(new Error('down'), { status: 503 }))).toBeNull()
+  // Nothing left to try in this turn: both rest, so the run waits out the
+  // cooldown instead of stopping — it only halts when tokens are truly spent.
+  const waiter = agent.fallback?.(Object.assign(new Error('down'), { status: 503 }))
+  expect(waiter).not.toBeNull()
+  expect(waiter?.name).toContain('rotate-wait')
 
   const pool = getStatus().rotation
   expect(pool.every((entry) => entry.coolingUntil !== null)).toBe(true)
