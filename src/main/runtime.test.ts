@@ -407,6 +407,57 @@ it('hands a failed turn to the next pool entry and rests the one that failed', (
   expect(pool.every((entry) => entry.coolingUntil !== null)).toBe(true)
 })
 
+it('waits out a pool-wide cooldown and resumes on a recovered entry instead of stopping', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+
+  const agent = agentOf('a')
+  expect(agent.provider.model).toBe('m1')
+
+  // Both entries are rate limited with a short server-provided retry time,
+  // the way a 429 with Retry-After arrives from a free gateway.
+  const soon = Date.now() + 300
+  expect(agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429, retryAt: soon }))?.model).toBe('m2')
+  // Every entry now rests. Instead of null (run stops) or a thrown error, the
+  // fallback hands back a waiter that outlives the cooldown.
+  const waiter = agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429, retryAt: soon })) as
+    { name: string; chat: (params: unknown) => AsyncIterable<unknown> } | null
+  expect(waiter).not.toBeNull()
+  expect(waiter?.name).toContain('rotate-wait')
+
+  // Draining the waiter waits out the cooldown, then hands the turn to a
+  // recovered entry and streams its answer through the counting wrapper.
+  const events: unknown[] = []
+  for await (const event of waiter!.chat({ signal: new AbortController().signal })) events.push(event)
+  expect(events.some((event) => (event as { type: string }).type === 'response')).toBe(true)
+  expect(Date.now()).toBeGreaterThanOrEqual(soon)
+  // The session sits on a healthy entry again, mid-run, not stopped.
+  expect(['m1', 'm2']).toContain(modelOf('a'))
+  expect(getStatus().rotation.every((entry) => entry.outOfUsage === null)).toBe(true)
+})
+
+it('stops only when every pool entry has truly run out of tokens', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  // Grab the agent before the pool is spent: a fresh getSession with every
+  // entry exhausted refuses up front, which is its own correct guard.
+  const agent = agentOf('a')
+
+  await drain(spentProvider({ provider: 'one', model: 'm1' }))
+  await drain(spentProvider({ provider: 'two', model: 'm2' }))
+  expect(getStatus().rotation.every((entry) => entry.outOfUsage !== null)).toBe(true)
+
+  // A spent pool is not waited out: the failure stands so the user sees the
+  // quota truth instead of a run that silently spins forever.
+  expect(agent.fallback?.(quotaError())).toBeNull()
+  // And a new prompt on a spent pool is refused up front with the quota truth.
+  expect(() => agentOf('a')).toThrow(/No model in Rotate usage is ready/)
+})
+
 it('offers no Rotate and counts nothing while Rotate usage is off', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   applyRotationEnabled(false)
