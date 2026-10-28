@@ -877,11 +877,8 @@ export function getStatus(sessionId?: string | null): SessionStatus {
   }
 }
 
-/** Every session talks through this, so pooled models count what they spend. */
 /** Total in-run wait budget for rotation cooldowns, over every hand-over. */
 const ROTATION_MAX_WAIT_MS = 10 * 60_000
-/** Longest single stretch spent waiting out one cooldown. */
-const ROTATION_MAX_SINGLE_WAIT_MS = 90_000
 /** Poll period while waiting for a cooldown to lapse. */
 const ROTATION_WAIT_TICK_MS = 2_000
 
@@ -898,33 +895,46 @@ function soonestCoolingOff(pool: RotationEntry[]): { entry: RotationEntry; at: n
 }
 
 /**
- * A stand-in provider for the gap when every pool entry is resting: it waits
- * out the soonest cooldown (bounded), then hands the turn back to rotation by
- * yielding the next picked entry's stream. Never used for a spent-out pool —
- * that failure stands, so the user sees the quota truth.
+ * A stand-in provider for the gap when every pool entry is resting: it polls
+ * the pool until one recovers (bounded by the caller's wait budget), then
+ * hands the turn over by streaming that entry. Cooldowns that lapse or appear
+ * during the wait are picked up on the next poll instead of being pinned to
+ * one deadline. Never used for a spent-out pool — that failure stands, so the
+ * user sees the quota truth.
  */
 function waitingProvider(
-  entry: RotationEntry,
-  until: number,
   pickNext: () => RotationEntry | undefined,
-  adopt: (entry: RotationEntry) => void
+  adopt: (entry: RotationEntry) => void,
+  nextDeadline: () => number | null,
+  spendWait: (ms: number) => void
 ): LLMProvider {
-  const wait = Math.min(until - Date.now(), ROTATION_MAX_SINGLE_WAIT_MS)
   return {
-    name: `rotate-wait (${entry.provider})`,
-    id: entry.provider,
-    model: entry.model,
+    name: 'rotate-wait',
+    id: ROTATE_PROVIDER,
+    model: '',
     async *chat(params) {
-      // Wait out the cooldown in small ticks so an abort lands promptly.
-      const deadline = Date.now() + wait
-      while (Date.now() < deadline && !params.signal.aborted) {
-        await new Promise(resolve => setTimeout(resolve, Math.min(ROTATION_WAIT_TICK_MS, deadline - Date.now())))
+      for (;;) {
+        if (params.signal.aborted) throw new Error('dibatalkan')
+        const following = pickNext()
+        if (following !== undefined) {
+          adopt(following)
+          yield* countedProvider(following, providerFor(following)).chat(params)
+          return
+        }
+        const until = nextDeadline()
+        if (until === null) {
+          // Nothing left to wait for: the pool is spent or the wait budget
+          // ran out mid-cooldown. Surface the truth instead of spinning.
+          throw new Error('Semua model di Rotate usage masih belum siap. Tunggu reset kuota, atau perbarui provider/akun yang dipakai.')
+        }
+        const wait = Math.max(0, until - Date.now())
+        if (wait <= 0) continue
+        spendWait(wait)
+        const deadline = Date.now() + wait
+        while (Date.now() < deadline && !params.signal.aborted) {
+          await new Promise(resolve => setTimeout(resolve, Math.min(ROTATION_WAIT_TICK_MS, deadline - Date.now())))
+        }
       }
-      if (params.signal.aborted) throw new Error('dibatalkan')
-      const following = pickNext()
-      if (following === undefined) throw new Error('No model in Rotate usage is ready after waiting')
-      adopt(following)
-      yield* countedProvider(following, providerFor(following)).chat(params)
     }
   }
 }
@@ -1027,20 +1037,26 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
         // budget is gone — the user's rule: halt only when every model's
         // tokens are gone, never mid-run on a recoverable 429.
         if (isTransient(error) && !isOutOfUsage(error) && waitedTotal < ROTATION_MAX_WAIT_MS) {
-          const soonest = soonestCoolingOff(pool)
-          const remaining = soonest === null ? 0 : soonest.at - Date.now()
-          const wait = Math.min(Math.max(0, remaining), ROTATION_MAX_SINGLE_WAIT_MS)
-          if (soonest !== null && wait > 0 && waitedTotal + wait <= ROTATION_MAX_WAIT_MS) {
-            waitedTotal += wait
-            return waitingProvider(soonest.entry, Date.now() + wait, () => {
-              tried.clear()
-              return next()
-            }, (entry) => {
-              live.selection = { ...entry }
-              live.promptsOnEntry = 1
-            })
-          }
+          return waitingProvider(() => {
+            tried.clear()
+            return next()
+          }, (entry) => {
+            live.selection = { ...entry }
+            live.promptsOnEntry = 1
+          }, () => {
+            const soonest = soonestCoolingOff(pool)
+            if (soonest === null) return null
+            const wait = Math.max(0, soonest.at - Date.now())
+            if (waitedTotal + wait > ROTATION_MAX_WAIT_MS) return null
+            return soonest.at
+          }, (ms) => {
+            waitedTotal += ms
+          })
         }
+        // Every model is genuinely spent (or the wait budget ran out on a
+        // pool that never recovered): let the loop surface the failure — the
+        // user asked for this exact boundary (stop only when all tokens are
+        // gone), and the raw provider error reaches them as the run's error.
         if (subscriptionOnly()) throw error
         return null
       }

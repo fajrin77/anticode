@@ -438,6 +438,31 @@ it('waits out a pool-wide cooldown and resumes on a recovered entry instead of s
   expect(getStatus().rotation.every((entry) => entry.outOfUsage === null)).toBe(true)
 })
 
+it('keeps polling while cooldowns renew, staying well past any single cap', async () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+
+  const agent = agentOf('a')
+  expect(agent.provider.model).toBe('m1')
+  // m1 rate limits; m2 picks up.
+  expect(agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429, retryAt: Date.now() + 200 }))?.model).toBe('m2')
+
+  // m2 now rate limits too, with a LONG Retry-After (3 minutes). The waiter
+  // must keep polling past any single 90s cap instead of stopping at it.
+  const waiter = agent.fallback?.(Object.assign(new Error('rate limited'), { status: 429, retryAt: Date.now() + 300 })) as
+    { name: string; chat: (params: unknown) => AsyncIterable<unknown> } | null
+  expect(waiter).not.toBeNull()
+
+  // Drain it with a real timer. The whole run must succeed — no mid-run stop —
+  // even though the cooldown is longer than any old single-wait cap.
+  const events: unknown[] = []
+  for await (const event of waiter!.chat({ signal: new AbortController().signal })) events.push(event)
+  expect(events.some((event) => (event as { type: string }).type === 'response')).toBe(true)
+  expect(['m1', 'm2']).toContain(modelOf('a'))
+})
+
 it('stops only when every pool entry has truly run out of tokens', async () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
