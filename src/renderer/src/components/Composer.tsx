@@ -224,7 +224,16 @@ export function Composer({  status: sharedStatus,
 
   useEffect(() => {
     function onOutside(event: MouseEvent): void {
-      if (!boxRef.current?.contains(event.target as Node)) setMenu('none')
+      if (menu === 'none') return
+      const target = event.target as HTMLElement | null
+      if (target === null) return
+      // A click inside the open picker/panel keeps it open (scrolling, typing).
+      if (target.closest('[data-model-picker], [data-mode-menu]') != null) return
+      // The chips that opened the menu toggle it themselves; do not pre-close.
+      if (target.closest('[data-menu-chip]') != null) return
+      // Anywhere else — transcript, header, the composer's own box or textarea
+      // — closes the menu, so the card never stays up over the draft.
+      setMenu('none')
     }
     // Escape dismisses the model/mode menu, matching the approval modal and
     // the model picker; without it the only way out was a click elsewhere.
@@ -237,7 +246,7 @@ export function Composer({  status: sharedStatus,
       document.removeEventListener('mousedown', onOutside)
       document.removeEventListener('keydown', onKey)
     }
-  }, [])
+  }, [menu])
 
   async function collect(job: () => Promise<AttachmentInfo[]>): Promise<void> {
     if (session) await stageDraftAttachments(session.id, [job])
@@ -569,7 +578,7 @@ export function Composer({  status: sharedStatus,
           )}
 
           {menu === 'mode' && (
-            <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
+            <div data-mode-menu className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
               {[
                 { value: false, name: 'Default', hint: 'Ask before changing anything' },
                 { value: true, name: 'Auto', hint: 'Run everything without asking' }
@@ -778,11 +787,11 @@ export function Composer({  status: sharedStatus,
 
               {/* A session can leave Rotate for a concrete model even without saved groups. */}
               <Chip onClick={() => setMenu(menu === 'model' ? 'none' : 'model')} active={menu === 'model'}>
-                <span className="max-w-56 truncate font-mono">{shortModel}</span>
+                <span data-menu-chip className="max-w-56 truncate font-mono">{shortModel}</span>
               </Chip>
 
               <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
-                {status?.autoApprove === true ? 'Auto' : 'Default'}
+                <span data-menu-chip>{status?.autoApprove === true ? 'Auto' : 'Default'}</span>
               </Chip>
 
               {/* Plan or Build, right of the mode: the two read as one choice
