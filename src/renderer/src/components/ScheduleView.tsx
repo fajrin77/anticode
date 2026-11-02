@@ -199,7 +199,7 @@ function ScheduleModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-dim transition-colors hover:text-brand"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-line text-dim transition-colors hover:border-hover hover:text-brand"
           >
             ×
           </button>
