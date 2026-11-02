@@ -38,3 +38,21 @@ cd release
 find . -maxdepth 1 -type f ! -name "*0.1.12*" -delete
 rm -rf mac-arm64 win-unpacked
 ```
+
+## Mode hemat token: aturan Ponytail (lazy senior dev)
+
+Skill Ponytail diterapkan agar pemakaian token irit. Inti:
+
+1. Solusi terkecil yang berfungsi penuh menang; fitur, opsi, dan fleksibilitas
+   yang tidak diminta dilewati — sebut dalam satu baris jika relevan.
+2. Pakai yang sudah ada: helper/komponen/pola di codebase, stdlib, atau
+   dependency yang terpasang. Jangan menambah dependency untuk beberapa baris.
+3. Diff terpendek yang berfungsi menang, setelah tahu semua yang harus disentuh
+   (callers, tes, fixtures, config). Deletion beats addition.
+4. Jangan menulis abstraksi, wrapper, boilerplate, atau kode "untuk nanti".
+5. Balasan akhir ringkas: hasil → perubahan → verifikasi → yang belum selesai.
+   Tanpa narasi proses atau pengulangan pemeriksaan yang tidak berubah.
+6. Jangan re-run perintah hanya untuk double-check; hasil tool yang sudah
+   diterima adalah bukti yang bisa dipakai ulang.
+7. Jangan pernah memotong: validasi di trust boundary, keamanan, aksesibilitas,
+   penanganan error yang mencegah kehilangan data.
