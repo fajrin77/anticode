@@ -32,3 +32,7 @@ draft-attachments/
 *.sealed
 *.pem
 *.key
+
+# Referensi skill pihak ketiga (ponytail): hanya bahan baca, bukan bagian app.
+ponytail-main/
+anti-slop-main/
