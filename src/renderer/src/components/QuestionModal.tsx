@@ -116,11 +116,19 @@ export function QuestionModal({ request, onAnswer }: QuestionModalProps): JSX.El
         aria-label="The agent has a question"
         className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl"
       >
-        <header className="flex items-baseline gap-2.5 px-5 py-3">
+        <header className="flex items-center justify-between gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">Pertanyaan</span>
-          <span className="ml-auto min-w-0 truncate font-mono text-[11.5px] text-faint">
+          <span className="min-w-0 truncate font-mono text-[11.5px] text-faint">
             ask_question
           </span>
+          <button
+            type="button"
+            onClick={() => onAnswer({ optionId: null, text: '' })}
+            aria-label="Tutup"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line text-dim transition-colors hover:border-hover hover:text-brand"
+          >
+            ×
+          </button>
         </header>
 
         <div className="border-y border-line-soft px-5 py-3">
