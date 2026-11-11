@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAttachmentFocus } from '../useAttachmentFocus'
+import { commitOffer } from '../commitOffer'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
@@ -55,6 +56,7 @@ async function letGoOfFinishedRun(sessionId: string): Promise<void> {
 }
 
 const NO_QUEUE: QueuedPrompt[] = []
+const COMMIT_PROMPT = 'Commit dan push perubahan tugas ini. Periksa diff, jangan sertakan perubahan lain atau kredensial, jangan force push. Laporkan hasil commit dan push yang benar-benar berhasil.'
 
 /** Spread-based encoding blows the call stack on megabyte images. */
 function toBase64(buffer: ArrayBuffer): string {
@@ -152,6 +154,9 @@ export function Composer({  status: sharedStatus,
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
   const isStreaming = activeRun !== null || mirrorRunId !== null
+  const [dismissedCommit, setDismissedCommit] = useState<string | null>(null)
+  const offeredCommit = session ? commitOffer(session.messages) : null
+  const showCommit = offeredCommit !== null && dismissedCommit !== `${session?.id}:${offeredCommit}` && !isStreaming && !isPaused && session?.mode === 'code'
   // A code session is only usable once it is bound to a folder; chat never needs one.
   const sessionReady =
     session !== undefined && (session.mode === 'chat' || session.projectRoot !== null)
@@ -436,14 +441,13 @@ export function Composer({  status: sharedStatus,
     }
   }
 
-  /**
-   * `alternate` is Cmd/Ctrl+Enter: while a run works it does the other of
-   * steer and queue, so neither needs the chip to be flipped first.
-   */
-  async function send(): Promise<void> {
-    const prompt = draft.trim()
-    if (session && ((useAttachmentJobs.getState().pending[session.id] ?? 0) > 0 || (useSessionStore.getState().drafts[session.id]?.attachmentErrors?.length ?? 0) > 0)) return
-    if (!canSend || session === undefined) {
+  /** Explicit actions use the normal run lifecycle without consuming the draft. */
+  async function send(action?: string): Promise<void> {
+    const prompt = action ?? draft.trim()
+    const live = useSessionStore.getState()
+    if (action && (Object.values(live.activeRuns).some(run => run.sessionId === session?.id) || Object.values(live.mirrorRuns).some(run => run.sessionId === session?.id))) return
+    if (!action && session && ((useAttachmentJobs.getState().pending[session.id] ?? 0) > 0 || (live.drafts[session.id]?.attachmentErrors?.length ?? 0) > 0)) return
+    if ((action ? blocked !== null || status?.providerReady !== true : !canSend) || session === undefined) {
       if (
         status?.providerReady === true &&
         session !== undefined &&
@@ -458,11 +462,11 @@ export function Composer({  status: sharedStatus,
       return
     }
 
-    const quoted = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
+    const quoted = action || quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
     // Plan travels as a flag, not as text: the transcript keeps showing the
     // prompt exactly as it was typed.
     const shown = quoted
-    const attachmentIds = attached.map((item) => item.id)
+    const attachmentIds = action ? [] : attached.map((item) => item.id)
     // entry and goes out as its own run when this one finishes. Steering is
     // a separate, deliberate act, the arrow button beside the send button.
     if (isStreaming) {
@@ -481,16 +485,18 @@ export function Composer({  status: sharedStatus,
     }
     // The files are drawn as pictures and cards; only the typed prompt is text.
     const parts: MessagePart[] =
-      attached.length > 0
+      !action && attached.length > 0
         ? [
             { kind: 'attachments', items: attached.map(({ id: _id, preview: _preview, ...ref }) => ref) },
             { kind: 'text', text: shown }
           ]
         : [{ kind: 'text', text: shown }]
 
-    setDraft('')
-    setAttached([])
-    clearQuote()
+    if (!action) {
+      setDraft('')
+      setAttached([])
+      clearQuote()
+    }
     // A new prompt ends a pause as surely as Continue does; the main process
     // clears it when the run begins, and tells every viewer.
     const userMessageId = crypto.randomUUID()
@@ -512,7 +518,7 @@ export function Composer({  status: sharedStatus,
       })
     }
 
-      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds, plan: planMode })
+      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds, plan: action ? false : planMode })
       // A run started elsewhere a moment ago took this as a follow-up; the
       // steer event draws it, so what was drawn here for a new run goes.
       if (outcome.steered) {
@@ -541,6 +547,17 @@ export function Composer({  status: sharedStatus,
         <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />
       )}
       <div className="mx-auto min-w-0 w-full max-w-3xl" ref={boxRef} data-composer-box>
+        {showCommit && (
+          <div className="mb-2 flex items-center gap-3 px-1 text-[12.5px]" role="group" aria-label="Repository actions">
+            <button type="button" disabled={blocked !== null || status?.providerReady !== true}
+              onClick={() => void send(COMMIT_PROMPT)}
+              className="glass-ghost rounded-md px-3 py-2 text-text transition-colors hover:text-brand disabled:opacity-40">
+              Commit &amp; push <span className="ml-2 text-xs">⌘ Enter</span>
+            </button>
+            <button type="button" onClick={() => setDismissedCommit(`${session?.id}:${offeredCommit}`)}
+              className="glass-ghost rounded-md px-3 py-2 text-dim transition-colors hover:text-brand">Abaikan</button>
+          </div>
+        )}
         {blocked !== null && !(hero && folderMissing) && (
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
         )}
@@ -740,7 +757,7 @@ export function Composer({  status: sharedStatus,
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
-                  void send()
+                  void send(showCommit && (event.metaKey || event.ctrlKey) && !event.altKey && draft.trim() === '' ? COMMIT_PROMPT : undefined)
                 }
               }}
               data-composer
