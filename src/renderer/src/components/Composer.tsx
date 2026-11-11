@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAttachmentFocus } from '../useAttachmentFocus'
-import { commitOffer } from '../commitOffer'
+import { COMMIT_PROMPT, commitOffer } from '../commitOffer'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
@@ -56,7 +56,6 @@ async function letGoOfFinishedRun(sessionId: string): Promise<void> {
 }
 
 const NO_QUEUE: QueuedPrompt[] = []
-const COMMIT_PROMPT = 'Commit dan push perubahan tugas ini. Periksa diff, jangan sertakan perubahan lain atau kredensial, jangan force push. Laporkan hasil commit dan push yang benar-benar berhasil.'
 
 /** Spread-based encoding blows the call stack on megabyte images. */
 function toBase64(buffer: ArrayBuffer): string {
@@ -548,14 +547,14 @@ export function Composer({  status: sharedStatus,
       )}
       <div className="mx-auto min-w-0 w-full max-w-3xl" ref={boxRef} data-composer-box>
         {showCommit && (
-          <div className="mb-2 flex items-center gap-3 px-1 text-[12.5px]" role="group" aria-label="Repository actions">
+          <div className="mb-2 flex items-center justify-center gap-3 px-1 text-[12.5px]" role="group" aria-label="Repository actions">
             <button type="button" disabled={blocked !== null || status?.providerReady !== true}
               onClick={() => void send(COMMIT_PROMPT)}
               className="rounded-md border border-brand bg-brand px-3 py-2 font-medium text-bg transition-colors hover:bg-brand-strong disabled:opacity-40">
               Commit &amp; push <span className="ml-2 text-xs">⌘ Enter</span>
             </button>
             <button type="button" onClick={() => setDismissedCommit(`${session?.id}:${offeredCommit}`)}
-              className="glass-ghost rounded-md px-3 py-2 text-brand transition-colors hover:text-brand-strong">Abaikan</button>
+              className="composer-glass rounded-md border px-3 py-2 text-brand transition-colors hover:text-brand-strong">Abaikan</button>
           </div>
         )}
         {blocked !== null && !(hero && folderMissing) && (

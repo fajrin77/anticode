@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { commitOffer } from './commitOffer'
+import { COMMIT_PROMPT, commitOffer } from './commitOffer'
 import type { Message } from './store/session'
 
 function answer(text: string, patch: Partial<Message> = {}): Message {
@@ -17,4 +17,6 @@ it('offers commit and push only for a finished current invitation', () => {
   expect(commitOffer([answer('Mau lanjut commit dan push?', { pending: true })])).toBeNull()
   expect(commitOffer([answer('Mau lanjut commit dan push?'), answer('OK', { role: 'user' })])).toBeNull()
   expect(commitOffer([answer('Run git push to publish.')])).toBeNull()
+  expect(commitOffer([answer('Push berhasil. Dua commit yang sebelumnya sudah dibuat kini terkirim.')])).toBeNull()
+  expect(commitOffer([answer(COMMIT_PROMPT, { role: 'user', id: 'ask' }), answer('Mau saya cek deploy setelah commit?')])).toBeNull()
 })

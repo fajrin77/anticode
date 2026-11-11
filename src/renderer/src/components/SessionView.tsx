@@ -12,6 +12,7 @@ import { Artifacts, documentsProduced } from './Artifacts'
 import { DiffView } from './DiffView'
 import { formatUsd } from '../money'
 import { FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../labels'
+import { COMMIT_PROMPT } from '../commitOffer'
 
 type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
@@ -426,6 +427,8 @@ function MessageView({
     const text = message.parts
       .map((part) => (part.kind === 'text' ? part.text : ''))
       .join('')
+    // The Commit & push button's instruction is the app's, not something typed.
+    if (text === COMMIT_PROMPT) return <></>
 
     const { quote, body } = splitQuote(text)
     return (
