@@ -70,7 +70,10 @@ import {
   getStatus,
   loadSessionMessages,
   providerInUse,
-  selectProvider
+  selectProvider,
+  selectProviderOnce,
+  forgetOneShotChoice,
+  applyPromptsPerModel
 } from './runtime'
 import { countedProvider, isOutOfUsage, recordRotationUsage, resetRotationForTests, resetRotationUsage } from './rotation'
 import { beginRun, finishRun } from './runs'
@@ -904,4 +907,53 @@ it('tries another same-service account for an input allowance without quota cool
   expect(agent.fallback?.(new InputRequestLimitError(57245, 3299, true))).toMatchObject({ name: 'auth:cline-2', model })
   expect(getStatus().rotation[0]).toMatchObject({ outOfUsage: null, coolingUntil: null })
   expect(() => agent.fallback?.(new InputRequestLimitError(57245, 3299, true))).toThrow('3299')
+})
+
+it('moves every prompt at a cadence of one, and stays put at zero until the model rests', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'a')
+  applyPromptsPerModel(1)
+  expect(getStatus().promptsPerModel).toBe(1)
+  expect([modelOf('a'), modelOf('a'), modelOf('a')]).toEqual(['m1', 'm2', 'm1'])
+
+  applyPromptsPerModel(0)
+  const stays = [modelOf('a'), modelOf('a'), modelOf('a'), modelOf('a')]
+  expect(new Set(stays).size).toBe(1)
+  // Resting is the only thing that moves a session that stays put.
+  const agent = agentOf('a')
+  const other = agent.provider.model === 'm1' ? 'm2' : 'm1'
+  expect(agent.fallback?.(Object.assign(new Error('limit'), { status: 429 }))?.model).toBe(other)
+  expect(() => applyPromptsPerModel(-1)).toThrow('whole number')
+  expect(() => applyPromptsPerModel(1.5)).toThrow('whole number')
+})
+
+it('answers one retry on another model without changing the session, the default, or rotation', () => {
+  createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: 'one', model: 'm1' }, 'a')
+  const defaultBefore = getStatus().defaultModel
+  selectProviderOnce({ provider: 'two', model: 'm2' }, 'a')
+  // The chip shows the model this retry is about to use…
+  expect(getStatus('a').model).toBe('m2')
+  expect(modelOf('a')).toBe('m2')
+  // …and only for that run: the next prompt goes back to the session's own pick.
+  expect(modelOf('a')).toBe('m1')
+  expect(getStatus('a').model).toBe('m1')
+  expect(getStatus().defaultModel).toBe(defaultBefore)
+
+  // A rotating session stays on the pool after a one-off retry.
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  createSession({ sessionId: 'b', mode: 'chat', workspaceRoot: null })
+  applyRotationEnabled(true)
+  selectProvider({ provider: ROTATE_PROVIDER, model: '' }, 'b')
+  selectProviderOnce({ provider: 'three', model: 'm3' }, 'b')
+  expect(modelOf('b')).toBe('m3')
+  expect(getStatus('b').provider).toBe(ROTATE_PROVIDER)
+
+  // A retry that never started leaves nothing behind.
+  selectProviderOnce({ provider: 'three', model: 'm3' }, 'a')
+  forgetOneShotChoice('a')
+  expect(modelOf('a')).toBe('m1')
+  expect(() => selectProviderOnce({ provider: 'known', model: 'typo' }, 'a')).toThrow()
 })

@@ -658,7 +658,7 @@ export function Composer({  status: sharedStatus,
               <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-line bg-bg/35 px-3 py-2">
                 <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
                 <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
-                  <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
+                  <span className="mb-0.5 block text-[11px] text-faint">Replying to</span>
                   <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
                 </span>
                 <button

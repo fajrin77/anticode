@@ -38,6 +38,8 @@ export interface PersistedRotation {
   subscriptionOnly?: boolean
   /** Switched on in Settings; absent means off. */
   enabled?: boolean
+  /** Prompts a session sends to one model before rotating; 0 stays put. Absent means 2. */
+  promptsPerModel?: number
   entries: { provider: string; model: string }[]
   /** Tokens per entry since the last reset, keyed by rotationKey. */
   usage: Record<string, { inputTokens: number; outputTokens: number }>

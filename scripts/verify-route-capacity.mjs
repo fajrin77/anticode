@@ -92,7 +92,7 @@ try {
   const routeStatus = await page.evaluate(() => window.anticode.getStatus())
   const denied = routeStatus.rotation.find(entry => entry.model === 'retired-fixture:free')
   assert.equal(denied.ready, false)
-  assert.match(denied.unavailableReason, /dihentikan/)
+  assert.match(denied.unavailableReason, /has retired/)
   assert.equal(denied.outOfUsage, null)
   assert.equal(denied.coolingUntil, null)
   await send('rotation')
@@ -124,7 +124,7 @@ try {
   assert.equal(compacted.at(-1).reason, 'complete')
   assert.equal(compacted.filter(event => event.type === 'tool_end').length, 1)
   assert.equal(counts.get('compact-fixture'), 3)
-  assert.ok(compacted.some(event => event.type === 'notice' && event.text.includes('diringkas secara lokal')))
+  assert.ok(compacted.some(event => event.type === 'notice' && event.text.includes('condensed locally')))
   console.log('PASS: a long tool-result turn is reduced once, fits the reported allowance, and completes without replaying the tool')
   const alternate = await page.evaluate(async ({ baseURL, provider }) => {
     const api = window.anticode

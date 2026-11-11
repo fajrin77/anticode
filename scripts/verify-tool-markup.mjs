@@ -93,7 +93,7 @@ try {
   await start('repeat-fixture')
   const failed = await page.evaluate(() => window.markupDone)
   assert.equal(failed.type, 'error')
-  assert.match(failed.message, /format tool yang tidak valid/)
+  assert.match(failed.message, /invalid tool format/)
   assert.equal(counts.get('repeat-fixture'), 2)
   const snapshot = await page.evaluate(() => window.anticode.getSessionSnapshot('markup'))
   assert.doesNotMatch(JSON.stringify(snapshot), /MUST_NOT_APPEAR|blocked-output|< \| DSML/)

@@ -53,6 +53,10 @@ interface Tally {
 let entries: RotationEntry[] | null = null
 let enabled = false
 let plansOnly = false
+/** Prompts a session sends to one model before moving on; 0 stays until it rests or runs out. */
+export const DEFAULT_PROMPTS_PER_MODEL = 2
+const PROMPTS_PER_MODEL_MAX = 20
+let cadence = DEFAULT_PROMPTS_PER_MODEL
 /** As kept: hand-picked entries only, never ones a provider link covers. */
 interface StoredGroup {
   id: string
@@ -92,6 +96,7 @@ function load(): RotationEntry[] {
     : []
   enabled = saved?.enabled === true
   plansOnly = saved?.subscriptionOnly === true
+  cadence = cleanCadence(saved?.promptsPerModel) ?? DEFAULT_PROMPTS_PER_MODEL
   for (const [key, tally] of Object.entries(saved?.usage ?? {})) {
     if (typeof tally?.inputTokens === 'number' && typeof tally.outputTokens === 'number') {
       const canonical = canonicalStoredKey(key)
@@ -172,6 +177,7 @@ function persist(): void {
     rotation: {
       enabled,
       subscriptionOnly: plansOnly,
+      promptsPerModel: cadence,
       entries: list,
       usage: Object.fromEntries([...usage].filter(([key]) => keys.has(key))),
       groups,
@@ -250,6 +256,29 @@ export function setSubscriptionOnly(on: boolean): void {
 export function rotationEnabled(): boolean {
   load()
   return enabled
+}
+
+function cleanCadence(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= PROMPTS_PER_MODEL_MAX ? value : null
+}
+
+/** How many prompts a rotating session stays on one model; 0 means until it rests or runs out. */
+export function promptsPerModel(): number {
+  load()
+  return cadence
+}
+
+export function setPromptsPerModel(value: unknown): void {
+  load()
+  const next = cleanCadence(value)
+  if (next === null) throw new Error(`Prompts per model must be a whole number from 0 to ${PROMPTS_PER_MODEL_MAX}`)
+  cadence = next
+  persist()
+}
+
+/** Something changed on its own mid-run (a hand-over): every viewer's status chip follows. */
+export function notifyRotationChange(): void {
+  changeSink?.()
 }
 
 export function setRotationEnabled(on: boolean): void {
@@ -488,6 +517,7 @@ export function resetRotationForTests(): void {
   entries = null
   enabled = false
   plansOnly = false
+  cadence = DEFAULT_PROMPTS_PER_MODEL
   groups = []
   activeGroup = null
   usage.clear()

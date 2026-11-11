@@ -916,8 +916,9 @@ function ModelCombo({
 
 /**
  * The Rotate usage pool: models that share the token load of every session
- * set to Rotate. A session stays on one for 2 prompts, then moves to the one
- * that has used the fewest tokens; one that fails hands the turn to the next
+ * set to Rotate. A session stays on one for a few prompts (the cadence row,
+ * 2 by default, or until it rests), then moves to the one that has used the
+ * fewest tokens; one that fails hands the turn to the next
  * and rests for a minute. It runs only while switched on here, off, Rotate
  * is not offered and nothing is counted. Changes reach every window through
  * the status broadcast.
@@ -1064,6 +1065,15 @@ function RotateUsage({
     if (!on) setAdding(null)
     void settle(window.anticode.setRotationEnabled(on))
   }
+
+  const cadence = status?.promptsPerModel ?? 2
+  const cadenceChoices: { value: number; label: string; hint: string }[] = [
+    { value: 1, label: '1', hint: 'Every prompt goes to the next model' },
+    { value: 2, label: '2', hint: 'A follow-up stays with the model that answered before it' },
+    { value: 3, label: '3', hint: 'Three prompts on one model, then the next' },
+    { value: 5, label: '5', hint: 'Five prompts on one model, then the next' },
+    { value: 0, label: 'Until it rests', hint: 'Stay on one model until it is rate limited or out of quota' }
+  ]
 
   function view(id: string | null): void {
     setViewing(id)
@@ -1245,6 +1255,24 @@ function RotateUsage({
 
       {enabled && (
         <>
+          <div className="mb-3 flex flex-wrap items-center gap-3" data-rotation-cadence>
+            <span className="text-[12.5px] text-dim" title="How many prompts a session sends to one model before rotating">Prompts per model</span>
+            <div className="flex flex-wrap items-center gap-1">
+              {cadenceChoices.map((choice) => (
+                <button
+                  key={choice.value}
+                  type="button"
+                  title={choice.hint}
+                  aria-pressed={cadence === choice.value}
+                  onClick={() => void settle(window.anticode.setPromptsPerModel(choice.value))}
+                  className={tabClass(cadence === choice.value)}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* One tab per group, the whole pool first. The lime dot marks the
               one in use and keeps its room on the others, so putting another
               group in use never nudges a tab sideways. */}

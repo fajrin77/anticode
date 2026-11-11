@@ -9,7 +9,7 @@ export function unavailableRoute(provider: string, model: string): string | null
 export function markRetiredRoute(provider: string, model: string): void {
   const all = loadPersistedSettings().unavailableRoutes ?? {}
   savePersistedSettings({ unavailableRoutes: { ...all, [provider]: { ...all[provider], [model]: {
-    reason: 'Rute ini sudah dihentikan oleh provider dan dilewati selama 24 jam. Pilih model lain yang tersedia.', since: Date.now()
+    reason: 'The provider has retired this route; it is skipped for 24 hours. Pick another available model.', since: Date.now()
   } } } })
 }
 

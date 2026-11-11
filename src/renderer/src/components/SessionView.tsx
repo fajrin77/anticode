@@ -19,6 +19,7 @@ type Block =
   | { kind: 'text'; text: string }
   | { kind: 'notice'; text: string }
   | { kind: 'error'; text: string }
+  | { kind: 'summary'; text: string }
   | { kind: 'tools'; parts: ToolPart[] }
 
 /** Runs of tool calls fold into one group; narration between them stays loose. */
@@ -26,7 +27,7 @@ function groupBlocks(parts: MessagePart[]): Block[] {
   const blocks: Block[] = []
   for (const part of parts) {
     if (part.kind === 'attachments') continue
-    if (part.kind === 'notice' || part.kind === 'error') {
+    if (part.kind === 'notice' || part.kind === 'error' || part.kind === 'summary') {
       blocks.push({ kind: part.kind, text: part.text })
       continue
     }
@@ -108,6 +109,34 @@ function ToolGroup({
           {parts.map((part) => (
             <ToolBlock key={part.toolUseId} part={part} />
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * What the model now remembers of the turns a long session folded away, the
+ * session summary. Closed it is one grey line; open, the memory itself.
+ */
+function SessionSummaryCard({ text }: { text: string }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div data-session-summary className="my-3 rounded-lg border border-line-soft">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="group flex w-full items-center gap-2.5 px-3 py-2 text-left"
+      >
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-dim transition-colors group-hover:text-brand">
+          Session summary · earlier turns were condensed to keep the context short
+        </span>
+        <span className="shrink-0 text-[11px] text-faint transition-colors group-hover:text-brand">{open ? '⌃' : '⌄'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-line-soft px-4 py-3 text-[14px] text-dim">
+          <RichText text={text} />
         </div>
       )}
     </div>
@@ -408,7 +437,7 @@ function MessageView({
               <div className="flex items-start gap-2 rounded-xl border border-line bg-bg/35 px-3 py-2">
                 <span className="mt-0.5 w-0.5 self-stretch rounded bg-brand" aria-hidden />
                 <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-dim">
-                  <span className="mb-0.5 block text-[11px] text-faint">Membalas</span>
+                  <span className="mb-0.5 block text-[11px] text-faint">Replying to</span>
                   <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
                 </span>
               </div>
@@ -442,17 +471,36 @@ function MessageView({
   // them. Auto-opening the first streamed tool made the transcript flash between
   // the compact "working" line and an expanded/collapsed steps block.
   const [liveOpen, setLiveOpen] = useState(false)
+  // A finished reply reads as its answer: the notes the model wrote between
+  // steps fold behind one line, the last text is the answer and stays.
+  const [notesOpen, setNotesOpen] = useState(false)
+  const textIndexes = blocks.flatMap((block, index) => (block.kind === 'text' && block.text.trim() !== '' ? [index] : []))
+  const answerIndex = textIndexes.at(-1)
+  const foldNotes = !message.pending && !notesOpen && !stepsOpen
+  const foldedNotes = foldNotes ? textIndexes.length - 1 : 0
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">
+      {foldedNotes > 0 && (
+        <button
+          type="button"
+          data-folded-notes
+          onClick={() => setNotesOpen(true)}
+          className="mb-1 block max-w-full truncate text-left text-[13px] text-faint transition-colors hover:text-brand"
+        >
+          {foldedNotes === 1 ? '1 working note' : `${foldedNotes} working notes`} · show
+        </button>
+      )}
       {blocks.map((block, index) => {
         if (block.kind === 'text') {
+          if (foldNotes && index !== answerIndex) return null
           return (
             <div key={`text-${index}`} className="my-2">
               <RichText text={block.text} />
             </div>
           )
         }
+        if (block.kind === 'summary') return <SessionSummaryCard key={`summary-${index}`} text={block.text} />
         // The app talking about itself, in the same grey voice a tool group
         // uses, never a bubble, because nobody said it.
         // A failure in the app's voice, and in red: never mistaken for an answer.
@@ -485,16 +533,16 @@ function MessageView({
       })}
       {!message.pending && (paused || message.summary?.outcome && message.summary.outcome !== 'complete') && (
         <div data-interrupted-report className="my-4 rounded-lg border border-line-soft px-4 py-3 text-[14px]">
-          <p className="font-semibold">Hasil sementara · laporan akhir belum selesai</p>
+          <p className="font-semibold">Partial result · the final report is not finished</p>
           {settledTools.length > 0 && (
             <p className="mt-2 text-dim">
-              {settledTools.filter((part) => part.status === 'ok').length} langkah berhasil
-              {' · '}{settledTools.filter((part) => part.status === 'error').length} langkah gagal
+              {settledTools.filter((part) => part.status === 'ok').length} steps succeeded
+              {' · '}{settledTools.filter((part) => part.status === 'error').length} failed
             </p>
           )}
           <p className="mt-2 text-dim">
-            Jawaban parsial dan hasil langkah yang sudah diterima tetap tersimpan.
-            {' '}Lanjutkan dari titik terakhir untuk menyelesaikan pekerjaan dan pemeriksaannya.
+            The partial answer and the results received so far are kept.
+            {' '}Continue from where it stopped to finish the work and its checks.
           </p>
         </div>
       )}
@@ -525,7 +573,13 @@ function MessageView({
 }
 
 function outcomeLabel(outcome: string): string {
-  return outcome === 'error' ? 'Terhenti karena kesalahan' : outcome === 'max_tokens' ? 'Batas respons tercapai' : outcome === 'refusal' ? 'Ditolak provider' : 'Dijeda'
+  return outcome === 'error' ? 'Stopped by an error' : outcome === 'max_tokens' ? 'Response limit reached' : outcome === 'refusal' ? 'Refused by the provider' : 'Paused'
+}
+
+/** The model that answered, or each one in turn when rotation handed the run over. */
+function modelsOf(summary: { model: string; models?: string[] }): string {
+  if (summary.models !== undefined && summary.models.length > 1) return summary.models.join(' → ')
+  return summary.model === '' ? 'done' : summary.model
 }
 
 /** Formats 469000 ms as "7m 49s", 42000 ms as "42s". */
@@ -594,7 +648,7 @@ function OldTurn({
             title="Show the full reply"
             className="mb-1 block max-w-full truncate text-left text-[13px] text-faint transition-colors hover:text-brand"
           >
-            {written[0]!.split('\n')[0]!.slice(0, 120)} · tampilkan
+            {written[0]!.split('\n')[0]!.slice(0, 120)} · show
           </button>
         )}
         {closing !== undefined && (
@@ -617,13 +671,14 @@ function OldTurn({
               </div>
             )
           }
+          if (block.kind === 'summary') return <SessionSummaryCard key={`summary-${index}`} text={block.text} />
 
           return null
         })}
         {/* A question the agent asked and the answer it got are part of the conversation, not a step to fold away. */}
         {allParts.filter((part): part is ToolPart => part.kind === 'tool' && part.name === 'ask_question').map((part) => (
           <div key={`asked-${part.toolUseId}`} className="my-2 border-l-2 border-line pl-3 text-[14px] text-dim">
-            <div className="text-text">{typeof (part.input as { question?: unknown } | null)?.question === 'string' ? (part.input as { question: string }).question : 'Pertanyaan'}</div>
+            <div className="text-text">{typeof (part.input as { question?: unknown } | null)?.question === 'string' ? (part.input as { question: string }).question : 'Question'}</div>
             {part.output !== '' && <div className="mt-0.5">{part.output}</div>}
           </div>
         ))}
@@ -636,7 +691,7 @@ function OldTurn({
               title="Show the full reply"
               className="flex items-center gap-2 rounded-md px-2 py-1 text-[12.5px] text-faint transition-colors hover:text-brand"
             >
-              <span>{summary.model === '' ? 'done' : summary.model}</span>
+              <span>{modelsOf(summary)}</span>
               {summary.outcome && summary.outcome !== 'complete' && <span>{outcomeLabel(summary.outcome)}</span>}
               <span aria-hidden>·</span>
               <span>{formatDuration(summary.durationMs)}</span>
@@ -730,7 +785,8 @@ function summaryText(message: Message): string {
 
 /**
  * Retry and its model menu: the same model, or any model switched on in
- * Settings → Models. Under Rotate usage the pool decides, so only "same".
+ * Settings → Models, for this one answer. Picking one changes nothing else:
+ * the session keeps its model, rotation keeps rotating, the default stays.
  */
 function RetryButton({ onRetry, onOpenChange }: { onRetry: (choice: ProviderSelection | null) => void; onOpenChange: (open: boolean) => void }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -787,9 +843,9 @@ function RetryButton({ onRetry, onOpenChange }: { onRetry: (choice: ProviderSele
           >
             {rotating ? 'Retry · rotate picks the model' : 'Retry with the same model'}
           </button>
-          {!rotating && (models ?? []).length > 0 && (
+          {(models ?? []).length > 0 && (
             <div className="mt-1 border-t border-line-soft pt-1">
-              <div className="px-2 py-1 text-[11px] text-faint">Retry with</div>
+              <div className="px-2 py-1 text-[11px] text-faint">Retry once with · your model stays as it is</div>
               {(models ?? []).map((entry) => (
                 <button
                   key={`${entry.provider}:${entry.model}`}
@@ -828,7 +884,7 @@ function RunSummaryCard({
   const files = fileStats(message.parts)
   const summary = message.summary
   if (summary === undefined) return <></>
-  const { model, durationMs } = summary
+  const { durationMs } = summary
   const tokens = summary.inputTokens + summary.outputTokens
 
   // A faint, centred footnote rather than a card, always visible with just
@@ -847,7 +903,7 @@ function RunSummaryCard({
           onClick={onToggle}
           className="flex items-center gap-2 rounded-md px-2 py-1 text-faint transition-colors hover:text-brand"
         >
-          <span>{model === '' ? 'done' : model}</span>
+          <span title={summary.models !== undefined ? 'Rotation handed this run to another model' : undefined}>{modelsOf(summary)}</span>
           {summary.outcome && summary.outcome !== 'complete' && <span>{outcomeLabel(summary.outcome)}</span>}
         </button>
 

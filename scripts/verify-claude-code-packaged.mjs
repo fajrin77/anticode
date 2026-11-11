@@ -1,6 +1,6 @@
 // Explicit live test of packaged Anticode with a copied, encrypted Claude account.
 // Only an isolated workspace/profile is changed. This spends a little plan usage.
-import { _electron as electron } from 'playwright'
+import { launchPackaged } from './packaged-launch.mjs'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
 import path from 'node:path'
@@ -15,7 +15,7 @@ await writeFile(path.join(profile, 'auth-accounts.json'), JSON.stringify({ versi
 await writeFile(path.join(profile, 'providers.json'), JSON.stringify({ providers: [], builtin: { clinepass: { removed: true } } }))
 await writeFile(path.join(profile, 'settings.json'), JSON.stringify({ remote: { enabled: false }, updates: { autoCheck: false }, composerProviders: { [row.account.id]: true } }))
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_RENDERER_URL
-const app = await electron.launch({ executablePath: path.resolve('release/mac-arm64/anticode.app/Contents/MacOS/anticode'), args: [`--user-data-dir=${profile}`], env })
+const app = await launchPackaged({ binary: path.resolve('release/mac-arm64/anticode.app/Contents/MacOS/anticode'), args: [`--user-data-dir=${profile}`], env })
 try {
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')

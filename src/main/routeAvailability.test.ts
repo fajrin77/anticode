@@ -8,7 +8,7 @@ beforeEach(() => { delete settings.unavailableRoutes })
 
 it('remembers only the exact provider/model, without guessing aliases or marking siblings', () => {
   markRetiredRoute('auth:cline', 'vendor/model:free')
-  expect(unavailableRoute('auth:cline', 'vendor/model:free')).toContain('dihentikan')
+  expect(unavailableRoute('auth:cline', 'vendor/model:free')).toContain('retired')
   expect(unavailableRoute('auth:cline-2', 'vendor/model:free')).toBeNull()
   expect(unavailableRoute('auth:cline', 'vendor/model')).toBeNull()
   expect(unavailableRoute('auth:cline', 'other:free')).toBeNull()

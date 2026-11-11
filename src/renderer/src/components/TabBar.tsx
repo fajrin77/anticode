@@ -31,6 +31,12 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
       .compactSession(session.id)
       .then(({ before, after }) => {
         setContextTokens(session.id, after)
+        // The summary card the compaction left belongs in this transcript too.
+        if (after < before) {
+          void window.anticode.getSessionSnapshot(session.id).then((snapshot) => {
+            if (snapshot !== null) useSessionStore.getState().importSnapshot(session.id, snapshot.messages, snapshot.summaries)
+          })
+        }
         setCompacted(
           after < before
             ? `${formatNumber(before)} → ${formatNumber(after)} tokens`

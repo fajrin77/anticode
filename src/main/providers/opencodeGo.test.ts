@@ -76,8 +76,8 @@ it('adds Anticode identity and stable session metadata to custom OpenCode reques
 })
 
 it.each([
-  ["OpenCode's free tier can only be used from within OpenCode.", /membatasi Free ke aplikasi resminya/],
-  ['An active OpenCode Go subscription is required to use Go models.', /memerlukan subscription OpenCode Go aktif/]
+  ["OpenCode's free tier can only be used from within OpenCode.", /limits Free to its official app/],
+  ['An active OpenCode Go subscription is required to use Go models.', /needs an active OpenCode Go subscription/]
 ] as const)('explains product access restrictions without retry or endpoint substitution: %s', async (message, expected) => {
   const { withOpenCodeSession } = await import('./opencodeGo')
   const fetcher = vi.fn(async () => Response.json({ error: { message } }, { status: 403 }))

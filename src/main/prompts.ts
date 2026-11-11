@@ -6,7 +6,7 @@ import { attachmentsFor, blocksOf, refsOf, releaseAttachments, stagedRefs } from
 import { randomUUID } from 'node:crypto'
 import { clearQueue, dequeue, enqueue, removeQueued, requeue } from './queue'
 import type { QueuedPrompt } from '@shared/ipc'
-import { announceTitle, getSession, getStatus, persistSessions, selectProvider, takeBackPrompt } from './runtime'
+import { announceTitle, forgetOneShotChoice, getSession, getStatus, persistSessions, selectProviderOnce, takeBackPrompt } from './runtime'
 import { beginRun, finishRun, isPaused, runForSession } from './runs'
 import { announceHistory, announceStatus, forward, registerRun } from './remote/bus'
 
@@ -126,8 +126,10 @@ async function admit(
 /**
  * Answers the last prompt again: the reply, and the files its run changed,
  * are taken back, and the same prompt, attachments and all, goes out as a
- * new run, on another model when one is named. The viewer that asked has
- * already drawn the retry; everyone else redraws from the main process.
+ * new run, on another model when one is named. That model serves this one
+ * answer only: the session's own pick, the default for new sessions, and
+ * rotation are left as they were. The viewer that asked has already drawn
+ * the retry; everyone else redraws from the main process.
  */
 export async function regenerate(
   sessionId: string,
@@ -138,21 +140,28 @@ export async function regenerate(
 ): Promise<{ runId: string; steered: boolean }> {
   if (runForSession(sessionId) !== null) throw new Error('Pause this session before retrying')
   if (choice !== null) {
-    selectProvider(choice, sessionId)
+    selectProviderOnce(choice, sessionId)
     announceStatus()
   }
-  // Checked before anything is taken back: a retry that cannot start must
-  // leave the answer it would have replaced where it is.
-  const status = getStatus(sessionId)
-  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
-  const taken = takeBackPrompt(sessionId, 1)
-  if (taken === null) throw new Error('There is no prompt to answer again')
-  announceHistory(sessionId, from)
-  return submitPrompt(
-    { sessionId, runId, prompt: taken.prompt, attachmentIds: [] },
-    gate,
-    { blocks: taken.blocks, attachments: taken.attachments }
-  )
+  try {
+    // Checked before anything is taken back: a retry that cannot start must
+    // leave the answer it would have replaced where it is.
+    const status = getStatus(sessionId)
+    if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+    const taken = takeBackPrompt(sessionId, 1)
+    if (taken === null) throw new Error('There is no prompt to answer again')
+    announceHistory(sessionId, from)
+    return await submitPrompt(
+      { sessionId, runId, prompt: taken.prompt, attachmentIds: [] },
+      gate,
+      { blocks: taken.blocks, attachments: taken.attachments }
+    )
+  } catch (error) {
+    // A retry that never started leaves no one-shot pick behind for the next prompt.
+    forgetOneShotChoice(sessionId)
+    announceStatus()
+    throw error
+  }
 }
 
 /**

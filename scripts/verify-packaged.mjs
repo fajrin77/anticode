@@ -1,6 +1,6 @@
 // Smoke test the PACKAGED app with an empty profile. Isolated user-data-dir,
 // no account credentials, no provider calls.
-import { _electron as electron } from 'playwright'
+import { launchPackaged } from './packaged-launch.mjs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,13 +10,13 @@ const binary = process.argv[2] ?? 'release/mac-arm64/anticode.app/Contents/MacOS
 const profile = await mkdtemp(path.join(tmpdir(), 'anticode-packaged-'))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
-const app = await electron.launch({
-  executablePath: binary,
+const app = await launchPackaged({
+  binary,
   args: [`--user-data-dir=${profile}`],
   env
 })
 const errors = []
-app.process().stderr.on('data', (d) => { const s = String(d); if (/Error|Unhandled/i.test(s)) errors.push('MAIN: ' + s.trim()) })
+app.child.stderr.on('data', (d) => { const s = String(d); if (/Error|Unhandled/i.test(s)) errors.push('MAIN: ' + s.trim()) })
 const window = await app.firstWindow()
 window.on('pageerror', (e) => errors.push('RENDERER: ' + e.message))
 try {
@@ -33,6 +33,11 @@ try {
   await new Promise((r) => setTimeout(r, 1500))
   assert.deepEqual(errors, [])
   console.log('PASS: no startup errors on a first run')
+  // The release fuses: the binary must refuse to act as plain Node.
+  const { spawnSync } = await import('node:child_process')
+  const asNode = spawnSync(binary, ['-e', 'console.log("ran-as-node")'], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 8000 })
+  assert.ok(!String(asNode.stdout).includes('ran-as-node'), 'ELECTRON_RUN_AS_NODE still turns the app into Node')
+  console.log('PASS: the packaged binary ignores ELECTRON_RUN_AS_NODE')
   console.log(JSON.stringify({ profile, binary }))
 } catch (error) {
   console.error('UI at failure:', await window.locator('body').innerText().catch(() => '(unavailable)'))

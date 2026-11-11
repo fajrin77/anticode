@@ -126,7 +126,7 @@ describe('AgentSession', () => {
     await session.run({ runId: 'dsml', prompt: 'finish', signal: new AbortController().signal, emit: event => events.push(event) })
     expect(requests).toBe(2)
     expect(fallbacks).toBe(0)
-    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('format tool yang tidak valid') })
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('invalid tool format') })
     expect(events.filter(event => event.type === 'tool_end')).toEqual([])
     expect(events.filter(event => event.type === 'text_delta')).toEqual([])
     expect(JSON.stringify(session.snapshot())).not.toContain('do-not-execute')
@@ -162,7 +162,7 @@ describe('AgentSession', () => {
     await send('lanjutkan pekerjaan teks')
     expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
     expect(sent[0]?.flatMap((message) => message.content).some((block) => block.type === 'image')).toBe(false)
-    expect(events.some((event) => event.type === 'notice' && event.text.includes('Gambar'))).toBe(true)
+    expect(events.some((event) => event.type === 'notice' && event.text.includes('image input'))).toBe(true)
     session.useProvider(provider('vision-model'))
     await send('periksa gambar sebelumnya')
     expect(sent[1]?.flatMap((message) => message.content).some((block) => block.type === 'image')).toBe(true)
@@ -174,7 +174,7 @@ describe('AgentSession', () => {
     const session = new AgentSession(provider, allowAll, 'chat')
     await session.run({ runId: 'new-image', prompt: 'baca gambar ini', attachments: [{ type: 'image', mediaType: 'image/png', data: 'fixture' }], signal: new AbortController().signal, emit: (event) => events.push(event) })
     expect(called).toBe(false)
-    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('Gambar baru') })
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('A new image needs a vision model') })
   })
 
   it('can resume with a text model after a previous vision turn', async () => {
@@ -963,7 +963,9 @@ it('keeps the full transcript even when replay history is trimmed', async () => 
   await session.run({runId:'trim',prompt:'new prompt',signal:new AbortController().signal,emit:()=>{}})
   expect(provider.sent[0]).toHaveLength(2)
   expect(provider.sent[0]?.[0]?.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('Automatic context compaction') })
-  expect(session.snapshot().messages).toHaveLength(4)
+  // Old prompt, old answer, new prompt, the session-summary card, the reply.
+  expect(session.snapshot().messages).toHaveLength(5)
+  expect(session.snapshot().messages[3]?.content[0]).toMatchObject({ type: 'display', kind: 'summary' })
   expect(session.revertLastTurn()).toBe('new prompt')
   await session.run({runId:'replacement',prompt:'replacement',signal:new AbortController().signal,emit:()=>{}})
   expect(provider.sent[1]?.flatMap(message => message.content).filter(block => block.type === 'text').map(block => block.text)).toEqual([
@@ -1023,7 +1025,7 @@ describe('follow-ups sent while a run is working', () => {
     expect(followUpsIn(second)).toEqual([{ text: 'tambah juga README', during: true }])
     // The model may keep, correct, or replace the task according to the user.
     const framed = second.find((block) => block.type === 'text')
-    expect(framed?.type === 'text' ? framed.text : '').toMatch(/jika pengguna mengganti topik[\s\S]*fokus pada pesan ini[\s\S]*tambah juga README/)
+    expect(framed?.type === 'text' ? framed.text : '').toMatch(/if they changed topic[\s\S]*focus on this message[\s\S]*tambah juga README/)
     expect(events.filter((event) => event.type === 'end')).toEqual([
       { type: 'end', runId: 'run-1', reason: 'complete' }
     ])
@@ -1146,8 +1148,10 @@ describe('semantic compaction', () => {
     expect(provider.compactions[0]).toContain('ASSISTANT: first answered')
     expect(events).not.toContainEqual(expect.objectContaining({ type: 'notice', text: expect.stringContaining('context compacted') }))
     expect(events).toContainEqual(expect.objectContaining({ type: 'usage', subagent: true }))
-    // The record is never cut, only the replay.
-    expect(session.snapshot().messages).toHaveLength(6)
+    // The record is never cut, only the replay; the memory joins it as a
+    // folded session-summary card, and the viewers hear of it live.
+    expect(session.snapshot().messages).toHaveLength(7)
+    expect(events).toContainEqual(expect.objectContaining({ type: 'summary', text: expect.stringContaining('MODEL MEMORY') }))
   })
 
   it('falls back to the deterministic digest when the summary fails', async () => {
@@ -1483,7 +1487,7 @@ it('locally condenses oversized key-limited history once while preserving the or
   expect(sent.length).toBe(2)
   expect(JSON.stringify(sent[1]).length).toBeLessThan(JSON.stringify(sent[0]).length)
   expect(JSON.stringify(sent[1])).toContain('Current request remains intact.')
-  expect(events.some(event => event.type === 'notice' && event.text.includes('diringkas secara lokal'))).toBe(true)
+  expect(events.some(event => event.type === 'notice' && event.text.includes('condensed locally'))).toBe(true)
   expect(JSON.stringify(session.snapshot().messages)).toContain(oldText)
 })
 
@@ -1511,7 +1515,7 @@ it('reduces the replay again for the next route instead of refusing it on the fi
   expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
   // One line for the whole turn: the second route is reduced without another
   // identical notice in the transcript.
-  const lines = JSON.stringify(session.snapshot().messages).match(/Konteks melebihi batas request key/g) ?? []
+  const lines = JSON.stringify(session.snapshot().messages).match(/exceeded this key\u2019s request limit/g) ?? []
   expect(lines).toHaveLength(1)
 })
 
@@ -1529,7 +1533,7 @@ it('says the reduction line once per turn, and again in a later turn', async () 
   const send = (prompt: string) => session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: event => events.push(event) })
   await send('First request')
   await send('Second request')
-  const lines = JSON.stringify(session.snapshot().messages).match(/Konteks melebihi batas request key/g) ?? []
+  const lines = JSON.stringify(session.snapshot().messages).match(/exceeded this key\u2019s request limit/g) ?? []
   expect(lines).toHaveLength(2)
 })
 
@@ -1560,8 +1564,8 @@ it('does not carry an image rejection to another provider serving the same model
   const session = new AgentSession(rejecting, allowAll, 'chat', null, [{ role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }] }], 'route-images', { tools: [] })
   const send = (prompt: string) => session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: event => events.push(event) })
   await send('first')
-  expect(JSON.stringify(events)).toContain('Rute provider ini menolak input gambar')
-  expect(JSON.stringify(events)).not.toContain('Model ini hanya membaca teks')
+  expect(JSON.stringify(events)).toContain('This provider route refused image input')
+  expect(JSON.stringify(events)).not.toContain('This model reads text only')
   session.useProvider(vision)
   await send('second')
   expect(received).toEqual([true])
@@ -1710,5 +1714,55 @@ describe('plan mode', () => {
     await run(provider)
 
     expect(await readFile(path.join(root, 'built.txt'), 'utf8')).toBe('jadi')
+  })
+})
+
+describe('model hand-overs, project rules and replies', () => {
+  it('says in the transcript and live when rotation hands the turn to another model', async () => {
+    const limited: LLMProvider = { name: 'pool', model: 'model-a', async *chat() {
+      throw Object.assign(new Error('rate limited'), { status: 429 })
+    } }
+    const next: LLMProvider = { name: 'pool', model: 'model-b', async *chat() {
+      yield { type: 'response', response: turn([{ type: 'text', text: 'answered by b' }], 'end_turn') }
+    } }
+    const session = new AgentSession(limited, allowAll, 'chat', null, [], 'handover', { tools: [] })
+    session.useProvider(limited, () => next)
+    await session.run({ runId: 'h', prompt: 'hello', signal: new AbortController().signal, emit: event => events.push(event) })
+    expect(events).toContainEqual({ type: 'notice', runId: 'h', text: 'Switched from model-a to model-b: it was rate limited.' })
+    expect(events.filter(event => event.type === 'usage').map(event => event.type === 'usage' ? event.model : '')).toEqual(['model-b'])
+    expect(JSON.stringify(session.snapshot().messages)).toContain('Switched from model-a to model-b')
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
+  it('sends every project instruction file and rereads them when one changes', async () => {
+    await writeFile(path.join(root, 'AGENTS.md'), 'Rule from AGENTS.')
+    await writeFile(path.join(root, 'CLAUDE.md'), 'Rule from CLAUDE.')
+    const systems: string[] = []
+    const provider: LLMProvider = { name: 'fixture', model: 'fixture', async *chat(params) {
+      systems.push(params.system)
+      yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
+    } }
+    const session = new AgentSession(provider, allowAll, 'code', root)
+    const send = (prompt: string) => session.run({ runId: prompt, prompt, signal: new AbortController().signal, emit: () => {} })
+    await send('first')
+    expect(systems[0]).toContain('### AGENTS.md\n\nRule from AGENTS.')
+    expect(systems[0]).toContain('### CLAUDE.md\n\nRule from CLAUDE.')
+    await writeFile(path.join(root, 'CLAUDE.md'), 'Rule from CLAUDE, edited and longer.')
+    await send('second')
+    expect(systems[1]).toContain('Rule from CLAUDE, edited and longer.')
+    await writeFile(path.join(root, 'CLAUDE.md'), 'x'.repeat(20_000))
+    await send('third')
+    expect(systems[2]).toContain('project instructions truncated at 16,000 characters')
+  })
+
+  it('tells every main model to send tool calls, not work narration', async () => {
+    let system = ''
+    const provider: LLMProvider = { name: 'fixture', model: 'fixture', async *chat(params) {
+      system = params.system
+      yield { type: 'response', response: turn([{ type: 'text', text: 'ok' }], 'end_turn') }
+    } }
+    await new AgentSession(provider, allowAll, 'chat', null).run({ runId: 'n', prompt: 'hi', signal: new AbortController().signal, emit: () => {} })
+    expect(system).toContain('No work narration')
+    expect(system).toContain('the final answer, written once')
   })
 })

@@ -47,7 +47,7 @@ export function parseClaudeQuota(profile: unknown, usage: unknown): Pick<Subscri
 async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
   const key = JSON.stringify([account.id, account.createdAt, account.account])
   const base = { provider: account.id, label: account.label, authKind: account.kind, ...(account.account ? { account: account.account } : {}), checkedAt: Date.now() }
-  if (account.kind !== 'claude' && account.kind !== 'codex' && account.kind !== 'clinepass') return { ...base, status: 'unsupported', windows: [], error: 'Data batas paket dari layanan ini belum tersedia.' }
+  if (account.kind !== 'claude' && account.kind !== 'codex' && account.kind !== 'clinepass') return { ...base, status: 'unsupported', windows: [], error: 'Plan limit data is not available for this service yet.' }
   const previous = cache.get(key)
   if (previous && previous.retryAt > Date.now()) return { ...previous.value, label: account.label }
   const existing = pending.get(key)
@@ -57,13 +57,13 @@ async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
       const tokens = await ensureFreshAuthTokens(account.id)
       if (account.kind === 'clinepass') {
         const windows = parseClinePassQuota(await readClinePassUsage(tokens))
-        return { ...base, windows, plan: 'ClinePass', status: windows.length ? 'ok' : 'unavailable', checkedAt: Date.now(), ...(windows.length ? {} : { error: 'ClinePass tidak mengembalikan batas paket. Hubungkan akun melalui Sign in di Auth provider.' }) }
+        return { ...base, windows, plan: 'ClinePass', status: windows.length ? 'ok' : 'unavailable', checkedAt: Date.now(), ...(windows.length ? {} : { error: 'ClinePass returned no plan limits. Connect the account with Sign in under Auth provider.' }) }
       }
       if (account.kind === 'claude') {
         const raw = await readClaudeAccess(tokens)
         recordClaudeAccess(account.id, tokens, raw)
         const parsed = parseClaudeQuota(raw.profile, raw.usage)
-        return { ...base, ...parsed, status: raw.stale ? 'stale' : parsed.windows.length ? 'ok' : 'unavailable', checkedAt: raw.checkedAt ?? Date.now(), ...(raw.stale ? { error: 'Pembacaan Claude dibatasi sementara. Menampilkan data terakhir.' } : {}), ...(parsed.windows.length === 0 ? { error: 'Claude tidak mengembalikan data batas paket.' } : {}) }
+        return { ...base, ...parsed, status: raw.stale ? 'stale' : parsed.windows.length ? 'ok' : 'unavailable', checkedAt: raw.checkedAt ?? Date.now(), ...(raw.stale ? { error: 'Claude is rate limiting quota reads for now. Showing the last data.' } : {}), ...(parsed.windows.length === 0 ? { error: 'Claude returned no plan limit data.' } : {}) }
       }
       const response = await fetch('https://chatgpt.com/backend-api/wham/usage', {
         headers: { authorization: `Bearer ${tokens.accessToken}`, accept: 'application/json',
@@ -72,10 +72,10 @@ async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
       })
       if (!response.ok) throw Object.assign(new Error('Quota unavailable'), { status: response.status })
       const parsed = parseChatGPTQuota(await response.json())
-      return { ...base, ...parsed, status: parsed.windows.length ? 'ok' : 'unavailable', checkedAt: Date.now(), ...(parsed.windows.length === 0 ? { error: 'Layanan tidak mengembalikan data batas paket.' } : {}) }
+      return { ...base, ...parsed, status: parsed.windows.length ? 'ok' : 'unavailable', checkedAt: Date.now(), ...(parsed.windows.length === 0 ? { error: 'The service returned no plan limit data.' } : {}) }
     } catch (error) {
       const status = (error as { status?: number })?.status
-      const reason = status === 429 ? 'Layanan membatasi pembacaan kuota. Coba lagi nanti.' : `Kuota belum dapat dibaca${status ? ` (HTTP ${status})` : ''}. Periksa koneksi akun.`
+      const reason = status === 429 ? 'The service is rate limiting quota reads. Try again later.' : `The quota could not be read${status ? ` (HTTP ${status})` : ''}. Check the account connection.`
       if (previous?.value.windows.length) return { ...previous.value, label: account.label, status: 'stale', error: reason }
       return { ...base, status: 'unavailable', windows: [], error: reason }
     }
@@ -94,7 +94,7 @@ export async function getSubscriptionQuotas(): Promise<SubscriptionQuota[]> {
   const quotas = await Promise.all(accounts.map(accountQuota))
   const ids = new Set(accounts.map(account => account.id))
   for (const provider of listProviders()) {
-    if (!ids.has(provider.id) && provider.billing === 'subscription' && provider.credentialAvailable) quotas.push({ provider: provider.id, label: provider.label, checkedAt: Date.now(), status: 'unsupported', windows: [], error: 'Data batas paket dari layanan ini belum tersedia.' })
+    if (!ids.has(provider.id) && provider.billing === 'subscription' && provider.credentialAvailable) quotas.push({ provider: provider.id, label: provider.label, checkedAt: Date.now(), status: 'unsupported', windows: [], error: 'Plan limit data is not available for this service yet.' })
   }
   return quotas
 }

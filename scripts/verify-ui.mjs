@@ -1028,7 +1028,7 @@ try {
     window.__store.getState().sessions.flatMap((s) => s.messages)
       .filter((m) => m.role === 'user')
       .flatMap((m) => m.parts)
-      .filter((p) => p.kind === 'text' && p.text.startsWith('Lanjutkan pekerjaan')).length)
+      .filter((p) => p.kind === 'text' && p.text.startsWith('Continue directly from where you stopped')).length)
   check('resume: the continuation paragraph stays out of the transcript', typed === 0 ? 'hidden' : 'shown', 'hidden')
   await shot('21-resume-marker')
 
@@ -1066,7 +1066,7 @@ try {
   check('follow-up: the marker is grey', await followMarker.first().evaluate((el) => getComputedStyle(el).color), 'rgb(154, 154, 154)')
   check('follow-up: the instruction shows as sent',
     await window.locator('div.rounded-xl', { hasText: 'tambah ini' }).count() > 0 ? 'sent' : 'missing', 'sent')
-  await window.getByText(/Fixture reply: \[Pesan terbaru/).waitFor({ timeout: 15000 })
+  await window.getByText(/Fixture reply: \[New message from the user/).waitFor({ timeout: 15000 })
   await window.waitForTimeout(500)
   const followRun = await window.evaluate(() => {
     const state = window.__store.getState()
@@ -1131,16 +1131,16 @@ try {
   check('selecting a reply offers Balas', await balas.count(), 1)
   await balas.click(); await window.waitForTimeout(300)
   check('the quote lands above the composer',
-    await window.getByText('Membalas').count() > 0 ? 'shown' : 'missing', 'shown')
+    await window.getByText('Replying to').count() > 0 ? 'shown' : 'missing', 'shown')
   // A long passage must not swallow the composer, and the card dismisses like
   // the popup it looks like — clicking away, or Escape.
-  const card = window.locator('div').filter({ hasText: /^Membalas/ }).last()
+  const card = window.locator('div').filter({ hasText: /^Replying to/ }).last()
   check('the quoted passage is clamped', await card.locator('span.line-clamp-3').evaluate(
     (el) => getComputedStyle(el).webkitLineClamp), '3')
   await shot('23-reply-to-selection')
   await window.mouse.click(640, 200); await window.waitForTimeout(300)
   check('clicking away drops the quote',
-    await window.getByText('Membalas').count() === 0 ? 'dropped' : 'stuck', 'dropped')
+    await window.getByText('Replying to').count() === 0 ? 'dropped' : 'stuck', 'dropped')
   await window.evaluate(() => {
     const node = [...document.querySelectorAll('[data-transcript] div')].find(
       (el) => el.textContent.trim() === 'Fixture reply: kutip aku' && el.children.length === 0)
@@ -1155,7 +1155,7 @@ try {
   await window.getByRole('button',{name:'Balas',exact:true}).click(); await window.waitForTimeout(300)
   await window.keyboard.press('Escape'); await window.waitForTimeout(300)
   check('Escape drops the quote',
-    await window.getByText('Membalas').count() === 0 ? 'dropped' : 'stuck', 'dropped')
+    await window.getByText('Replying to').count() === 0 ? 'dropped' : 'stuck', 'dropped')
   // Put it back for the send check below.
   await window.evaluate(() => {
     const node = [...document.querySelectorAll('[data-transcript] div')].find(
@@ -1179,7 +1179,7 @@ try {
       .some((p) => p.kind === 'text' && p.text.startsWith('> Fixture reply: kutip aku') && p.text.includes('jelaskan ini')))
   check('the quote is sent with the prompt', quoted ? 'sent' : 'lost', 'sent')
   check('the quote chip clears after sending',
-    await window.locator('[data-composer-box]').getByText('Membalas').count() === 0 ? 'cleared' : 'stuck', 'cleared')
+    await window.locator('[data-composer-box]').getByText('Replying to').count() === 0 ? 'cleared' : 'stuck', 'cleared')
 
   // Pausing offers to take the last prompt back for editing.
   await composer().fill('slow please'); await composer().press('Enter')

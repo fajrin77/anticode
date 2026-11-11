@@ -482,7 +482,7 @@ it('explains CodeBuddy channel refusal without renewing tokens or exposing the r
     return new Response(JSON.stringify({ code: 11128, msg: 'request illegal', displayTips: { en: 'This call failed channel verification, possibly because it was not sent from an official client.' } }), { status: 400 })
   })
   const drain = async () => { for await (const _ of authProvider('auth:codebuddy-gate','default-model').chat({sessionId:'gate',system:'',messages:[],tools:[],maxTokens:16,signal:new AbortController().signal})) { /* consume */ } }
-  await expect(drain()).rejects.toMatchObject({ status: 403, message: expect.stringContaining('Renew token tidak mengatasi') })
+  await expect(drain()).rejects.toMatchObject({ status: 403, message: expect.stringContaining('Renewing the token does not lift') })
   expect(urls).toEqual(['https://www.codebuddy.ai/v2/chat/completions'])
 })
 

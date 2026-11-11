@@ -3,7 +3,7 @@ import type { JSX } from 'react'
 import type { AccessObservation, AccessProbeResult, AccessReport as Report, AccessSource, AccessState } from '@shared/ipc'
 
 const LABELS: Record<AccessState, string> = {
-  ready: 'Pernah berhasil', unknown: 'Belum teruji', quota: 'Habis kuota', auth: 'Login/key ditolak', restricted: 'Akses ditolak', cooldown: 'Cooldown', 'request-limit': 'Batas request', retry: 'Waktunya coba ulang', limited: 'Terbatas per model'
+  ready: 'Worked before', unknown: 'Not tested yet', quota: 'Out of quota', auth: 'Login or key refused', restricted: 'Access refused', cooldown: 'Cooldown', 'request-limit': 'Request limit', retry: 'Due for a retry', limited: 'Limited per model'
 }
 const BLOCKED = new Set<AccessState>(['quota', 'auth', 'restricted', 'cooldown'])
 function active(mark: AccessObservation, now: number): boolean { return !mark.retryAt || mark.retryAt > now }
@@ -43,18 +43,18 @@ export function AccessReport(): JSX.Element {
     <div className="glass-surface mt-4 overflow-hidden rounded-xl border border-line" data-access-report>
       <div className="border-b border-line-soft px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[13px] text-text">Status akun &amp; API key</h2>
+          <h2 className="text-[13px] text-text">Account &amp; API key status</h2>
           <button type="button" disabled={testing} onClick={() => void testAll()}
-            title="Kirim satu pesan kecil lewat setiap akun dan API key"
+            title="Send one small message through every account and API key"
             className="glass-control w-[104px] shrink-0 rounded-lg border px-3 py-1.5 text-center text-[12px] text-text transition-colors enabled:hover:text-brand disabled:text-faint">
-            {testing ? 'Menguji…' : 'Tes semua'}
+            {testing ? 'Testing…' : 'Test all'}
           </button>
         </div>
         {testError !== null && <p role="status" className="mt-2 text-[12px] text-del">{testError}</p>}
       </div>
-      {error && <p role="status" className="px-4 py-3 text-[12px] text-del">Laporan tidak dapat diperbarui.</p>}
+      {error && <p role="status" className="px-4 py-3 text-[12px] text-del">The report could not be refreshed.</p>}
       {!report && !error && <p className="px-4 py-3 text-[12px] text-faint">Loading account status…</p>}
-      {report?.groups.length === 0 && <p className="px-4 py-3 text-[12px] text-faint">Belum ada akun atau API key tersimpan.</p>}
+      {report?.groups.length === 0 && <p className="px-4 py-3 text-[12px] text-faint">No account or API key saved yet.</p>}
       {report?.groups.map(group => {
         const model = models[group.id] ?? ''
         const choices = [...new Set(group.sources.flatMap(row => row.observations.map(mark => mark.model).filter(Boolean)))].sort()
@@ -63,24 +63,24 @@ export function AccessReport(): JSX.Element {
         const usable = states.length - states.filter(state => BLOCKED.has(state)).length
         const tested = group.sources.map(row => tests[row.id]).filter((result): result is AccessProbeResult => result !== undefined)
         const facts = [
-          { text: `tes: ${tested.filter(result => result.ok).length} OK · ${tested.filter(result => !result.ok).length} gagal`, tone: tested.some(result => !result.ok) ? 'text-del' : 'text-dim', show: tested.length > 0 },
-          { text: `${usable} bisa dipakai`, tone: 'text-dim' },
-          { text: `${count('quota')} habis kuota`, tone: 'text-del', show: count('quota') > 0 },
-          { text: `${count('auth', 'restricted')} ditolak`, tone: 'text-del', show: count('auth', 'restricted') > 0 },
+          { text: `test: ${tested.filter(result => result.ok).length} OK · ${tested.filter(result => !result.ok).length} failed`, tone: tested.some(result => !result.ok) ? 'text-del' : 'text-dim', show: tested.length > 0 },
+          { text: `${usable} usable`, tone: 'text-dim' },
+          { text: `${count('quota')} out of quota`, tone: 'text-del', show: count('quota') > 0 },
+          { text: `${count('auth', 'restricted')} refused`, tone: 'text-del', show: count('auth', 'restricted') > 0 },
           { text: `${count('cooldown')} cooldown`, tone: 'text-faint', show: count('cooldown') > 0 },
-          { text: `${count('unknown')} belum teruji`, tone: 'text-faint', show: count('unknown') > 0 }
+          { text: `${count('unknown')} not tested`, tone: 'text-faint', show: count('unknown') > 0 }
         ].filter(fact => fact.show !== false)
         return (
           <details key={group.id} data-access-group={group.id} className="border-b border-line-soft last:border-b-0">
             <summary className="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 text-[12.5px] text-text transition-colors hover:text-brand">
               <span>{group.label}</span>
-              <span className="text-[11.5px] tabular-nums text-faint">{group.sources.length} {group.kind === 'keys' ? 'API key' : 'akun'}{model ? ' · model ini' : ''}</span>
+              <span className="text-[11.5px] tabular-nums text-faint">{group.sources.length} {group.kind === 'keys' ? (group.sources.length === 1 ? 'API key' : 'API keys') : (group.sources.length === 1 ? 'account' : 'accounts')}{model ? ' · this model' : ''}</span>
               <span className="ml-auto flex flex-wrap gap-x-3 text-[11.5px] tabular-nums">{facts.map(fact => <span key={fact.text} className={fact.tone}>{fact.text}</span>)}</span>
             </summary>
             <div className="border-t border-line-soft px-4 py-3">
               {choices.length > 0 && <label className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-faint">Model
-                <select aria-label={`Status model ${group.label}`} value={model} onChange={event => setModels(current => ({ ...current, [group.id]: event.target.value }))} className="max-w-full rounded-md border border-line bg-surface px-2 py-1 text-text">
-                  <option value="">Semua model / status akun</option>
+                <select aria-label={`Model status for ${group.label}`} value={model} onChange={event => setModels(current => ({ ...current, [group.id]: event.target.value }))} className="max-w-full rounded-md border border-line bg-surface px-2 py-1 text-text">
+                  <option value="">All models / account status</option>
                   {choices.map(id => <option key={id} value={id}>{id}</option>)}
                 </select>
               </label>}
@@ -93,11 +93,11 @@ export function AccessReport(): JSX.Element {
                     <span className={BLOCKED.has(state) ? 'text-del' : 'text-dim'}>{LABELS[state]}</span>
                   </div>
                   {tests[row.id] && <p data-access-test={tests[row.id]!.ok ? 'ok' : 'fail'} className={`mt-1 break-words text-[11px] ${tests[row.id]!.ok ? 'text-dim' : 'text-del'}`}>
-                    Tes {tests[row.id]!.model}: {tests[row.id]!.ok ? `OK · ${(tests[row.id]!.ms / 1000).toFixed(1)} dtk` : `gagal${tests[row.id]!.status ? ` (HTTP ${tests[row.id]!.status})` : ''} · ${tests[row.id]!.message ?? ''}`}
+                    Test {tests[row.id]!.model}: {tests[row.id]!.ok ? `OK · ${(tests[row.id]!.ms / 1000).toFixed(1)} s` : `failed${tests[row.id]!.status ? ` (HTTP ${tests[row.id]!.status})` : ''} · ${tests[row.id]!.message ?? ''}`}
                   </p>}
-                  {row.lastSuccessAt && <p className="mt-1 text-[11px] text-faint">Terakhir berhasil: {time(row.lastSuccessAt)}</p>}
+                  {row.lastSuccessAt && <p className="mt-1 text-[11px] text-faint">Last worked: {time(row.lastSuccessAt)}</p>}
                   {observations.map((mark, index) => <p key={`${mark.model}-${mark.scope}-${index}`} className="mt-1 break-words text-[11px] text-faint">
-                    {LABELS[mark.state]} · {mark.scope === 'account' ? 'seluruh akun/key' : mark.model} · {time(mark.checkedAt)}{mark.retryAt ? ` · coba ulang ${time(mark.retryAt)}` : mark.state === 'quota' ? ' · waktu reset belum diketahui' : ''}{!active(mark, report.checkedAt) ? ' · menunggu verifikasi ulang' : ''}
+                    {LABELS[mark.state]} · {mark.scope === 'account' ? 'whole account/key' : mark.model} · {time(mark.checkedAt)}{mark.retryAt ? ` · retry at ${time(mark.retryAt)}` : mark.state === 'quota' ? ' · reset time unknown' : ''}{!active(mark, report.checkedAt) ? ' · waiting to be checked again' : ''}
                   </p>)}
                 </div>
               })}</div>

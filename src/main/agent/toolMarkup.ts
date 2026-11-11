@@ -1,7 +1,7 @@
 /** Raw model control tokens are not executable tool calls. Never echo their payload. */
 export class ToolMarkupError extends Error {
   constructor() {
-    super('Model mengirim format tool yang tidak valid. Perintah dari teks tersebut tidak dijalankan. Pilih model lain atau coba kembali.')
+    super('The model sent an invalid tool format. The commands written as text were not run. Pick another model or try again.')
     this.name = 'ToolMarkupError'
   }
 }

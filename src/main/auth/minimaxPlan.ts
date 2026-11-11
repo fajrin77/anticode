@@ -7,7 +7,7 @@ export const MINIMAX_PLAN_MODELS = ['MiniMax-M3.1-Flash', 'MiniMax-M3', 'MiniMax
 /** Token Plan keys are separate from wallet/PAYG keys. Never substitute one for the other. */
 export async function loginMiniMaxPlan(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   const url = 'https://platform.minimax.io/console/plan'
-  callbacks.onUpdate({ message: 'Login ke MiniMax → Plan Details, salin Subscription Key (sk-cp) M Plan / Token Plan, lalu tempel di Anticode. Membuka dashboard saja belum menghubungkan akun.', url })
+  callbacks.onUpdate({ message: 'Sign in to MiniMax → Plan Details, copy the M Plan / Token Plan Subscription Key (sk-cp), then paste it into Anticode. Opening the dashboard alone does not connect the account.', url })
   void shell.openExternal(url)
   const key = (await callbacks.promptForCode('Paste your MiniMax Subscription Key (sk-cp) from Plan Details')).trim()
   callbacks.signal.throwIfAborted()
@@ -19,7 +19,7 @@ export async function loginMiniMaxPlan(callbacks: AuthLoginCallbacks): Promise<A
   if (data.base_resp?.status_code !== 0) {
     // MiniMax's own reason (not subscribed, wrong key, …) says more than a guess.
     const said = typeof data.base_resp?.status_msg === 'string' ? data.base_resp.status_msg.replace(/\s+/g, ' ').slice(0, 200) : ''
-    throw new Error(`MiniMax menolak Subscription Key ini${said ? `: ${said}` : ''} (kode ${data.base_resp?.status_code ?? '?'}). Pastikan M Plan / Token Plan aktif di Plan Details dan key disalin dari sana. Tidak ada fallback ke wallet/PAYG.`)
+    throw new Error(`MiniMax refused this Subscription Key${said ? `: ${said}` : ''} (code ${data.base_resp?.status_code ?? '?'}). Make sure M Plan / Token Plan is active in Plan Details and the key was copied from there. There is no fallback to wallet/PAYG.`)
   }
   const reported = Array.isArray(data.model_remains) ? data.model_remains.flatMap(row => typeof row.model_name === 'string' ? [row.model_name] : []) : []
   // M Plan shares one usage window across models and may list none (or only

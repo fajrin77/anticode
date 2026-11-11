@@ -51,8 +51,8 @@ export function withOpenCodeSession(model: string, baseURL: string, create: (hea
 
 function openCodeAccessError(error: unknown): unknown {
   const text = error instanceof Error ? error.message : String(error)
-  if (/free tier can only be used from within OpenCode/i.test(text)) return new ProviderRequestError('OpenCode membatasi Free ke aplikasi resminya. Login atau Renew di Anticode tidak membuka akses ini. Gunakan OpenCode resmi, atau pilih provider gratis lain yang sudah Anda hubungkan.', 403)
-  if (/active OpenCode Go subscription is required/i.test(text)) return new ProviderRequestError('Endpoint ini memerlukan subscription OpenCode Go aktif. Nama model dengan akhiran free tidak memberikan akses Go. Hubungkan key Go di Auth provider jika Anda memiliki paket tersebut.', 403)
+  if (/free tier can only be used from within OpenCode/i.test(text)) return new ProviderRequestError('OpenCode limits Free to its official app. Signing in or renewing in Anticode does not open this access. Use the official OpenCode, or pick another free provider you have connected.', 403)
+  if (/active OpenCode Go subscription is required/i.test(text)) return new ProviderRequestError('This endpoint needs an active OpenCode Go subscription. A model name ending in free does not grant Go access. Connect a Go key in Auth provider if you have that plan.', 403)
   return error
 }
 export class OpenCodeGoProvider implements LLMProvider {

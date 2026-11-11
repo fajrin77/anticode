@@ -151,7 +151,11 @@ function attachmentKey(attachment: AttachmentRef): string {
 
 function blockMarkdown(block: SnapshotBlock, links: Map<string, string> | null, folder: string): string {
   if (block.type === 'text') return block.text
-  if (block.type === 'display') return block.kind === 'error' ? `**Error:** ${block.text}` : `_${block.text}_`
+  if (block.type === 'display') {
+    if (block.kind === 'error') return `**Error:** ${block.text}`
+    if (block.kind === 'summary') return `> **Session summary**\n>\n${block.text.split('\n').map((line) => `> ${line}`).join('\n')}`
+    return `_${block.text}_`
+  }
   if (block.type === 'attachment') {
     const file = links?.get(attachmentKey(block.attachment))
     if (file === undefined) return `[Attachment: ${block.attachment.name}]`

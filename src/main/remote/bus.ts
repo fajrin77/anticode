@@ -50,12 +50,13 @@ export function sessionSnapshot(sessionId: string): SessionSnapshot | null {
  */
 const tallies = new Map<
   string,
-  { startedAt: number; model: string; inputTokens: number; outputTokens: number; turns: number; cost: number; partial: boolean }
+  { startedAt: number; model: string; models: string[]; inputTokens: number; outputTokens: number; turns: number; cost: number; partial: boolean }
 >()
 
 function tally(runId: string): {
   startedAt: number
   model: string
+  models: string[]
   inputTokens: number
   outputTokens: number
   turns: number
@@ -64,7 +65,7 @@ function tally(runId: string): {
 } {
   const existing = tallies.get(runId)
   if (existing !== undefined) return existing
-  const fresh = { startedAt: Date.now(), model: '', inputTokens: 0, outputTokens: 0, turns: 0, cost: 0, partial: false }
+  const fresh = { startedAt: Date.now(), model: '', models: [] as string[], inputTokens: 0, outputTokens: 0, turns: 0, cost: 0, partial: false }
   tallies.set(runId, fresh)
   return fresh
 }
@@ -84,6 +85,7 @@ function closeTally(runId: string, sessionId: string, keptReplyModel?: string, o
   const summary: RunSummary = {
     ...(outcome ? { outcome } : {}),
     model: entry.model !== '' ? entry.model : (keptReplyModel ?? ''),
+    ...(entry.models.length > 1 ? { models: [...entry.models] } : {}),
     durationMs: Date.now() - entry.startedAt,
     inputTokens: entry.inputTokens,
     outputTokens: entry.outputTokens,
@@ -157,6 +159,8 @@ export function forward(event: AgentEvent): void {
     // this session: it must not shift the one-summary-per-turn alignment.
     if (event.subagent !== true) {
       entry.model = event.model
+      // Each model that served the run, once, in the order it took over.
+      if (event.model !== '' && entry.models.at(-1) !== event.model) entry.models.push(event.model)
       entry.turns += 1
     }
   }

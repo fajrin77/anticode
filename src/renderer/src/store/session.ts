@@ -29,6 +29,8 @@ export type MessagePart =
   | { kind: 'notice'; text: string }
   /** Why a run stopped short, a provider or connection failure. Drawn in red. */
   | { kind: 'error'; text: string }
+  /** The memory earlier turns were folded into; drawn as a collapsed session-summary card. */
+  | { kind: 'summary'; text: string }
   | {
       kind: 'tool'
       toolUseId: string
@@ -313,6 +315,7 @@ interface SessionState {
   progressTool: (sessionId: string, toolUseId: string, text: string) => void
   /** The app noted something about a run in progress. */
   noticeInRun: (sessionId: string, messageId: string, text: string) => void
+  summaryInRun: (sessionId: string, messageId: string, text: string) => void
   /** The run failed; the reason stays under the reply, apart from what the model said. */
   errorInRun: (sessionId: string, messageId: string, text: string) => void
   /** The replay estimate after a compaction, until the next request measures it. */
@@ -1048,6 +1051,16 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         mapMessage(session, messageId, (message) => ({
           ...message,
           parts: [...message.parts, { kind: 'notice', text }]
+        }))
+      )
+    })),
+
+  summaryInRun: (sessionId, messageId, text) =>
+    set((state) => ({
+      sessions: mapSession(state, sessionId, (session) =>
+        mapMessage(session, messageId, (message) => ({
+          ...message,
+          parts: [...message.parts, { kind: 'summary', text }]
         }))
       )
     })),

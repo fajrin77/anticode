@@ -80,15 +80,15 @@ export class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-bg p-8 text-center">
         <div className="max-w-xl space-y-2">
-          <p className="text-[15px] font-medium text-text">Tampilan gagal dirender</p>
+          <p className="text-[15px] font-medium text-text">The view failed to render</p>
           <p className="text-[13px] text-dim">
-            Sesi Anda tetap aman di proses utama. Aplikasi biasanya pulih dengan dimuat ulang.
+            Your sessions are safe in the main process. Reloading usually recovers the app.
           </p>
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-raised p-3 text-left text-[12px] text-del">
             {error.message}
             {error.stack !== undefined ? `\n\n${error.stack.split('\n').slice(0, 6).join('\n')}` : null}
           </pre>
-          {looping ? <p className="text-[12px] text-faint">Tiga kali gagal dalam 30 detik, recover mode menyala.</p> : null}
+          {looping ? <p className="text-[12px] text-faint">Three failures within 30 seconds; recovery mode is on.</p> : null}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -96,7 +96,7 @@ export class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
             onClick={() => location.reload()}
             className="rounded-md px-3 py-1.5 text-[13px] text-text transition-colors hover:bg-raised hover:text-brand"
           >
-            Muat ulang
+            Reload
           </button>
           <button
             type="button"
@@ -109,7 +109,7 @@ export class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
             }}
             className="rounded-md px-3 py-1.5 text-[13px] text-dim transition-colors hover:bg-raised hover:text-brand"
           >
-            Muat ulang tanpa pemulihan sesi
+            Reload without restoring sessions
           </button>
         </div>
       </div>

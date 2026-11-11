@@ -226,6 +226,17 @@
   /* A line the app writes about itself, pausing, resuming. Left, grey, no
      bubble, exactly like a tool-group line. */
   .notice { padding: 8px 0; color: #9a9a9a; font-size: 14px; transition: color .15s; }
+  /* A finished reply reads as its answer: notes between steps fold away. */
+  .msg.folded .note { display: none; }
+  .msg:not(.folded) .foldonly { display: none; }
+  .notes-toggle { display: block; max-width: 100%; background: none; border: none; padding: 2px 0; color: #6d6d6d; font: inherit; font-size: 13px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: color .15s; }
+  .notes-toggle:active { color: #d1fa22; }
+  /* The memory a long session's earlier turns were condensed into. */
+  .sumcard { margin: 12px 0; border: 1px solid #303030; border-radius: 10px; }
+  .sumcard > summary { list-style: none; display: flex; gap: 10px; padding: 8px 12px; color: #9a9a9a; font-size: 13.5px; cursor: pointer; transition: color .15s; }
+  .sumcard > summary:active { color: #d1fa22; }
+  .sumcard summary::-webkit-details-marker { display: none; }
+  .sumcard .sumbody { border-top: 1px solid #303030; padding: 10px 14px; color: #9a9a9a; font-size: 14px; white-space: pre-wrap; }
   .notice:hover, .notice:active { color: #d1fa22; }
   /* The line that closes a run: model, a copy button, how long it took, and
      what it cost. Centred and faint, exactly as on the desktop. */
@@ -766,7 +777,7 @@
 <div class="composer hidden" id="inputRow">
   <div id="quoteRow" class="hidden">
     <span class="qbar"></span>
-    <span class="qtext"><span class="qlabel">Membalas</span><span class="qbody" id="quoteText"></span></span>
+    <span class="qtext"><span class="qlabel">Replying to</span><span class="qbody" id="quoteText"></span></span>
     <button class="qx" onclick="clearQuote()" aria-label="Remove quote">&times;</button>
   </div>
   <div id="planRow" class="hidden"></div>
@@ -931,7 +942,7 @@ async function pollApprovals() {
     // Deleted from the desktop while it was open here: leave rather than sit
     // on a session that no longer exists.
     if (exists === false) {
-      showError('Sesi ini sudah dihapus dari desktop.');
+      showError('This session was deleted on the desktop.');
       forgetLastSession();
       gotoSessions();
       return;
@@ -1433,7 +1444,7 @@ async function startSession() {
   const body = { mode: phoneMode };
   if (phoneMode === 'code') {
     body.folder = document.getElementById('folderInput').value.trim();
-    if (body.folder === '') { showError('Isi dulu folder proyeknya di Mac.'); return; }
+    if (body.folder === '') { showError('Enter the project folder on the Mac first.'); return; }
   }
   creatingSession = true;
   try {
@@ -1903,8 +1914,9 @@ function runSummaryEl(summary, said) {
   const row = document.createElement('div');
   row.className = 'runsum';
   const model = document.createElement('span');
-  const outcome = { interrupted: 'Dijeda', error: 'Terhenti karena kesalahan', max_tokens: 'Batas respons tercapai', refusal: 'Ditolak provider' }[summary.outcome];
-  model.textContent = (summary.model === '' ? 'done' : summary.model) + (outcome ? ' · ' + outcome : '');
+  const outcome = { interrupted: 'Paused', error: 'Stopped by an error', max_tokens: 'Response limit reached', refusal: 'Refused by the provider' }[summary.outcome];
+  const served = Array.isArray(summary.models) && summary.models.length > 1 ? summary.models.join(' \u2192 ') : (summary.model === '' ? 'done' : summary.model);
+  model.textContent = served + (outcome ? ' · ' + outcome : '');
   const copy = document.createElement('button');
   copy.className = 'copy';
   copy.title = 'Copy this reply';
@@ -1953,6 +1965,19 @@ function foldTurns(messages) {
 /** True when the transcript ends on a tool group whose last step is still running. */
 let tailRunning = false;
 
+/** The session summary: one grey line, the condensed memory behind it. */
+function summaryCardEl(text) {
+  const card = document.createElement('details');
+  card.className = 'sumcard';
+  const head = document.createElement('summary');
+  head.textContent = 'Session summary \u00b7 earlier turns were condensed';
+  const body = document.createElement('div');
+  body.className = 'sumbody';
+  appendRichText(body, text);
+  card.append(head, body);
+  return card;
+}
+
 function renderTranscript(messages, summaries) {
   const el = document.getElementById('transcript');
   el.innerHTML = '';
@@ -1969,7 +1994,9 @@ function renderTranscript(messages, summaries) {
       if (b.type === 'tool_result') results.set(b.toolUseId, b);
     }
   }
-  for (const m of foldTurns(messages)) {
+  const folded = foldTurns(messages);
+  const lastAssistant = folded.findLastIndex((turn) => turn.role === 'assistant');
+  for (const [turnAt, m] of folded.entries()) {
     tailRunning = false;
     if (m.role === 'user') {
       const files = m.blocks.filter((block) => block.type === 'attachment').map((block) => block.attachment);
@@ -1998,11 +2025,20 @@ function renderTranscript(messages, summaries) {
     const textBuf = [];
     const produced = [];
     let group = null;
+    // Settled turns fold their working notes: only the last text, the answer,
+    // stays in view, and the steps become one line under it, as on the desktop.
+    const settled = !(turnAt === lastAssistant && currentRunId !== null);
+    const texts = [];
+    { let buf = ''; for (const b of m.blocks) { if (b.type === 'text') buf += b.text; else if (b.type === 'tool_use' || b.type === 'display') { if (buf.trim() !== '') texts.push(buf); buf = ''; } } if (buf.trim() !== '') texts.push(buf); }
+    let textSeen = 0;
+    const foldable = settled && texts.length > 1;
     const flushText = () => {
       const text = textBuf.join('').trim();
       if (text !== '') {
         const p = document.createElement('div');
         p.style.whiteSpace = 'pre-wrap';
+        textSeen += 1;
+        if (settled && textSeen < texts.length) p.classList.add('note');
         appendRichText(p, text);
         div.appendChild(p);
         tailRunning = false;
@@ -2011,12 +2047,33 @@ function renderTranscript(messages, summaries) {
     };
     const flushGroup = () => {
       if (group === null) return;
-      div.appendChild(toolGroupEl(group));
+      const el = toolGroupEl(group);
+      if (settled) el.classList.add('note');
+      div.appendChild(el);
       tailRunning = group.some((item) => item.result === undefined);
       group = null;
     };
+    if (foldable) {
+      const toggle = document.createElement('button');
+      toggle.className = 'notes-toggle note-toggle';
+      const count = texts.length - 1;
+      toggle.textContent = (count === 1 ? '1 working note' : count + ' working notes') + ' \u00b7 show';
+      toggle.onclick = () => {
+        div.classList.toggle('folded');
+        toggle.textContent = div.classList.contains('folded')
+          ? (count === 1 ? '1 working note' : count + ' working notes') + ' \u00b7 show'
+          : 'hide working notes';
+      };
+      div.appendChild(toggle);
+    }
+    if (settled) div.classList.add('folded');
     for (const b of m.blocks) {
       if (b.type === 'text') { flushGroup(); textBuf.push(b.text); continue; }
+      if (b.type === 'display' && b.kind === 'summary') {
+        flushGroup(); flushText();
+        div.appendChild(summaryCardEl(b.text));
+        continue;
+      }
       if (b.type === 'display') {
         flushGroup(); flushText();
         const state = document.createElement('div');
@@ -2034,6 +2091,11 @@ function renderTranscript(messages, summaries) {
     }
     flushGroup();
     flushText();
+    if (settled && produced.length > 0) {
+      const all = toolGroupEl(produced);
+      all.classList.add('foldonly');
+      div.appendChild(all);
+    }
     const chat = lastSessions.find((entry) => entry.id === currentSession)?.mode === 'chat';
     for (const target of documentsProduced(produced, chat)) {
       div.appendChild(artifactEl(currentSession, target));
@@ -2141,6 +2203,11 @@ async function applyStreamEvent(id, event) {
     else if (event.type === 'tool_end') { liveToolEnd(event.toolUseId, event.ok, event.output, event.diff); }
     else if (event.type === 'queue') { if (currentSession === id) renderQueue(event.items); }
     else if (event.type === 'notice') { currentRunId = event.runId; liveEl = null; liveRun = null; appendNotice(event.text); }
+    else if (event.type === 'summary') {
+      currentRunId = event.runId; liveEl = null; liveRun = null;
+      document.getElementById('transcript').appendChild(summaryCardEl(event.text));
+      followBottom();
+    }
     else if (event.type === 'end' || event.type === 'error') {
       if (event.type === 'error' && event.retryable === true) pausedSessions.add(id);
       steerAnchor = null;
@@ -2778,7 +2845,7 @@ const PAUSE_LABEL = 'Paused.';
 const RESUME_LABEL = 'Resumed.';
 const FOLLOW_UP_LABEL = 'Follow-up added.';
 /* What a resume actually asks for; the transcript shows RESUME_LABEL instead. */
-const CONTINUE_PROMPT = 'Lanjutkan langsung dari titik terakhir tanpa pembuka seperti “lanjutan”. Jangan ulangi langkah yang sudah selesai. Jika fragmen kata terakhir belum lengkap, tulis hanya sambungan yang hilang lalu teruskan.';
+const CONTINUE_PROMPT = 'Continue directly from where you stopped, without an opener such as “continuing”. Do not repeat steps that are already done. If the last word was cut off, write only the missing part and carry on.';
 async function resumeSession() { await submitPrompt(CONTINUE_PROMPT); }
 
 function appendNotice(text) {

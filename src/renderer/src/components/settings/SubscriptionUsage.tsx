@@ -26,7 +26,7 @@ export function SubscriptionUsage(): JSX.Element {
       const result = await window.anticode.getSubscriptionQuotas()
       if (mounted.current) { setQuotas(result); setError(null); setNow(Date.now()) }
     } catch {
-      if (mounted.current) setError('Belum dapat memperbarui kuota. Data terakhir tetap ditampilkan.')
+      if (mounted.current) setError('Could not refresh the quota. The last data is still shown.')
     } finally { loading.current = false; if (mounted.current) setBusy(false) }
   }, [])
   useEffect(() => {
@@ -42,22 +42,22 @@ export function SubscriptionUsage(): JSX.Element {
     if (!groups.has(id)) groups.set(id, { label: quota.authKind ? LABELS[quota.authKind] : quota.label, accounts: [] })
     groups.get(id)!.accounts.push(quota)
   }
-  return <section className="glass-surface mb-5 overflow-hidden rounded-xl border border-line" aria-label="Batas penggunaan paket" data-subscription-usage>
+  return <section className="glass-surface mb-5 overflow-hidden rounded-xl border border-line" aria-label="Plan usage limits" data-subscription-usage>
     <div className="flex items-start justify-between gap-3 px-4 py-3">
-      <h2 className="text-[13.5px] text-text">Batas penggunaan paket</h2>
-      <button type="button" aria-label="Perbarui kuota subscription" disabled={busy} onClick={() => void refresh()} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim hover:text-brand disabled:text-faint">{busy ? 'Memperbarui…' : 'Perbarui'}</button>
+      <h2 className="text-[13.5px] text-text">Plan usage limits</h2>
+      <button type="button" aria-label="Refresh subscription quotas" disabled={busy} onClick={() => void refresh()} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim hover:text-brand disabled:text-faint">{busy ? 'Refreshing…' : 'Refresh'}</button>
     </div>
     {error && <p role="status" className="px-4 pb-3 text-[12px] text-amber-400">{error}</p>}
-    {quotas === null && !error && <p className="px-4 pb-4 text-[12px] text-faint">Membaca kuota paket…</p>}
-    {quotas?.length === 0 && <p className="px-4 pb-4 text-[12px] text-faint">Belum ada akun subscription terhubung. Tambahkan akun melalui Auth provider.</p>}
+    {quotas === null && !error && <p className="px-4 pb-4 text-[12px] text-faint">Reading plan quotas…</p>}
+    {quotas?.length === 0 && <p className="px-4 pb-4 text-[12px] text-faint">No subscription account connected yet. Add one in Auth provider.</p>}
     {[...groups].sort(([, a], [, b]) => Number(b.accounts.some(q => q.status !== 'unsupported')) - Number(a.accounts.some(q => q.status !== 'unsupported'))).map(([id, group]) => <details key={id} open={openGroups[id] === true} onToggle={(event) => { const isOpen = event.currentTarget.open; openState = { ...openState, [id]: isOpen }; setOpenGroups(state => state[id] === isOpen ? state : { ...state, [id]: isOpen }) }} className="border-t border-line-soft" data-quota-group={id}>
-      <summary className="cursor-pointer px-4 py-3 text-[13px] text-text">{group.label}<span className="ml-2 text-[12px] text-faint">{group.accounts.length} akun</span></summary>
+      <summary className="cursor-pointer px-4 py-3 text-[13px] text-text">{group.label}<span className="ml-2 text-[12px] text-faint">{group.accounts.length} {group.accounts.length === 1 ? 'account' : 'accounts'}</span></summary>
       <div className="space-y-3 px-4 pb-4">{group.accounts.map(quota => <div key={quota.provider} className="rounded-lg border border-line-soft bg-surface/30 px-4 py-3" data-quota-account={quota.provider}>
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 className="min-w-0 break-words text-[12.5px] text-dim">{quota.account ?? quota.label}{quota.plan && <span className="ml-2 capitalize text-faint">· {quota.plan}</span>}</h3>
-          {quota.status !== 'unsupported' && <time dateTime={new Date(quota.checkedAt).toISOString()} title={new Date(quota.checkedAt).toLocaleString()} className="text-[11px] text-faint">{quota.status === 'stale' || error ? 'Data terakhir' : 'Diperbarui'} {new Date(quota.checkedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</time>}
+          {quota.status !== 'unsupported' && <time dateTime={new Date(quota.checkedAt).toISOString()} title={new Date(quota.checkedAt).toLocaleString()} className="text-[11px] text-faint">{quota.status === 'stale' || error ? 'Last data' : 'Updated'} {new Date(quota.checkedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</time>}
         </div>
-        {quota.error && <p role="status" className={`mt-2 text-[12px] ${quota.status === 'unsupported' ? 'text-faint' : 'text-amber-400'}`}>{quota.error}{quota.status === 'stale' ? ' Menampilkan data terakhir.' : ''}</p>}
+        {quota.error && <p role="status" className={`mt-2 text-[12px] ${quota.status === 'unsupported' ? 'text-faint' : 'text-amber-400'}`}>{quota.error}{quota.status === 'stale' ? ' Showing the last data.' : ''}</p>}
         {quota.windows.map((window, index) => {
           const label = quotaWindowLabel(window.label)
           const used = window.usedPercent === null || !Number.isFinite(window.usedPercent) ? null : Math.max(0, Math.min(100, window.usedPercent))
@@ -65,7 +65,7 @@ export function SubscriptionUsage(): JSX.Element {
             <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px]">
               <span className="text-text">{label}</span><span className="ml-auto text-right text-faint" title={window.resetAt === null ? undefined : new Date(window.resetAt).toLocaleString()}>{quotaResetLabel(window.resetAt, now)}<span className="ml-3 tabular-nums">{used === null ? '—' : `${Math.round(used)}%`}</span></span>
             </div>
-            <div role="progressbar" aria-label={`${quota.account ?? quota.label} · ${label}`} aria-valuemin={0} aria-valuemax={100} {...(used === null ? { 'aria-valuetext': 'Persentase pemakaian belum tersedia' } : { 'aria-valuenow': used, 'aria-valuetext': `${Math.round(used)}% terpakai${quota.status === 'stale' || error ? ' · data terakhir' : ''}` })} className="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div role="progressbar" aria-label={`${quota.account ?? quota.label} · ${label}`} aria-valuemin={0} aria-valuemax={100} {...(used === null ? { 'aria-valuetext': 'Usage percentage not available yet' } : { 'aria-valuenow': used, 'aria-valuetext': `${Math.round(used)}% used${quota.status === 'stale' || error ? ' · last data' : ''}` })} className="h-1.5 overflow-hidden rounded-full bg-white/10">
               {used !== null && <div className={`h-full rounded-full ${used >= 95 ? 'bg-red-400' : used >= 80 ? 'bg-amber-400' : 'bg-blue-500'}`} style={{ width: `${used}%` }} />}
             </div>
           </div>

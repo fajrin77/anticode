@@ -329,7 +329,7 @@ class AuthProvider implements LLMProvider {
         throw Object.assign(new Error(reason), { status: 403 })
       }
       if (this.kind === 'codebuddy' && isCodebuddyChannelRestriction(error)) {
-        throw new ProviderRequestError('CodeBuddy menolak verifikasi kanal aplikasi (11128). Akses Anticode belum diizinkan oleh provider. Renew token tidak mengatasi pembatasan ini; gunakan klien resmi CodeBuddy atau integrasi publik yang didukung.', 403)
+        throw new ProviderRequestError('CodeBuddy refused the app channel verification (11128). The provider has not allowed Anticode access. Renewing the token does not lift this restriction; use the official CodeBuddy client or a supported public integration.', 403)
       }
       if (produced || !isExpiredToken(error)) throw error
     }

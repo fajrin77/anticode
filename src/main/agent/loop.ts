@@ -4,7 +4,7 @@ import { ToolMarkupError, ToolMarkupGuard } from './toolMarkup'
 import { InputRequestLimitError, requestLimit } from '../providers/requestLimits'
 import { safeProviderErrorMessage } from '../providers/errorMessage'
 import { createHash, randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { CheckpointStore } from '../checkpoints'
@@ -29,7 +29,7 @@ import { SessionToolCatalog } from '../tools/catalog'
 import { modelTools, editingGuidance } from '../tools/modelProfile'
 import { patchPaths } from '../tools/applyPatch'
 import { isOutOfUsage } from '../usageErrors'
-import { isTransient, canFailOver, isTransportFailure } from '../providers/failures'
+import { isTransient, canFailOver, isTransportFailure, failureStatus } from '../providers/failures'
 import { modelCannotSeeImages, modelIsBatchOnly } from '@shared/ipc'
 import { ProviderRequestError } from '../providers/requestError'
 import { publishedContextWindow } from '../pricing'
@@ -62,6 +62,9 @@ const STUB_MIN_LENGTH = STUB_CHARS + 400
 /** Leave room for the system prompt, tool schemas, and the next response. */
 const DEFAULT_COMPACTION_TARGET = Math.floor(MAX_HISTORY_TOKENS * 0.72)
 const MEMORY_MAX_CHARS = 12_000
+/** Project instruction files, all of them, in this order; together at most this long. */
+const PROJECT_INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', '.anticode.md']
+const PROJECT_INSTRUCTIONS_MAX_CHARS = 16_000
 /** How much of the dropped turns the model is shown when it writes the memory. */
 const COMPACTION_INPUT_CHARS = 160_000
 const COMPACTION_MAX_TOKENS = 4_096
@@ -192,9 +195,9 @@ export interface AgentOptions {
  * follow that intent instead of being forced back onto the original task. */
 function framedFollowUp(text: string): string {
   return (
-    '[Pesan terbaru dari pengguna, dikirim saat kamu masih mengerjakan permintaan sebelumnya. ' +
-    'Ikuti maksud terbaru pengguna: jika ini tambahan, gabungkan; jika ini koreksi, ubah arah; ' +
-    'jika pengguna mengganti topik atau meminta pekerjaan berbeda, hentikan pekerjaan lama dan fokus pada pesan ini.]\n\n' +
+    '[New message from the user, sent while you were still working on the previous request. ' +
+    'Follow their latest intent: if it adds to the task, fold it in; if it corrects you, change course; ' +
+    'if they changed topic or asked for different work, stop the old work and focus on this message.]\n\n' +
     text
   )
 }
@@ -280,7 +283,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
     const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
     const onAbort = (): void => {
       clearTimeout(timer)
-      reject(new Error('dibatalkan'))
+      reject(new Error('Cancelled by the user'))
     }
     if (signal.aborted) {
       onAbort()
@@ -333,7 +336,8 @@ export class AgentSession {
    * last word instead of paying to write the whole reply again.
    */
   private streamed = ''
-  private projectInstructions: string | null | undefined
+  /** The project's instruction files as last read, keyed by their sizes and mtimes. */
+  private projectInstructions: { key: string; text: string | null } | null = null
   /** Instructions sent while a run was working, waiting for its next step. */
   private followUps: FollowUp[] = []
   private activeSignal: AbortSignal | null = null
@@ -602,7 +606,7 @@ export class AgentSession {
           if (alike >= MAX_ALIKE_NARRATIONS) {
             recentNarrations.length = 0
             if (narrationNudges++ >= 2) throw new Error('Stopped a repeated narration loop: the same progress statement kept returning after recovery guidance. Existing results are saved; choose a different action to continue.')
-            params.emit({ type: 'notice', runId, text: 'Agen mengulang pernyataan yang sama. Diarahkan untuk langsung bertindak atau melaporkan hambatan.' })
+            params.emit({ type: 'notice', runId, text: 'The agent kept repeating the same progress statement. It was told to act or report the blocker.' })
             this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[You have repeated the same progress statement several times. Stop announcing what you will do. Use the results already in this history and make the next concrete tool call, or give the final report naming the specific blocker.]' }] })
           }
         }
@@ -617,7 +621,7 @@ export class AgentSession {
         const hasNewEvidence = work.some(fingerprint => !observed.has(fingerprint))
         if (!hasNewEvidence && work.some(fingerprint => recentToolRounds.filter(round => round.includes(fingerprint)).length >= MAX_IDENTICAL_TOOL_ROUNDS)) {
           if (loopRecoveries++ > 0) throw new Error('Stopped a repeated tool loop: unchanged checks continued after recovery guidance. Existing results are saved; choose a different action to continue.')
-          const text = 'Pemeriksaan berulang tidak memberi bukti baru. Agen diarahkan memakai hasil yang sudah ada dan melanjutkan dengan tindakan berbeda.'
+          const text = 'Repeated checks produced no new evidence. The agent was told to use the results it has and take a different action.'
           params.emit({ type: 'notice', runId, text })
           this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[Repeated checks produced no new evidence. Stop repeating those calls. Use the results already in this history, update the task state, and take a different concrete action toward completion. Do not restart analysis or repeat a progress promise. Report a specific blocker only if no authorized action can advance the task.]' }] })
         }
@@ -697,7 +701,7 @@ export class AgentSession {
           correctedToolMarkup = true
           this.keepInterruptedReply()
           this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[Your previous response used raw DSML control markup in ordinary text. That response did not execute any tools. Use only the native structured tool-call interface supplied in this request. Do not print control markup or command payloads as prose. Continue from the confirmed tool results already in the conversation; do not repeat completed actions. If no tool is needed, answer normally.]' }] })
-          params.emit({ type: 'notice', runId: params.runId, text: 'Format pemanggilan tool tidak valid. Meminta model mengirim ulang melalui tool yang tersedia; perintah dari teks tidak dijalankan.' })
+          params.emit({ type: 'notice', runId: params.runId, text: 'Invalid tool-call format. The model was asked to resend through the available tools; commands written as text were not run.' })
           continue
         }
         // Words already shown cannot be taken back: another attempt, or
@@ -707,7 +711,7 @@ export class AgentSession {
           if (attempt >= retryBudget(error) || !isTransient(error) || isOutOfUsage(error)) throw error
           this.keepInterruptedReply()
           this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[The connection interrupted the response. Resume from the last confirmed tool results and the partial text above. Do not repeat completed actions or restart the explanation. Finish the remaining work.]' }] })
-          params.emit({ type: 'notice', runId: params.runId, text: 'Koneksi terputus sementara. Melanjutkan dari hasil terakhir yang tersimpan.' })
+          params.emit({ type: 'notice', runId: params.runId, text: 'The connection dropped for a moment. Continuing from the last saved results.' })
           await delay(retryDelay(error, attempt), params.signal)
           continue
         }
@@ -732,8 +736,8 @@ export class AgentSession {
           if (removedImages || condensedText) {
             this.payloadReducedRoutes.add(this.imageRouteKey())
             const text = removedImages
-              ? 'Ukuran request melebihi batas provider. Gambar historis tidak dikirim ulang; gambar terbaru, transkrip asli dan hasil tool tetap tersimpan. Mencoba sekali dengan replay lebih kecil tanpa pindah ke rute berbayar.'
-              : 'Ukuran request melebihi batas provider. Riwayat teks diringkas secara lokal untuk satu percobaan ulang; instruksi terbaru, identitas tool dan transkrip asli tetap tersimpan. Tidak pindah ke rute berbayar.'
+              ? 'The request exceeded the provider\u2019s size limit. Earlier images were not sent again; the latest images, the original transcript and the tool results are kept. Trying once with a smaller replay, without moving to a paid route.'
+              : 'The request exceeded the provider\u2019s size limit. The text history was condensed locally for one retry; the latest instructions, tool identities and the original transcript are kept. Not moving to a paid route.'
             this.recordDisplay('notice', text)
             params.emit({ type: 'notice', runId: params.runId, text })
             continue
@@ -759,15 +763,37 @@ export class AgentSession {
         // waited out. Only once every one has failed do the retries below run.
         const next = this.fallback?.(error) ?? null
         if (next !== null) {
+          const from = this.provider.model
           this.provider = next
+          this.sayHandOver(params, from, next, error)
           attempt = -1
           continue
         }
         if (attempt >= retryBudget(error) || !isTransient(error)) throw error
-        if (attempt === 0) params.emit({ type: 'notice', runId: params.runId, text: 'Provider mengalami gangguan sementara. Request dicoba kembali otomatis dengan jeda; pekerjaan yang sudah selesai tetap tersimpan.' })
+        if (attempt === 0) params.emit({ type: 'notice', runId: params.runId, text: 'The provider had a temporary failure. The request is retried automatically after a pause; finished work is kept.' })
         await delay(retryDelay(error, attempt), params.signal)
       }
     }
+  }
+
+  /**
+   * Rotation handed this turn to another model. Said once per hand-over, in
+   * the transcript and live, so a reply never changes author in silence.
+   */
+  private sayHandOver(params: RunParams, from: string, next: LLMProvider, error: unknown): void {
+    const status = failureStatus(error)
+    const why = isOutOfUsage(error) ? 'its quota ran out'
+      : status === 429 ? 'it was rate limited'
+        : status === 401 ? 'its login was refused'
+          : requestLimit(error) !== null ? 'the request was too large for it'
+            : isTransportFailure(error) ? 'the connection to it dropped'
+              : 'it returned an error'
+    const previous = from === '' ? 'The previous model' : from
+    const text = next.model === ''
+      ? `${previous} is unavailable (${why}). Waiting for a model in Rotate usage to recover.`
+      : `Switched from ${previous} to ${next.model}: ${why}.`
+    this.recordDisplay('notice', text)
+    params.emit({ type: 'notice', runId: params.runId, text })
   }
 
   private allowanceKey(): string {
@@ -804,7 +830,7 @@ export class AgentSession {
         : kept
       if (replayCost(candidate) >= before || replayCost(candidate) > budget) continue
       this.history.splice(0, this.history.length, ...candidate)
-      const text = 'Konteks melebihi batas request key. Riwayat dan hasil tool diringkas secara lokal untuk satu percobaan ulang; transkrip asli dan hasil pekerjaan tetap tersimpan.'
+      const text = 'The context exceeded this key\u2019s request limit. The history and tool results were condensed locally for one retry; the original transcript and the work are kept.'
       // A transcript that shows the same line twice reads as a fault. The
       // retry still happens; only the repeated line is left out.
       if (this.saidThisTurn.has(text)) return true
@@ -828,14 +854,14 @@ export class AgentSession {
     const latest = this.history.findLastIndex((message) => isTypedPrompt(message) || message.role === 'user' && message.content.some((block) => block.type === 'text' && block.text === CONTINUE_PROMPT))
     const messages = this.history.map((message, index) => ({ ...message, content: message.content.map((block): ContentBlock => {
       if (block.type !== 'image') return block
-      if (index >= latest && !rejected) throw new ProviderRequestError('Model ini hanya membaca teks. Gambar baru membutuhkan model vision; pilih model vision atau kirim pertanyaan teks berikutnya.', 400)
+      if (index >= latest && !rejected) throw new ProviderRequestError('This model reads text only. A new image needs a vision model; pick one, or send a text question next.', 400)
       return { type: 'text', text: '[Earlier image retained in the conversation but unavailable to this text-only model. Use only the existing textual evidence; do not invent image details.]' }
     }) }))
     if (this.replayNoticeModel !== this.imageRouteKey() && this.history.some((message) => message.content.some((block) => block.type === 'image'))) {
       this.replayNoticeModel = this.imageRouteKey()
       const text = rejected
-        ? 'Rute provider ini menolak input gambar. Gambar tidak dikirim ulang ke rute ini, tetapi tetap tersimpan dalam percakapan. Penolakan ini tidak berlaku otomatis pada provider lain dengan nama model yang sama.'
-        : 'Rute yang dipilih tidak mendukung input gambar. Gambar terdahulu tetap tersimpan, tetapi tidak dikirim ke rute ini; pilih rute vision untuk memeriksanya kembali.'
+        ? 'This provider route refused image input. Images are not sent to it again but stay in the conversation. Another provider with the same model name is not assumed to refuse them.'
+        : 'The selected route does not accept image input. Earlier images are kept but not sent to it; pick a vision route to look at them again.'
       this.recordDisplay('notice', text)
       params.emit({ type: 'notice', runId: params.runId, text })
     }
@@ -852,7 +878,7 @@ export class AgentSession {
       params.emit({ type: 'text_delta', runId: params.runId, text })
     }
 
-    if (modelIsBatchOnly(this.provider.model)) throw new ProviderRequestError('Model batch tidak mendukung chat interaktif. Pilih model tanpa akhiran :batch.', 400)
+    if (modelIsBatchOnly(this.provider.model)) throw new ProviderRequestError('Batch models do not support interactive chat. Pick a model without the :batch suffix.', 400)
     const messages = this.requestMessages(params)
     const iterator = this.provider.chat({
       sessionId: this.scope, system: this.systemPrompt(), messages,
@@ -977,9 +1003,10 @@ export class AgentSession {
       outputTokens: usage.outputTokens,
       ...(usage.cachedTokens !== undefined && usage.cachedTokens > 0 ? { cachedTokens: usage.cachedTokens } : {}),
       subagent: true
-    }))
-    // Automatic compaction is maintenance, not a conversation event. Keep it
-    // silent so the transcript flows directly from the prompt into the work.
+    }), (text) => params.emit({ type: 'summary', runId: params.runId, text }))
+    // Compaction is maintenance, not a conversation event: no line in the
+    // flow of the reply, only a folded session-summary card the reader can
+    // open to see what the model now remembers of the earlier turns.
   }
 
   /**
@@ -1005,11 +1032,15 @@ export class AgentSession {
     }
   }
 
-  private async replaceWithMemory(cut: number, compactTarget: number, signal: AbortSignal, onUsage?: (usage: Usage) => void): Promise<void> {
+  private async replaceWithMemory(cut: number, compactTarget: number, signal: AbortSignal, onUsage?: (usage: Usage) => void, onSummary?: (text: string) => void): Promise<void> {
     const memory = await this.writeMemory(this.history.slice(0, cut), signal, onUsage)
     this.history.splice(0, cut)
     if (memory === '') return
     this.history.unshift({ role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${memory}` }] })
+    // The same memory, kept in the transcript as a folded card: the session
+    // summary a long conversation shows, on the desktop and the phone alike.
+    this.recordDisplay('summary', memory)
+    onSummary?.(memory)
     // A verbose summary must never put replay back over the cliff.
     while (this.history.length > 1 && replayCost(this.history) > compactTarget) {
       const boundary = this.history.findIndex((message, index) => index > 1 && isPlainPrompt(message))
@@ -1094,8 +1125,8 @@ export class AgentSession {
       return this.finishCall(
         params,
         call.id,
-        `Plan mode: ${tool.name} tidak dijalankan. Rencanakan saja tanpa mengubah file; ` +
-          'isi rencananya, lalu tunggu persetujuan pengguna sebelum mengerjakan.',
+        `Plan mode: ${tool.name} was not run. Plan only, without changing files; ` +
+          'write out the plan, then wait for the user\u2019s approval before doing the work.',
         true
       )
     }
@@ -1172,7 +1203,8 @@ export class AgentSession {
       // the same global and session instructions as the run that sent it.
       ...(this.options.instructions !== undefined ? { instructions: this.options.instructions } : {})
     })
-    child.projectInstructions = this.loadProjectInstructions()
+    this.loadProjectInstructions()
+    child.projectInstructions = this.projectInstructions
     let calls = 0
     // Held in an object: assignments inside the emit callback are invisible to
     // control-flow narrowing, which would otherwise pin it to null.
@@ -1237,7 +1269,7 @@ export class AgentSession {
   }
 
   /** Adds durable UI state without feeding it back to the model. */
-  private recordDisplay(kind: 'notice' | 'error', text: string): void {
+  private recordDisplay(kind: 'notice' | 'error' | 'summary', text: string): void {
     this.saidThisTurn.add(text)
     const last = this.transcript.at(-1)
     if (last?.role === 'assistant') {
@@ -1273,26 +1305,39 @@ export class AgentSession {
     })
   }
 
-  /** Read the project's own instructions once per session, refreshed lazily. */
+  /**
+   * The project's own instructions: every instruction file it has, AGENTS.md,
+   * CLAUDE.md and .anticode.md, one after the other, each under its name. Read
+   * again whenever one of them changes on disk, so an edit applies from the
+   * next step, and cut as a whole at a visible limit rather than silently.
+   */
   private loadProjectInstructions(): string | null {
-    if (this.projectInstructions !== undefined || this.workspaceRoot === null) {
-      return this.projectInstructions ?? null
-    }
-    this.projectInstructions = null
-    for (const name of ['AGENTS.md', 'CLAUDE.md', '.anticode.md']) {
+    if (this.workspaceRoot === null) return null
+    const key = PROJECT_INSTRUCTION_FILES.map((name) => {
+      try {
+        const stat = statSync(`${this.workspaceRoot}/${name}`)
+        return `${name}:${stat.size}:${stat.mtimeMs}`
+      } catch {
+        return `${name}:-`
+      }
+    }).join('|')
+    if (this.projectInstructions?.key === key) return this.projectInstructions.text
+    const sections: string[] = []
+    for (const name of PROJECT_INSTRUCTION_FILES) {
       try {
         const raw = readWorkspaceFile(this.workspaceRoot, name)
-        if (raw === null) continue
-        const trimmed = raw.trim()
-        if (trimmed === '') continue
-        this.projectInstructions =
-          trimmed.length > 4_000 ? `${trimmed.slice(0, 4_000)}\n… (truncated)` : trimmed
-        break
+        const trimmed = raw?.trim() ?? ''
+        if (trimmed !== '') sections.push(`### ${name}\n\n${trimmed}`)
       } catch {
         // Unreadable instructions must never break the session.
       }
     }
-    return this.projectInstructions
+    let text: string | null = sections.length === 0 ? null : sections.join('\n\n')
+    if (text !== null && text.length > PROJECT_INSTRUCTIONS_MAX_CHARS) {
+      text = `${text.slice(0, PROJECT_INSTRUCTIONS_MAX_CHARS)}\n… (project instructions truncated at ${PROJECT_INSTRUCTIONS_MAX_CHARS.toLocaleString('en-US')} characters; shorten the files above to send them whole)`
+    }
+    this.projectInstructions = { key, text }
+    return text
   }
 
   get title(): string {
@@ -1413,7 +1458,8 @@ export class AgentSession {
   get contextTokens(): number { return replayCost(this.history) }
 
   private systemPrompt(): string {
-    const base = this.basePrompt() + '\nWrite clear Markdown in the language of the user. Lead final work reports with the result, then changes, verification, and unfinished work when relevant. Distinguish attempted work from verified results. Use the tool results already received; reread unchanged files only when necessary to resolve a specific missing fact. Do not restart discovery after each tool call or repeat the same progress promise. After an interruption, resume from the recorded state and finish with one self-contained report; never claim interrupted work is complete.' + (this.fixedTools === undefined
+    const base = this.basePrompt() + '\nWrite clear Markdown in the language of the user. Lead final work reports with the result, then changes, verification, and unfinished work when relevant. Distinguish attempted work from verified results. Use the tool results already received; reread unchanged files only when necessary to resolve a specific missing fact. Do not restart discovery after each tool call or repeat the same progress promise. After an interruption, resume from the recorded state and finish with one self-contained report; never claim interrupted work is complete.' +
+      '\nNo work narration: while tools are running, send tool calls only. Do not write "now I will…", do not restate what a tool returned, do not post plans, interim status, or verification notes as text; the transcript shows every step on its own. Text in your reply is one of two things: a question the work cannot proceed without, or the final answer, written once, as short as the result allows.' + (this.fixedTools === undefined
       ? '\nCall load_tools before using document, interactive browser, media, or MCP capabilities. Load only the groups needed for the task.'
       : '')
     const given = this.options.instructions?.()

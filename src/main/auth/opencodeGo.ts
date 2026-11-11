@@ -4,7 +4,7 @@ import type { AuthLoginCallbacks, AuthTokens } from './types'
 
 export async function loginOpenCodeGo(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   const url = 'https://opencode.ai/console'
-  callbacks.onUpdate({ message: 'Login ke Console, pilih workspace dengan Go / Go Plus aktif, lalu salin key dan tempel kembali di Anticode. Dashboard saja belum menghubungkan akun. Matikan Extra usage agar tetap dalam batas paket.', url })
+  callbacks.onUpdate({ message: 'Sign in to the Console, pick a workspace with Go / Go Plus active, then copy the key and paste it back into Anticode. The dashboard alone does not connect the account. Turn off Extra usage to stay within the plan limit.', url })
   void shell.openExternal(url)
   const key = (await callbacks.promptForCode('Paste your OpenCode Go plan key')).trim()
   callbacks.signal.throwIfAborted()

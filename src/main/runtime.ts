@@ -45,10 +45,14 @@ import {
   coolDown,
   coolingUntil,
   countedProvider,
+  DEFAULT_PROMPTS_PER_MODEL,
   forgetRotationProvider,
+  notifyRotationChange,
   outOfUsage,
+  promptsPerModel,
   rankRotation,
   rotationEnabled,
+  setPromptsPerModel,
   subscriptionOnly,
   setSubscriptionOnly,
   rotationEntries,
@@ -69,9 +73,10 @@ export const policy = new ApprovalPolicy()
 /**
  * A rotating session stays on one model for this many prompts before moving
  * on: a follow-up usually builds on the answer before it, and answering it
- * with a different model every time reads like a new conversation.
+ * with a different model every time reads like a new conversation. The
+ * default; Settings → Providers changes it (promptsPerModel in rotation.ts).
  */
-export const PROMPTS_PER_MODEL = 2
+export const PROMPTS_PER_MODEL = DEFAULT_PROMPTS_PER_MODEL
 
 interface LiveSession {
   spec: SessionSpec
@@ -108,6 +113,12 @@ const sessions = new Map<string, LiveSession>()
  * becomes the session's model the moment the first prompt creates it.
  */
 const draftChoices = new Map<string, { choice: ProviderSelection; pinned: boolean }>()
+/**
+ * A model picked for one answer only (Retry with…): the next getSession takes
+ * it and forgets it. The session's own choice, the default, and rotation are
+ * left exactly as they were.
+ */
+const oneShotChoices = new Map<string, ProviderSelection>()
 const sessionRotationGroups = new Map<string, string | null>()
 const catalogues = new Map<ProviderId, ModelCatalogue>()
 /** Next badge colour, round-robin, so fresh sessions tell apart at a glance. */
@@ -300,38 +311,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   // A tab whose session is not created yet (a draft or new-session screen) is
   // not an error: its pick applies like a draft's, to the default.
   const live = sessionId === null || sessionId === undefined ? undefined : sessions.get(sessionId)
-  let chosen: ProviderSelection
-  if (next.provider === ROTATE_PROVIDER) {
-    if (!rotationEnabled()) throw new Error('Rotate usage is off. Turn it on in Settings → Providers')
-    if (activeRotationEntries().length === 0) throw new Error('Rotate usage has no models yet. Add them in Settings → Providers')
-    chosen = { provider: ROTATE_PROVIDER, model: '' }
-  } else {
-    const providerInfo = listProviders().find((provider) => provider.id === next.provider && provider.credentialAvailable)
-    if (providerInfo === undefined) {
-      throw new Error('Provider unavailable. Configure its credentials first.')
-    }
-    const model = next.model.trim()
-    if (modelIsBatchOnly(model)) throw new Error('Batch models cannot be used in interactive chat. Choose a model without :batch.')
-    const issue = providerModelIssue(providerInfo, model || chosenFor(next.provider)[0] || providerInfo.defaultModel)
-    if (issue !== null) throw new Error(issue)
-    const knownModels = providerInfo.models ?? []
-    // A provider that publishes/configures a model list is authoritative.
-    // Search text in the composer must not silently turn a typo into the
-    // permanent default (unknown ids belong in Settings → Models first).
-    if (model !== '' && knownModels.length > 0 &&
-        !knownModels.includes(model) && !chosenFor(next.provider).includes(model)) {
-      throw new Error(`Unknown model “${model}” for ${providerInfo.label}. Choose a listed model or add the id in Settings → Models.`)
-    }
-    // Providers without a catalogue still accept a hand-typed id.
-    if (model !== '' && !chosenFor(next.provider).includes(model)) {
-      setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
-    }
-    // No model named: the first one chosen for that provider, or none yet.
-    chosen = {
-      provider: next.provider,
-      model: model !== '' ? model : (chosenFor(next.provider)[0] ?? providerInfo.defaultModel)
-    }
-  }
+  const chosen = resolveSelection(next, true)
 
   // A pick with no session behind it (the Providers page, a new-session
   // draft) only moves the saved fallback while rotation stays active; the
@@ -362,6 +342,59 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
   // in one session must not silently become what the next session runs on.
   if (!rotationEnabled() || chosen.provider === ROTATE_PROVIDER) selection = chosen
   if (chosen.provider !== ROTATE_PROVIDER) saveFallback(chosen)
+}
+
+/**
+ * One answer on another model: the session's next run uses `next`, and only
+ * that run. Nothing is pinned, saved, or made the default. Validated like a
+ * pick, so an unusable model is refused before anything is taken back.
+ */
+export function selectProviderOnce(next: ProviderSelection, sessionId: string): void {
+  if (!sessions.has(sessionId)) throw new Error('Unknown session; reopen this tab')
+  const chosen = resolveSelection(next, false)
+  const issue = readiness(chosen, listProviders()).blockedReason
+  if (issue !== null) throw new Error(issue)
+  oneShotChoices.set(sessionId, chosen)
+}
+
+/** Drops a one-shot pick that was never used (the retry could not start). */
+export function forgetOneShotChoice(sessionId: string): void {
+  oneShotChoices.delete(sessionId)
+}
+
+/** What a pick means, checked: a usable provider and a model it offers. */
+function resolveSelection(next: ProviderSelection, addToPool: boolean): ProviderSelection {
+  if (next.provider === ROTATE_PROVIDER) {
+    if (!rotationEnabled()) throw new Error('Rotate usage is off. Turn it on in Settings → Providers')
+    if (activeRotationEntries().length === 0) throw new Error('Rotate usage has no models yet. Add them in Settings → Providers')
+    return { provider: ROTATE_PROVIDER, model: '' }
+  } else {
+    const providerInfo = listProviders().find((provider) => provider.id === next.provider && provider.credentialAvailable)
+    if (providerInfo === undefined) {
+      throw new Error('Provider unavailable. Configure its credentials first.')
+    }
+    const model = next.model.trim()
+    if (modelIsBatchOnly(model)) throw new Error('Batch models cannot be used in interactive chat. Choose a model without :batch.')
+    const issue = providerModelIssue(providerInfo, model || chosenFor(next.provider)[0] || providerInfo.defaultModel)
+    if (issue !== null) throw new Error(issue)
+    const knownModels = providerInfo.models ?? []
+    // A provider that publishes/configures a model list is authoritative.
+    // Search text in the composer must not silently turn a typo into the
+    // permanent default (unknown ids belong in Settings → Models first).
+    if (model !== '' && knownModels.length > 0 &&
+        !knownModels.includes(model) && !chosenFor(next.provider).includes(model)) {
+      throw new Error(`Unknown model “${model}” for ${providerInfo.label}. Choose a listed model or add the id in Settings → Models.`)
+    }
+    // Providers without a catalogue still accept a hand-typed id.
+    if (addToPool && model !== '' && !chosenFor(next.provider).includes(model)) {
+      setRotationEntries([...rotationEntries(), { provider: next.provider, model }])
+    }
+    // No model named: the first one chosen for that provider, or none yet.
+    return {
+      provider: next.provider,
+      model: model !== '' ? model : (chosenFor(next.provider)[0] ?? providerInfo.defaultModel)
+    }
+  }
 }
 
 /** True while a working session is talking to this provider. */
@@ -438,6 +471,12 @@ export function applySubscriptionRouting(on: boolean): void {
   setSubscriptionOnly(on)
   applyRotationEnabled(on)
   releaseRotatingSessions()
+}
+
+/** Settings → Providers: how many prompts a rotating session spends on one model. */
+export function applyPromptsPerModel(count: unknown): void {
+  setPromptsPerModel(count)
+  for (const live of sessions.values()) delete live.promptsOnEntry
 }
 
 export function applyRotationEnabled(on: boolean): void {
@@ -731,6 +770,7 @@ export function deleteSession(sessionId: string): void {
   if (kept !== null) void rm(kept, { recursive: true, force: true }).catch(() => undefined)
   sessions.delete(sessionId)
   sessionRotationGroups.delete(sessionId)
+  oneShotChoices.delete(sessionId)
   announcedTitles.delete(sessionId)
   clearWeb(sessionId)
   if (live !== undefined) rememberSpec(live.spec)
@@ -813,7 +853,7 @@ function readiness(
 }
 
 function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
-  const choice = effective(choiceOf(live), live.pinned === true)
+  const choice = oneShotChoices.get(live.spec.sessionId) ?? effective(choiceOf(live), live.pinned === true)
   return {
     ...choice,
     ...readiness(choice, providers),
@@ -871,6 +911,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     sessions: Object.fromEntries([...drafts, ...[...sessions].map(([id, live]) => [id, choiceStatus(live, providers)] as const)]),
     rotation: rotationStatus(providers),
     rotationEnabled: rotationEnabled(),
+    promptsPerModel: promptsPerModel(),
     subscriptionOnly: subscriptionOnly(),
     rotationGroups: rotationGroups(),
     rotationGroup: activeRotationGroupId()
@@ -914,18 +955,22 @@ function waitingProvider(
     model: '',
     async *chat(params) {
       for (;;) {
-        if (params.signal.aborted) throw new Error('dibatalkan')
+        if (params.signal.aborted) throw new Error('Cancelled by the user')
         const following = pickNext()
         if (following !== undefined) {
           adopt(following)
-          yield* countedProvider(following, providerFor(following)).chat(params)
+          const inner = providerFor(following)
+          // The run reports usage under this object's name and model: once an
+          // entry is adopted, they are that entry's, not the stand-in's.
+          Object.assign(this, { name: inner.name, model: inner.model })
+          yield* inner.chat(params)
           return
         }
         const until = nextDeadline()
         if (until === null) {
           // Nothing left to wait for: the pool is spent or the wait budget
           // ran out mid-cooldown. Surface the truth instead of spinning.
-          throw new Error('Semua model di Rotate usage masih belum siap. Tunggu reset kuota, atau perbarui provider/akun yang dipakai.')
+          throw new Error('No model in Rotate usage is ready yet. Wait for the quotas to reset, or update the providers or accounts in use.')
         }
         const wait = Math.max(0, until - Date.now())
         if (wait <= 0) continue
@@ -970,11 +1015,13 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
   // picked meanwhile takes over from this session's next prompt.
   if (live.agent !== null && runForSession(sessionId) !== null) return live.agent
 
-  const choice = effective(choiceOf(live), live.pinned === true)
+  const oneShot = oneShotChoices.get(sessionId)
+  oneShotChoices.delete(sessionId)
+  const choice = oneShot ?? effective(choiceOf(live), live.pinned === true)
   let target: ProviderSelection
   let fallback: ProviderFallback | null = null
   if (choice.provider === ROTATE_PROVIDER) {
-    // The session stays on its model for PROMPTS_PER_MODEL prompts, then
+    // The session stays on its model for promptsPerModel() prompts, then
     // moves to the pool entry with the least load other than the one it
     // leaves. One that fails mid-run rests for a while and hands the turn on.
     const providers = listProviders()
@@ -993,10 +1040,11 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     const usable = (entry: RotationEntry): boolean =>
       pool.some((item) => rotationKey(item) === rotationKey(entry)) &&
       ready(entry) && coolingUntil(entry) === null && outOfUsage(entry) === null
+    const cadence = promptsPerModel()
     const staying =
       current !== undefined &&
       (live.promptsOnEntry ?? 0) > 0 &&
-      (live.promptsOnEntry ?? 0) < PROMPTS_PER_MODEL &&
+      (cadence === 0 || (live.promptsOnEntry ?? 0) < cadence) &&
       usable(current)
     let first: RotationEntry | undefined
     if (staying) {
@@ -1043,6 +1091,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
           }, (entry) => {
             live.selection = { ...entry }
             live.promptsOnEntry = 1
+            notifyRotationChange()
           }, () => {
             const soonest = soonestCoolingOff(pool)
             if (soonest === null) return null
@@ -1064,6 +1113,8 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       live.selection = { ...following }
       // The model that took over starts its own turn with this prompt.
       live.promptsOnEntry = 1
+      // The chip names the model this run is on now, on every screen.
+      notifyRotationChange()
       return providerFor(following)
     }
   } else {
@@ -1081,8 +1132,8 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
           const retryAt = candidates.flatMap(entry => { const at = coolingUntil(entry); return at === null || outOfUsage(entry) !== null ? [] : [at] }).sort((a,b)=>a-b)[0]
           const issue = candidates.map(entry => routeIssue(entry, providers)).find(reason => reason !== null)
           throw new Error(issue ?? (retryAt !== undefined
-            ? `Provider sedang membatasi request model ini sementara. Coba lagi dalam ${Math.max(1,Math.ceil((retryAt-Date.now())/1000))} detik.`
-            : 'Semua akun aktif untuk model ini melaporkan batas kuota provider. Tunggu reset kuota atau pilih akun/model lain yang tersedia.'))
+            ? `The provider is rate limiting this model for now. Try again in ${Math.max(1,Math.ceil((retryAt-Date.now())/1000))} seconds.`
+            : 'Every active account for this model reports a provider quota limit. Wait for the quota to reset or pick another account or model.'))
         }
         target = first
         tried.add(first.provider)
@@ -1098,6 +1149,7 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
           if (!following) { if (isTransient(error) && !isOutOfUsage(error)) return null; throw error }
           tried.add(following.provider)
           live.selection = { ...following }
+          notifyRotationChange()
           return providerFor(following)
         }
       }

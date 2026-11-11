@@ -25,17 +25,17 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
   },
   { kind: 'antigravity', title: 'Antigravity', hint: 'Google browser authorization. Uses your activated Antigravity account directly; Gemini models only.' },
   { kind: 'claude', title: 'Claude Code', hint: 'Uses the official Claude Code engine with your Claude subscription. Extra usage must be off; no 9Router required.' },
-  { kind: 'clinepass', title: 'ClinePass', hint: 'Subscription ClinePass dengan akun Cline.' },
+  { kind: 'clinepass', title: 'ClinePass', hint: 'A ClinePass subscription on a Cline account.' },
   { kind: 'cline', title: 'Cline Free', hint: 'Sign in to your Cline account; the provider talks to api.cline.bot.' },
-  { kind: 'opencode-go', title: 'OpenCode Go', hint: 'Login di Console, lalu salin key dari workspace dengan paket Go / Go Plus aktif dan tempel di sini. Membuka dashboard belum menghubungkan akun. Matikan Extra usage agar tetap dalam batas paket.' },
-  { kind: 'minimax-plan', title: 'MiniMax M Plan', hint: 'Login ke MiniMax → Plan Details, salin Subscription Key (sk-cp) M Plan / Token Plan, lalu tempel di sini. MiniMax tidak menyediakan login browser untuk app lain. Key API pay-as-you-go tidak diterima.' },
+  { kind: 'opencode-go', title: 'OpenCode Go', hint: 'Sign in to the Console, copy the key from a workspace with Go / Go Plus active, and paste it here. Opening the dashboard does not connect the account. Turn off Extra usage to stay within the plan limit.' },
+  { kind: 'minimax-plan', title: 'MiniMax M Plan', hint: 'Sign in to MiniMax → Plan Details, copy the M Plan / Token Plan Subscription Key (sk-cp), and paste it here. MiniMax offers no browser sign-in for other apps. Pay-as-you-go API keys are not accepted.' },
   {
     kind: 'codebuddy',
     title: 'CodeBuddy',
     hint: 'Sign in at codebuddy.ai; the account speaks OpenAI’s wire format.'
   },
   { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
-  { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Login dan setujui akses di browser; Anticode menerima kodenya otomatis lewat localhost. Hanya rute model gratis yang dipakai.' },
+  { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Sign in and approve access in the browser; Anticode receives the code automatically through localhost. Only free model routes are used.' },
   { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
   { kind: 'cursor', title: 'Cursor', hint: 'Browser authorization. Requires the official Cursor Agent CLI. Text/tool adapter; native CLI tools are denied.' },
   ...Object.entries(DIRECT_AUTH_PROVIDERS).map(([kind, config]) => ({ kind: kind as DirectAuthKind, title: config.label, hint: config.hint }))

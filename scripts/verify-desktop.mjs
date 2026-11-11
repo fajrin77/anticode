@@ -108,7 +108,7 @@ try {
   await window.getByPlaceholder("Don't work today, just vibes.").press('Enter')
   await window.getByRole('button',{name:'Pause',exact:true}).click()
   await window.getByRole('button',{name:'Continue',exact:true}).click()
-  await window.getByText(/Fixture reply: Lanjutkan/).waitFor()
+  await window.getByText(/Fixture reply: Continue directly/).waitFor()
   log('pause and resume retain a usable session')
   await window.getByRole('button',{name:'Settings',exact:true}).click()
   await window.getByRole('button',{name:'Remote',exact:true}).click()
@@ -813,7 +813,7 @@ try {
     await screen.click('#sendBtn')
     await until(async () => !(await desktopPaused()), 'the recovered desktop session')
     await screen.waitForFunction(() => currentRunId === null && !pausedSessions.has(currentSession), null, { timeout: 15000 })
-    assert.match(await screen.locator('#transcript').innerText(), /Fixture reply: Lanjutkan langsung dari titik terakhir/)
+    assert.match(await screen.locator('#transcript').innerText(), /Fixture reply: Continue directly from where you stopped/)
     log('a lost connection can continue on either screen without restarting the session')
 
     // A turn reverted on the desktop is gone from the phone's screen too.

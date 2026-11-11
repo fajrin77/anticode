@@ -3,7 +3,7 @@ import { ProviderRequestError } from './requestError'
 export class RetiredRouteError extends ProviderRequestError {
   readonly code = 'MODEL_ROUTE_RETIRED'
   constructor(model: string) {
-    super(`Rute model ${model} sudah dihentikan oleh provider. Pilih rute lain yang masih tersedia. Rute berbayar tidak dipilih otomatis.`, 404)
+    super(`The provider has retired the ${model} route. Pick another route that is still available. A paid route is never chosen automatically.`, 404)
     this.name = 'RetiredRouteError'
   }
 }

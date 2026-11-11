@@ -62,6 +62,7 @@ import {
   takeBackPrompt,
   setSessionInstructions,
   policy,
+  applyPromptsPerModel,
   applyRotation,
   applyRotationEnabled,
   applySubscriptionRouting,
@@ -277,6 +278,13 @@ export function setRotation(entries: unknown): SessionStatus {
   return getStatus()
 }
 
+/** Prompts a rotating session spends on one model, from either screen. */
+export function setPromptsPerModelRemote(count: unknown): SessionStatus {
+  applyPromptsPerModel(count)
+  announceStatus()
+  return getStatus()
+}
+
 /** Rotate usage switched on or off, from either screen. */
 export function enableRotation(enabled: unknown): SessionStatus {
   if (typeof enabled !== 'boolean') throw new Error('Expected on or off')
@@ -464,6 +472,7 @@ export function registerIpcHandlers(): void {
     return getStatus()
   })
   ipcMain.handle(IpcChannel.ROTATION_ENABLE, (_event, enabled: unknown): SessionStatus => enableRotation(enabled))
+  ipcMain.handle(IpcChannel.ROTATION_CADENCE, (_event, count: unknown): SessionStatus => setPromptsPerModelRemote(count))
   ipcMain.handle(IpcChannel.ROTATION_GROUPS_SET, (_event, groups: unknown): SessionStatus => setRotationGroups(groups))
   ipcMain.handle(IpcChannel.ROTATION_GROUP_SELECT, (_event, id: unknown, sessionId?: string | null): SessionStatus => selectRotationGroup(id, sessionId))
   // A quota that runs out mid-run shows in Settings and on the phone at once.
@@ -730,7 +739,12 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.handle(IpcChannel.SESSION_COMPACT, (_event, sessionId: string) => compactSession(sessionId, approvals))
+  ipcMain.handle(IpcChannel.SESSION_COMPACT, async (_event, sessionId: string) => {
+    const result = await compactSession(sessionId, approvals)
+    // The session-summary card is part of the transcript now; the phone redraws.
+    if (result.after < result.before) announceHistory(sessionId, 'desktop')
+    return result
+  })
 
   ipcMain.handle(IpcChannel.SESSION_EXPORT, async (event, sessionId: string, raw?: Partial<ExportOptions>) => {
     const snapshot = sessionSnapshot(sessionId)

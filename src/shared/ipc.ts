@@ -99,6 +99,7 @@ export const IpcChannel = {
   ROTATION_SET: 'rotation:set',
   ROTATION_RESET: 'rotation:reset',
   ROTATION_ENABLE: 'rotation:enable',
+  ROTATION_CADENCE: 'rotation:cadence',
   SUBSCRIPTION_ROUTING: 'subscription:routing',
   SUBSCRIPTION_QUOTAS: 'subscription:quotas',
   CONNECTOR_GET: 'connectors:get',
@@ -132,7 +133,7 @@ export const IpcChannel = {
  * retrying counts only the prompts that were typed.
  */
 export const CONTINUE_PROMPT =
-  'Lanjutkan langsung dari titik terakhir tanpa pembuka seperti “lanjutan”. Jangan ulangi langkah yang sudah selesai. Jika fragmen kata terakhir belum lengkap, tulis hanya sambungan yang hilang lalu teruskan.'
+  'Continue directly from where you stopped, without an opener such as “continuing”. Do not repeat steps that are already done. If the last word was cut off, write only the missing part and carry on.'
 
 export const PAUSE_LABEL = 'Paused.'
 export const RESUME_LABEL = 'Resumed.'
@@ -670,6 +671,11 @@ export interface SessionStatus {
    * model and no token is counted; the pool is still the composer's list.
    */
   rotationEnabled: boolean
+  /**
+   * How many prompts a rotating session sends to one model before moving on;
+   * 0 means it stays until that model rests or runs out.
+   */
+  promptsPerModel: number
   /** All automatic routes stay on account-backed plans. */
   subscriptionOnly?: boolean
   /** The named parts of the pool, in the order they were made. */
@@ -1063,6 +1069,8 @@ export type AgentEvent =
   /** A line the app writes about the run itself, the context was compacted. */
   /** A line the app writes about the run itself, the context was compacted. */
   | { type: 'notice'; runId: string; text: string }
+  /** Earlier turns were folded into this memory; shown as a collapsed card. */
+  | { type: 'summary'; runId: string; text: string }
   /** What the run is doing between model replies, "Thinking", "Running
    * command", "Browsing", so a wait feels like progress, not a hang. The
    * label is already the words shown to the user. */
@@ -1155,7 +1163,7 @@ export type SnapshotBlock =
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: string }
   /** UI-only run state persisted with the transcript; providers never receive it. */
-  | { type: 'display'; kind: 'notice' | 'error'; text: string }
+  | { type: 'display'; kind: 'notice' | 'error' | 'summary'; text: string }
 
 export interface SnapshotMessage {
   role: 'user' | 'assistant'
@@ -1172,7 +1180,10 @@ export interface SnapshotMessage {
  */
 export interface RunSummary {
   outcome?: 'complete' | 'interrupted' | 'error' | 'max_tokens' | 'refusal'
+  /** The model that finished the run. */
   model: string
+  /** Every model that served it, in order, when more than one did (a rotation hand-over). */
+  models?: string[]
   durationMs: number
   inputTokens: number
   outputTokens: number
@@ -1388,6 +1399,7 @@ export interface AnticodeApi {
   resetRotationUsage: () => Promise<SessionStatus>
   /** Switches Rotate usage on or off; off moves sessions on Rotate to a plain model. */
   setRotationEnabled: (enabled: boolean) => Promise<SessionStatus>
+  setPromptsPerModel: (count: number) => Promise<SessionStatus>
   setSubscriptionRouting: (enabled: boolean) => Promise<SessionStatus>
   getSubscriptionQuotas: () => Promise<SubscriptionQuota[]>
   getConnectorSettings: () => Promise<{ codex: boolean; claude: boolean }>

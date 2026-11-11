@@ -17,6 +17,21 @@ asarUnpack:
   - '**/node_modules/@anthropic-ai/claude-agent-sdk*/**'
   - '**/node_modules/sharp/**'
   - '**/node_modules/@img/**'
+# Fuses are compiled into the Electron binary, so they hold even when someone
+# else runs the app. Without them another local program could start anticode
+# as plain Node (ELECTRON_RUN_AS_NODE, NODE_OPTIONS, --inspect) and act with its
+# identity, including reading what it keeps in the OS keychain, or swap the
+# code in app.asar. Packaged tests attach through --remote-debugging-port, a
+# Chromium switch these fuses leave alone (scripts/packaged-launch.mjs).
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  # Unsigned arm64 builds: flipping a fuse edits the binary, so its ad-hoc
+  # signature is redone or macOS refuses to start the app.
+  resetAdHocDarwinSignature: true
 mac:
   icon: build/icon.png
   target:

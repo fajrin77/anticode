@@ -31,7 +31,7 @@ it('coalesces simultaneous views, caches briefly, and keeps the last good data a
   fixture.claude.mockRejectedValue(Object.assign(new Error('rate limited'), { status: 429 }))
   const stale = (await getSubscriptionQuotas())[0]!
   expect(stale).toMatchObject({ status: 'stale', checkedAt: first[0]!.checkedAt, windows: first[0]!.windows })
-  expect(stale.error).toMatch(/membatasi/)
+  expect(stale.error).toMatch(/rate limiting/)
   expect(JSON.stringify(stale)).not.toContain('fixture-secret')
 })
 it('shows each account and unsupported key plans explicitly without probing guessed endpoints', async () => {

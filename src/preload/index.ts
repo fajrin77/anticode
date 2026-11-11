@@ -90,6 +90,8 @@ const api: AnticodeApi = {
   resetRotationUsage: () => ipcRenderer.invoke(IpcChannel.ROTATION_RESET) as Promise<SessionStatus>,
   setRotationEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.ROTATION_ENABLE, enabled) as Promise<SessionStatus>,
+  setPromptsPerModel: (count: number) =>
+    ipcRenderer.invoke(IpcChannel.ROTATION_CADENCE, count) as Promise<SessionStatus>,
   setSubscriptionRouting: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_ROUTING, enabled) as ReturnType<AnticodeApi['setSubscriptionRouting']>,
   getSubscriptionQuotas: () =>

@@ -79,7 +79,7 @@ try {
   assert.ok(JSON.stringify(requests.at(-1)).includes('image_url'))
   const text = await send('deepseek-v3:free', 'Lanjutkan pekerjaan teks.')
   assert.equal(text.at(-1).reason, 'complete')
-  assert.ok(text.some(event => event.type === 'notice' && event.text.includes('Gambar')))
+  assert.ok(text.some(event => event.type === 'notice' && event.text.includes('image input')))
   assert.ok(!JSON.stringify(requests.at(-1)).includes('image_url'))
   await send('vision-fixture', 'Periksa gambar lama kembali.')
   assert.ok(JSON.stringify(requests.at(-1)).includes('image_url'))
@@ -90,7 +90,7 @@ try {
   interruptions = 1
   const recovered = await send('deepseek-v3:free', 'Pulihkan gangguan sementara.')
   assert.equal(recovered.at(-1).reason, 'complete')
-  assert.ok(recovered.some(event => event.type === 'notice' && event.text.includes('Melanjutkan')))
+  assert.ok(recovered.some(event => event.type === 'notice' && event.text.includes('Continuing from the last saved results')))
   assert.equal(requests.length, before + 2)
   interruptions = 6
   const cut = await send('deepseek-v3:free', 'Kerjakan pertanyaan teks berikutnya.')
@@ -101,7 +101,7 @@ try {
   assert.ok(JSON.stringify(snapshot.messages).includes('Bagian yang sudah diterima.'))
   assert.ok(JSON.stringify(snapshot.messages).includes('fixture.png'))
   await page.locator('[data-session-tabs] button[title]').first().click()
-  await page.getByText('Terhenti karena kesalahan', { exact: true }).first().waitFor()
+  await page.getByText('Stopped by an error', { exact: true }).first().waitFor()
   await page.locator('[data-interrupted-report]').waitFor()
   await page.screenshot({ path: path.join(directory, 'interrupted.png') })
   await app.close()

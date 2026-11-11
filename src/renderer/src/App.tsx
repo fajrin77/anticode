@@ -411,6 +411,9 @@ export function App(): JSX.Element {
           case 'notice':
             store.noticeInRun(run.sessionId, run.messageId, event.text)
             break
+          case 'summary':
+            store.summaryInRun(run.sessionId, run.messageId, event.text)
+            break
           case 'phase':
             // The dot's vocabulary between replies: Thinking, Browsing, ...
             store.setRunPhase(event.runId, event.phase)
@@ -486,6 +489,9 @@ export function App(): JSX.Element {
           break
         case 'notice':
           store.noticeInRun(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
+          break
+        case 'summary':
+          store.summaryInRun(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
           break
         case 'phase':
           store.setRunPhase(event.runId, event.phase)
