@@ -51,6 +51,9 @@ export const IpcChannel = {
   MCP_RECONNECT: 'mcp:reconnect',
   MCP_IMPORT: 'mcp:import',
   MCP_UPDATED: 'mcp:updated',
+  PLUGINS_LIST: 'plugins:list',
+  PLUGINS_ACTION: 'plugins:action',
+  PLUGINS_UPDATED: 'plugins:updated',
   PRICING_LIST: 'pricing:list',
   PRICING_SET: 'pricing:set',
   CONTEXT_BUDGET: 'context:budget',
@@ -864,6 +867,49 @@ export interface McpServerStatus {
   tools: { name: string; description: string; destructive: boolean }[]
 }
 
+/** One signed-in account of a plugin; its tokens never leave the main process. */
+export interface PluginAccountStatus {
+  id: string
+  label: string
+  method: 'oauth' | 'device' | 'token'
+}
+
+/** A plugin in Settings → Plugins: a hosted MCP server reached with OAuth. */
+export interface PluginStatus {
+  id: string
+  name: string
+  url: string
+  /** `github`: device flow with the user's OAuth App client ID, or a token. */
+  auth: 'oauth' | 'github'
+  custom: boolean
+  enabled: boolean
+  accounts: PluginAccountStatus[]
+  /** The account whose tools sessions get; one per plugin at a time. */
+  activeAccount: string | null
+  state: McpServerStatus['state']
+  error: string | null
+  tools: McpServerStatus['tools']
+}
+
+export interface PluginsView {
+  plugins: PluginStatus[]
+  githubClientId: string
+  /** The sign-in in progress, with the device code to type when there is one. */
+  login: { plugin: string; message: string; code?: string; url?: string } | null
+}
+
+export type PluginAction =
+  | { type: 'login'; plugin: string; token?: string }
+  | { type: 'cancel-login' }
+  | { type: 'select'; plugin: string; account: string }
+  | { type: 'enable'; plugin: string; enabled: boolean }
+  | { type: 'rename'; account: string; label: string }
+  | { type: 'remove-account'; account: string }
+  | { type: 'github-client'; clientId: string }
+  | { type: 'add-custom'; name: string; url: string }
+  | { type: 'remove-custom'; plugin: string }
+  | { type: 'reconnect'; plugin: string }
+
 /** US dollars per million tokens. */
 export interface ModelPrice {
   input: number
@@ -1474,6 +1520,9 @@ export interface AnticodeApi {
   /** Servers from another client's `mcpServers` JSON; answers how many were added. */
   importMcpServers: (json: string) => Promise<number>
   onMcpServers: (listener: (servers: McpServerStatus[]) => void) => () => void
+  listPlugins: () => Promise<PluginsView>
+  pluginAction: (action: PluginAction) => Promise<PluginsView>
+  onPlugins: (listener: (view: PluginsView) => void) => () => void
   /** Prices for these models, and where each came from. */
   listPrices: (models: ProviderSelection[]) => Promise<PricedModel[]>
   /** A price for a model id, typed in Settings; null goes back to the built-in or published one. */

@@ -41,7 +41,7 @@ export class SessionToolCatalog {
   private loader(available: Map<string, number>): Tool {
     const names = [...available.keys()]
     const connectorNote = names.length > 0
-      ? ` Connectors shared from the signed-in ChatGPT and Claude accounts (usable with any model): ${describeConnectors(available)}; load one with connectors: ["${names[0]}"]. For files in Google Drive, Docs, Sheets or Slides use the Google Drive connector, not the browser.`
+      ? ` Connectors from Settings → Plugins and the signed-in ChatGPT and Claude accounts (usable with any model): ${describeConnectors(available)}; load one with connectors: ["${names[0]}"]. For files in Google Drive, Docs, Sheets or Slides use the Google Drive connector, not the browser.`
       : ''
     return defineTool({
       name: 'load_tools',

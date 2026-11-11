@@ -121,6 +121,7 @@ import { preferences, setPreferences } from '../preferences'
 import { listedContextWindow, pricedModels, setCustomPrice } from '../pricing'
 import { clearUsage as clearUsageLog, recentUsage, summarizeUsage } from '../usageLog'
 import { importMcp, listMcp, mcpSecrets, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
+import { listPlugins, pluginAction, pluginSecrets } from '../plugins'
 import { credentialStatus, knownSecrets, moveEnvKeys, restrictEnvFile } from '../credentials'
 import { writeExport } from '../exporter'
 import { hideQuickCapture, sendQuickCapture } from '../tray'
@@ -775,7 +776,7 @@ export function registerIpcHandlers(): void {
       summaries: snapshot.summaries,
       fileRoot: sessionFileRoot(sessionId),
       options,
-      knownSecrets: options.redact ? knownSecrets(mcpSecrets()) : []
+      knownSecrets: options.redact ? knownSecrets([...mcpSecrets(), ...pluginSecrets()]) : []
     })
   })
 
@@ -830,6 +831,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.MCP_REMOVE, (_event, id: unknown) => removeMcp(String(id)))
   ipcMain.handle(IpcChannel.MCP_RECONNECT, (_event, id: unknown) => reconnectMcp(String(id)))
   ipcMain.handle(IpcChannel.MCP_IMPORT, (_event, json: unknown) => importMcp(String(json)))
+  ipcMain.handle(IpcChannel.PLUGINS_LIST, () => listPlugins())
+  ipcMain.handle(IpcChannel.PLUGINS_ACTION, (_event, action: unknown) => pluginAction(action))
 
   ipcMain.handle(IpcChannel.PRICING_LIST, (_event, models: unknown) =>
     pricedModels(Array.isArray(models) ? models.filter((entry): entry is ProviderSelection =>

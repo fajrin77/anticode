@@ -14,6 +14,7 @@ import { applyTray, configureQuickCapture, QUICK_CAPTURE_SHORTCUT, showQuickCapt
 import { onPreferences, preferences } from './preferences'
 import { closeMcp, initMcp, mcpTools } from './mcp/manager'
 import { accountConnectorTools, closeAccountConnectors, initAccountConnectors } from './mcp/accountConnectors'
+import { closePlugins, initPlugins, pluginTools } from './plugins'
 import { setExternalTools } from './tools'
 import { warmPdfParser } from './tools/pdf'
 
@@ -124,8 +125,9 @@ void app.whenReady().then(async () => {
   // as each one becomes ready.
   // Hosted connectors (ChatGPT apps, claude.ai connectors) follow the account
   // the session runs on, alongside the MCP servers set up in Settings.
-  setExternalTools((providerId) => [...mcpTools(), ...accountConnectorTools(providerId)])
+  setExternalTools((providerId) => [...mcpTools(), ...pluginTools(), ...accountConnectorTools(providerId)])
   initMcp()
+  initPlugins()
   initAccountConnectors()
   configureQuickCapture({
     preload: join(import.meta.dirname, '../preload/index.mjs'),
@@ -168,4 +170,5 @@ app.on('before-quit', () => {
   void closeBrowser()
   void closeMcp()
   void closeAccountConnectors()
+  void closePlugins()
 })

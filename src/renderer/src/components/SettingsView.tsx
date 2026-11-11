@@ -28,6 +28,7 @@ import { SettingRow, Toggle } from './settings/controls'
 import { Updates } from './settings/Updates'
 import { Usage } from './settings/Usage'
 import { Mcp } from './settings/Mcp'
+import { Plugins } from './settings/Plugins'
 import { Capabilities } from './settings/Capabilities'
 import { Auth } from './settings/Auth'
 import { InstructionsField } from './InstructionsField'
@@ -42,7 +43,7 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'auth' | 'models' | 'usage' | 'mcp' | 'remote' | 'updates'
+type Section = 'general' | 'providers' | 'auth' | 'models' | 'usage' | 'mcp' | 'plugins' | 'remote' | 'updates'
 
 // Remembered across leaving and reopening Settings, so it reopens where it was left.
 let lastSection: Section = 'general'
@@ -2079,6 +2080,15 @@ export function SettingsView({
       )
     },
     {
+      id: 'plugins',
+      label: 'Plugins',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <path d="M6.5 2.5h3v2a1.5 1.5 0 0 0 3 0h1v9h-11v-9h1a1.5 1.5 0 0 0 3 0z" strokeLinejoin="round" />
+        </svg>
+      )
+    },
+    {
       id: 'remote',
       label: 'Remote',
       icon: (
@@ -2188,6 +2198,7 @@ export function SettingsView({
           )}
           {section === 'usage' && <Usage />}
           {section === 'mcp' && <Mcp />}
+          {section === 'plugins' && <Plugins />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
         </div>
