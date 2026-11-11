@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAttachmentFocus } from '../useAttachmentFocus'
-import { COMMIT_PROMPT, commitOffer } from '../commitOffer'
+import { COMMIT_PROMPT } from '../commitOffer'
 import type { ClipboardEvent, JSX } from 'react'
 import { useActiveSession, useSessionStore } from '../store/session'
 import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
@@ -153,9 +153,9 @@ export function Composer({  status: sharedStatus,
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
   const isStreaming = activeRun !== null || mirrorRunId !== null
-  const [dismissedCommit, setDismissedCommit] = useState<string | null>(null)
-  const offeredCommit = session ? commitOffer(session.messages) : null
-  const showCommit = offeredCommit !== null && dismissedCommit !== `${session?.id}:${offeredCommit}` && !isStreaming && !isPaused && session?.mode === 'code'
+  // Hidden for now: the offer kept coming back after a push. Restore the
+  // condition once commitOffer's detection is reliable.
+  const showCommit = false
   // A code session is only usable once it is bound to a folder; chat never needs one.
   const sessionReady =
     session !== undefined && (session.mode === 'chat' || session.projectRoot !== null)
@@ -553,8 +553,6 @@ export function Composer({  status: sharedStatus,
               className="rounded-md border border-brand bg-brand px-3 py-2 font-medium text-bg transition-colors hover:bg-brand-strong disabled:opacity-40">
               Commit &amp; push <span className="ml-2 text-xs">⌘ Enter</span>
             </button>
-            <button type="button" onClick={() => setDismissedCommit(`${session?.id}:${offeredCommit}`)}
-              className="composer-glass rounded-md border px-3 py-2 text-brand transition-colors hover:text-brand-strong">Abaikan</button>
           </div>
         )}
         {blocked !== null && !(hero && folderMissing) && (
