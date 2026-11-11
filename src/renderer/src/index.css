@@ -247,10 +247,12 @@ body {
 }
 
 /* The tab strip scrolls by trackpad/wheel; a scrollbar would only cover tabs. */
-[data-session-tabs] {
+[data-session-tabs],
+.sidebar-scroll {
   scrollbar-width: none;
 }
-[data-session-tabs]::-webkit-scrollbar {
+[data-session-tabs]::-webkit-scrollbar,
+.sidebar-scroll::-webkit-scrollbar {
   display: none;
 }
 

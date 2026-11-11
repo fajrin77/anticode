@@ -135,6 +135,39 @@ try {
   await checkLayout()
   await page.getByRole('button', { name: 'Buka/tutup sidebar', exact: true }).click()
   await checkLayout()
+  // Session actions use a top-layer popover, so the scrolling sidebar cannot clip it.
+  await page.evaluate(async (id) => {
+    await window.anticode.createSession({ sessionId: id, mode: 'code', workspaceRoot: null })
+  }, ids.second)
+  const options = sidebar.getByRole('button', { name: 'Opsi sesi Second session', exact: true })
+  await options.focus()
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: 'Arsipkan', exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  assert.equal(await page.getByRole('button', { name: 'Arsipkan', exact: true }).isVisible(), false)
+  await options.click()
+  await page.getByRole('button', { name: 'Arsipkan', exact: true }).click()
+  assert.equal(await sidebar.locator(`[data-session-id="${ids.second}"]`).count(), 0)
+  assert.equal(await page.evaluate(id => window.__store.getState().sessions.find(s => s.id === id).closed, ids.second), true)
+  await sidebar.getByRole('button', { name: 'Tampilkan arsip', exact: true }).click()
+  await sidebar.locator(`[data-session-id="${ids.second}"]`).click()
+  await options.click()
+  await page.getByRole('button', { name: 'Hapus', exact: true }).click()
+  assert.equal(await sidebar.locator(`[data-session-id="${ids.second}"]`).count(), 1, 'first delete click only asks for confirmation')
+  await page.keyboard.press('Escape')
+  await options.click()
+  assert.equal(await page.getByRole('button', { name: 'Hapus', exact: true }).isVisible(), true)
+  await page.getByRole('button', { name: 'Hapus', exact: true }).click()
+  await page.getByRole('button', { name: 'Konfirmasi hapus permanen', exact: true }).click()
+  await page.waitForFunction(id => !window.__store.getState().sessions.some(s => s.id === id), ids.second)
+  const scroll = await sidebar.locator('nav').evaluate(el => {
+    el.style.height = '70px'
+    el.style.flex = 'none'
+    el.scrollTop = 40
+    return { hidden: getComputedStyle(el).scrollbarWidth, scrollable: el.scrollTop > 0 }
+  })
+  assert.equal(scroll.hidden, 'none')
+  assert.equal(scroll.scrollable, true)
   console.log(`PASS: project grouping, selection, same-project draft, dashboard, collapse, shortcut, narrow layout. Screenshot: ${directory}/sidebar.png`)
 } finally {
   await app.close()
