@@ -476,19 +476,22 @@ function MessageView({
   const [notesOpen, setNotesOpen] = useState(false)
   const textIndexes = blocks.flatMap((block, index) => (block.kind === 'text' && block.text.trim() !== '' ? [index] : []))
   const answerIndex = textIndexes.at(-1)
-  const foldNotes = !message.pending && !notesOpen && !stepsOpen
-  const foldedNotes = foldNotes ? textIndexes.length - 1 : 0
+  const notesCount = textIndexes.length - 1
+  const showNotesToggle = !message.pending && !stepsOpen && notesCount > 0
+  const foldNotes = showNotesToggle && !notesOpen
 
   return (
     <div className="py-4 text-[15px] leading-relaxed text-text">
-      {foldedNotes > 0 && (
+      {showNotesToggle && (
         <button
           type="button"
           data-folded-notes
-          onClick={() => setNotesOpen(true)}
+          onClick={() => setNotesOpen((value) => !value)}
           className="mb-1 block max-w-full truncate text-left text-[13px] text-faint transition-colors hover:text-brand"
         >
-          {foldedNotes === 1 ? '1 working note' : `${foldedNotes} working notes`} · show
+          {notesOpen
+            ? 'hide working notes'
+            : `${notesCount === 1 ? '1 working note' : `${notesCount} working notes`} · show`}
         </button>
       )}
       {blocks.map((block, index) => {
