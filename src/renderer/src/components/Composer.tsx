@@ -551,11 +551,11 @@ export function Composer({  status: sharedStatus,
           <div className="mb-2 flex items-center gap-3 px-1 text-[12.5px]" role="group" aria-label="Repository actions">
             <button type="button" disabled={blocked !== null || status?.providerReady !== true}
               onClick={() => void send(COMMIT_PROMPT)}
-              className="glass-ghost rounded-md px-3 py-2 text-text transition-colors hover:text-brand disabled:opacity-40">
+              className="rounded-md border border-brand bg-brand px-3 py-2 font-medium text-bg transition-colors hover:bg-brand-strong disabled:opacity-40">
               Commit &amp; push <span className="ml-2 text-xs">⌘ Enter</span>
             </button>
             <button type="button" onClick={() => setDismissedCommit(`${session?.id}:${offeredCommit}`)}
-              className="glass-ghost rounded-md px-3 py-2 text-dim transition-colors hover:text-brand">Abaikan</button>
+              className="glass-ghost rounded-md px-3 py-2 text-brand transition-colors hover:text-brand-strong">Abaikan</button>
           </div>
         )}
         {blocked !== null && !(hero && folderMissing) && (
