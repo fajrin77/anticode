@@ -58,9 +58,9 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   cursor: [''],
   antigravity: [''],
   'minimax-plan': MINIMAX_PLAN_MODELS,
-  kilo: ['minimax/minimax-m3.1-flash:free'],
+  kilo: ['nvidia/nemotron-3.5-lightning:free'],
   // Only free routes; the live catalogue adds whatever else the key allows.
-  vercel: ['zai/glm-4.5-air:free', 'openai/gpt-oss-20b:free'],
+  vercel: ['nvidia/nemotron-3.5-lightning-free', 'reflection/beam-free'],
   openrouter: ['openrouter/free'],
   // Offline fallback only; the signed-in account catalogue takes precedence.
   codex: ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],

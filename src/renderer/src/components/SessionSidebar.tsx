@@ -59,7 +59,9 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
   </>
 }
 
-export function SessionSidebar({ active, dashboardActive, onDashboard, onSelectSession, onNewSession }: {
+export function SessionSidebar({ collapsed, onToggleProject, active, dashboardActive, onDashboard, onSelectSession, onNewSession }: {
+  collapsed: ReadonlySet<string>
+  onToggleProject: (root: string) => void
   active: boolean
   dashboardActive: boolean
   onDashboard: () => void
@@ -71,7 +73,6 @@ export function SessionSidebar({ active, dashboardActive, onDashboard, onSelectS
   const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const [showArchived, setShowArchived] = useState(false)
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const groups = new Map<string, Session[]>()
   for (const session of sessions) {
     if (session.closed && !showArchived) continue
@@ -97,12 +98,7 @@ export function SessionSidebar({ active, dashboardActive, onDashboard, onSelectS
             <section key={root} className="mb-1">
               <div className="flex items-center gap-1">
                 <button type="button" aria-expanded={expanded} aria-controls={`project-sessions-${index}`} title={root || label}
-                  onClick={() => setCollapsed((current) => {
-                    const next = new Set(current)
-                    if (next.has(root)) next.delete(root)
-                    else next.add(root)
-                    return next
-                  })}
+                  onClick={() => onToggleProject(root)}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-[14px] text-faint hover:text-text">
                   <span aria-hidden>{expanded ? '⌄' : '›'}</span><span className="truncate">{label}</span>
                 </button>

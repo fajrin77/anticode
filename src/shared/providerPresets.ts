@@ -26,6 +26,6 @@ export function providerPreset(id: unknown): (typeof PRESET_VIEW)[number] | unde
 export function presetAllowsModel(id: ProviderPresetId, model: string): boolean {
   // Only documented Chat Completions routes. A free Responses/SystemOne model
   // must not be sent through this adapter just because its name ends in -free.
-  if (id === 'opencode-free') return ['deepseek-v4.1-flash-free', 'glm-5.3-flash-free', 'minimax-m3.1-flash-free', 'beam-free', 'll-alpha-free', 'longcat-2.5-preview-free', 'exo-free', 'mimo-v2.6-flash-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free', 'nemotron-3.5-super-vl-free'].includes(model)
+  if (id === 'opencode-free') return ['deepseek-v4.1-flash-free', 'glm-5.3-flash-free', 'minimax-m3.1-flash-free', 'beam-free', 'll-alpha-free', 'longcat-2.5-preview-free', 'longcat-2.5-free', 'exo-free', 'mimo-v2.6-flash-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free', 'nemotron-3.5-super-vl-free', 'flint-40b-free', 'iceman-free', 'inkling-2-small-free'].includes(model)
   return model.endsWith(':free') || (id === 'openrouter-free' && model === 'openrouter/free')
 }

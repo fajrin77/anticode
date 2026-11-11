@@ -47,6 +47,7 @@ export function App(): JSX.Element {
   // A version the user closed the banner on; the next one appears on its own.
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set())
   const [view, setView] = useState<View>('dashboard')
   // Where Settings was opened from, so closing it returns there. Without this
   // the gear dropped the user into a session view that may not exist.
@@ -647,6 +648,13 @@ export function App(): JSX.Element {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && <SessionSidebar
+          collapsed={collapsedProjects}
+          onToggleProject={(root) => setCollapsedProjects((current) => {
+            const next = new Set(current)
+            if (next.has(root)) next.delete(root)
+            else next.add(root)
+            return next
+          })}
           active={view === 'session'}
           dashboardActive={view === 'dashboard'}
           onDashboard={() => setView('dashboard')}

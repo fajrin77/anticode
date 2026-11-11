@@ -1,7 +1,7 @@
 /** Conservative offline defaults; limited-time promotions come only from the live feed. */
 export const CLINE_FREE_FALLBACK = [
+  'nvidia/nemotron-3.5-super-vl:free',
   'nvidia/nemotron-3.5-lightning:free',
-  'reflection/beam-free',
   'openrouter/free'
 ] as const
 
