@@ -272,15 +272,15 @@ export function TabBar({
         </svg>
       </button>
       <span className="min-w-0 truncate text-[13px] text-dim">
-        {dashboardActive ? 'New Season' : settingsActive ? 'Settings' : scheduleActive ? 'Schedule' : activeSession?.title ?? 'anticode'}
+        {dashboardActive ? 'New Session' : settingsActive ? 'Settings' : scheduleActive ? 'Schedule' : activeSession?.title ?? 'anticode'}
       </span>
       {/* Keep session tools in the header so popovers stay outside sidebar scrolling. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
         <button
           type="button"
           onClick={onDashboard}
-          aria-label="+ New Season"
-          title="+ New Season"
+          aria-label="+ New Session"
+          title="+ New Session"
           className="glass-ghost region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
         >
           +

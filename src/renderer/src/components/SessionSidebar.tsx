@@ -87,7 +87,7 @@ export function SessionSidebar({ collapsed, onToggleProject, active, dashboardAc
     <aside id="session-sidebar" aria-label="Daftar sesi" className="flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft bg-raised/40 p-3">
       <button type="button" onClick={onDashboard} aria-pressed={dashboardActive}
         className={`mb-5 rounded-lg px-3 py-2 text-left text-[14px] hover:bg-raised hover:text-brand ${dashboardActive ? 'bg-raised text-brand' : 'text-text'}`}>
-        + New Season
+        + New Session
       </button>
       <nav aria-label="Sesi per project" className="sidebar-scroll min-h-0 flex-1 overflow-y-auto">
         {groups.size === 0 && <p className="px-3 text-[12px] text-faint">Belum ada sesi.</p>}
