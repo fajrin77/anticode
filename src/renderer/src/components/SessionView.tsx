@@ -1311,7 +1311,7 @@ export function SessionView(): JSX.Element {
         }}
         onWheel={() => { settleUntil.current = 0 }}
         onTouchMove={() => { settleUntil.current = 0 }}
-        className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-10 [scrollbar-gutter:stable_both-edges]"
+        className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-4 @min-[640px]:px-10 [scrollbar-gutter:stable_both-edges]"
       >
         <div data-transcript className="session-transcript mx-auto max-w-3xl">
           {prelude.map((message) => renderMessage(message))}

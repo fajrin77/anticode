@@ -404,6 +404,41 @@ describe('AgentSession', () => {
     expect(events.filter(event => event.type === 'notice')).toEqual([])
   })
 
+  it('stops Muse-style implementation promises even when each discovery result is new', async () => {
+    const turns: LLMResponse[] = []
+    for (let index = 0; index < 12; index++) {
+      await writeFile(path.join(root, `discovery-${index}.txt`), `Different evidence ${index}`)
+      turns.push(turn([
+        { type: 'text', text: index % 2 === 0
+          ? 'Saya siapkan sidebar lipat dengan daftar sesi di dalam dan tombol plus ke dashboard.'
+          : 'Oke, saya siapkan sidebar lipat dengan daftar sesi di dalam dan tombol plus ke dashboard.' },
+        { type: 'tool_use', id: `discover-${index}`, name: 'read_file', input: { path: `discovery-${index}.txt` } }
+      ], 'tool_use'))
+    }
+    const provider = new FakeProvider(turns)
+    await run(provider)
+    expect(provider.sent).toHaveLength(8)
+    expect(events.filter(event => event.type === 'notice')).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('implementation promises') })
+  })
+
+  it('allows recovery from a repeated promise by making the requested edit', async () => {
+    const turns: LLMResponse[] = []
+    for (let index = 0; index < 4; index++) {
+      await writeFile(path.join(root, `discovery-${index}.txt`), `Different evidence ${index}`)
+      turns.push(turn([
+        { type: 'text', text: 'Saya siapkan sidebar lipat dengan daftar sesi di dalam dan tombol plus ke dashboard.' },
+        { type: 'tool_use', id: `discover-${index}`, name: 'read_file', input: { path: `discovery-${index}.txt` } }
+      ], 'tool_use'))
+    }
+    turns.push(turn([{ type: 'tool_use', id: 'implement', name: 'write_file', input: { path: 'sidebar.txt', content: 'Implemented sidebar' } }], 'tool_use'))
+    turns.push(turn([{ type: 'text', text: 'Sidebar selesai.' }], 'end_turn'))
+    await run(new FakeProvider(turns))
+    expect(await readFile(path.join(root, 'sidebar.txt'), 'utf8')).toBe('Implemented sidebar')
+    expect(events.filter(event => event.type === 'notice')).toHaveLength(1)
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
+  })
+
   it('still stops repeated narration when only tool arguments change', async () => {
     const check = {
       name: 'check_status', description: 'Check a stalled job', inputSchema: { type: 'object', properties: {} },

@@ -11,7 +11,7 @@ export function LogoMark(): JSX.Element {
   return (
     <svg
       viewBox="153.88 449 772 146"
-      className="w-96 select-none"
+      className="h-auto w-96 max-w-full min-w-0 select-none"
       role="img"
       aria-label="anticode"
     >

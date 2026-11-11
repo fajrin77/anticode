@@ -229,8 +229,8 @@ function DashboardComposer({
   }
 
   return (
-    <div className="shrink-0 px-10">
-      <div className="mx-auto max-w-3xl" ref={boxRef}>
+    <div className="min-w-0 w-full shrink-0 px-4 @min-[640px]:px-10">
+      <div className="mx-auto min-w-0 w-full max-w-3xl" ref={boxRef}>
         {error !== null && <div role="alert" className="mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap px-1 text-[12.5px] text-del [overflow-wrap:anywhere]">{error}</div>}
         {pending > 0 && <div role="status" className="mb-2 px-1 text-[12.5px] text-dim">Preparing attachments… ({pending})</div>}
         {attachmentErrors.length > 0 && <div role="alert" className="mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap px-1 text-[12.5px] text-del [overflow-wrap:anywhere]">
@@ -409,7 +409,7 @@ function DashboardComposer({
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           {extra}
           <div className="flex rounded-lg border border-line p-0.5">
             {(['chat', 'code'] as const).map((value) => (
@@ -614,7 +614,7 @@ export function NewSessionView({
   )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto">
       <div className="flex-[0.7]" />
       <div className="flex justify-center px-10">
         <LogoMark />
@@ -678,7 +678,7 @@ export function NewSessionView({
       )}
 
       <div className="mx-auto mt-8 w-full max-w-4xl flex-1 px-10">
-        <div className="grid grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-8 @min-[640px]:grid-cols-2">
           <SessionColumn
             title="antichat"
             sessions={chatSessions}

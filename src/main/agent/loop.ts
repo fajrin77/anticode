@@ -470,6 +470,8 @@ export class AgentSession {
     let steps = 0
     const recentToolRounds: string[][] = []
     const recentNarrations: string[][] = []
+    const recentPromises: string[][] = []
+    let promiseNudges = 0
     const narrationEvidence = new Set<string>()
     let blockedContinuation = false
     if (isContinuation(prompt)) {
@@ -481,7 +483,7 @@ export class AgentSession {
           if (!isContinuation(text)) { boundary = index; break }
         }
       }
-      blockedContinuation = this.transcript.slice(boundary, runTranscriptStart).some((message) => message.content.some((block) => block.type === 'display' && block.kind === 'error' && /Stopped a (?:repeated tool|task) loop/.test(block.text)))
+      blockedContinuation = this.transcript.slice(boundary, runTranscriptStart).some((message) => message.content.some((block) => block.type === 'display' && block.kind === 'error' && /Stopped a (?:repeated tool|repeated narration|task) loop/.test(block.text)))
       for (let index = boundary; index < runTranscriptStart - 1; index++) {
         const message = this.transcript[index]
         if (message?.role !== 'assistant') continue
@@ -598,7 +600,25 @@ export class AgentSession {
         }
         // A model can announce the same step again and again while its tool
         // inputs differ slightly, which the exact-call guard never sees.
-        const narration = narrationWords(response.content.flatMap((block) => block.type === 'text' ? [block.text] : []).join(' '))
+        const narrationText = response.content.flatMap((block) => block.type === 'text' ? [block.text] : []).join(' ')
+        const narration = narrationWords(narrationText)
+        // New search/read output is evidence, but does not fulfil a repeated
+        // promise to implement the same change. Keep this guard independent
+        // of discovery results; actual edits or user steering reset it.
+        if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
+          recentPromises.length = 0
+          promiseNudges = 0
+        }
+        if (/\b(?:(?:i will|i['’]ll) (?:implement|build|create|change|update|fix|move|prepare)|saya (?:akan )?(?:siapkan|persiapkan|buat|ubah|pindahkan|rombak|membuat|mengubah|memindahkan|menyiapkan))\b/i.test(narrationText)) {
+          recentPromises.push(narration)
+          if (recentPromises.length > NARRATION_WINDOW) recentPromises.shift()
+          if (recentPromises.filter((other) => narrationsAlike(other, narration)).length >= MAX_ALIKE_NARRATIONS) {
+            recentPromises.length = 0
+            if (promiseNudges++ > 0) throw new Error('Stopped a repeated narration loop: implementation promises continued after recovery guidance without a confirmed edit. Existing results are saved; choose a different action to continue.')
+            emit({ type: 'notice', runId, text: 'The agent repeated an implementation promise while continuing discovery. It was told to apply the change or report the blocker.' })
+            this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[You keep promising the same implementation while reading or searching again. New discovery output does not complete that change. Use the evidence already collected and implement the authorized change now. If you cannot, stop with the specific blocker. Do not repeat the promise or restart discovery.]' }] })
+          }
+        }
         if (narration.length >= 4) {
           recentNarrations.push(narration)
           if (recentNarrations.length > NARRATION_WINDOW) recentNarrations.shift()

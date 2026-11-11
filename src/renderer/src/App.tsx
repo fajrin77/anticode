@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useRef } from 'react'
 import type { JSX } from 'react'
 import { restoreDraftAttachments, DASHBOARD_DRAFT } from './draftAttachments'
 import { useSessionSwipe } from './hooks/useSessionSwipe'
+import { SessionSidebar } from './components/SessionSidebar'
 import { TabBar } from './components/TabBar'
 import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
@@ -45,6 +46,7 @@ export function App(): JSX.Element {
   const [updateState, setUpdateState] = useState<UpdateState | null>(null)
   // A version the user closed the banner on; the next one appears on its own.
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [view, setView] = useState<View>('dashboard')
   // Where Settings was opened from, so closing it returns there. Without this
   // the gear dropped the user into a session view that may not exist.
@@ -63,42 +65,31 @@ export function App(): JSX.Element {
   const openSession = useSessionStore((state) => state.openSession)
   const reopenSession = useSessionStore((state) => state.reopenSession)
 
-  // New sessions start as anticode drafts; the mode and folder are chosen in
-  // the dashboard and only bound to the main-process session on first send.
-  const startSession = useCallback(() => {
-    const sessionId = openSession('code', null)
-    // Asked for here, so shown here, even from Settings, which a session
-    // made elsewhere (the phone) is not allowed to leave on its own.
+  const startSameProject = useCallback((id: string) => {
+    const source = useSessionStore.getState().sessions.find((session) => session.id === id)
+    if (!source) return
+    openSession(source.mode, source.projectRoot, source.provider, source.model)
     setView('session')
-    // The colour this window just painted is offered to the main process,
-    // which owns colours so the phone paints the session the same; whatever it
-    // settles on is what both show.
-    const colour = useSessionStore.getState().sessions.find((entry) => entry.id === sessionId)?.colour
-    void window.anticode
-      .createSession({
-        sessionId,
-        mode: 'code',
-        workspaceRoot: null,
-        ...(colour !== undefined ? { colour } : {})
-      })
-      .then((settled) => useSessionStore.getState().addExternalSession(settled))
   }, [openSession])
 
-  // Cmd/Ctrl+N mints a fresh session, exactly like the "+" tab.
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key.toLowerCase() === 'n') {
         event.preventDefault()
-        startSession()
+        setView('dashboard')
+      } else if (event.key.toLowerCase() === 'b') {
+        event.preventDefault()
+        setSidebarOpen((open) => !open)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [startSession])
+  }, [])
 
-  // Clicking the tab of the already-active session changes no store state, so
+  // Selecting the already-active session changes no store state, so
   // the effect below never fires, the view switch happens here explicitly.
-  // Reopening from the dashboard also un-archives the session's tab.
+  // Reopening a saved session also clears its archived state.
   const openExistingSession = useCallback(
     (id: string) => {
       reopenSession(id)
@@ -650,10 +641,19 @@ export function App(): JSX.Element {
         onDashboard={() => setView('dashboard')}
         onOpenSettings={toggleSettings}
         onOpenSchedule={() => setView('schedule')}
-        onNewTab={startSession}
-        onSelectSession={openExistingSession}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((open) => !open)}
       />
 
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {sidebarOpen && <SessionSidebar
+          active={view === 'session'}
+          dashboardActive={view === 'dashboard'}
+          onDashboard={() => setView('dashboard')}
+          onSelectSession={openExistingSession}
+          onNewSession={startSameProject}
+        />}
+        <main className="@container flex min-w-0 flex-1 flex-col overflow-hidden">
       {appError && (
         <div
           role="alert"
@@ -702,14 +702,14 @@ export function App(): JSX.Element {
         // The transcript gives up the right-hand side to the browser pane
         // rather than being covered by it: both stay usable at once, which is
         // the point of watching a page the agent is working on.
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
           {/* Full size hands the whole window to the page. The transcript is
               only set aside, not unmounted, its scroll and draft are where
               they were when the pane shrinks back. */}
           <div
             data-session-swipe
             data-session-slide
-            className={`flex min-w-0 flex-1 flex-col ${
+            className={`@container flex min-w-0 flex-1 flex-col ${
               web !== undefined && web.full && !web.hidden ? 'hidden' : ''
             }`}
           >
@@ -749,6 +749,8 @@ export function App(): JSX.Element {
           )}
         </div>
       )}
+        </main>
+      </div>
       {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
       {pendingQuestion !== undefined && <QuestionModal key={pendingQuestion.requestId} request={pendingQuestion} onAnswer={(answer) => answerQuestion(pendingQuestion.requestId, answer)} />}
     </div>

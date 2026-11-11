@@ -174,6 +174,7 @@ interface WebPanelProps {
 }
 
 export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX.Element {
+  const panelRef = useRef<HTMLDivElement>(null)
   const guests = useRef(new Map<string, WebviewElement>())
   const [states, setStates] = useState<Record<string, GuestState>>({})
   const [width, setWidth] = useState(storedWidth)
@@ -226,7 +227,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
   useEffect(() => {
     if (!dragging) return
     function onMove(event: MouseEvent): void {
-      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - event.clientX)))
+      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, (panelRef.current?.parentElement?.getBoundingClientRect().right ?? window.innerWidth) - event.clientX)))
     }
     function onUp(): void {
       setDragging(false)
@@ -251,9 +252,10 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
 
   return (
     <div
+      ref={panelRef}
       data-web-panel
       data-web-full={full ? 'true' : undefined}
-      style={full ? undefined : { width: entered ? width : 0 }}
+      style={full ? undefined : { width: entered ? width : 0, maxWidth: '50%' }}
       className={`relative flex shrink-0 flex-col overflow-hidden bg-surface transition-[width] duration-200 ease-out ${
         full ? 'w-full flex-1' : 'border-l border-line'
       }`}
@@ -275,7 +277,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
         />
       )}
 
-      <div className="flex h-full min-w-0 flex-col" style={full ? undefined : { width }}>
+      <div className="flex h-full min-w-0 w-full flex-col">
         {/* Tabs first, the way a browser stacks them: what is open, then how
             to move around inside it. */}
         <div className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-line-soft px-1.5">
@@ -314,7 +316,7 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
           </button>
         </div>
 
-        <header className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
+        <header className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b border-line px-2 py-1">
           <IconButton label="Back" disabled={!state.back} onClick={() => guest()?.goBack()}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M10 3 5 8l5 5" />

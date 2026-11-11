@@ -3,7 +3,6 @@ import type { JSX } from 'react'
 import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
-import { Badge } from './Badge'
 import { contextWindowFor, historyBudgetFor } from '@shared/ipc'
 import { formatUsd } from '../money'
 import { InstructionsField } from './InstructionsField'
@@ -214,8 +213,8 @@ interface TabBarProps {
   onDashboard: () => void
   onOpenSettings: () => void
   onOpenSchedule: () => void
-  onNewTab: () => void
-  onSelectSession: (id: string) => void
+  sidebarOpen: boolean
+  onToggleSidebar: () => void
   /** True while the dashboard view is on screen, lights the grid icon lime. */
   dashboardActive: boolean
   /** True while Settings is on screen, lights the gear the same way. */
@@ -255,285 +254,33 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
   )
 }
 
-function GridIcon(): JSX.Element {
-  return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor" aria-hidden>
-      <rect x="1" y="1" width="5" height="5" rx="1.2" />
-      <rect x="9" y="1" width="5" height="5" rx="1.2" />
-      <rect x="1" y="9" width="5" height="5" rx="1.2" />
-      <rect x="9" y="9" width="5" height="5" rx="1.2" />
-    </svg>
-  )
-}
-
 export function TabBar({
-  onDashboard,
-  onOpenSettings,
-  onOpenSchedule,
-  onNewTab,
-  onSelectSession,
-  dashboardActive,
-  settingsActive,
-  scheduleActive
+  onDashboard, onOpenSettings, onOpenSchedule,
+  sidebarOpen, onToggleSidebar, dashboardActive, settingsActive, scheduleActive
 }: TabBarProps): JSX.Element {
-  const sessions = useSessionStore((state) => state.sessions)
-  const activeSessionId = useSessionStore((state) => state.activeSessionId)
-  const closeSession = useSessionStore((state) => state.closeSession)
-  const deleteSession = useSessionStore((state) => state.deleteSession)
-  const moveSession = useSessionStore((state) => state.moveSession)
-  const moveSessionTo = useSessionStore((state) => state.moveSessionTo)
-  const activeRuns = useSessionStore((state) => state.activeRuns)
-  const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
   )
-  // Closing a tab archives the session (still editable from the dashboard)
-  // and stops its run, otherwise the agent keeps burning tokens with no way
-  // to stop it. The main-process session stays alive so history survives.
-  // The stop is a pause, the same one the pause button makes: the work it
-  // cut short can be resumed from the reopened tab or from the phone.
-  // A draft that was never prompted cannot be reopened from the dashboard, so
-  // closing its tab deletes it outright, everywhere, including the phone.
-  function close(sessionId: string): void {
-    void window.anticode.pauseSession(sessionId)
-    const session = sessions.find((entry) => entry.id === sessionId)
-    if (session !== undefined && session.messages.length === 0) {
-      void window.anticode.closeSession(sessionId)
-      deleteSession(sessionId)
-      return
-    }
-    closeSession(sessionId)
-  }
-
-  // Dragging a tab reorders the strip. The pointer listeners live on the window
-  // for the length of one drag: the tab itself is moved around inside the
-  // strip, and pointer capture would not survive that.
-  const strip = useRef<HTMLDivElement>(null)
-  // Crowded: the tabs are narrow enough that a hover-revealed × would cover
-  // most of what is left to click.
-  const [crowded, setCrowded] = useState(false)
-  const openCount = sessions.filter((session) => !session.closed).length
-  // Fixed threshold instead of width measurement: through nine tabs every tab
-  // keeps its title (the strip scrolls when narrow); past nine the whole bar
-  // turns into icons at once, so no tab is left title-less beside them.
-  const iconOnly = openCount > 9
-  // Share the available strip in icon mode instead of leaving an empty tail.
-  // Keep a usable minimum and scroll rather than crushing the badges.
-  useEffect(() => {
-    const host = strip.current
-    if (host === null) return
-    const measure = (): void => {
-      setCrowded(openCount > 0 && host.clientWidth / openCount < 128)
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(host)
-    return () => observer.disconnect()
-  }, [openCount])
-  useEffect(() => {
-    const host = strip.current
-    if (!host) return
-    const revealActive = (): void => {
-      const active = host.querySelector<HTMLElement>('[aria-selected="true"]')
-      if (!active) return
-      const bounds = host.getBoundingClientRect()
-      const tab = active.getBoundingClientRect()
-      if (tab.right > bounds.right) host.scrollLeft += tab.right - bounds.right
-      else if (tab.left < bounds.left) host.scrollLeft -= bounds.left - tab.left
-    }
-    revealActive()
-    const observer = new ResizeObserver(revealActive)
-    observer.observe(host)
-    return () => observer.disconnect()
-  }, [activeSessionId, openCount, iconOnly])
-  const drag = useRef<number | null>(null)
-  const dragged = useRef(false)
-
-  /** Where a dragged tab would land: the dragged tab itself is skipped, so the
-   *  strip never chases the cursor it is already under. */
-  function dropIndex(host: HTMLElement, clientX: number, draggedId: string): number {
-    let index = 0
-    for (const tab of host.querySelectorAll<HTMLElement>('[data-tab-id]')) {
-      if (tab.dataset.tabId === draggedId) continue
-      const box = tab.getBoundingClientRect()
-      if (clientX > box.left + box.width / 2) index++
-    }
-    return index
-  }
-
-  function startDrag(sessionId: string, event: React.PointerEvent<HTMLDivElement>): void {
-    if (event.button !== 0) return
-    const startX = event.clientX
-    let moved = false
-    drag.current = event.pointerId
-    const onMove = (move: PointerEvent): void => {
-      if (move.pointerId !== drag.current) return
-      if (!moved && Math.abs(move.clientX - startX) < 6) return
-      const host = strip.current
-      if (host === null) return
-      const tabs = [...host.querySelectorAll<HTMLElement>('[data-tab-id]')]
-      const from = tabs.findIndex((tab) => tab.dataset.tabId === sessionId)
-      const to = dropIndex(host, move.clientX, sessionId)
-      // A wobble during a click that would leave the tab where it is, is a
-      // click, not a drag: only an actual reorder swallows the click.
-      if (!moved && to === from) return
-      moved = true
-      dragged.current = true
-      if (to !== from) moveSessionTo(sessionId, to)
-    }
-    const onUp = (): void => {
-      drag.current = null
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      // The click that follows the release must not also select the tab.
-      if (moved) window.setTimeout(() => { dragged.current = false }, 0)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }
-
-  function badgeName(session: { mode: string; projectRoot: string | null }): string {
-    if (session.mode === 'chat') return 'antichat'
-    if (session.projectRoot !== null) {
-      const parts = session.projectRoot.split(/[\\/]/).filter((part) => part !== '')
-      return parts.at(-1) ?? 'session'
-    }
-    return 'session'
-  }
-
   return (
-    <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-1.5 pr-3 pl-20">
-      <div className="header-fade" aria-hidden>
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
-      <button
-        type="button"
-        onClick={onDashboard}
-        title="Dashboard"
-        aria-pressed={dashboardActive}
-        className={`glass-ghost region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:text-brand ${
-          dashboardActive ? 'text-brand' : 'text-faint'
-        }`}
-      >
-        <GridIcon />
+    <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-3 pr-3 pl-20">
+      <button type="button" onClick={onToggleSidebar}
+        title="Buka/tutup sidebar (⌘/Ctrl+B)" aria-label="Buka/tutup sidebar"
+        aria-expanded={sidebarOpen} aria-controls="session-sidebar"
+        className="glass-ghost region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+          <rect x="2" y="3" width="16" height="14" rx="2" /><path d="M7 3v14" />
+        </svg>
       </button>
-
-      <div
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-        ref={strip}
-        data-session-tabs
-        aria-label="Session tabs, swipe with two fingers to switch"
-      >
-        {sessions.filter((session) => !session.closed).map((session) => {
-          const isActive = session.id === activeSessionId
-          const running =
-            Object.values(activeRuns).some((run) => run.sessionId === session.id) ||
-            Object.values(mirrorRuns).some((entry) => entry.sessionId === session.id)
-          return (
-            <div
-              key={session.id}
-              // The active tab carries a glass box and a lime underline so it
-              // reads at a glance even among many dark tabs; inactive tabs stay
-              // bare and gain the box only under the cursor.
-              data-tab-id={session.id}
-              // The whole tab selects, not only its title: with many tabs the
-              // title shrinks to a sliver and clicks on the badge or padding
-              // used to do nothing. Tabs keep a minimum width and the strip
-              // scrolls instead of crushing them.
-              role="tab"
-              aria-selected={isActive}
-              className={`region-no-drag group relative flex h-9 ${iconOnly ? 'min-w-[32px] flex-1 basis-0 justify-center' : 'max-w-44 min-w-[6.5rem] flex-1 basis-0 gap-2 pl-2.5 pr-7'} shrink-0 cursor-pointer items-center rounded-lg transition-colors ${
-                isActive ? 'glass-control text-text' : 'glass-ghost text-dim'
-              }`}
-              onPointerDown={(event) => startDrag(session.id, event)}
-              onClickCapture={(event) => {
-                if (!dragged.current) return
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-              onClick={() => onSelectSession(session.id)}
-              title={iconOnly ? session.title : undefined}
-              onAuxClick={(event) => { if (iconOnly && event.button === 1) close(session.id) }}
-            >
-              {isActive && (
-                <span
-                  aria-hidden
-                  className={`absolute -bottom-px h-0.5 rounded-full bg-brand ${iconOnly ? 'inset-x-1.5' : 'inset-x-3'}`}
-                />
-              )}
-              <Badge
-                label={badgeName(session)}
-                colour={session.colour}
-                size={iconOnly ? 'md' : 'sm'}
-                spinning={running}
-              />
-              {!iconOnly && <button
-                type="button"
-                title={session.title}
-                className={`min-w-0 flex-1 truncate text-left text-[14px] transition-colors group-hover:text-brand ${
-                  isActive ? 'text-text' : 'text-dim'
-                }`}
-              >
-                {session.title}
-              </button>}
-              {(iconOnly || isActive || !crowded) && <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  close(session.id)
-                }}
-                // Not pressing a drag start either: closing never reorders.
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label="Close tab"
-                // An invisible × takes no clicks. Once the strip is crowded,
-                // inactive tabs carry no × at all (as in Chrome): a click on a
-                // narrow tab selects it and never closes it by surprise.
-                className={`absolute right-1 top-2 z-10 flex h-5 w-5 items-center justify-center rounded text-faint transition-[opacity,color] hover:text-brand focus-visible:pointer-events-auto focus-visible:opacity-100 ${
-                    isActive ? 'opacity-0 group-hover:opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
-                  }`}
-              >
-                ×
-              </button>}
-              {/* Reorder by dragging the tab itself anywhere along the strip;
-                  a plain click still just selects it. Right-click on an edge
-                  nudges it one slot, for anyone who prefers no dragging. */}
-              <div
-                role="navigation"
-                aria-label="Reorder tab"
-                className="absolute inset-y-0 left-0 w-1.5"
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  moveSession(session.id, 'left')
-                }}
-              />
-              <div
-                role="navigation"
-                aria-label="Reorder tab"
-                className="absolute inset-y-0 right-0 w-1.5"
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  moveSession(session.id, 'right')
-                }}
-              />
-            </div>
-          )
-        })}
-
-      </div>
-
-      {/* Usage and settings sit on the same row as the session tabs, outside
-          the scrolling strip, whose overflow would clip the usage popover. */}
+      <span className="min-w-0 truncate text-[13px] text-dim">
+        {dashboardActive ? 'New Season' : settingsActive ? 'Settings' : scheduleActive ? 'Schedule' : activeSession?.title ?? 'anticode'}
+      </span>
+      {/* Keep session tools in the header so popovers stay outside sidebar scrolling. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
         <button
           type="button"
-          onClick={onNewTab}
-          aria-label="New tab"
-          title="New tab"
+          onClick={onDashboard}
+          aria-label="+ New Season"
+          title="+ New Season"
           className="glass-ghost region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
         >
           +

@@ -87,7 +87,13 @@ try {
   await limeOnHover('folded notes line', folded)
   await folded.click()
   await window.getByText('Working note one.', { exact: true }).waitFor()
-  log('a finished reply folds its working notes and shows them on request')
+  assert.equal(await folded.innerText(), 'hide working notes')
+  await folded.click()
+  assert.equal(await window.getByText('Working note one.', { exact: true }).count(), 0)
+  assert.match(await folded.innerText(), /2 working notes · show/)
+  await folded.click()
+  await window.getByText('Working note one.', { exact: true }).waitFor()
+  log('working notes toggle open, closed, and open again without losing the control')
 
   // The first request is rate limited; rotation hands the turn over and says so.
   await composer().fill('handover-fixture'); await composer().press('Enter')

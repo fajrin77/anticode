@@ -535,12 +535,12 @@ export function Composer({  status: sharedStatus,
     <div
       ref={layerRef}
       data-composer-layer
-      className={hero ? 'shrink-0 px-10' : 'absolute inset-x-0 bottom-0 z-20 px-10 pb-6'}
+      className={hero ? 'min-w-0 w-full shrink-0 px-4 @min-[640px]:px-10' : 'absolute inset-x-0 bottom-0 z-20 min-w-0 px-4 pb-6 @min-[640px]:px-10'}
     >
       {viewing !== null && (
         <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />
       )}
-      <div className="mx-auto max-w-3xl" ref={boxRef} data-composer-box>
+      <div className="mx-auto min-w-0 w-full max-w-3xl" ref={boxRef} data-composer-box>
         {blocked !== null && !(hero && folderMissing) && (
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
         )}
@@ -747,7 +747,7 @@ export function Composer({  status: sharedStatus,
               className="block min-h-11 max-h-48 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[14px] leading-5 text-text outline-none placeholder:text-faint"
             />
 
-            <div className="flex items-center gap-1 px-2.5 pb-2.5">
+            <div className="flex flex-wrap items-center gap-1 px-2.5 pb-2.5">
               <button
                 type="button"
                 title="Attach files"
@@ -899,7 +899,7 @@ export function Composer({  status: sharedStatus,
         </div>
 
         {hero && session !== undefined && (
-          <div className="mt-4 flex items-center justify-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             {heroExtra}
             <div className="flex rounded-lg border border-line p-0.5">
               {(['chat', 'code'] as const).map((mode) => (
