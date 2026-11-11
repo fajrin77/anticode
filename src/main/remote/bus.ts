@@ -101,6 +101,22 @@ export function registerRun(runId: string, sessionId: string): void {
   journals.set(runId, { messages: loadSessionMessages(sessionId) ?? [], summaries: [...loadSessionSummaries(sessionId)], events: [] })
 }
 
+/** Preview only the closing answer, never narration before tool calls. */
+function completionPreview(runId: string): string {
+  let text = ''
+  for (const event of journals.get(runId)?.events ?? []) {
+    if (event.type === 'prompt' || event.type === 'tool_start') text = ''
+    else if (event.type === 'text_delta') text += event.text
+  }
+  const plain = text
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[`*_#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain.length > 240 ? `${plain.slice(0, 239).trimEnd()}…` : plain || 'Selesai. Buka sesi untuk melihat hasil.'
+}
+
 export function forgetRun(runId: string): void {
   runSessions.delete(runId)
   journals.delete(runId)
@@ -166,6 +182,7 @@ export function forward(event: AgentEvent): void {
   }
 
   if (event.type === 'end' || event.type === 'error') {
+    const preview = event.type === 'end' && event.reason === 'complete' ? completionPreview(event.runId) : ''
     runSessions.delete(event.runId)
     journals.delete(event.runId)
     const summary = closeTally(event.runId, sessionId, event.keptReplyModel, event.type === 'error' ? 'error' : event.reason === 'cancelled' ? 'interrupted' : event.reason)
@@ -184,7 +201,7 @@ export function forward(event: AgentEvent): void {
             ? `Connection interrupted: ${event.message.slice(0, 130)}. Press Continue to resume.`
             : `Stopped with an error: ${event.message.slice(0, 160)}`
           : event.reason === 'complete'
-            ? `Finished${summary !== undefined ? ` in ${Math.max(1, Math.round(summary.durationMs / 1000))}s` : ''}.`
+            ? preview
             : `Stopped: ${event.reason}.`,
         sessionId
       })

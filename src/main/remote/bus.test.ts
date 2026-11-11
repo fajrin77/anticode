@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { SnapshotMessage } from '@shared/ipc'
-const mocks = vi.hoisted(() => ({ messages: [] as SnapshotMessage[], record: vi.fn() }))
+const mocks = vi.hoisted(() => ({ messages: [] as SnapshotMessage[], record: vi.fn(), notify: vi.fn() }))
+vi.mock('../notify', () => ({ notify: mocks.notify }))
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => ({}) },
   Notification: { isSupported: () => false }
@@ -11,7 +12,34 @@ vi.mock('../runtime', () => ({
 }))
 import { forward, registerRun, sessionSnapshot, subscribe, forgetRun } from './bus'
 import { beginRun, clearPause, finishRun } from '../runs'
-afterEach(() => { finishRun('run'); forgetRun('run'); clearPause('session'); mocks.messages = [] })
+afterEach(() => { finishRun('run'); forgetRun('run'); clearPause('session'); mocks.messages = []; mocks.notify.mockClear() })
+
+it('notifies with a readable closing result instead of duration or tool narration', () => {
+  registerRun('run', 'session')
+  forward({ type: 'text_delta', runId: 'run', text: 'Saya akan memeriksa file.' })
+  forward({ type: 'tool_start', runId: 'run', toolUseId: 'tool', name: 'read_file', input: {} })
+  forward({ type: 'text_delta', runId: 'run', text: '**Filter stok** sudah diperbaiki.\n' })
+  forward({ type: 'text_delta', runId: 'run', text: 'Commit: `abc123`.' })
+  forward({ type: 'end', runId: 'run', reason: 'complete' })
+  expect(mocks.notify).toHaveBeenCalledWith('complete', {
+    title: 'session', body: 'Filter stok sudah diperbaiki. Commit: abc123.', sessionId: 'session'
+  })
+})
+
+it('bounds the completion preview to notification space', () => {
+  registerRun('run', 'session')
+  forward({ type: 'text_delta', runId: 'run', text: 'a'.repeat(300) })
+  forward({ type: 'end', runId: 'run', reason: 'complete' })
+  expect(mocks.notify.mock.calls[0]?.[1].body).toBe('a'.repeat(239) + '…')
+})
+
+it('does not expose tool narration when there is no closing answer', () => {
+  registerRun('run', 'session')
+  forward({ type: 'text_delta', runId: 'run', text: 'Memeriksa rahasia.' })
+  forward({ type: 'tool_start', runId: 'run', toolUseId: 'tool', name: 'read_file', input: {} })
+  forward({ type: 'end', runId: 'run', reason: 'complete' })
+  expect(mocks.notify.mock.calls[0]?.[1].body).toBe('Selesai. Buka sesi untuk melihat hasil.')
+})
 it('snapshots replay all live events from a stable baseline without duplicating committed text', () => {
   beginRun('run', 'session'); registerRun('run', 'session')
   forward({ type: 'prompt', runId: 'run', text: 'hello' })
