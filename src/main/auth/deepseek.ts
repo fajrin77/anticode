@@ -92,7 +92,12 @@ export function platformPage(value: unknown, path: string): string {
   return url.href
 }
 
-export async function loginDeepSeek(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
+/**
+ * The Platform registers one device per install (the vendor app keeps a single
+ * device record and reuses it), so later sign-ins reuse the stored id instead of
+ * looking like a brand new machine each time.
+ */
+export async function loginDeepSeek(callbacks: AuthLoginCallbacks, deviceId: string = randomUUID()): Promise<AuthTokens> {
   const { signal } = callbacks
   const verifier = makeVerifier()
   const state = makeState()
@@ -118,7 +123,6 @@ export async function loginDeepSeek(callbacks: AuthLoginCallbacks): Promise<Auth
   if (result.code === '') throw new Error('Login did not return a code')
 
   callbacks.onUpdate({ message: 'Exchanging the DeepSeek session' })
-  const deviceId = randomUUID()
   const exchanged = await platformRequest('/auth-api/v0/dsh/auth_exchange', {
     method: 'POST',
     headers: { ...clientHeaders(), 'content-type': 'application/json' },

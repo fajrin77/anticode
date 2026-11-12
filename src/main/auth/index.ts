@@ -84,6 +84,16 @@ export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
   deepseek: 'DeepSeek (free credit)'
 }
 
+/** One Platform device per install: a later sign-in reuses the id the first one registered. */
+function deepSeekDeviceId(): string | undefined {
+  for (const row of listAuthAccounts()) {
+    if (row.kind !== 'deepseek') continue
+    const deviceId = readAuthTokens(row.id)?.meta?.deviceId
+    if (deviceId) return deviceId
+  }
+  return undefined
+}
+
 function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   if (isDirectAuthKind(kind)) return loginDirectApi(kind, callbacks)
   switch (kind) {
@@ -105,7 +115,7 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
     case 'copilot': return loginCopilot(callbacks)
     case 'cursor': return loginCursor(callbacks)
     case 'antigravity': return loginAntigravity(callbacks)
-    case 'deepseek': return loginDeepSeek(callbacks)
+    case 'deepseek': return loginDeepSeek(callbacks, deepSeekDeviceId())
   }
 }
 

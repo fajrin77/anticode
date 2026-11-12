@@ -50,6 +50,14 @@ kesalahan klien. Klien sekarang mencoba ulang sekali (jeda 600 ms) dan, bila
 pemeriksaan credit tetap terhalang, memakai hasil verifikasi terakhir selama
 5 menit — credit granted tidak bisa berubah sendiri menjadi saldo berbayar.
 
+**Satu akun per device.** `DeepSeek Harness` menyimpan satu record `DEVICE`
+(`randomUUID()` saat exchange pertama) dan satu record grant, lalu memakai device
+id itu untuk setiap login; tidak ada penukar akun di dalam app. Itu menjelaskan
+kenapa akun kedua ditolak: browser mengembalikan akun yang sedang login, dan
+percobaan dengan akun lain terlihat sebagai device baru bagi Platform. Anticode
+sekarang memakai `deviceId` milik akun DeepSeek yang sudah tersimpan, bukan UUID
+baru tiap login, sehingga permintaannya sama persis dengan app vendor.
+
 **Akun kedua.** Halaman `/dsh/authorize` mengikuti sesi browser: bila browser
 sudah login ke satu akun DeepSeek, otorisasi berikutnya mengembalikan akun yang
 sama dan Anticode hanya memperbarui slot yang ada. Untuk menambah akun lain,

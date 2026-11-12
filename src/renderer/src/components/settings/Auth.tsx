@@ -34,7 +34,7 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
     title: 'CodeBuddy',
     hint: 'Sign in at codebuddy.ai; the account speaks OpenAI’s wire format.'
   },
-  { kind: 'deepseek', title: 'DeepSeek (free credit)', hint: 'Browser sign-in with your DeepSeek Platform account. Runs only on granted credit: turns are refused while the account has top-up balance, so nothing paid is spent. The browser signs in the account it already holds, so sign out of platform.deepseek.com first when adding a second one.' },
+  { kind: 'deepseek', title: 'DeepSeek (free credit)', hint: 'Browser sign-in with your DeepSeek Platform account. Runs only on granted credit: turns are refused while the account has top-up balance, so nothing paid is spent. The Platform grants free credit to one account per device, and the browser signs in the account it already holds, so a second DeepSeek account is usually refused — sign out of platform.deepseek.com first and expect the Platform to reject a second account on this machine.' },
   { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
   { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Sign in and approve access in the browser; Anticode receives the code automatically through localhost. Only free model routes are used.' },
   { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
