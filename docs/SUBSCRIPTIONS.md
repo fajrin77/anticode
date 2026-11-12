@@ -273,6 +273,22 @@ di laporan. Sumber protokol akun:
 [account service resmi Cline](https://github.com/cline/cline/blob/main/sdk/packages/core/src/account/cline-account-service.ts),
 [dokumentasi ClinePass](https://github.com/cline/cline/blob/main/docs/getting-started/clinepass.mdx).
 
+## Katalog ClinePass — 12 November 2026
+
+`GET /api/v1/models` tidak lagi mengembalikan id `cline-pass/`, jadi `CLINEPASS_MODELS`
+dipakai sebagai katalog. Probe inference nyata (satu prompt pendek per id, key pengguna)
+terhadap tabel [dokumentasi ClinePass](https://github.com/cline/cline/blob/main/docs/getting-started/clinepass.mdx):
+
+- HTTP 200 dan ditambahkan: `glm-5.3`, `deepseek-v4.1-flash-1017`, `deepseek-v4.1-flash`,
+  `kimi-k3.1-pro`, `minimax-m3.1-flash`, `qwen3.8-max` (sebelumnya salah ditulis `qwen-3.8-max`).
+- Tetap: `glm-5.3-flash`, `deepseek-v4-pro`, `kimi-k3` (200), `muse-spark-1.3-contributor`
+  (500 karena respons kosong, bukan 404).
+- Dihapus karena 404: `deepseek-v4-flash`, `kimi-k2.7-code`, `mimo-v2.5`, `minimax-m3`, `qwen-3.8-max`.
+- Tercantum di dokumentasi tetapi tidak ditambahkan: `minimax-m3`, `mimo-v2.6-pro`,
+  `mimo-v2.6-flash` (404), `qwen3.7-max`, `qwen3.7-plus` (500 "provider does not support this model").
+
+Ini probe ketersediaan, bukan benchmark kemampuan coding.
+
 ## Jendela context dari katalog gateway (0.0.80)
 
 Meter Session usage dan compaction agent memakai `contextWindowFor` serta

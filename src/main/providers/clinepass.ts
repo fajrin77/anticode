@@ -21,13 +21,14 @@ export function isDirectClinepassURL(value: string | null): boolean {
 export const CLINEPASS_MODELS: string[] = [
   'cline-pass/muse-spark-1.3-contributor',
   'cline-pass/glm-5.3-flash',
-  'cline-pass/deepseek-v4-flash',
+  'cline-pass/glm-5.3',
+  'cline-pass/deepseek-v4.1-flash-1017',
+  'cline-pass/deepseek-v4.1-flash',
   'cline-pass/deepseek-v4-pro',
-  'cline-pass/kimi-k2.7-code',
+  'cline-pass/kimi-k3.1-pro',
   'cline-pass/kimi-k3',
-  'cline-pass/mimo-v2.5',
-  'cline-pass/minimax-m3',
-  'cline-pass/qwen-3.8-max'
+  'cline-pass/minimax-m3.1-flash',
+  'cline-pass/qwen3.8-max'
 ]
 
 function env(name: string): string | null {
