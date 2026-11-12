@@ -42,11 +42,32 @@ export function platformData(payload: unknown): unknown {
   return body.data.biz_data
 }
 
+/**
+ * A reply that is not JSON must say so in words a person can act on. A bare
+ * `JSON.parse` failure reads "Unexpected end of JSON input" and hides which
+ * step of the sign-in the Platform refused.
+ */
+export function platformPayload(path: string, status: number, text: string): unknown {
+  const stage = path.replace(/^\/[a-z-]+\/v0\/(?:dsh\/)?/, '')
+  if (text.trim() === '') {
+    throw new ProviderRequestError(
+      `DeepSeek Platform sent an empty reply to ${stage} (HTTP ${status}), so no account was connected. Try again; if it repeats, sign out of platform.deepseek.com in the browser and use that window for the account you want to add.`,
+      status
+    )
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new ProviderRequestError(`DeepSeek Platform sent an unreadable reply to ${stage} (HTTP ${status}).`, status)
+  }
+}
+
 async function platformRequest(path: string, init: RequestInit, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(`${DEEPSEEK_PLATFORM}${path}`, { ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) })
   if (response.status === 401) throw new ProviderRequestError('The DeepSeek login has expired. Sign in again in Settings → Auth provider.', 401, 'account')
+  const text = await response.text()
   if (!response.ok) throw new ProviderRequestError(`DeepSeek Platform answered HTTP ${response.status}`, response.status)
-  return platformData(await response.json())
+  return platformData(platformPayload(path, response.status, text))
 }
 
 /** Only Platform pages on the fixed path may be opened in the browser. */

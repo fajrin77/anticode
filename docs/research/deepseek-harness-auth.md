@@ -26,6 +26,35 @@ keberhasilan akses Anticode.
 - Bukti: fixture `deepseek.test.ts` (wallet, envelope, validasi URL). Login dan
   inference nyata belum diprobe; server dapat menolak klien selain Harness.
 
+## Probe HTTP 12 November 2026 (tanpa kredensial)
+
+Dijalankan dengan `curl` dari mesin ini, tanpa token atau cookie pengguna:
+
+| Permintaan | Hasil |
+| --- | --- |
+| `POST /auth-api/v0/dsh/auth_init` (PKCE S256, `login_source: desktop`) | HTTP 200, envelope `code 0`, `authorize_url`, `authorize_id`, `expires_in: 600` |
+| `POST /auth-api/v0/dsh/auth_exchange` tanpa `x-client-platform` | HTTP 422 `{"detail":[{"loc":"header.x-client-platform"}]}` |
+| `POST /auth-api/v0/dsh/auth_exchange` dengan header klien lengkap dan code palsu | HTTP 200, `biz_code 1`, `biz_msg: INVALID_CODE` |
+| `GET https://api.deepseek.com/anthropic/models` dengan token palsu | HTTP 401 `Authentication Fails (invalid dsh token)` |
+
+Artinya `auth_exchange` memvalidasi header identitas klien lebih dulu (422), lalu
+menjawab `INVALID_CODE` lewat envelope normal. Balasan 200 dengan body kosong
+bukan bentuk normal endpoint ini; saat terjadi, `platformPayload` kini menyebut
+nama langkah dan status HTTP-nya, bukan melempar `Unexpected end of JSON input`.
+
+**Akun kedua.** Halaman `/dsh/authorize` mengikuti sesi browser: bila browser
+sudah login ke satu akun DeepSeek, otorisasi berikutnya mengembalikan akun yang
+sama dan Anticode hanya memperbarui slot yang ada. Untuk menambah akun lain,
+keluar dulu dari `platform.deepseek.com` (atau pakai jendela/profil browser lain)
+sebelum menekan Add account. Batas ini milik browser, bukan kuota Anticode.
+
+**Nama model.** `deepseek-flash` adalah id first-party DeepSeek untuk V4.1 Flash
+(model default transport Harness); sufiks `-1017` hanya muncul di katalog
+agregator (mis. `cline-pass/deepseek-v4.1-flash-1017`), bukan nama berbeda.
+Katalog akun dibaca Harness dari `/models`; Anticode masih memakai dua id tetap
+(`deepseek-flash`, `deepseek-v4-pro`), jadi daftar model bisa lebih pendek dari
+katalog akun tersebut.
+
 ## Temuan autentikasi
 
 Source berada dalam `Contents/Resources/app.asar`, di bawah

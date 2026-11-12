@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ shell: { openExternal: vi.fn() } }))
 
-const { freeCreditBlock, parseDeepSeekSummary, platformData, platformPage } = await import('./deepseek')
+const { freeCreditBlock, parseDeepSeekSummary, platformData, platformPage, platformPayload } = await import('./deepseek')
 
 it('allows only granted credit with every top-up wallet empty', () => {
   expect(freeCreditBlock(parseDeepSeekSummary({ normal_wallets: [{ currency: 'USD', balance: '0' }], bonus_wallets: [{ currency: 'USD', balance: '5.00' }] }))).toBeNull()
@@ -29,4 +29,11 @@ it('opens only Platform pages on the expected path', () => {
   expect(platformPage('https://platform.deepseek.com/dsh/authorize?id=1', '/dsh/authorize')).toBe('https://platform.deepseek.com/dsh/authorize?id=1')
   expect(() => platformPage('https://evil.example/dsh/authorize', '/dsh/authorize')).toThrow()
   expect(() => platformPage('https://platform.deepseek.com/other', '/dsh/authorize')).toThrow()
+})
+
+it('names the sign-in step when the Platform reply is empty or not JSON', () => {
+  expect(() => platformPayload('/auth-api/v0/dsh/auth_exchange', 200, '')).toThrow(/empty reply/)
+  expect(() => platformPayload('/auth-api/v0/dsh/auth_exchange', 200, '  ')).toThrow(/empty reply to auth_exchange \(HTTP 200\)/)
+  expect(() => platformPayload('/auth-api/v0/dsh/auth_exchange', 200, '<html>')).toThrow(/unreadable reply to auth_exchange \(HTTP 200\)/)
+  expect(platformPayload('/auth-api/v0/dsh/auth_init', 200, '{"code":0}')).toEqual({ code: 0 })
 })
