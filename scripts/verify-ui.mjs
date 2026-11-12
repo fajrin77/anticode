@@ -89,6 +89,29 @@ try {
     if (!ok) failures.push(`${name}: got ${actual}, want ${expected}`)
   }
   const failures = []
+  // Temporary sidebar overlays the workspace; clicking the icon still pins it.
+  const sidebarToggle = window.getByRole('button', { name: 'Buka/tutup sidebar', exact: true })
+  const sidebar = window.locator('#session-sidebar')
+  await sidebar.waitFor()
+  await sidebarToggle.click()
+  await window.mouse.move(900, 400)
+  await sidebar.waitFor({ state: 'detached' })
+  const mainBeforePreview = await window.locator('main').boundingBox()
+  await sidebarToggle.hover()
+  await sidebar.waitFor()
+  check('sidebar preview does not shift content', (await window.locator('main').boundingBox()).x, mainBeforePreview.x)
+  check('sidebar preview background is 90 percent opaque', await sidebar.evaluate(el => getComputedStyle(el).backgroundColor.endsWith('0.9)')), true)
+  await sidebar.hover()
+  await window.waitForTimeout(250)
+  check('sidebar preview stays open while using it', await sidebar.isVisible(), true)
+  await window.mouse.move(900, 400)
+  await sidebar.waitFor({ state: 'detached' })
+  await sidebarToggle.hover()
+  await sidebar.waitFor()
+  await sidebarToggle.click()
+  await window.mouse.move(900, 400)
+  await window.waitForTimeout(250)
+  check('sidebar click pins the preview', await sidebar.isVisible(), true)
   /**
    * Chromium recomputes :hover from the real cursor whenever the app
    * re-renders — the status poll does, every five seconds — and the colour

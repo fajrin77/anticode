@@ -59,7 +59,8 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
   </>
 }
 
-export function SessionSidebar({ collapsed, onToggleProject, active, dashboardActive, onDashboard, onSelectSession, onNewSession }: {
+export function SessionSidebar({ preview = false, collapsed, onToggleProject, active, dashboardActive, onDashboard, onSelectSession, onNewSession }: {
+  preview?: boolean
   collapsed: ReadonlySet<string>
   onToggleProject: (root: string) => void
   active: boolean
@@ -84,7 +85,7 @@ export function SessionSidebar({ collapsed, onToggleProject, active, dashboardAc
   const running = new Set([...Object.values(activeRuns), ...Object.values(mirrorRuns)].map((run) => run.sessionId))
 
   return (
-    <aside id="session-sidebar" aria-label="Daftar sesi" className="flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft bg-raised/40 p-3">
+    <aside id="session-sidebar" aria-label="Daftar sesi" className={`flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft p-3 ${preview ? 'bg-raised/90' : 'bg-raised/40'}`}>
       <button type="button" onClick={onDashboard} aria-pressed={dashboardActive}
         className={`mb-5 rounded-lg px-3 py-2 text-left text-[14px] hover:bg-raised hover:text-brand ${dashboardActive ? 'bg-raised text-brand' : 'text-text'}`}>
         + New Session

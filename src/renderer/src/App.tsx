@@ -47,6 +47,23 @@ export function App(): JSX.Element {
   // A version the user closed the banner on; the next one appears on its own.
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarPreview, setSidebarPreview] = useState(false)
+  const sidebarCloseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const keepSidebarPreview = useCallback(() => {
+    clearTimeout(sidebarCloseTimer.current)
+    setSidebarPreview(true)
+  }, [])
+  const hideSidebarPreview = useCallback(() => {
+    clearTimeout(sidebarCloseTimer.current)
+    // Allow crossing the small gap between the header button and the panel.
+    sidebarCloseTimer.current = setTimeout(() => setSidebarPreview(false), 180)
+  }, [])
+  const toggleSidebar = useCallback(() => {
+    clearTimeout(sidebarCloseTimer.current)
+    setSidebarPreview(false)
+    setSidebarOpen((open) => !open)
+  }, [])
+  useEffect(() => () => clearTimeout(sidebarCloseTimer.current), [])
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set())
   const [view, setView] = useState<View>('dashboard')
   // Where Settings was opened from, so closing it returns there. Without this
@@ -81,12 +98,12 @@ export function App(): JSX.Element {
         setView('dashboard')
       } else if (event.key.toLowerCase() === 'b') {
         event.preventDefault()
-        setSidebarOpen((open) => !open)
+        toggleSidebar()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [toggleSidebar])
 
   // Selecting the already-active session changes no store state, so
   // the effect below never fires, the view switch happens here explicitly.
@@ -642,12 +659,25 @@ export function App(): JSX.Element {
         onDashboard={() => setView('dashboard')}
         onOpenSettings={toggleSettings}
         onOpenSchedule={() => setView('schedule')}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((open) => !open)}
+        sidebarOpen={sidebarOpen || sidebarPreview}
+        onToggleSidebar={toggleSidebar}
+        onSidebarPointerEnter={keepSidebarPreview}
+        onSidebarPointerLeave={hideSidebarPreview}
       />
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {sidebarOpen && <SessionSidebar
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {(sidebarOpen || sidebarPreview) && <div
+          onPointerEnter={keepSidebarPreview}
+          onPointerLeave={hideSidebarPreview}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !sidebarOpen) {
+              setSidebarPreview(false)
+              document.querySelector<HTMLButtonElement>('[aria-controls="session-sidebar"]')?.focus()
+            }
+          }}
+          className={sidebarOpen ? 'flex shrink-0' : 'absolute inset-y-0 left-0 z-30 flex shadow-xl'}
+        ><SessionSidebar
+          preview={!sidebarOpen}
           collapsed={collapsedProjects}
           onToggleProject={(root) => setCollapsedProjects((current) => {
             const next = new Set(current)
@@ -660,7 +690,7 @@ export function App(): JSX.Element {
           onDashboard={() => setView('dashboard')}
           onSelectSession={openExistingSession}
           onNewSession={startSameProject}
-        />}
+        /></div>}
         <main className="@container flex min-w-0 flex-1 flex-col overflow-hidden">
       {appError && (
         <div

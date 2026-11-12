@@ -215,6 +215,8 @@ interface TabBarProps {
   onOpenSchedule: () => void
   sidebarOpen: boolean
   onToggleSidebar: () => void
+  onSidebarPointerEnter: () => void
+  onSidebarPointerLeave: () => void
   /** True while the dashboard view is on screen, lights the grid icon lime. */
   dashboardActive: boolean
   /** True while Settings is on screen, lights the gear the same way. */
@@ -256,7 +258,7 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
 
 export function TabBar({
   onDashboard, onOpenSettings, onOpenSchedule,
-  sidebarOpen, onToggleSidebar, dashboardActive, settingsActive, scheduleActive
+  sidebarOpen, onToggleSidebar, onSidebarPointerEnter, onSidebarPointerLeave, dashboardActive, settingsActive, scheduleActive
 }: TabBarProps): JSX.Element {
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
@@ -264,6 +266,8 @@ export function TabBar({
   return (
     <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-3 pr-3 pl-20">
       <button type="button" onClick={onToggleSidebar}
+        onPointerEnter={(event) => { if (event.pointerType === 'mouse') onSidebarPointerEnter() }}
+        onPointerLeave={onSidebarPointerLeave}
         title="Buka/tutup sidebar (⌘/Ctrl+B)" aria-label="Buka/tutup sidebar"
         aria-expanded={sidebarOpen} aria-controls="session-sidebar"
         className="glass-ghost region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand">
