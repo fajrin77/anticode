@@ -208,6 +208,9 @@ interface SessionState {
   /** Puts a passage from the transcript above the composer, to be replied to. */
   quoteInDraft: (id: string, quote: string) => void
   addProject: (root: string) => void
+  projectOrder: string[]
+  syncProjectOrder: () => void
+  moveProject: (root: string, target: string, after: boolean) => void
   /** A blank session; `provider`/`model` carry the dashboard's picks into the new tab. */
   openSession: (mode: SessionMode, projectRoot: string | null, provider?: string | null, model?: string | null) => string
   selectSession: (id: string) => void
@@ -335,6 +338,12 @@ function baseName(root: string): string {
   return parts.at(-1) ?? root
 }
 
+export function sidebarProjectOrder(state: Pick<SessionState, 'projectOrder' | 'sessions'>): string[] {
+  return [...new Set([...state.projectOrder, ...state.sessions.map((session) =>
+    session.mode === 'chat' ? 'antichat' : session.projectRoot ?? ''
+  )])]
+}
+
 function newSession(mode: SessionMode, projectRoot: string | null, colour: number): Session {
   return {
     id: crypto.randomUUID(),
@@ -402,6 +411,18 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       drafts: { ...state.drafts, [id]: { text: '', attachments: [], ...state.drafts[id], quote } }
     })),
   projects: [],
+  projectOrder: [],
+  syncProjectOrder: () => set((state) => {
+    const order = sidebarProjectOrder(state)
+    return order.length === state.projectOrder.length ? state : { projectOrder: order }
+  }),
+  moveProject: (root, target, after) => set((state) => {
+    const order = sidebarProjectOrder(state)
+    if (root === target || !order.includes(root) || !order.includes(target)) return state
+    order.splice(order.indexOf(root), 1)
+    order.splice(order.indexOf(target) + (after ? 1 : 0), 0, root)
+    return { projectOrder: order }
+  }),
   sessions: [],
   usage: [],
   seenUsageEvents: [],
@@ -1256,6 +1277,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   storage: createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage)),
   skipHydration: typeof window === 'undefined',
   partialize: (state) => ({ readPositions: state.readPositions, followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planOpenBySession: state.planOpenBySession,
+    projectOrder: state.projectOrder,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))
 

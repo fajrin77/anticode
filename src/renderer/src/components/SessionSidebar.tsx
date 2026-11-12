@@ -1,6 +1,6 @@
-import { useId, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useSessionStore } from '../store/session'
+import { sidebarProjectOrder, useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { Badge } from './Badge'
 
@@ -70,6 +70,12 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
   onNewSession: (id: string) => void
 }): JSX.Element {
   const sessions = useSessionStore((state) => state.sessions)
+  const projectOrder = useSessionStore((state) => state.projectOrder)
+  const syncProjectOrder = useSessionStore((state) => state.syncProjectOrder)
+  const moveProject = useSessionStore((state) => state.moveProject)
+  const draggedProject = useRef<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ root: string; after: boolean } | null>(null)
+  useLayoutEffect(() => { syncProjectOrder() }, [sessions, syncProjectOrder])
   const activeId = useSessionStore((state) => state.activeSessionId)
   const activeRuns = useSessionStore((state) => state.activeRuns)
   const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
@@ -83,6 +89,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
     groups.set(key, group)
   }
   const running = new Set([...Object.values(activeRuns), ...Object.values(mirrorRuns)].map((run) => run.sessionId))
+  const orderedGroups = sidebarProjectOrder({ projectOrder, sessions }).filter((root) => groups.has(root))
 
   return (
     <aside id="session-sidebar" aria-label="Daftar sesi" className={`flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft p-3 ${preview ? 'bg-raised/80' : 'bg-raised/40'}`}>
@@ -92,20 +99,53 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
       </button>
       <nav aria-label="Sesi per project" className="sidebar-scroll min-h-0 flex-1 overflow-y-auto">
         {groups.size === 0 && <p className="px-3 text-[12px] text-faint">Belum ada sesi.</p>}
-        {[...groups].map(([root, entries], index) => {
+        {orderedGroups.map((root, index) => {
+          const entries = groups.get(root)!
           const label = root === '' ? 'Tanpa project' : root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
           const expanded = !collapsed.has(root)
           return (
             <section key={root} className="mb-1">
-              <div className="flex items-center gap-1">
-                <button type="button" aria-expanded={expanded} aria-controls={`project-sessions-${index}`} title={root || label}
+              <div className={`flex items-center gap-1 rounded-md ${dropTarget?.root === root ? (dropTarget.after ? 'shadow-[0_2px_0_var(--color-brand)]' : 'shadow-[0_-2px_0_var(--color-brand)]') : ''}`}
+                onDragOver={(event) => {
+                  if (draggedProject.current === null || draggedProject.current === root) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  const box = event.currentTarget.getBoundingClientRect()
+                  setDropTarget({ root, after: event.clientY > box.top + box.height / 2 })
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null)
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  if (draggedProject.current !== null) {
+                    const box = event.currentTarget.getBoundingClientRect()
+                    moveProject(draggedProject.current, root, event.clientY > box.top + box.height / 2)
+                  }
+                  draggedProject.current = null
+                  setDropTarget(null)
+                }}>
+                <button type="button" draggable aria-expanded={expanded} aria-controls={`project-sessions-${index}`} title={`${root || label} — tarik untuk mengurutkan; Alt+↑/↓`}
+                  onDragStart={(event) => {
+                    draggedProject.current = root
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', root)
+                  }}
+                  onDragEnd={() => { draggedProject.current = null; setDropTarget(null) }}
+                  onKeyDown={(event) => {
+                    if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
+                    event.preventDefault()
+                    const down = event.key === 'ArrowDown'
+                    const target = orderedGroups[index + (down ? 1 : -1)]
+                    if (target !== undefined) moveProject(root, target, down)
+                  }}
                   onClick={() => onToggleProject(root)}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-[14px] text-faint hover:text-text">
+                  className="flex min-w-0 flex-1 cursor-grab items-center gap-2 rounded-md px-2 py-1 text-left text-[14px] text-faint transition-colors hover:text-brand active:cursor-grabbing">
                   <span aria-hidden>{expanded ? '⌄' : '›'}</span><span className="truncate">{label}</span>
                 </button>
                 <button type="button" onClick={() => onNewSession((entries.find((session) => session.id === activeId) ?? entries.at(-1)!).id)}
                   aria-label={`Sesi baru di ${label}`} title={`Sesi baru di ${label}`}
-                  className="h-7 w-7 shrink-0 rounded-md text-dim hover:bg-raised hover:text-brand">+</button>
+                  className="h-7 w-7 shrink-0 rounded-md text-dim transition-colors hover:bg-raised hover:text-brand">+</button>
               </div>
               {expanded && <div id={`project-sessions-${index}`}>
                 {entries.map((session) => (
