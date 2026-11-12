@@ -30,6 +30,21 @@ import { saveAuthAccount, readAuthTokens, updateAuthTokens, getAuthAccount, rese
 import { authProviderId, listAuthAccountSummaries, refreshAuthAccount, removeAuthAccount } from './index'
 import type { AuthAccount } from './types'
 
+it('includes current ClinePass models for migrated accounts without losing configured plan routes', () => {
+  const id = 'clinepass-catalogue-migration'
+  saveAuthAccount(account(id, 'clinepass'), {
+    accessToken: 'fixture-key', expiresAt: 0,
+    meta: { planModels: JSON.stringify(['cline-pass/custom-plan-route', 'paid/model']) }
+  })
+  const models = authModelsFor(id, 'clinepass')
+  expect(models).toContain('cline-pass/qwen3.8-max')
+  expect(models).toContain('cline-pass/glm-5.3')
+  expect(models).toContain('cline-pass/custom-plan-route')
+  expect(models).not.toContain('paid/model')
+  expect(models).not.toContain('qwen3.8-max')
+  removeAuthAccount(id)
+})
+
 function idToken(claims: Record<string, unknown>): string {
   const body = Buffer.from(JSON.stringify(claims)).toString('base64url')
   return `header.${body}.signature`

@@ -46,7 +46,7 @@ export function authModelsFor(id: string, kind: AuthKind): string[] {
     const saved = readAuthTokens(id)?.meta?.planModels
     let configured: string[] = []
     try { const parsed: unknown = JSON.parse(saved ?? '[]'); if (Array.isArray(parsed)) configured = parsed.filter((v): v is string => typeof v === 'string') } catch { /* Fall back to the bounded plan catalogue. */ }
-    return [...new Set((configured.length ? configured : valid.length ? valid : AUTH_MODELS.clinepass).filter(model => model.startsWith('cline-pass/')))]
+    return [...new Set([...AUTH_MODELS.clinepass, ...(configured.length ? configured : valid)].filter(model => model.startsWith('cline-pass/')))]
   }
   if (kind === 'cline') {
     const freeOnly = loadPersistedSettings().authModelCatalogues?.[id]?.freeOnly === true

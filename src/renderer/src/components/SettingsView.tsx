@@ -1744,6 +1744,10 @@ function Models({
       const account = allProviders.find((entry) => entry.id === id)
       return account?.kind !== 'auth' || account.models?.includes(model)
     })
+    if (on && eligible.length === 0) {
+      setError('This model is not in the account catalogue. Use the full model ID and update the app if the model is new.')
+      return
+    }
     void window.anticode
       .setRotation(on ? [...rest, ...eligible.map((id) => ({ provider: id, model }))] : rest)
       .then(() => setError(null))
