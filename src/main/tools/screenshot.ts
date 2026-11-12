@@ -2,9 +2,12 @@ import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { systemPreferences } from 'electron'
 import { z } from 'zod'
 import sharp from 'sharp'
 import { defineTool, ToolError } from './types'
+
+const GRANT_HINT = 'System Settings → Privacy & Security → Screen Recording'
 
 /** Vision models want bounded images: 1568 px is the long edge Claude handles 1:1. */
 const MAX_IMAGE_EDGE = 1568
@@ -15,8 +18,8 @@ export const screenshotTool = defineTool({
   name: 'screenshot',
   description:
     'Capture the full macOS screen and send it as an image to look at. ' +
-    'Requires Screen Recording permission for anticode (or the terminal launching a development build); ' +
-    'macOS shows a prompt the first time.',
+    `Requires Screen Recording permission for anticode in ${GRANT_HINT}; ` +
+    'without it the tool refuses and says so instead of asking macOS.',
   /**
    * A screenshot copies private pixels, mail, messages, passwords, off the
    * screen and into the model's context. It is bounded like a browser
@@ -34,6 +37,23 @@ export const screenshotTool = defineTool({
     void context
     if (process.platform !== 'darwin') {
       throw new ToolError('The screenshot tool is macOS-only in this build')
+    }
+
+    /**
+     * `screencapture` is what makes macOS put up its "would like to record this
+     * computer's screen" alert, and only a granted app captures silently. Reading
+     * the status asks nothing, so an ungranted tool fails with instructions
+     * instead of raising a system dialog the user did not start.
+     */
+    const access = process.versions.electron !== undefined
+      ? systemPreferences.getMediaAccessStatus('screen')
+      : 'unknown'
+    if (access !== 'granted') {
+      throw new ToolError(
+        `Screen Recording is ${access} for anticode. Enable it in ${GRANT_HINT}, ` +
+          'quit and reopen anticode, then retry. The capture is skipped until then, ' +
+          'so macOS does not ask on your behalf.'
+      )
     }
 
     const directory = await mkdtemp(join(tmpdir(), 'anticode-shot-'))

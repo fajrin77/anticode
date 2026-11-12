@@ -513,17 +513,26 @@ export function syncAuthAccountRoutes(id: string): void {
   forgetCatalogue(id)
   const providers = listProviders()
   const account = providers.find((provider) => provider.id === id)
-  const peers = account?.authKind ? providers.filter((provider) => provider.id !== id && provider.authKind === account.authKind) : []
-  const peerIds = new Set(peers.map((provider) => provider.id))
-  const shared = [...new Set(rotationEntries().filter((entry) => peerIds.has(entry.provider)).map((entry) => entry.model))]
-    .filter((model) => account?.models?.includes(model)).map((model) => ({ provider: id, model }))
-  if (peers.length) {
-    if (shared.length) setRotationEntries([...rotationEntries(), ...shared])
+  if (!account) return
+  const family = account.authKind ? providers.filter((provider) => provider.authKind === account.authKind) : [account]
+  const known = rotationEntries()
+  // A cold catalogue lists no models yet; what the family offers is what this account offers too.
+  const modelled = [...new Set(known.map((entry) => entry.model))]
+  const modelsOf = (provider: { models?: string[] }): string[] => (provider.models?.length ? provider.models : modelled)
+  if (family.length > 1) {
+    const missing: RotationEntry[] = []
+    for (const provider of family) {
+      for (const model of modelsOf(provider)) {
+        if ([...known, ...missing].some((entry) => entry.provider === provider.id && entry.model === model)) continue
+        missing.push({ provider: provider.id, model })
+      }
+    }
+    if (missing.length) setRotationEntries([...known, ...missing])
     return
   }
   if (!subscriptionOnly() || !rotationEnabled()) return
-  const eligible = subscriptionEntries(providers.filter((provider) => provider.id === id))
-  if (eligible.length) setRotationEntries([...rotationEntries(), ...eligible])
+  const eligible = subscriptionEntries(family)
+  if (eligible.length) setRotationEntries([...known, ...eligible])
 }
 
 /** The cached catalogue without any network round-trip; null when cold. */

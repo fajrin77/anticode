@@ -769,6 +769,18 @@ it('adds a new eligible login to an enabled native pool without discarding exist
   applySubscriptionRouting(false)
 })
 
+it('adds a second account to the pool before its catalogue lists any model', () => {
+  extra.providers = [
+    { id: 'auth:deepseek', kind: 'auth', authKind: 'deepseek', label: 'DeepSeek', models: ['deepseek-flash'], defaultModel: 'deepseek-flash', credentialAvailable: true, configured: true, credentialHint: '' },
+    { id: 'auth:deepseek-2', kind: 'auth', authKind: 'deepseek', label: 'DeepSeek', models: [], defaultModel: '', credentialAvailable: true, configured: true, credentialHint: '' },
+  ]
+  applySubscriptionRouting(true)
+  applyRotation([{ provider: 'auth:deepseek', model: 'deepseek-flash' }])
+  syncAuthAccountRoutes('auth:deepseek-2')
+  expect(getStatus().rotation.some((entry) => entry.provider === 'auth:deepseek-2' && entry.model === 'deepseek-flash')).toBe(true)
+  applySubscriptionRouting(false)
+})
+
 it('allows bounded in-run retry after a single account transport failure instead of throwing during fallback', () => {
   extra.providers=[{id:'auth:codex-only',label:'Codex',kind:'auth',authKind:'codex',models:['same'],defaultModel:'same',credentialAvailable:true,configured:true,credentialHint:'',composerVisible:true}]
   createSession({sessionId:'single-transport',mode:'chat',workspaceRoot:null})

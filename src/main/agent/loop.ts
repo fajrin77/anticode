@@ -829,7 +829,9 @@ export class AgentSession {
     const previous = from === '' ? 'The previous model' : from
     const text = next.model === ''
       ? `${previous} is unavailable (${why}). Waiting for a model in Rotate usage to recover.`
-      : `Switched from ${previous} to ${next.model}: ${why}.`
+      : next.model === from
+        ? `Switched ${next.model} to another account: ${why}.`
+        : `Switched from ${previous} to ${next.model}: ${why}.`
     this.recordDisplay('notice', text)
     params.emit({ type: 'notice', runId: params.runId, text })
   }

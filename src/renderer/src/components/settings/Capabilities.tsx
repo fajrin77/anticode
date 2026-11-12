@@ -25,7 +25,7 @@ export function Capabilities() {
         <SettingRow title="antichat" hint="File, terminal, web search, browser, internet, image generation, screenshot and MCP tools run in a private folder owned by each session; no project selection is required.">All tools · private folder</SettingRow>
         <SettingRow title="anticode" hint="The same tools run in the project folder selected when the session is created.">All tools · project folder</SettingRow>
         <SettingRow title="Desktop app control" hint="Controlling other macOS apps requires a connected computer-use MCP server. A screen capture alone cannot click or type in another app.">Requires MCP tools</SettingRow>
-        <SettingRow title="Screen Recording" hint={info?.platform === 'darwin' ? 'For whole-screen screenshots: System Settings → Privacy & Security → Screen Recording. Return here to refresh after changing access.' : 'Whole-screen capture is currently available on macOS only.'}>
+        <SettingRow title="Screen Recording" hint={info?.platform === 'darwin' ? 'For whole-screen screenshots: System Settings → Privacy & Security → Screen Recording. Enable anticode, then quit and reopen the app; return here to refresh the status.' : 'Whole-screen capture is currently available on macOS only.'}>
           {info?.screenRecording ?? 'Checking…'}
         </SettingRow>
         <SettingRow title="Accessibility" hint="Permission alone does not add desktop-control tools; check the tools exposed by your connected MCP server.">
