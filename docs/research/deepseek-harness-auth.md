@@ -42,6 +42,14 @@ menjawab `INVALID_CODE` lewat envelope normal. Balasan 200 dengan body kosong
 bukan bentuk normal endpoint ini; saat terjadi, `platformPayload` kini menyebut
 nama langkah dan status HTTP-nya, bukan melempar `Unexpected end of JSON input`.
 
+**Balasan 202 kosong.** Terlihat 12 November 2026 pukul 16.32–16.46 dari app
+(`auth_exchange`, lalu `users/get_user_summary`), sementara dari mesin yang sama
+`curl` dan Electron `fetch`/`net.fetch` dengan header, body, dan UA identik
+mendapat 200 berisi JSON. Jadi 202 kosong adalah throttle di sisi Platform, bukan
+kesalahan klien. Klien sekarang mencoba ulang sekali (jeda 600 ms) dan, bila
+pemeriksaan credit tetap terhalang, memakai hasil verifikasi terakhir selama
+5 menit — credit granted tidak bisa berubah sendiri menjadi saldo berbayar.
+
 **Akun kedua.** Halaman `/dsh/authorize` mengikuti sesi browser: bila browser
 sudah login ke satu akun DeepSeek, otorisasi berikutnya mengembalikan akun yang
 sama dan Anticode hanya memperbarui slot yang ada. Untuk menambah akun lain,

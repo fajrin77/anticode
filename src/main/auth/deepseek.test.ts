@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ shell: { openExternal: vi.fn() } }))
 
-const { freeCreditBlock, parseDeepSeekSummary, platformData, platformPage, platformPayload } = await import('./deepseek')
+const { assertDeepSeekFreeCredit, freeCreditBlock, parseDeepSeekSummary, platformData, platformPage, platformPayload } = await import('./deepseek')
 
 it('allows only granted credit with every top-up wallet empty', () => {
   expect(freeCreditBlock(parseDeepSeekSummary({ normal_wallets: [{ currency: 'USD', balance: '0' }], bonus_wallets: [{ currency: 'USD', balance: '5.00' }] }))).toBeNull()
@@ -36,4 +36,34 @@ it('names the sign-in step when the Platform reply is empty or not JSON', () => 
   expect(() => platformPayload('/auth-api/v0/dsh/auth_exchange', 200, '  ')).toThrow(/empty reply to auth_exchange \(HTTP 200\)/)
   expect(() => platformPayload('/auth-api/v0/dsh/auth_exchange', 200, '<html>')).toThrow(/unreadable reply to auth_exchange \(HTTP 200\)/)
   expect(platformPayload('/auth-api/v0/dsh/auth_init', 200, '{"code":0}')).toEqual({ code: 0 })
+})
+
+const granted = JSON.stringify({ code: 0, data: { biz_code: 0, biz_data: { normal_wallets: [{ currency: 'USD', balance: '0' }], bonus_wallets: [{ currency: 'USD', balance: '2' }] } } })
+
+it('retries the empty 202 the Platform edge sends before giving up', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 202 })))
+  try {
+    await expect(assertDeepSeekFreeCredit('token-retry', new AbortController().signal)).rejects.toThrow(/empty reply to users\/get_user_summary \(HTTP 202\)/)
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it('keeps the last verified credit answer while the Platform throttles', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  const signal = new AbortController().signal
+  const stub = vi.fn(async () => new Response(granted, { status: 200 }))
+  vi.stubGlobal('fetch', stub)
+  try {
+    await assertDeepSeekFreeCredit('token-grace', signal)
+    vi.setSystemTime(Date.now() + 60_000)
+    stub.mockImplementation(async () => new Response('', { status: 202 }))
+    await expect(assertDeepSeekFreeCredit('token-grace', signal)).resolves.toBeUndefined()
+    vi.setSystemTime(Date.now() + 16 * 60_000)
+    await expect(assertDeepSeekFreeCredit('token-grace', signal)).rejects.toThrow(/HTTP 202/)
+  } finally {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  }
 })

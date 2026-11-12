@@ -3,6 +3,7 @@ import { arch, platform, release } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { APP_VERSION } from '../version'
 import { ProviderRequestError } from '../providers/requestError'
+import { failureStatus, isTransient } from '../providers/failures'
 import { makeChallenge, makeState, makeVerifier } from './pkce'
 import { waitForCallback } from './server'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
@@ -51,7 +52,10 @@ export function platformPayload(path: string, status: number, text: string): unk
   const stage = path.replace(/^\/[a-z-]+\/v0\/(?:dsh\/)?/, '')
   if (text.trim() === '') {
     throw new ProviderRequestError(
-      `DeepSeek Platform sent an empty reply to ${stage} (HTTP ${status}), so no account was connected. Try again; if it repeats, sign out of platform.deepseek.com in the browser and use that window for the account you want to add.`,
+      `DeepSeek Platform sent an empty reply to ${stage} (HTTP ${status}). ` +
+        (stage.startsWith('auth_')
+          ? 'No account was connected. Try again; if it repeats, sign out of platform.deepseek.com in the browser and use that window for the account you want to add.'
+          : 'The turn was not sent, so nothing was spent. Retry in a moment; if it repeats, the Platform is throttling this client.'),
       status
     )
   }
@@ -62,12 +66,23 @@ export function platformPayload(path: string, status: number, text: string): unk
   }
 }
 
+/** The Platform edge answers 202 with no body while it throttles a client; one retry usually passes. */
+function throttled(status: number, text: string): boolean {
+  return status === 202 || text.trim() === ''
+}
+
 async function platformRequest(path: string, init: RequestInit, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(`${DEEPSEEK_PLATFORM}${path}`, { ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) })
-  if (response.status === 401) throw new ProviderRequestError('The DeepSeek login has expired. Sign in again in Settings → Auth provider.', 401, 'account')
-  const text = await response.text()
-  if (!response.ok) throw new ProviderRequestError(`DeepSeek Platform answered HTTP ${response.status}`, response.status)
-  return platformData(platformPayload(path, response.status, text))
+  let last = { status: 0, text: '' }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 600))
+    const response = await fetch(`${DEEPSEEK_PLATFORM}${path}`, { ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) })
+    if (response.status === 401) throw new ProviderRequestError('The DeepSeek login has expired. Sign in again in Settings → Auth provider.', 401, 'account')
+    const text = await response.text()
+    if (!response.ok) throw new ProviderRequestError(`DeepSeek Platform answered HTTP ${response.status}`, response.status)
+    if (!throttled(response.status, text)) return platformData(platformPayload(path, response.status, text))
+    last = { status: response.status, text }
+  }
+  return platformData(platformPayload(path, last.status, last.text))
 }
 
 /** Only Platform pages on the fixed path may be opened in the browser. */
@@ -162,16 +177,33 @@ export function freeCreditBlock(wallets: DeepSeekWallets): string | null {
 }
 
 const checked = new Map<string, number>()
+const verified = new Map<string, number>()
 const CHECK_TTL_MS = 30_000
+const GRACE_MS = 5 * 60_000
 
 /** Throws before any inference unless the account can only spend granted credit. */
 export async function assertDeepSeekFreeCredit(token: string, signal: AbortSignal): Promise<void> {
   if ((checked.get(token) ?? 0) > Date.now()) return
-  const block = freeCreditBlock(await readDeepSeekWallets(token, signal))
+  let block: string | null
+  try {
+    block = freeCreditBlock(await readDeepSeekWallets(token, signal))
+  } catch (failure) {
+    // A throttled check is not a reason to end the turn: granted credit cannot
+    // turn into paid balance by itself, so keep the last verified answer for a while.
+    const good = verified.get(token)
+    const transient = failureStatus(failure) === 202 || isTransient(failure)
+    if (good !== undefined && Date.now() - good < GRACE_MS && transient) {
+      checked.set(token, Date.now() + CHECK_TTL_MS)
+      return
+    }
+    throw failure
+  }
   if (block !== null) {
     checked.delete(token)
+    verified.delete(token)
     throw new ProviderRequestError(block, 402, 'account')
   }
+  verified.set(token, Date.now())
   checked.set(token, Date.now() + CHECK_TTL_MS)
 }
 
