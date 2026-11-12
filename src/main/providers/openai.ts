@@ -69,6 +69,9 @@ function clineStreamFailure(message: string): ProviderRequestError {
  * Anthropic groups every tool result into one user message; OpenAI wants one
  * message per result with role "tool". Splitting them is this adapter's job.
  */
+/** Reasoning streamed by this adapter, kept in history for the next tool round. */
+const REASONING_PROVIDER = 'openai-reasoning'
+
 function toChatMessages(system: string, messages: Message[]): ChatMessage[] {
   const out: ChatMessage[] = [{ role: 'system', content: system }]
 
@@ -80,12 +83,17 @@ function toChatMessages(system: string, messages: Message[]): ChatMessage[] {
         .map((block) => block.text)
         .join('')
       const toolCalls = message.content.filter((block) => block.type === 'tool_use')
+      const reasoning = message.content.flatMap((block) => block.type === 'opaque' && block.provider === REASONING_PROVIDER && typeof block.raw === 'string' ? [block.raw] : []).join('')
 
       if (text === '' && toolCalls.length === 0) continue
 
       out.push({
         role: 'assistant',
         content: text === '' ? null : text,
+        // Thinking models (DeepSeek) need their reasoning back inside a tool
+        // round; without it they re-plan from scratch and repeat the same checks.
+        // Only replayed when the route itself streamed it.
+        ...(reasoning !== '' && toolCalls.length > 0 ? { reasoning_content: reasoning } : {}),
         ...(toolCalls.length > 0
           ? {
               tool_calls: toolCalls.map((block) => ({
@@ -258,6 +266,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     bump()
 
     let text = ''
+    let reasoning = ''
     let finishReason: string | null = null
     const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }
     const calls = new Map<number, { id: string; name: string; args: string }>()
@@ -301,6 +310,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
         const choice = chunk.choices[0]
         if (!choice) continue
         if (choice.finish_reason) finishReason = choice.finish_reason
+
+        const thought = (choice.delta as { reasoning_content?: unknown }).reasoning_content
+        if (typeof thought === 'string' && thought !== '') {
+          // Long thinking is live data; it must not trip the first-data stall guard.
+          received = true
+          reasoning += thought
+        }
 
         const delta = choice.delta.content
         if (typeof delta === 'string' && delta !== '') {
@@ -348,6 +364,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (finishReason === null) throw new ProviderRequestError('Provider stream ended before completion; no partial tool calls were executed.', 503)
     const content: ContentBlock[] = []
     if (text !== '') content.push({ type: 'text', text })
+    if (reasoning !== '' && calls.size > 0) content.push({ type: 'opaque', provider: REASONING_PROVIDER, raw: reasoning })
     for (const [index, call] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
       content.push({
         type: 'tool_use',

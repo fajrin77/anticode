@@ -40,6 +40,41 @@ it('rejects a cleanly closed stream with an unfinished tool call', async () => {
   expect(events).toEqual([])
 })
 
+it('replays streamed reasoning_content with its tool call on the next request', async () => {
+  const bodies: { messages: { role: string; reasoning_content?: string }[] }[] = []
+  const server = createServer((request, response) => {
+    let raw = ''
+    request.on('data', (chunk) => { raw += chunk })
+    request.on('end', () => {
+      bodies.push(JSON.parse(raw))
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      const frames = [
+        { choices: [{ index: 0, delta: { reasoning_content: 'Plan: read a.txt, ' }, finish_reason: null }] },
+        { choices: [{ index: 0, delta: { reasoning_content: 'then edit.' }, finish_reason: null }] },
+        { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] }, finish_reason: 'tool_calls' }] }
+      ]
+      response.end(frames.map(frame => 'data: ' + JSON.stringify(frame) + '\n\n').join('') + 'data: [DONE]\n\n')
+    })
+  })
+  servers.push(server)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('No fixture address')
+  const provider = new OpenAICompatibleProvider('cline', 'cline-pass/deepseek-v4.1-flash', { apiKey: 'fixture', baseURL: `http://127.0.0.1:${address.port}/v1`, maxTokensField: 'max_tokens' })
+  const first: ProviderEvent[] = []
+  for await (const event of provider.chat({ system: '', messages: [], tools: [], maxTokens: 16, signal: new AbortController().signal })) first.push(event)
+  const response = first.at(-1)
+  if (response?.type !== 'response') throw new Error('No response')
+  expect(response.response.content).toContainEqual({ type: 'opaque', provider: 'openai-reasoning', raw: 'Plan: read a.txt, then edit.' })
+  const history = [
+    { role: 'user' as const, content: [{ type: 'text' as const, text: 'go' }] },
+    { role: 'assistant' as const, content: response.response.content },
+    { role: 'user' as const, content: [{ type: 'tool_result' as const, toolUseId: 'call-1', content: 'A', isError: false }] }
+  ]
+  for await (const _ of provider.chat({ system: '', messages: history, tools: [], maxTokens: 16, signal: new AbortController().signal })) { /* consume */ }
+  expect(bodies[1]?.messages.find(message => message.role === 'assistant')?.reasoning_content).toBe('Plan: read a.txt, then edit.')
+})
+
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
 })

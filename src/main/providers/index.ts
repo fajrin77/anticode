@@ -71,7 +71,7 @@ export function listProviders(): ProviderInfo[] {
       models,
       kind: 'auth',
       authKind: account.kind,
-      billing: isDirectAuthKind(account.kind) ? 'metered' : ['cursor', 'antigravity', 'copilot', 'codex', 'claude', 'opencode-go', 'minimax-plan', 'clinepass'].includes(account.kind) ? 'subscription' : ['cline', 'kilo', 'openrouter', 'vercel'].includes(account.kind) ? 'free' : 'unknown',
+      billing: isDirectAuthKind(account.kind) ? 'metered' : ['cursor', 'antigravity', 'copilot', 'codex', 'claude', 'opencode-go', 'minimax-plan', 'clinepass'].includes(account.kind) ? 'subscription' : ['cline', 'kilo', 'openrouter', 'vercel', 'deepseek'].includes(account.kind) ? 'free' : 'unknown',
       baseURL: '',
       hasKey: tokens !== null
     }

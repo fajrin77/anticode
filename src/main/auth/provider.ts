@@ -24,6 +24,7 @@ import { ClaudeCodeProvider } from '../providers/claudeCode'
 import { OpenCodeGoProvider, goModels } from '../providers/opencodeGo'
 import { refreshCodebuddy } from './codebuddy'
 import { refreshCline } from './cline'
+import { DEEPSEEK_MESSAGES_BASE, DEEPSEEK_MODELS, DEEPSEEK_TOKEN_HEADER, assertDeepSeekFreeCredit } from './deepseek'
 import type { AuthKind, AuthTokens } from './types'
 import type { LLMProvider, ChatParams, ProviderEvent } from '../providers/types'
 import { CLINE_API_BASE, CLINE_HEADERS, clineApiToken } from '../providers/clineConfig'
@@ -76,7 +77,8 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   ],
   cline: [...CLINE_FREE_FALLBACK],
   'opencode-go': goModels() as [string, ...string[]],
-  codebuddy: ['default-model', 'fast-model', 'balanced-model', 'deepseek-v4.1-flash']
+  codebuddy: ['default-model', 'fast-model', 'balanced-model', 'deepseek-v4.1-flash'],
+  deepseek: [...DEEPSEEK_MODELS]
 }
 
 /** Every model the vendor starts on when the user has not picked one. */
@@ -94,7 +96,8 @@ export const AUTH_DEFAULT_MODELS: Record<AuthKind, string> = {
   claude: AUTH_MODELS.claude[0],
   cline: AUTH_MODELS.cline[0],
   'opencode-go': AUTH_MODELS['opencode-go'][0],
-  codebuddy: AUTH_MODELS.codebuddy[0]
+  codebuddy: AUTH_MODELS.codebuddy[0],
+  deepseek: DEEPSEEK_MODELS[0]
 }
 
 function isStale(tokens: AuthTokens): boolean {
@@ -121,6 +124,8 @@ async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> 
     case 'cursor': return validCursorTokens(tokens)
     case 'antigravity': return refreshAntigravity(tokens)
     case 'codebuddy': return refreshCodebuddy(tokens)
+    // The Platform grant has no refresh endpoint; a 401 asks for a new sign-in.
+    case 'deepseek': return tokens
   }
 }
 
@@ -208,7 +213,8 @@ const AUTH_KIND_NAMES: Record<AuthKind, string> = {
   cline: 'Cline Free',
   clinepass: 'ClinePass',
   'opencode-go': 'OpenCode Go',
-  codebuddy: 'CodeBuddy'
+  codebuddy: 'CodeBuddy',
+  deepseek: 'DeepSeek'
 }
 
 /** Wraps a vendor client so every turn talks with a live account token. */
@@ -240,6 +246,7 @@ class AuthProvider implements LLMProvider {
       throw new ProviderRequestError('This browser connection uses current free model routes only. Refresh the model list or choose a free model; paid fallback is disabled.', 400)
     }
     if (this.kind === 'clinepass' && (!requested.startsWith('cline-pass/') || !authModelsFor(this.id, 'clinepass').includes(requested))) throw new ProviderRequestError('Choose a ClinePass subscription model. Usage-billing routes are disabled.', 400)
+    if (this.kind === 'deepseek' && !authModelsFor(this.id, 'deepseek').includes(requested)) throw new ProviderRequestError('Choose a DeepSeek account model (deepseek-flash or deepseek-v4-pro).', 400)
     const restriction = this.kind === 'cline' ? clineRestriction(this.id, requested) : null
     if (restriction) throw Object.assign(new Error(restriction), { status: 403 })
     if (this.kind === 'cline' && !authModelsFor(this.id, 'cline').includes(requested)) {
@@ -287,6 +294,10 @@ class AuthProvider implements LLMProvider {
           defaultHeaders: CLINE_HEADERS
         })
       case 'opencode-go': return new OpenCodeGoProvider(tokens.accessToken, model)
+      case 'deepseek':
+        // Checked before every request: granted credit only, never top-up balance.
+        await assertDeepSeekFreeCredit(tokens.accessToken, signal ?? new AbortController().signal)
+        return new AnthropicProvider('', model, DEEPSEEK_MESSAGES_BASE, { headerAuth: true, defaultHeaders: { 'x-api-key': null, [DEEPSEEK_TOKEN_HEADER]: tokens.accessToken, 'user-agent': `anticode/${APP_VERSION}` } })
       case 'codebuddy':
         return new OpenAICompatibleProvider('codebuddy', model, {
           apiKey: tokens.accessToken,

@@ -391,7 +391,7 @@ describe('AgentSession', () => {
 
   it('allows repeated narration while tools keep returning new evidence', async () => {
     const turns: LLMResponse[] = []
-    for (let index = 0; index < 24; index++) {
+    for (let index = 0; index < 18; index++) {
       await writeFile(path.join(root, `fact-${index}.txt`), `New evidence ${index}`)
       turns.push(turn([
         { type: 'text', text: 'Reading the next fact.' },
@@ -420,6 +420,36 @@ describe('AgentSession', () => {
     expect(provider.sent).toHaveLength(8)
     expect(events.filter(event => event.type === 'notice')).toHaveLength(1)
     expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('implementation promises') })
+  })
+
+  it('nudges, then stops, a run that keeps discovering without editing or answering', async () => {
+    const turns: LLMResponse[] = []
+    for (let index = 0; index < 70; index++) {
+      await writeFile(path.join(root, `probe-${index}.txt`), `Distinct output ${index}`)
+      turns.push(turn([
+        { type: 'text', text: `Step ${index}: checking another angle number ${index * 7}.` },
+        { type: 'tool_use', id: `probe-${index}`, name: 'read_file', input: { path: `probe-${index}.txt` } }
+      ], 'tool_use'))
+    }
+    const provider = new FakeProvider(turns)
+    await run(provider)
+    expect(provider.sent).toHaveLength(60)
+    expect(events.filter(event => event.type === 'notice' && /without changing anything/.test(event.text))).toHaveLength(2)
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('discovery loop') })
+  })
+
+  it('lets a nudged discovery run finish with its report', async () => {
+    const turns: LLMResponse[] = []
+    for (let index = 0; index < 20; index++) {
+      await writeFile(path.join(root, `audit-${index}.txt`), `Finding ${index}`)
+      turns.push(turn([{ type: 'tool_use', id: `audit-${index}`, name: 'read_file', input: { path: `audit-${index}.txt` } }], 'tool_use'))
+    }
+    turns.push(turn([{ type: 'text', text: 'Audit report.' }], 'end_turn'))
+    const provider = new FakeProvider(turns)
+    await run(provider)
+    const nudge = provider.sent.at(-1)?.at(-1)?.content.at(-1)
+    expect(nudge).toMatchObject({ type: 'text', internal: true, text: expect.stringContaining('write the final report') })
+    expect(events.at(-1)).toMatchObject({ type: 'end', reason: 'complete' })
   })
 
   it('allows recovery from a repeated promise by making the requested edit', async () => {

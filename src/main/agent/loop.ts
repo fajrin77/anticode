@@ -101,6 +101,13 @@ const NARRATION_WINDOW = 8
 const MAX_ALIKE_NARRATIONS = 4
 const MAX_PLAN_NUDGES_WITHOUT_WORK = 2
 /**
+ * Tool rounds in a row with no edit and no user message. Each round may still
+ * return new output, so the identical-call guard never fires, yet the task
+ * does not move: nudge to conclude, and stop after repeated nudges.
+ */
+const DISCOVERY_NUDGE_ROUNDS = 20
+const MAX_DISCOVERY_NUDGES = 2
+/**
  * Sent whenever the run tries to stop with a checklist that has unfinished
  * items. It tells the model to publish the *updated* checklist before it does
  * anything else, so the plan panel tracks the run instead of freezing on the
@@ -496,6 +503,8 @@ export class AgentSession {
     let planNudgesWithoutWork = 0
     let loopRecoveries = 0
     let narrationNudges = 0
+    let discoveryRounds = 0
+    let discoveryNudges = 0
     try {
       if (blockedContinuation) this.record({ role: 'user', content: [{ type: 'text', internal: true, text: 'Resume from existing evidence, not from the start. The previous run repeated unchanged checks. Choose a different concrete action; if blocked, give a final report naming the missing requirement instead of checking again.' }] })
       for (;;) {
@@ -618,6 +627,15 @@ export class AgentSession {
             emit({ type: 'notice', runId, text: 'The agent repeated an implementation promise while continuing discovery. It was told to apply the change or report the blocker.' })
             this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[You keep promising the same implementation while reading or searching again. New discovery output does not complete that change. Use the evidence already collected and implement the authorized change now. If you cannot, stop with the specific blocker. Do not repeat the promise or restart discovery.]' }] })
           }
+        }
+        if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
+          discoveryRounds = 0
+          discoveryNudges = 0
+        } else if (++discoveryRounds >= DISCOVERY_NUDGE_ROUNDS) {
+          discoveryRounds = 0
+          if (discoveryNudges++ >= MAX_DISCOVERY_NUDGES) throw new Error(`Stopped a discovery loop: ${DISCOVERY_NUDGE_ROUNDS * (MAX_DISCOVERY_NUDGES + 1)} tool rounds passed without an edit or a final answer, even after recovery guidance. Existing results are saved; send a narrower instruction to continue.`)
+          emit({ type: 'notice', runId, text: `${DISCOVERY_NUDGE_ROUNDS} tool rounds passed without changing anything. The agent was told to act on its evidence or report.` })
+          this.record({ role: 'user', content: [{ type: 'text', internal: true, text: `[${DISCOVERY_NUDGE_ROUNDS} tool rounds have passed without an edit. You already have enough evidence in this history; do not re-read, re-search, or re-run similar checks. Now either make the change the user asked for, or, if the task is an investigation or audit, write the final report from what you found. If something specific blocks you, name it and stop.]` }] })
         }
         if (narration.length >= 4) {
           recentNarrations.push(narration)

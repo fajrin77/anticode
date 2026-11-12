@@ -34,6 +34,7 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
     title: 'CodeBuddy',
     hint: 'Sign in at codebuddy.ai; the account speaks OpenAI’s wire format.'
   },
+  { kind: 'deepseek', title: 'DeepSeek (free credit)', hint: 'Browser sign-in with your DeepSeek Platform account. Runs only on granted credit: turns are refused while the account has top-up balance, so nothing paid is spent.' },
   { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
   { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Sign in and approve access in the browser; Anticode receives the code automatically through localhost. Only free model routes are used.' },
   { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
@@ -60,7 +61,8 @@ const RENEWABLE: Record<AuthKind, boolean> = {
   cline: true,
   clinepass: true,
   'opencode-go': false,
-  codebuddy: true
+  codebuddy: true,
+  deepseek: false
 }
 
 const TICK_MS = 30_000

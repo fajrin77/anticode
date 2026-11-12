@@ -23,6 +23,7 @@ import { loginCodex, accountLabel as codexLabel } from './codex'
 import { loginClaude, accountLabel as claudeLabel } from './claude'
 import { loginCline, accountLabel as clineLabel } from './cline'
 import { loginCodebuddy, accountLabel as codebuddyLabel } from './codebuddy'
+import { loginDeepSeek, accountLabel as deepseekLabel } from './deepseek'
 import { DIRECT_AUTH_LABELS, isDirectAuthKind } from '@shared/directAuthProviders'
 import { loginDirectApi } from './directApi'
 import { forgetAuthCatalogue } from './catalogue'
@@ -79,7 +80,8 @@ export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
   cline: 'Cline Free',
   clinepass: 'ClinePass',
   'opencode-go': 'OpenCode Go',
-  codebuddy: 'CodeBuddy'
+  codebuddy: 'CodeBuddy',
+  deepseek: 'DeepSeek (free credit)'
 }
 
 function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
@@ -103,6 +105,7 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
     case 'copilot': return loginCopilot(callbacks)
     case 'cursor': return loginCursor(callbacks)
     case 'antigravity': return loginAntigravity(callbacks)
+    case 'deepseek': return loginDeepSeek(callbacks)
   }
 }
 
@@ -123,6 +126,7 @@ function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
       return claudeLabel(tokens)
     case 'codebuddy':
       return codebuddyLabel(tokens)
+    case 'deepseek': return deepseekLabel(tokens)
     case 'clinepass':
     case 'cline':
       return clineLabel(tokens)

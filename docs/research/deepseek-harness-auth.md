@@ -9,7 +9,22 @@ tersedia di workspace; pemeriksaan dilakukan melalui inventaris ASAR serta
 source dan README yang dibundel, bukan mengklaim menjalankan skill tersebut.
 
 Ini membuktikan kontrak klien bawaan, bukan izin integrasi pihak ketiga atau
-keberhasilan akses Anticode. Belum ada implementasi login DeepSeek di Anticode.
+keberhasilan akses Anticode.
+
+## Implementasi di Anticode (auth kind `deepseek`)
+
+- `src/main/auth/deepseek.ts`: login PKCE loopback `/oauth/callback`,
+  `auth_init`/`auth_exchange`, header identitas jujur (`anticode/<versi>`, bukan
+  identitas Harness), token disimpan tersegel tanpa refresh token.
+- Inference: Messages format Anthropic ke `https://api.deepseek.com/anthropic`
+  dengan `x-dsh-auth-token`; `x-api-key` dikosongkan agar kunci env tidak bocor.
+  Model bawaan `deepseek-flash` (V4.1-Flash) dan `deepseek-v4-pro`.
+- **Penjaga free credit**: sebelum request, `get_user_summary` dibaca (cache 30 detik).
+  Turn ditolak (402, scope akun) bila ada saldo top-up > 0 atau granted credit habis;
+  saldo tak terbaca adalah error, bukan nol. Karena top-up kosong, request tidak
+  bisa membebani saldo berbayar.
+- Bukti: fixture `deepseek.test.ts` (wallet, envelope, validasi URL). Login dan
+  inference nyata belum diprobe; server dapat menolak klien selain Harness.
 
 ## Temuan autentikasi
 

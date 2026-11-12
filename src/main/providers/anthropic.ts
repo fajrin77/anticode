@@ -122,15 +122,18 @@ export class AnthropicProvider implements LLMProvider {
     apiKey: string,
     readonly model: string,
     baseURL?: string,
-    extra?: { authToken?: string; defaultHeaders?: Record<string, string> }
+    extra?: { authToken?: string; defaultHeaders?: Record<string, string | null>; headerAuth?: boolean }
   ) {
     this.client = new Anthropic({
       // An OAuth account sends its access token as a Bearer header rather than
       // an x-api-key; the SDK's authToken is exactly that, and it replaces the
-      // key entirely.
-      ...(extra?.authToken !== undefined
-        ? { authToken: extra.authToken, apiKey: null }
-        : { apiKey }),
+      // key entirely. Header-auth accounts carry their own credential header,
+      // and no environment key may leak to them.
+      ...(extra?.headerAuth === true
+        ? { authToken: null, apiKey: null }
+        : extra?.authToken !== undefined
+          ? { authToken: extra.authToken, apiKey: null }
+          : { apiKey }),
       ...(baseURL !== undefined ? { baseURL: anthropicBaseURL(baseURL) } : {}),
       ...(extra?.defaultHeaders !== undefined ? { defaultHeaders: extra.defaultHeaders } : {})
     })
