@@ -48,12 +48,25 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
       <span aria-hidden>⋯</span>
     </button>
     <div id={id} ref={popover} popover="auto" aria-label={`Tindakan sesi ${session.title}`}
+      onToggle={(event) => {
+        if (event.newState === 'open') {
+          setConfirming(false)
+          popover.current?.querySelector('button')?.focus()
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key.toLowerCase() !== 'd' || event.altKey || event.ctrlKey || event.metaKey) return
+        event.preventDefault()
+        event.stopPropagation()
+        if (busy || event.repeat) return
+        if (confirming) void act('delete')
+        else setConfirming(true)
+      }}
       style={position} className="menu-glass fixed m-0 max-h-[calc(100vh-16px)] w-56 overflow-y-auto rounded-xl border p-1.5 text-[13px] text-text">
       <button type="button" disabled={busy} onClick={() => { popover.current?.hidePopover(); onNewSession(session.id) }} className="w-full rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50">Sesi baru di project ini</button>
       <button type="button" disabled={busy} onClick={() => void act('export')} className="w-full rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50">Ekspor percakapan…</button>
       <button type="button" disabled={busy} onClick={() => void act('archive')} className="w-full rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50">Arsipkan</button>
-      <button type="button" disabled={busy} onClick={() => confirming ? void act('delete') : setConfirming(true)} className="w-full rounded-md px-3 py-2 text-left text-del hover:bg-hover disabled:opacity-50">{confirming ? 'Konfirmasi hapus permanen' : 'Hapus'}</button>
-      {confirming && <p className="px-3 py-2 text-[12px] text-dim">Percakapan, checkpoint, dan file sesi akan dihapus permanen.</p>}
+      <button type="button" disabled={busy} aria-keyshortcuts="D" onClick={() => confirming ? void act('delete') : setConfirming(true)} className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-del transition-colors hover:bg-hover hover:text-del disabled:opacity-50"><span>{confirming ? 'Konfirmasi hapus permanen' : 'Hapus'}</span><kbd className="text-[11px]">D</kbd></button>
       {error && <p role="alert" className="px-3 py-2 text-[12px] text-del [overflow-wrap:anywhere]">{error}</p>}
     </div>
   </>
