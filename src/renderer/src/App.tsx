@@ -64,7 +64,21 @@ export function App(): JSX.Element {
     setSidebarOpen((open) => !open)
   }, [])
   useEffect(() => () => clearTimeout(sidebarCloseTimer.current), [])
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set())
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem('anticode.collapsedProjects') ?? '[]')
+      return new Set(Array.isArray(saved) ? saved.filter((root): root is string => typeof root === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('anticode.collapsedProjects', JSON.stringify([...collapsedProjects]))
+    } catch (error) {
+      console.warn('Could not save collapsed project preferences', error)
+    }
+  }, [collapsedProjects])
   const [view, setView] = useState<View>('dashboard')
   // Where Settings was opened from, so closing it returns there. Without this
   // the gear dropped the user into a session view that may not exist.
