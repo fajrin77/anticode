@@ -87,6 +87,9 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
   const syncProjectOrder = useSessionStore((state) => state.syncProjectOrder)
   const moveProject = useSessionStore((state) => state.moveProject)
   const draggedProject = useRef<string | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const cancelHover = (): void => { clearTimeout(hoverTimer.current) }
+  useLayoutEffect(() => () => clearTimeout(hoverTimer.current), [preview])
   const [dropTarget, setDropTarget] = useState<{ root: string; after: boolean } | null>(null)
   useLayoutEffect(() => { syncProjectOrder() }, [sessions, syncProjectOrder])
   const activeId = useSessionStore((state) => state.activeSessionId)
@@ -164,8 +167,14 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
                 {entries.map((session) => (
                   <div key={session.id} className={`group flex items-center rounded-lg hover:bg-raised ${active && session.id === activeId ? 'bg-raised' : ''}`} >
                   <button type="button" title={session.title} data-session-id={session.id}
-                    onClick={() => onSelectSession(session.id)} aria-current={active && session.id === activeId ? 'page' : undefined}
-                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left text-[14px] hover:bg-raised hover:text-brand ${active && session.id === activeId ? 'bg-raised text-text' : 'text-dim'}`}>
+                    onPointerEnter={(event) => {
+                      cancelHover()
+                      if (!preview || event.pointerType !== 'mouse' || event.buttons !== 0 || (active && session.id === activeId)) return
+                      hoverTimer.current = setTimeout(() => onSelectSession(session.id), 1000)
+                    }}
+                    onPointerLeave={cancelHover} onPointerCancel={cancelHover} onPointerDown={cancelHover}
+                    onClick={() => { cancelHover(); onSelectSession(session.id) }} aria-current={active && session.id === activeId ? 'page' : undefined}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left text-[14px] transition-colors hover:bg-raised hover:text-brand ${active && session.id === activeId ? 'bg-raised text-text' : 'text-dim'}`}>
                     <Badge label={label} colour={session.colour} size="sm" spinning={running.has(session.id)} />
                     <span className="min-w-0 flex-1 truncate">{session.title}</span>
                   </button>
