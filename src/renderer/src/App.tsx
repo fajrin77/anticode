@@ -100,9 +100,19 @@ export function App(): JSX.Element {
   const showDashboard = useCallback(() => {
     const state = useSessionStore.getState()
     const own = status === null ? null : statusFor(status, state.activeSessionId)
-    if (own) state.updateDraft(DASHBOARD_DRAFT, { selection: { provider: own.provider, model: own.model } })
+    // The dashboard is a composer for the *next* session, so a plus pressed
+    // inside a session keeps that session's project folder: the new one starts
+    // in the same workspace instead of asking again. Only from a session — a
+    // folder picked on the dashboard itself must survive a second visit.
+    const source = view === 'session'
+      ? state.sessions.find((session) => session.id === state.activeSessionId)
+      : undefined
+    state.updateDraft(DASHBOARD_DRAFT, {
+      ...(own === null ? {} : { selection: { provider: own.provider, model: own.model } }),
+      ...(source === undefined ? {} : { mode: source.mode, folder: source.projectRoot })
+    })
     setView('dashboard')
-  }, [status])
+  }, [status, view])
 
   const startSameProject = useCallback(async (id: string) => {
     const source = useSessionStore.getState().sessions.find((session) => session.id === id)

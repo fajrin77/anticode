@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
@@ -11,6 +11,37 @@ import { InstructionsField } from './InstructionsField'
 
 function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
+}
+
+/**
+ * A popover that opens on a click, or on a mouse that rests on it for a second
+ * — the same rule the temporary sidebar follows. Leaving closes it again, so
+ * the panel belongs to the pointer and no second click is needed. The grace on
+ * the way out is the gap between the icon and the panel it hangs below.
+ */
+function useDwellPopover(
+  open: boolean,
+  setOpen: (next: boolean) => void
+): {
+  onPointerEnter: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onPointerLeave: () => void
+} {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const clear = (): void => clearTimeout(timer.current)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  // A pending open must not reopen a panel the user just clicked shut.
+  useEffect(() => { if (open) clearTimeout(timer.current) }, [open])
+  return {
+    onPointerEnter: (event) => {
+      clear()
+      if (open || event.pointerType !== 'mouse') return
+      timer.current = setTimeout(() => setOpen(true), 1000)
+    },
+    onPointerLeave: () => {
+      clear()
+      timer.current = setTimeout(() => setOpen(false), 180)
+    }
+  }
 }
 
 /** Per-session usage only, an icon that unfolds the totals on demand. */
@@ -48,6 +79,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
       .finally(() => setCompacting(false))
   }
   const boxRef = useRef<HTMLDivElement>(null)
+  const dwell = useDwellPopover(open, setOpen)
 
   useEffect(() => {
     if (!open) return
@@ -94,7 +126,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
   const remaining = Math.max(0, budget - used)
 
   return (
-    <div className="region-no-drag relative" ref={boxRef}>
+    <div className="region-no-drag relative" ref={boxRef} {...dwell}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -235,6 +267,7 @@ function PlanUsageButton({ provider }: { provider: string | null }): JSX.Element
   const [quotas, setQuotas] = useState<SubscriptionQuota[] | null>(null)
   const [failed, setFailed] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const dwell = useDwellPopover(open, setOpen)
 
   useEffect(() => {
     if (!open) return
@@ -259,7 +292,7 @@ function PlanUsageButton({ provider }: { provider: string | null }): JSX.Element
   const quota = provider === null ? undefined : quotas?.find((item) => item.provider === provider && item.status !== 'unsupported')
   const now = Date.now()
   return (
-    <div className="region-no-drag relative" ref={boxRef}>
+    <div className="region-no-drag relative" ref={boxRef} {...dwell}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
