@@ -683,6 +683,7 @@ export function App(): JSX.Element {
         dashboardActive={view === 'dashboard'}
         settingsActive={view === 'settings'}
         scheduleActive={view === 'schedule'}
+        selectedProvider={status === null ? null : statusFor(status, activeSessionId).provider}
         onDashboard={showDashboard}
         onOpenSettings={toggleSettings}
         onOpenSchedule={() => setView('schedule')}

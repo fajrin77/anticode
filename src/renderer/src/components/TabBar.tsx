@@ -3,7 +3,9 @@ import type { JSX } from 'react'
 import { useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { useWebSession } from '../store/web'
-import { contextWindowFor, historyBudgetFor } from '@shared/ipc'
+import { contextWindowFor, historyBudgetFor, ROTATE_PROVIDER } from '@shared/ipc'
+import type { SubscriptionQuota } from '@shared/ipc'
+import { quotaResetLabel, quotaWindowLabel } from './settings/subscriptionUsageFormat'
 import { formatUsd } from '../money'
 import { InstructionsField } from './InstructionsField'
 
@@ -223,6 +225,88 @@ interface TabBarProps {
   settingsActive: boolean
   /** True while Schedule is on screen, lights the clock the same way. */
   scheduleActive: boolean
+  /** Provider the session on screen is set to, null until the status loads. */
+  selectedProvider: string | null
+}
+
+/** Plan limits of the account behind the model in use; API-key routes have none to show. */
+function PlanUsageButton({ provider }: { provider: string | null }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [quotas, setQuotas] = useState<SubscriptionQuota[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    setFailed(false)
+    window.anticode.getSubscriptionQuotas().then((next) => { if (active) setQuotas(next) }).catch(() => { if (active) setFailed(true) })
+    function onOutside(event: MouseEvent): void {
+      if (!boxRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      active = false
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, provider])
+
+  const quota = provider === null ? undefined : quotas?.find((item) => item.provider === provider && item.status !== 'unsupported')
+  const now = Date.now()
+  return (
+    <div className="region-no-drag relative" ref={boxRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        title="Plan usage"
+        aria-label="Plan usage"
+        aria-expanded={open}
+        data-plan-usage-toggle
+        className={`glass-ghost flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${open ? 'text-brand' : 'text-dim'}`}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden>
+          <path d="M2.4 11.5a5.8 5.8 0 1 1 11.2 0" />
+          <path d="M8 9.6l2.4-3" />
+        </svg>
+      </button>
+      {open && (
+        <div className="menu-glass absolute top-full right-0 z-20 mt-1 w-80 rounded-xl border p-4">
+          <div className="mb-2 text-[13px] text-text">{quota === undefined ? 'Plan usage' : `${quota.label} usage`}</div>
+          {quota === undefined ? (
+            <p className="text-[12px] text-faint">
+              {failed ? 'Could not read the usage.' : quotas === null ? 'Reading usage…' : 'Usage is only shown for subscription accounts. This model runs by API key, so there is no plan limit to read.'}
+            </p>
+          ) : (
+            <>
+              {quota.error !== undefined && <p className="mb-2 text-[11.5px] text-amber-400">{quota.error}</p>}
+              {quota.windows.length === 0 && <p className="text-[12px] text-faint">No limit data yet.</p>}
+              {quota.windows.map((win, index) => {
+                const used = win.usedPercent === null || !Number.isFinite(win.usedPercent) ? null : Math.max(0, Math.min(100, win.usedPercent))
+                return (
+                  <div key={`${win.label}-${index}`} className="border-t border-line-soft py-2 first:border-t-0">
+                    <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[12.5px]">
+                      <span className="text-text">{quotaWindowLabel(win.label)}</span>
+                      <span className="tabular-nums text-faint">{used === null ? '—' : `${Math.round(100 - used)}% left`}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                      {used !== null && <div className={`h-full rounded-full ${used >= 95 ? 'bg-red-400' : used >= 80 ? 'bg-amber-400' : 'bg-blue-500'}`} style={{ width: `${used}%` }} />}
+                    </div>
+                    <div className="mt-1 text-[11px] text-faint">{quotaResetLabel(win.resetAt, now)}</div>
+                  </div>
+                )
+              })}
+              {quota.account !== undefined && <div className="mt-1 truncate text-[11px] text-faint">{quota.account}{quota.plan !== undefined ? ` · ${quota.plan}` : ''}</div>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -258,11 +342,13 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
 
 export function TabBar({
   onDashboard, onOpenSettings, onOpenSchedule,
-  sidebarOpen, onToggleSidebar, onSidebarPointerEnter, onSidebarPointerLeave, dashboardActive, settingsActive, scheduleActive
+  sidebarOpen, onToggleSidebar, onSidebarPointerEnter, onSidebarPointerLeave, dashboardActive, settingsActive, scheduleActive, selectedProvider
 }: TabBarProps): JSX.Element {
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
   )
+  // Rotate has no single model; the account of the latest turn stands in for it.
+  const activeProvider = selectedProvider === null || selectedProvider === ROTATE_PROVIDER ? activeSession?.provider ?? null : selectedProvider
   return (
     <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-3 pr-3 pl-20">
       <button type="button" onClick={onToggleSidebar}
@@ -275,21 +361,24 @@ export function TabBar({
           <rect x="2" y="3" width="16" height="14" rx="2" /><path d="M7 3v14" />
         </svg>
       </button>
+      <button
+        type="button"
+        onClick={onDashboard}
+        aria-label="+ New Session"
+        title="+ New Session"
+        className="glass-ghost region-no-drag -ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+          <path d="M8 3v10M3 8h10" />
+        </svg>
+      </button>
       <span className="min-w-0 truncate text-[13px] text-dim">
         {dashboardActive ? 'New Session' : settingsActive ? 'Settings' : scheduleActive ? 'Schedule' : activeSession?.title ?? 'anticode'}
       </span>
       {/* Keep session tools in the header so popovers stay outside sidebar scrolling. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
-        <button
-          type="button"
-          onClick={onDashboard}
-          aria-label="+ New Session"
-          title="+ New Session"
-          className="glass-ghost region-no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
-        >
-          +
-        </button>
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
+        {activeSession !== undefined && <PlanUsageButton provider={activeProvider} />}
         {activeSession !== undefined && <UsageButton session={activeSession} />}
         <button
           type="button"
