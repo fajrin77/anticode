@@ -383,7 +383,7 @@ export interface ProviderSelection {
 }
 
 /** The OAuth vendors anticode can sign into. */
-export type AuthKind = import('./directAuthProviders').DirectAuthKind | 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'vercel' | 'minimax-plan' | 'clinepass' | 'copilot' | 'cursor' | 'antigravity' | 'deepseek'
+export type AuthKind = import('./directAuthProviders').DirectAuthKind | 'codex' | 'claude' | 'cline' | 'codebuddy' | 'opencode-go' | 'kilo' | 'openrouter' | 'vercel' | 'orcarouter' | 'minimax-plan' | 'clinepass' | 'copilot' | 'cursor' | 'antigravity' | 'deepseek'
 
 /** A vendor flow as the Settings UI needs it while it runs. */
 export interface AuthLoginState {

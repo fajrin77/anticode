@@ -37,6 +37,7 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
   { kind: 'deepseek', title: 'DeepSeek (free credit)', hint: 'Browser sign-in with your DeepSeek Platform account. Runs only on granted credit: turns are refused while the account has top-up balance, so nothing paid is spent. The Platform grants free credit to one account per device, and the browser signs in the account it already holds, so a second DeepSeek account is usually refused — sign out of platform.deepseek.com first and expect the Platform to reject a second account on this machine.' },
   { kind: 'kilo', title: 'Kilo Free', hint: 'Browser device login; free model routes only. Credits and subscriptions are not assumed.' },
   { kind: 'openrouter', title: 'OpenRouter Free', hint: 'Sign in and approve access in the browser; Anticode receives the code automatically through localhost. Only free model routes are used.' },
+  { kind: 'orcarouter', title: 'OrcaRouter Free', hint: 'Sign in and approve access in the browser; the key comes back through localhost. Only -free routes are used, so the paid wallet is never billed. OrcaRouter grants free routes only to a workspace whose GitHub account is established.' },
   { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
   { kind: 'cursor', title: 'Cursor', hint: 'Browser authorization. Requires the official Cursor Agent CLI. Text/tool adapter; native CLI tools are denied.' },
   ...Object.entries(DIRECT_AUTH_PROVIDERS).map(([kind, config]) => ({ kind: kind as DirectAuthKind, title: config.label, hint: config.hint }))
@@ -51,6 +52,7 @@ const RENEWABLE: Record<AuthKind, boolean> = {
   'minimax-plan': false,
   kilo: false,
   openrouter: false,
+  orcarouter: false,
   // A gateway key is pasted once and never renews.
   vercel: false,
   copilot: false,
@@ -278,7 +280,7 @@ export function Auth({
                 type="password"
                 autoComplete="off"
                 spellCheck={false}
-                aria-label={state.kind === 'claude' ? 'Claude code#state or callback URL' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'openrouter' ? 'OpenRouter authorization code' : state.kind === 'vercel' ? 'Vercel AI Gateway API key' : 'Authorization code or key'}
+                aria-label={state.kind === 'claude' ? 'Claude code#state or callback URL' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'openrouter' ? 'OpenRouter authorization code' : state.kind === 'orcarouter' ? 'OrcaRouter authorization code' : state.kind === 'vercel' ? 'Vercel AI Gateway API key' : 'Authorization code or key'}
                 value={codes[state.id] ?? ''}
                 autoFocus
                 onChange={(event) =>
@@ -287,7 +289,7 @@ export function Auth({
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && (codes[state.id] ?? '').trim() !== '') void submit(state.id)
                 }}
-                placeholder={state.kind === 'opencode-go' ? 'OpenCode Go plan key' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'claude' ? 'Paste the complete code#state or callback URL' : 'Paste the authorization code'}
+                placeholder={state.kind === 'opencode-go' ? 'OpenCode Go plan key' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'claude' ? 'Paste the complete code#state or callback URL' : state.kind === 'orcarouter' ? 'Paste the OrcaRouter authorization code' : 'Paste the authorization code'}
                 className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[12.5px] text-text outline-none focus:border-brand"
               />
               <button

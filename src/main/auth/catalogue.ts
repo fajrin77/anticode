@@ -1,8 +1,9 @@
 import { isExplicitClineFreeModel, preferredClineFreeRoute } from '@shared/clineModels'
-import { presetAllowsModel } from '@shared/providerPresets'
+import { presetAllowsModel, freeGatewayPreset, isFreeGatewayKind, type FreeGatewayKind } from '@shared/providerPresets'
 import { readAuthTokens, getAuthAccount } from './store'
 import { MINIMAX_PLAN_MODELS } from './minimaxPlan'
 import { VERCEL_GATEWAY_BASE } from './vercel'
+import { ORCAROUTER_BASE } from './orcarouter'
 import { copilotModels } from './copilot'
 import { isDirectAuthKind } from '@shared/directAuthProviders'
 import { directApiModels } from './directApi'
@@ -40,7 +41,7 @@ export function authModelsFor(id: string, kind: AuthKind): string[] {
     } catch { return [] }
   }
   const models = loadPersistedSettings().authModelCatalogues?.[id]?.models
-  const valid = (kind === 'clinepass' || kind === 'codex' || kind === 'cline' || kind === 'claude' || kind === 'kilo' || kind === 'openrouter' || kind === 'vercel') && Array.isArray(models)
+  const valid = (kind === 'clinepass' || kind === 'codex' || kind === 'cline' || kind === 'claude' || isFreeGatewayKind(kind)) && Array.isArray(models)
     ? models.filter((model): model is string => typeof model === 'string' && model.trim() !== '') : []
   if (kind === 'clinepass') {
     const saved = readAuthTokens(id)?.meta?.planModels
@@ -55,23 +56,27 @@ export function authModelsFor(id: string, kind: AuthKind): string[] {
     return [...new Set(usable.map((model) => preferredClineFreeRoute(model, usable)))]
   }
   if (kind === 'claude' && valid.length) return [...new Set(valid.filter(model => model.startsWith('claude-')))]
-  if (kind === 'kilo' || kind === 'openrouter') return [...new Set((Array.isArray(models) ? valid : AUTH_MODELS[kind]).filter(model => presetAllowsModel(kind === 'kilo' ? 'kilo-free' : 'openrouter-free', model)))]
-  // Gateway accounts only ever list free routes, new ones first from the live list.
-  if (kind === 'vercel') return [...new Set(valid.filter(model => presetAllowsModel('vercel-free', model)))]
+  // Free gateway accounts only ever list free routes, new ones first from the live list.
+  if (isFreeGatewayKind(kind)) {
+    const preset = freeGatewayPreset(kind)
+    const listed = Array.isArray(models) ? valid : AUTH_MODELS[kind]
+    return [...new Set(listed.filter(model => presetAllowsModel(preset, model)))]
+  }
   // Retain the public bundled choices when an older account snapshot is short.
   // The provider still validates model access at request time.
   return [...new Set([...AUTH_MODELS[kind], ...valid])]
 }
 
-export async function fetchFreeGatewayModels(id: string, kind: 'kilo' | 'openrouter' | 'vercel'): Promise<string[]> {
+export async function fetchFreeGatewayModels(id: string, kind: FreeGatewayKind): Promise<string[]> {
   const tokens = await ensureFreshAuthTokens(id)
-  const base = kind === 'kilo' ? 'https://ai-gateway.kilo.ai/api/v1' : kind === 'vercel' ? VERCEL_GATEWAY_BASE : 'https://openrouter.ai/api/v1'
+  const base = kind === 'kilo' ? 'https://ai-gateway.kilo.ai/api/v1' : kind === 'vercel' ? VERCEL_GATEWAY_BASE : kind === 'orcarouter' ? ORCAROUTER_BASE : 'https://openrouter.ai/api/v1'
+  const preset = freeGatewayPreset(kind)
   try {
     const response = await fetch(`${base}/models`, { headers: { authorization: `Bearer ${tokens.accessToken}`, accept: 'application/json' }, signal: AbortSignal.timeout(10_000) })
     if (response.ok) {
       const data = await response.json() as { data?: { id?: unknown }[] }
       if (Array.isArray(data.data)) {
-        const models = data.data.flatMap(entry => typeof entry.id === 'string' && presetAllowsModel(kind === 'kilo' ? 'kilo-free' : kind === 'vercel' ? 'vercel-free' : 'openrouter-free', entry.id) ? [entry.id] : [])
+        const models = data.data.flatMap(entry => typeof entry.id === 'string' && presetAllowsModel(preset, entry.id) ? [entry.id] : [])
         savePersistedSettings({ authModelCatalogues: { ...loadPersistedSettings().authModelCatalogues, [id]: { models: [...new Set(models)], checkedAt: Date.now(), freeOnly: true } } })
       }
     }

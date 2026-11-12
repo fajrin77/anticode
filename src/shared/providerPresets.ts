@@ -15,9 +15,25 @@ export const VERCEL_FREE_PRESET = {
   models: [],
   hint: 'Only :free routes on the Vercel AI Gateway. A gateway key is required.'
 }
+/** The free-only preset each browser-connection account kind is bound to. */
+export const FREE_GATEWAY_PRESET = {
+  kilo: 'kilo-free',
+  openrouter: 'openrouter-free',
+  vercel: 'vercel-free',
+  orcarouter: 'orcarouter-free'
+} as const
 /** Account routes handled via a pasted key, so they are not custom endpoints. */
 export const PRESET_VIEW = [...PRESETS, VERCEL_FREE_PRESET]
-export type ProviderPresetId = 'opencode-free' | 'openrouter-free' | 'kilo-free' | 'vercel-free'
+export type FreeGatewayKind = keyof typeof FREE_GATEWAY_PRESET
+export type ProviderPresetId = 'opencode-free' | 'openrouter-free' | 'kilo-free' | 'vercel-free' | 'orcarouter-free'
+
+/** The free-only preset a browser-connection account kind is bound to. */
+export function freeGatewayPreset(kind: FreeGatewayKind): ProviderPresetId {
+  return FREE_GATEWAY_PRESET[kind]
+}
+export function isFreeGatewayKind(kind: string): kind is FreeGatewayKind {
+  return kind in FREE_GATEWAY_PRESET
+}
 
 export function providerPreset(id: unknown): (typeof PRESET_VIEW)[number] | undefined {
   return PRESET_VIEW.find(preset => preset.id === id)
@@ -26,6 +42,7 @@ export function providerPreset(id: unknown): (typeof PRESET_VIEW)[number] | unde
 export function presetAllowsModel(id: ProviderPresetId, model: string): boolean {
   // Only documented Chat Completions routes. A free Responses/SystemOne model
   // must not be sent through this adapter just because its name ends in -free.
+  if (id === 'orcarouter-free') return model === 'orcarouter/free' || model.endsWith('-free')
   if (id === 'opencode-free') return ['deepseek-v4.1-flash-free', 'glm-5.3-flash-free', 'minimax-m3.1-flash-free', 'beam-free', 'll-alpha-free', 'longcat-2.5-preview-free', 'longcat-2.5-free', 'exo-free', 'mimo-v2.6-flash-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free', 'nemotron-3.5-super-vl-free', 'flint-40b-free', 'iceman-free', 'inkling-2-small-free'].includes(model)
   return model.endsWith(':free') || (id === 'openrouter-free' && model === 'openrouter/free')
 }

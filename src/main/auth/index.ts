@@ -7,6 +7,7 @@ import { loginCopilot } from './copilot'
 import { loginCursor } from './cursor'
 import { loginAntigravity } from './antigravity'
 import { loginVercel } from './vercel'
+import { loginOrcaRouter } from './orcarouter'
 import { loginMiniMaxPlan } from './minimaxPlan'
 import { randomUUID } from 'node:crypto'
 import {
@@ -75,6 +76,7 @@ export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
   cursor: 'Cursor',
   antigravity: 'Antigravity',
   openrouter: 'OpenRouter Free',
+  orcarouter: 'OrcaRouter Free',
   codex: 'ChatGPT (Codex)',
   claude: 'Claude Code',
   cline: 'Cline Free',
@@ -101,6 +103,7 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
     case 'minimax-plan': return loginMiniMaxPlan(callbacks)
     case 'kilo': return loginKilo(callbacks)
     case 'openrouter': return loginOpenRouter(callbacks)
+    case 'orcarouter': return loginOrcaRouter(callbacks)
     case 'codex':
       return loginCodex(callbacks)
     case 'claude':
@@ -128,6 +131,7 @@ function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
     case 'minimax-plan': return undefined
     case 'kilo': return tokens.meta?.email || undefined
     case 'openrouter': return undefined
+    case 'orcarouter': return undefined
     case 'vercel': return undefined
     case 'opencode-go': return undefined
     case 'codex':
@@ -221,7 +225,7 @@ export async function loginAuthAccount(
 /** True when the vendor has a refresh grant we can call for this account. */
 export function canRefreshAuthAccount(kind: AuthKind): boolean {
   if (isDirectAuthKind(kind)) return false
-  return !['cursor', 'copilot', 'opencode-go', 'kilo', 'openrouter', 'vercel', 'minimax-plan'].includes(kind)
+  return !['cursor', 'copilot', 'opencode-go', 'kilo', 'openrouter', 'vercel', 'orcarouter', 'minimax-plan'].includes(kind)
 }
 
 /**

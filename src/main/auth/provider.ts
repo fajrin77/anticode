@@ -1,10 +1,11 @@
 import { CLINEPASS_MODELS } from '../providers/clinepass'
 import { DIRECT_AUTH_DEFAULTS, DIRECT_AUTH_LABELS, DIRECT_AUTH_MODELS, DIRECT_AUTH_PROVIDERS, isDirectAuthKind } from '@shared/directAuthProviders'
 import { randomUUID } from 'node:crypto'
-import { presetAllowsModel } from '@shared/providerPresets'
+import { presetAllowsModel, freeGatewayPreset, isFreeGatewayKind } from '@shared/providerPresets'
 import { APP_VERSION } from '../version'
 import { MINIMAX_PLAN_MODELS } from './minimaxPlan'
 import { VERCEL_GATEWAY_BASE } from './vercel'
+import { ORCAROUTER_BASE } from './orcarouter'
 import { COPILOT_BASE, COPILOT_HEADERS } from './copilot'
 import { validCursorTokens } from './cursor'
 import { refreshAntigravity } from './antigravity'
@@ -63,6 +64,8 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   // Only free routes; the live catalogue adds whatever else the key allows.
   vercel: ['nvidia/nemotron-3.5-lightning-free', 'reflection/beam-free'],
   openrouter: ['openrouter/free'],
+  // Free DeepSeek routes are the reason to connect; the live catalogue adds the rest.
+  orcarouter: ['deepseek/deepseek-v4.1-flash-free', 'deepseek/deepseek-v4-flash-free'],
   // Offline fallback only; the signed-in account catalogue takes precedence.
   codex: ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
   claude: [
@@ -92,6 +95,7 @@ export const AUTH_DEFAULT_MODELS: Record<AuthKind, string> = {
   kilo: AUTH_MODELS.kilo[0],
   vercel: AUTH_MODELS.vercel[0],
   openrouter: AUTH_MODELS.openrouter[0],
+  orcarouter: AUTH_MODELS.orcarouter[0],
   codex: AUTH_MODELS.codex[0],
   claude: AUTH_MODELS.claude[0],
   cline: AUTH_MODELS.cline[0],
@@ -109,7 +113,10 @@ async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> 
   switch (kind) {
     case 'minimax-plan': return tokens
     case 'kilo':
-    case 'openrouter': return tokens
+    case 'openrouter':
+      return tokens
+    // The signed-in key is long-lived and the gateway offers no renewal.
+    case 'orcarouter': return tokens
     case 'codex':
       return refreshCodex(tokens)
     case 'claude':
@@ -208,6 +215,7 @@ const AUTH_KIND_NAMES: Record<AuthKind, string> = {
   kilo: 'Kilo',
   vercel: 'Vercel AI Gateway',
   openrouter: 'OpenRouter',
+  orcarouter: 'OrcaRouter',
   codex: 'ChatGPT',
   claude: 'Claude',
   cline: 'Cline Free',
@@ -242,7 +250,7 @@ class AuthProvider implements LLMProvider {
       throw new ProviderRequestError('The selected model is not in this account’s catalogue. Choose a supported model; saved Rotate entries do not grant model access.', 400)
     }
     if (this.kind === 'minimax-plan' && !authModelsFor(this.id, this.kind).includes(requested)) throw new ProviderRequestError('Choose a model reported by this MiniMax Token Plan. Wallet/PAYG model aliases are not substituted.', 400)
-    if ((this.kind === 'kilo' || this.kind === 'openrouter') && (!presetAllowsModel(this.kind === 'kilo' ? 'kilo-free' : 'openrouter-free', requested) || !authModelsFor(this.id, this.kind).includes(requested))) {
+    if (isFreeGatewayKind(this.kind) && (!presetAllowsModel(freeGatewayPreset(this.kind), requested) || !authModelsFor(this.id, this.kind).includes(requested))) {
       throw new ProviderRequestError('This browser connection uses current free model routes only. Refresh the model list or choose a free model; paid fallback is disabled.', 400)
     }
     if (this.kind === 'clinepass' && (!requested.startsWith('cline-pass/') || !authModelsFor(this.id, 'clinepass').includes(requested))) throw new ProviderRequestError('Choose a ClinePass subscription model. Usage-billing routes are disabled.', 400)
@@ -267,10 +275,10 @@ class AuthProvider implements LLMProvider {
         return new AnthropicProvider('', model, 'https://api.minimax.io/anthropic', { authToken: tokens.accessToken, defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}` } })
       case 'kilo':
       case 'openrouter':
-        return new OpenAICompatibleProvider(this.kind, model, { apiKey: tokens.accessToken, baseURL: this.kind === 'kilo' ? 'https://ai-gateway.kilo.ai/api/v1' : 'https://openrouter.ai/api/v1', maxTokensField: 'max_tokens', defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' } })
+      case 'orcarouter':
+        return new OpenAICompatibleProvider(this.kind, model, { apiKey: tokens.accessToken, baseURL: this.kind === 'kilo' ? 'https://ai-gateway.kilo.ai/api/v1' : this.kind === 'orcarouter' ? ORCAROUTER_BASE : 'https://openrouter.ai/api/v1', maxTokensField: 'max_tokens', defaultHeaders: { 'user-agent': `anticode/${APP_VERSION}`, 'X-Title': 'Anticode' } })
       case 'vercel':
-      case 'copilot':
-        return new OpenAICompatibleProvider(this.kind, model, {
+      case 'copilot':        return new OpenAICompatibleProvider(this.kind, model, {
           apiKey: tokens.accessToken,
           baseURL: this.kind === 'copilot' ? COPILOT_BASE : VERCEL_GATEWAY_BASE,
           maxTokensField: 'max_tokens',
@@ -317,10 +325,12 @@ class AuthProvider implements LLMProvider {
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
     // Before the client is built: a paid route must never reach the gateway.
-    if (this.kind === 'vercel') {
+    if (this.kind === 'vercel' || this.kind === 'orcarouter') {
       const requested = this.model || AUTH_DEFAULT_MODELS[this.kind]
-      if (!presetAllowsModel('vercel-free', requested) || !authModelsFor(this.id, 'vercel').includes(requested)) {
-        throw new ProviderRequestError('This gateway connection uses free model routes only. Refresh the model list or choose a model ending in :free; paid fallback is disabled.', 400)
+      if (!presetAllowsModel(freeGatewayPreset(this.kind), requested) || !authModelsFor(this.id, this.kind).includes(requested)) {
+        throw new ProviderRequestError(this.kind === 'orcarouter'
+          ? 'This OrcaRouter connection uses free model routes only (-free routes); the paid wallet is never billed. Refresh the model list or choose a free model in the model picker.'
+          : 'This gateway connection uses free model routes only. Refresh the model list or choose a model ending in :free; paid fallback is disabled.', 400)
       }
     }
     let client = await this.client(false, params.sessionId, params.signal)

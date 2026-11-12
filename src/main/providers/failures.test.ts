@@ -21,3 +21,10 @@ it('recognizes nested transport errors and explicit quota refusals', () => {
   expect(canFailOver(new Error('request failed', { cause: { code: 'ENETUNREACH' } }))).toBe(true)
   expect(canFailOver({ status: 403, message: 'monthly quota exhausted' })).toBe(true)
 })
+
+it('does not treat an OrcaRouter free-route refusal as a passing rate limit', () => {
+  const refused = { status: 429, error: { code: 'free_rate_limited', message: 'Free models are not available to this account yet.' } }
+  expect(isTransient(refused)).toBe(false)
+  expect(canFailOver(refused)).toBe(false)
+  expect(isTransient({ status: 429, message: 'temporarily rate limited upstream' })).toBe(true)
+})

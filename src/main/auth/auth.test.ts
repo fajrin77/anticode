@@ -308,6 +308,27 @@ it.each(['kilo', 'openrouter'] as const)('filters paid aliases and keeps the las
   expect(await fetchFreeGatewayModels(id, kind)).toEqual([])
 })
 
+it('keeps only OrcaRouter -free routes in the catalogue, paid wallet routes never listed', async () => {
+  const id = 'auth:free-catalogue-orcarouter'
+  saveAuthAccount(account(id, 'orcarouter'), { accessToken: 'fixture-key', expiresAt: 0 })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ id: 'deepseek/deepseek-v4.1-flash' }, { id: 'deepseek/deepseek-v4.1-flash-free' }, { id: 'orcarouter/free' }] })))
+  expect(await fetchFreeGatewayModels(id, 'orcarouter')).toEqual(['deepseek/deepseek-v4.1-flash-free', 'orcarouter/free'])
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('invalid JSON')))
+  expect(await fetchFreeGatewayModels(id, 'orcarouter')).toEqual(['deepseek/deepseek-v4.1-flash-free', 'orcarouter/free'])
+})
+
+it('rejects a paid model before an OrcaRouter connection sends credentials', async () => {
+  const { authProvider } = await import('./provider')
+  const id = 'auth:guard-orcarouter'
+  saveAuthAccount(account(id, 'orcarouter'), { accessToken: 'fixture-key', expiresAt: 0 })
+  const fetcher = vi.fn()
+  vi.stubGlobal('fetch', fetcher)
+  await expect((async () => {
+    for await (const _ of authProvider(id, 'deepseek/deepseek-v4.1-flash').chat({ system: '', messages: [], tools: [], maxTokens: 100, signal: new AbortController().signal })) { /* consume */ }
+  })()).rejects.toThrow(/free model routes only/)
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
 it.each(['kilo', 'openrouter'] as const)('rejects a paid model before a %s browser connection sends credentials', async kind => {
   const { authProvider } = await import('./provider')
   const id = `auth:guard-${kind}`

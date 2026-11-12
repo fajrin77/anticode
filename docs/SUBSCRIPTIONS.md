@@ -348,3 +348,41 @@ bisa stale; rute boleh diperiksa kembali setelah masa itu. Bare 404 dan
 penolakan kapabilitas/produk tidak diperlakukan sebagai retirement.
 
 Bukti fixture dan batas pengujian: [QA routing](QA-ROUTING-2026-10-23.md).
+
+## OrcaRouter Free via OAuth — 12 November 2026
+
+OrcaRouter menyediakan rute gratis DeepSeek (`deepseek/deepseek-v4.1-flash-free`,
+`deepseek/deepseek-v4-flash-free`) dan gateway OpenAI-compatible di
+`https://api.orcarouter.ai/v1`. Menambahkannya sebagai endpoint custom dengan API
+key memang bisa menghasilkan HTTP 403/429 walau key valid, karena penolakan ada di
+sisi akun, bukan di endpoint.
+
+Koneksi OAuth ditambahkan mengikuti pola OpenRouter yang sudah ada:
+
+- authorize: `https://www.orcarouter.ai/auth` dengan `callback_url` loopback
+  (`http://localhost:<port>`, satu-satunya skema plain yang diterima gateway),
+  PKCE `S256`; penukaran ke `https://api.orcarouter.ai/api/v1/auth/keys`
+  mengembalikan key long-lived tanpa refresh grant (`refreshable: false`).
+- Server callback lokal tetap dibuka, dan kotak paste menerima kode maupun URL
+  callback. Key `sk-...` dan URL dashboard ditolak sebelum request apa pun.
+- Akun ini hanya boleh memakai rute gratis: `authModelsFor` menyaring katalog ke
+  `-free` (plus `orcarouter/free`) dan `authProvider` menolak model berbayar
+  sebelum kredensial dikirim. Tidak ada fallback ke wallet berbayar.
+- Katalog live tetap dipakai selama akun memenuhi syarat, dan kegagalan jaringan
+  mempertahankan katalog gratis terakhir.
+
+Penolakan gratis OrcaRouter datang sebagai HTTP 429 dengan
+`code: free_rate_limited` / `reason: err_free_access_denied` dan
+`retryable: false`. Pesan itu tidak diperlakukan sebagai rate limit sementara:
+`isTransient` mengembalikan false dan UI menjelaskan bahwa rute gratis
+mensyaratkan pemilik workspace menautkan akun GitHub yang sudah terdaftar cukup
+lama. Akun GitHub baru (atau akun tanpa GitHub) tidak memenuhi syarat, sehingga
+versi gratis DeepSeek baru bisa dipakai setelah syarat akun itu terpenuhi.
+Probe key nyata 12 November 2026: `/models` 200 (216 model, 6 rute gratis),
+chat gratis 429 `err_free_access_denied` — jadi OAuth tidak menembus syarat akun
+tersebut; hanya key dengan wallet credit atau workspace yang memenuhi syarat yang
+dilayani.
+
+Bukti: fixture `flows.test.ts` (PKCE, callback loopback, kode palsu, pembatalan),
+`auth.test.ts` (katalog hanya `-free`, penolakan model berbayar sebelum kirim),
+`failures.test.ts` (429 gratis bukan transient). Tidak ada benchmark coding.

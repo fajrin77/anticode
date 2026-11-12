@@ -559,6 +559,62 @@ it('cancels a parked OpenRouter code prompt without an exchange', async () => {
   expect(exchange).not.toHaveBeenCalled()
 })
 
+it('runs OrcaRouter PKCE login from a pasted code and keeps the returned identity', async () => {
+  const { loginOrcaRouter } = await import('./orcarouter')
+  let challenge = ''
+  stubFetch(async (url, init) => {
+    expect(url).toBe('https://api.orcarouter.ai/api/v1/auth/keys')
+    const body = JSON.parse(String(init?.body))
+    const { makeChallenge } = await import('./pkce')
+    expect(makeChallenge(body.code_verifier)).toBe(challenge)
+    expect(body).toMatchObject({ code: 'fixture-orca-code', code_challenge_method: 'S256' })
+    return Response.json({ key: 'fixture-orca-key', user_id: 'fixture-orca-user' })
+  })
+  const tokens = await loginOrcaRouter(callbacks({ onUpdate: update => {
+    const authorize = new URL(update.url!)
+    expect(authorize.origin).toBe('https://www.orcarouter.ai')
+    expect(authorize.searchParams.get('callback_url')).toMatch(/^http:\/\/localhost:\d+\/orcarouter\/.+/)
+    challenge = authorize.searchParams.get('code_challenge') ?? ''
+  }, promptForCode: async () => { await new Promise(resolve => setTimeout(resolve, 20)); return 'fixture-orca-code' } }))
+  expect(tokens).toMatchObject({ accessToken: 'fixture-orca-key', expiresAt: 0, meta: { accountId: 'fixture-orca-user' } })
+})
+
+it('finishes OrcaRouter login from the localhost callback instead of the dashboard', async () => {
+  const { loginOrcaRouter } = await import('./orcarouter')
+  let callbackUrl = ''
+  const exchange = vi.fn(async (_url: string, init?: RequestInit) => {
+    expect(JSON.parse(String(init?.body))).toMatchObject({ code: 'callback-code' })
+    return Response.json({ key: 'fixture-orca-key' })
+  })
+  stubFetch(exchange)
+  const work = loginOrcaRouter(callbacks({ onUpdate: update => {
+    if (update.url) callbackUrl = new URL(update.url).searchParams.get('callback_url') ?? ''
+  }, promptForCode: () => new Promise(() => {}) }))
+  await vi.waitFor(() => expect(callbackUrl).not.toBe(''))
+  const target = new URL(callbackUrl)
+  await fetch(`http://127.0.0.1:${target.port}${target.pathname}?code=callback-code`)
+  await expect(work).resolves.toMatchObject({ accessToken: 'fixture-orca-key' })
+})
+
+it.each(['https://www.orcarouter.ai/settings/keys', 'sk-orca-fixture'])('rejects a dashboard URL or API key instead of an OrcaRouter approval code', async code => {
+  const { loginOrcaRouter } = await import('./orcarouter')
+  const exchange = vi.fn()
+  stubFetch(exchange)
+  await expect(loginOrcaRouter(callbacks({ promptForCode: async () => code }))).rejects.toThrow(/authorization code/)
+  expect(exchange).not.toHaveBeenCalled()
+})
+
+it('cancels a parked OrcaRouter code prompt without an exchange', async () => {
+  const { loginOrcaRouter } = await import('./orcarouter')
+  const abort = new AbortController()
+  const exchange = vi.fn()
+  stubFetch(exchange)
+  const work = loginOrcaRouter(callbacks({ signal: abort.signal, promptForCode: () => new Promise(() => {}) }))
+  abort.abort()
+  await expect(work).rejects.toThrow(/cancelled/)
+  expect(exchange).not.toHaveBeenCalled()
+})
+
 it('runs Kilo browser device login without inventing a refresh grant', async () => {
   const { loginKilo } = await import('./kilo')
   stubFetch(async (url, init) => {

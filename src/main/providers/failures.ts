@@ -24,6 +24,16 @@ export function isAccountAccessFailure(error: unknown): boolean {
 
 export function isTransient(error: unknown): boolean {
   if (requestLimit(error)?.kind === 'inflight') return true
+  // OrcaRouter answers 429 when the workspace may not use free routes at all:
+  // a refusal about the account, not a rate limit that waiting will clear.
+  let warned = error
+  for (let i = 0; i < 5 && warned && typeof warned === 'object'; i++) {
+    const row = warned as { code?: unknown; message?: unknown; cause?: unknown; error?: unknown }
+    for (const part of [row.code, row.message]) {
+      if (typeof part === 'string' && /free_rate_limited|err_free_access_denied/i.test(part)) return false
+    }
+    warned = row.cause ?? row.error
+  }
   const status = failureStatus(error)
   // A permanent HTTP error must not become retryable because its message
   // mentions a network, timeout, or a model capability.
