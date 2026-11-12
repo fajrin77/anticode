@@ -100,7 +100,7 @@ try {
   await sidebarToggle.hover()
   await sidebar.waitFor()
   check('sidebar preview does not shift content', (await window.locator('main').boundingBox()).x, mainBeforePreview.x)
-  check('sidebar preview background is 90 percent opaque', await sidebar.evaluate(el => getComputedStyle(el).backgroundColor.endsWith('0.9)')), true)
+  check('sidebar preview background is 80 percent opaque', await sidebar.evaluate(el => getComputedStyle(el).backgroundColor.endsWith('0.8)')), true)
   await sidebar.hover()
   await window.waitForTimeout(250)
   check('sidebar preview stays open while using it', await sidebar.isVisible(), true)

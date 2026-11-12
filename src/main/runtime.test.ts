@@ -826,6 +826,21 @@ it('keeps a model picked in a not-yet-created tab while Rotate usage is on', () 
   expect(modelOf('c')).toBe('m3')
 })
 
+it('preserves an inherited session choice through creation and later manual changes', () => {
+  applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
+  applyRotationEnabled(true)
+  createSession({ sessionId: 'source', mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: 'three', model: 'm3' }, 'source')
+  const { provider, model } = getStatus('source')
+  selectProvider({ provider, model }, 'inherited')
+  expect(getStatus('inherited')).toMatchObject({ provider: 'three', model: 'm3' })
+  createSession({ sessionId: 'inherited', mode: 'chat', workspaceRoot: null })
+  expect(modelOf('inherited')).toBe('m3')
+  selectProvider({ provider: 'two', model: 'm2' }, 'inherited')
+  expect(modelOf('inherited')).toBe('m2')
+  expect(modelOf('source')).toBe('m3')
+})
+
 it('starts a new session on the pool even after another session picked a model', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   applyRotationEnabled(true)

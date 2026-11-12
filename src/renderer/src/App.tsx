@@ -30,7 +30,7 @@ import type {
   SessionStatus,
   UpdateState
 } from '@shared/ipc'
-import { ROTATE_PROVIDER } from '@shared/ipc'
+import { ROTATE_PROVIDER, statusFor } from '@shared/ipc'
 
 type View = 'dashboard' | 'session' | 'settings' | 'schedule'
 
@@ -97,19 +97,32 @@ export function App(): JSX.Element {
   const openSession = useSessionStore((state) => state.openSession)
   const reopenSession = useSessionStore((state) => state.reopenSession)
 
-  const startSameProject = useCallback((id: string) => {
+  const showDashboard = useCallback(() => {
+    const state = useSessionStore.getState()
+    const own = status === null ? null : statusFor(status, state.activeSessionId)
+    if (own) state.updateDraft(DASHBOARD_DRAFT, { selection: { provider: own.provider, model: own.model } })
+    setView('dashboard')
+  }, [status])
+
+  const startSameProject = useCallback(async (id: string) => {
     const source = useSessionStore.getState().sessions.find((session) => session.id === id)
     if (!source) return
-    openSession(source.mode, source.projectRoot, source.provider, source.model)
-    setView('session')
-  }, [openSession])
+    const choice = status === null ? source : statusFor(status, source.id)
+    const sessionId = openSession(source.mode, source.projectRoot, choice.provider, choice.model)
+    try {
+      if (choice.provider && choice.model !== null) setStatus(await window.anticode.selectProvider({ provider: choice.provider, model: choice.model ?? '' }, sessionId))
+      setView('session')
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : String(error))
+    }
+  }, [openSession, status])
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       if (event.key.toLowerCase() === 'n') {
         event.preventDefault()
-        setView('dashboard')
+        showDashboard()
       } else if (event.key.toLowerCase() === 'b') {
         event.preventDefault()
         toggleSidebar()
@@ -117,7 +130,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toggleSidebar])
+  }, [toggleSidebar, showDashboard])
 
   // Selecting the already-active session changes no store state, so
   // the effect below never fires, the view switch happens here explicitly.
@@ -670,7 +683,7 @@ export function App(): JSX.Element {
         dashboardActive={view === 'dashboard'}
         settingsActive={view === 'settings'}
         scheduleActive={view === 'schedule'}
-        onDashboard={() => setView('dashboard')}
+        onDashboard={showDashboard}
         onOpenSettings={toggleSettings}
         onOpenSchedule={() => setView('schedule')}
         sidebarOpen={sidebarOpen || sidebarPreview}
@@ -701,7 +714,7 @@ export function App(): JSX.Element {
           })}
           active={view === 'session'}
           dashboardActive={view === 'dashboard'}
-          onDashboard={() => setView('dashboard')}
+          onDashboard={showDashboard}
           onSelectSession={openExistingSession}
           onNewSession={startSameProject}
         /></div>}

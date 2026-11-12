@@ -3,7 +3,7 @@ import { useAttachmentFocus } from '../useAttachmentFocus'
 import { DASHBOARD_DRAFT, stageDraftAttachments, useAttachmentJobs, fileAttachmentJob } from '../draftAttachments'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { modelLabel, ROTATE_PROVIDER } from '@shared/ipc'
+import { modelLabel, ROTATE_PROVIDER, statusFor } from '@shared/ipc'
 import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 import { useSessionStore } from '../store/session'
 import type { MessagePart, Session } from '../store/session'
@@ -77,7 +77,7 @@ function DashboardComposer({
     manual && globalStatus?.subscriptionOnly && selectedProvider?.billing !== 'free' && selectedProvider?.billing !== 'subscription' ? 'Choose a free or subscription provider.' : null)
   const status = globalStatus === null ? null : manual
     ? { ...globalStatus, ...selected, providerReady: blockedReason === null && selected.model !== '', blockedReason, lastUsed: null }
-    : globalStatus
+    : globalStatus === null || selected === undefined ? globalStatus : { ...globalStatus, ...selected, lastUsed: null }
   const mode = savedDraft?.mode ?? 'code'
   const folder = savedDraft?.folder ?? null
   const draft = savedDraft?.text ?? ''
@@ -196,7 +196,7 @@ function DashboardComposer({
 
     // This is the moment the session comes into existence, bound straight to
     // the mode and folder chosen here.
-    const sessionId = openSession(mode, folder)
+    const sessionId = openSession(mode, folder, status?.provider, status?.model)
 
 
     setDraft('')
@@ -214,7 +214,7 @@ function DashboardComposer({
 
     try {
       await window.anticode.createSession({ sessionId, mode, workspaceRoot: mode === 'code' ? folder : null })
-      if (selected !== undefined && (selected.provider !== ROTATE_PROVIDER || globalStatus?.rotationEnabled)) await window.anticode.selectProvider(selected, sessionId)
+      if (status !== null) await window.anticode.selectProvider({ provider: status.provider, model: status.model }, sessionId)
       await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
     } catch (failure) {
       // A refused send must not leave a ghost run blocking the hero.
@@ -555,10 +555,17 @@ export function NewSessionView({
    * The copy icon starts a blank session in the same project, not a second
    * transcript: the picks made here follow it so the next prompt is ready.
    */
-  function startSameProject(id: string): void {
+  async function startSameProject(id: string): Promise<void> {
     const source = useSessionStore.getState().sessions.find((item) => item.id === id)
     if (source === undefined) return
-    openBlankSession(source.mode, source.projectRoot, source.provider, source.model)
+    const choice = status === null ? source : statusFor(status, source.id)
+    const sessionId = openBlankSession(source.mode, source.projectRoot, choice.provider, choice.model)
+    try {
+      if (choice.provider) await window.anticode.selectProvider({ provider: choice.provider, model: choice.model ?? '' }, sessionId)
+      onSelectSession(sessionId)
+    } catch (error) {
+      useSessionStore.getState().updateDraft(sessionId, { text: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   /** A preset fills the dashboard composer; Enter then sends it. */
