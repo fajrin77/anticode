@@ -4,6 +4,20 @@ import type { SnapshotMessage } from '@shared/ipc'
 import { FOLLOW_UP_LABEL } from '../labels'
 beforeEach(() => useSessionStore.setState({ sessions: [], activeRuns: {}, mirrorRuns: {}, activeSessionId: null, planOpenBySession: {} }))
 
+it('inherits the project model and respects explicit manual selections', () => {
+  const store = useSessionStore.getState()
+  store.openSession('code', '/dexs77', 'rotate', 'glm')
+  const chatgpt = store.openSession('code', '/dexs77', 'auth:codex', 'gpt-test')
+  store.selectSession(chatgpt)
+  const next = store.openSession('code', '/dexs77')
+  expect(useSessionStore.getState().sessions.find(item => item.id === next)).toMatchObject({ provider: 'auth:codex', model: 'gpt-test' })
+  const manual = store.openSession('code', '/dexs77', 'other', 'manual-model')
+  expect(useSessionStore.getState().sessions.find(item => item.id === manual)).toMatchObject({ provider: 'other', model: 'manual-model' })
+  store.openSession('code', '/other', 'rotate', 'glm')
+  const returning = store.openSession('code', '/dexs77')
+  expect(useSessionStore.getState().sessions.find(item => item.id === returning)).toMatchObject({ provider: 'other', model: 'manual-model' })
+})
+
 it('keeps the Plan fold state separate for each session', () => {
   const store = useSessionStore.getState()
   store.setPlanOpen('one', false)

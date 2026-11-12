@@ -445,8 +445,16 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     let id = ''
     set((state) => {
       const session = newSession(mode, projectRoot, state.nextColour)
-      if (provider !== undefined && provider !== null) session.provider = provider
-      if (model !== undefined && model !== null) session.model = model
+      // Inherit this project's active or newest selection, not a global default.
+      const source = state.sessions.find((item) => item.id === state.activeSessionId && item.mode === mode && item.projectRoot === projectRoot)
+        ?? state.sessions.filter((item) => item.mode === mode && item.projectRoot === projectRoot).at(-1)
+      if (provider === undefined && model === undefined) {
+        session.provider = source?.provider ?? session.provider
+        session.model = source?.model ?? session.model
+      } else {
+        if (provider !== undefined && provider !== null) session.provider = provider
+        if (model !== undefined && model !== null) session.model = model
+      }
       if (mode === 'code' && projectRoot !== null) session.title = baseName(projectRoot)
       id = session.id
       return {

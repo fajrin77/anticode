@@ -103,7 +103,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-[14px] text-faint hover:text-text">
                   <span aria-hidden>{expanded ? '⌄' : '›'}</span><span className="truncate">{label}</span>
                 </button>
-                <button type="button" onClick={() => onNewSession(entries[0]!.id)}
+                <button type="button" onClick={() => onNewSession((entries.find((session) => session.id === activeId) ?? entries.at(-1)!).id)}
                   aria-label={`Sesi baru di ${label}`} title={`Sesi baru di ${label}`}
                   className="h-7 w-7 shrink-0 rounded-md text-dim hover:bg-raised hover:text-brand">+</button>
               </div>
