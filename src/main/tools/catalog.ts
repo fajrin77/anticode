@@ -69,7 +69,7 @@ export class SessionToolCatalog {
         const notes = [
           ...(unknown.length > 0 ? [`Not connected for this account: ${unknown.join(', ')}.`] : []),
           ...(input.groups.includes('integrations') && offered.size > 0
-            ? [`Account connectors, loaded separately with connectors: [...]: ${describeConnectors(offered)}.`]
+            ? [`Available connectors, loaded separately with connectors: [...]: ${describeConnectors(offered)}.`]
             : [])
         ]
         const body = selected.length

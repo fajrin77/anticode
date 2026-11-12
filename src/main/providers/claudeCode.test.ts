@@ -115,6 +115,21 @@ it('restarts the engine when the tool list changes so newly loaded tools are cal
   expect(fixture.options).toHaveLength(2)
   expect(fixture.options[1]?.mcpServers.anticode.tools.map((t: { name: string }) => t.name)).toContain('read_pdf')
 })
+it.each(['description', 'inputSchema'] as const)('refreshes changed tool %s even when tool names stay the same', async (field) => {
+  fixture.mode = 'kept'
+  const p = params(), provider = new ClaudeCodeProvider('fixture', 'claude-sonnet-5-5', 'fixture-token')
+  p.tools = [{ name: 'load_tools', description: 'No connectors yet', inputSchema: { type: 'object', properties: {} } }]
+  const first = response(await collect(provider, p))
+  p.tools = p.tools.map(t => field === 'description'
+    ? { ...t, description: 'Available connectors: Vercel plugin (1)' }
+    : { ...t, inputSchema: { type: 'object', properties: { connectors: { type: 'array', items: { type: 'string' } } } } })
+  p.messages.push({ role: 'assistant', content: first.content }, { role: 'user', content: [{ type: 'text', text: 'Check the plugin' }] })
+  await collect(provider, p)
+  expect(fixture.options).toHaveLength(2)
+  expect(fixture.options[1]?.mcpServers.anticode.tools[0].description).toBe(p.tools[0]!.description)
+  if (field === 'inputSchema') expect(fixture.options[1]?.mcpServers.anticode.tools[0].inputSchema).toHaveProperty('connectors')
+})
+
 it('returns concurrent tool proposals to the host and waits for both real results', async () => {
   fixture.mode = 'parallel'
   const p = params(), provider = new ClaudeCodeProvider('fixture', 'claude-sonnet-5-5', 'fixture-token')

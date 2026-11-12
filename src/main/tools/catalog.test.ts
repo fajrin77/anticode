@@ -49,6 +49,19 @@ it('loads account connectors one at a time, by name, and restores them from hist
     .toContain('mcp__Vercel__deploy')
 })
 
+it('keeps Settings plugins separate from similarly named account connectors', async () => {
+  const source = (): ReturnType<typeof toolsFor> => ['Vercel', 'Vercel plugin'].map((connector, index) => ({
+    name: `mcp__vercel_${index}`, description: 'List projects', inputSchema: { type: 'object' }, readOnly: true, connector,
+    prepare: () => { throw new Error('unused') }
+  }))
+  const catalog = new SessionToolCatalog(source)
+  const loader = catalog.tools().find(t => t.name === 'load_tools')!
+  expect(loader.description).toContain('Vercel plugin (1)')
+  await loader.prepare({ connectors: ['Vercel plugin'] }).execute(context)
+  expect(catalog.tools().map(t => t.name)).toContain('mcp__vercel_1')
+  expect(catalog.tools().map(t => t.name)).not.toContain('mcp__vercel_0')
+})
+
 it('restores used capabilities from history without widening a read-only agent kit', () => {
   const catalog = new SessionToolCatalog(() => toolsFor('code'))
   expect(catalog.tools([{ role: 'assistant', content: [{ type: 'tool_use', id: 'x', name: 'read_docx', input: {} }] }]).map((tool) => tool.name)).toContain('read_pdf')

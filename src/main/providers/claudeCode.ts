@@ -56,6 +56,10 @@ function userKey(messages: ChatParams['messages']): string {
   return JSON.stringify(messages.filter(m => m.role === 'user').map(m => m.content.flatMap(b => b.type === 'text' ? [b.text] : b.type === 'image' ? [`image:${b.data.length}`] : [])))
 }
 
+function toolKey(tools: ChatParams['tools']): string {
+  return JSON.stringify([...tools].sort((a, b) => a.name.localeCompare(b.name)))
+}
+
 class ClaudeCodeRun {
   readonly pending = new Map<string, (reply: ToolReply) => void>()
   readonly controller = new AbortController()
@@ -86,7 +90,7 @@ class ClaudeCodeRun {
     this.syncedLength = params.messages.length
     this.userKey = userKey(params.messages)
     this.system = params.system; this.maxTokens = params.maxTokens
-    this.toolKey = params.tools.map(t => t.name).sort().join('\n')
+    this.toolKey = toolKey(params.tools)
     params.signal.addEventListener('abort', this.onAbort, { once: true })
   }
   private push(item: Item): void { this.items.push(item); this.wake?.(); this.wake = undefined }
@@ -235,9 +239,9 @@ export class ClaudeCodeProvider implements LLMProvider {
     params.signal.throwIfAborted()
     const key = `${this.id}/${params.sessionId ?? 'default'}`
     let run = runs.get(key)
-    // The engine's tool list is fixed at start; a changed list (load_tools) needs a fresh run built from the transcript.
-    const toolKey = params.tools.map(t => t.name).sort().join('\n')
-    if (run && (run.model !== this.model || run.token !== this.token || run.toolKey !== toolKey || (run.idle ? !run.canResume(params) : run.params.signal !== params.signal))) { run.close(); run = undefined }
+    // Discovery descriptions and schemas can change before any new tool is loaded.
+    const currentToolKey = toolKey(params.tools)
+    if (run && (run.model !== this.model || run.token !== this.token || run.toolKey !== currentToolKey || (run.idle ? !run.canResume(params) : run.params.signal !== params.signal))) { run.close(); run = undefined }
     if (run) {
       if (run.idle) run.resume(params)
       run.steer(params)
