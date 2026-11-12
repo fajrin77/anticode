@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron'
+import { shell } from 'electron'
 import { arch, platform, release } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { APP_VERSION } from '../version'
@@ -97,32 +97,6 @@ export function platformPage(value: unknown, path: string): string {
  * device record and reuses it), so later sign-ins reuse the stored id instead of
  * looking like a brand new machine each time.
  */
-/**
- * The system browser hands back whichever DeepSeek account it is already
- * signed in to, so a second account could never be added. Each sign-in gets
- * its own window on a fresh in-memory session instead: no cookies carry over,
- * and the person chooses the account every time. Returns a closer.
- */
-function openSignInWindow(url: string, signal: AbortSignal): () => void {
-  const window = new BrowserWindow({
-    width: 520,
-    height: 760,
-    title: 'DeepSeek sign-in',
-    autoHideMenuBar: true,
-    webPreferences: { partition: `deepseek-login-${randomUUID()}`, sandbox: true, contextIsolation: true, nodeIntegration: false }
-  })
-  const close = (): void => { if (!window.isDestroyed()) window.close() }
-  signal.addEventListener('abort', close, { once: true })
-  window.on('closed', () => signal.removeEventListener('abort', close))
-  // Pop-ups (help, terms) go to the real browser rather than a bare window.
-  window.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (/^https:\/\//.test(target)) void shell.openExternal(target)
-    return { action: 'deny' }
-  })
-  void window.loadURL(url).catch(() => {})
-  return close
-}
-
 export async function loginDeepSeek(callbacks: AuthLoginCallbacks, deviceId: string = randomUUID()): Promise<AuthTokens> {
   const { signal } = callbacks
   const verifier = makeVerifier()
@@ -140,10 +114,10 @@ export async function loginDeepSeek(callbacks: AuthLoginCallbacks, deviceId: str
     body: JSON.stringify({ code_challenge: makeChallenge(verifier), code_challenge_method: 'S256', state, redirect_uri: redirectUri, locale: 'en_US', login_source: 'desktop' })
   }, signal) as { authorize_url?: unknown }
   const authorizeUrl = platformPage(init?.authorize_url, '/dsh/authorize')
-  callbacks.onUpdate({ message: 'Sign in to DeepSeek in the sign-in window', url: authorizeUrl })
-  const close = openSignInWindow(authorizeUrl, signal)
+  callbacks.onUpdate({ message: 'Sign in to DeepSeek in the browser', url: authorizeUrl })
+  void shell.openExternal(authorizeUrl)
 
-  const result = await callback.finally(close)
+  const result = await callback
   if (result.error !== undefined) throw new Error(result.error)
   if (result.state !== state) throw new Error('Login returned the wrong state')
   if (result.code === '') throw new Error('Login did not return a code')

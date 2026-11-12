@@ -192,9 +192,10 @@ export async function loginAuthAccount(
     saveAuthAccount(updated, { ...tokens, meta: { ...readAuthTokens(existing.id)?.meta, ...tokens.meta } })
     forgetAuthCatalogue(updated.id)
     if (kind === 'deepseek') {
-      // Signing in the same account again only renews its slot. Say it rather than look stuck.
+      // The browser hands back whatever DeepSeek account is signed in there, so a
+      // second sign-in silently replaces the first. Say it rather than look stuck.
       callbacks.onUpdate({
-        message: `${updated.account ?? 'This DeepSeek account'} is already connected and was renewed. To add another, sign in with a different account in the sign-in window.`
+        message: `${updated.account ?? 'This DeepSeek account'} is already connected. To add a different one, sign out of platform.deepseek.com in the browser first, then sign in again.`
       })
     }
     return updated
