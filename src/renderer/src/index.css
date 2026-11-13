@@ -325,6 +325,74 @@ body {
   animation: anticode-breathe 1.6s ease-in-out infinite;
 }
 
+/* Live run marker: a lime flower that turns slowly while it blooms. */
+@keyframes anticode-spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes anticode-bloom {
+  0%,
+  100% {
+    transform: scale(0.55);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.anticode-spark {
+  animation: anticode-spin-slow 5s linear infinite;
+}
+
+.anticode-spark > svg {
+  animation: anticode-bloom 1.6s ease-in-out infinite;
+}
+
+/* The live label: a lime light sweeps through it from left to right. */
+@keyframes anticode-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+.shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-dim) 0%,
+    var(--color-dim) 38%,
+    var(--color-brand) 50%,
+    var(--color-dim) 62%,
+    var(--color-dim) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: anticode-shimmer 2s linear infinite;
+}
+
+/* Hover still turns the whole label lime, per the hover rule. */
+.group:hover .shimmer-text {
+  animation: none;
+  background-image: none;
+  color: var(--color-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anticode-spark,
+  .anticode-spark > svg,
+  .shimmer-text {
+    animation: none;
+  }
+}
+
 /* Session badges swap their letter for a rotating radar sweep while running. */
 @keyframes spin {
   to {

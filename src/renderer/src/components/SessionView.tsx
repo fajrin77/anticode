@@ -43,6 +43,26 @@ function groupBlocks(parts: MessagePart[]): Block[] {
   return blocks
 }
 
+/**
+ * The live run's marker: a lime flower that turns and blooms. It keeps the
+ * 8px footprint of the settled dot and draws past it, so swapping one for
+ * the other moves nothing.
+ */
+function LiveSpark(): JSX.Element {
+  return (
+    <span className="relative h-2 w-2 shrink-0" aria-hidden>
+      <span className="anticode-spark absolute -inset-1 text-brand">
+        <svg viewBox="-12 -12 24 24" className="h-full w-full" fill="currentColor">
+          {[0, 60, 120].map((angle) => (
+            <ellipse key={angle} rx="3" ry="11" transform={`rotate(${angle})`} opacity="0.85" />
+          ))}
+          <circle r="3.2" />
+        </svg>
+      </span>
+    </span>
+  )
+}
+
 function ToolGroup({
   parts,
   live = false,
@@ -85,13 +105,13 @@ function ToolGroup({
         className="group flex w-full items-center gap-2.5 text-left"
       >
         {running ? (
-          <span className="h-2 w-2 shrink-0 animate-breathe rounded-full bg-dim" />
+          <LiveSpark />
         ) : (
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${failed > 0 ? 'bg-del' : 'bg-faint'}`}
           />
         )}
-        <span className="min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand">
+        <span className={`min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand ${running ? 'shimmer-text' : ''}`}>
           {running
             ? `${phaseLabel ?? 'working'} · ${stepCount(parts.length)}`
             : `${activitySummary(parts) || `Ran ${stepCount(parts.length)}`}${failed > 0 ? ` · ${failed} failed` : ''}`}
@@ -560,10 +580,10 @@ function MessageView({
         <button
           type="button"
           onClick={() => setLiveOpen(true)}
-          className="my-3 flex items-center gap-2.5 text-[14px] text-dim transition-colors hover:text-brand"
+          className="group my-3 flex items-center gap-2.5 text-[14px] text-dim transition-colors hover:text-brand"
         >
-          <span className="h-2 w-2 shrink-0 animate-breathe rounded-full bg-dim" />
-          working
+          <LiveSpark />
+          <span className="shimmer-text">working</span>
         </button>
       )}
       {done && (
