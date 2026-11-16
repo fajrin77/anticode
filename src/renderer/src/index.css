@@ -332,15 +332,50 @@ body {
   }
 }
 
+/* One cycle: the flower grows, breaks into eight dots at its petal tips,
+   the dots gather into one in the centre, and the flower grows from there. */
 @keyframes anticode-bloom {
-  0%,
-  100% {
-    transform: scale(0.55);
-    opacity: 0.75;
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
   }
-  50% {
+  40% {
     transform: scale(1);
     opacity: 1;
+  }
+  48%,
+  86% {
+    transform: scale(1);
+    opacity: 0;
+  }
+  87% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+}
+
+@keyframes anticode-gather {
+  0%,
+  40% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  48% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  82% {
+    transform: translateY(9px);
+    opacity: 1;
+  }
+  92%,
+  100% {
+    transform: translateY(9px);
+    opacity: 0;
   }
 }
 
@@ -348,8 +383,13 @@ body {
   animation: anticode-spin-slow 5s linear infinite;
 }
 
-.anticode-spark > svg {
-  animation: anticode-bloom 1.6s ease-in-out infinite;
+.anticode-spark-petals {
+  animation: anticode-bloom 2.4s ease-in-out infinite;
+}
+
+.anticode-spark-dot {
+  opacity: 0;
+  animation: anticode-gather 2.4s ease-in-out infinite;
 }
 
 /* The live label: a lime light sweeps through it from left to right. */
@@ -387,7 +427,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .anticode-spark,
-  .anticode-spark > svg,
+  .anticode-spark-petals,
+  .anticode-spark-dot,
   .shimmer-text {
     animation: none;
   }

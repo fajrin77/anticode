@@ -52,10 +52,19 @@ function LiveSpark(): JSX.Element {
   return (
     <span className="anticode-spark h-4 w-4 shrink-0 text-brand" aria-hidden>
       <svg viewBox="-12 -12 24 24" className="h-full w-full" fill="currentColor">
-        {[0, 45, 90, 135].map((angle) => (
-          <ellipse key={angle} rx="2.6" ry="11" transform={`rotate(${angle})`} opacity="0.85" />
+        <g className="anticode-spark-petals">
+          {[0, 45, 90, 135].map((angle) => (
+            <ellipse key={angle} rx="2.6" ry="11" transform={`rotate(${angle})`} opacity="0.85" />
+          ))}
+          <circle r="3.2" />
+        </g>
+        {/* Full bloom breaks into eight dots at the petal tips, which gather
+            into one in the centre, where the flower grows again. */}
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+          <g key={angle} transform={`rotate(${angle})`}>
+            <circle className="anticode-spark-dot" cy="-9" r="2" />
+          </g>
         ))}
-        <circle r="3.2" />
       </svg>
     </span>
   )
