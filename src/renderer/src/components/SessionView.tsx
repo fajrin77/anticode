@@ -44,21 +44,19 @@ function groupBlocks(parts: MessagePart[]): Block[] {
 }
 
 /**
- * The live run's marker: a lime flower that turns and blooms. It keeps the
- * 8px footprint of the settled dot and draws past it, so swapping one for
- * the other moves nothing.
+ * The live run's marker: an eight-petal lime flower that turns and blooms.
+ * It draws inside its own 16px box (the settled dot sits centred in the same
+ * box), so nothing overhangs into a clipping parent and swapping moves nothing.
  */
 function LiveSpark(): JSX.Element {
   return (
-    <span className="relative h-2 w-2 shrink-0" aria-hidden>
-      <span className="anticode-spark absolute -inset-1 text-brand">
-        <svg viewBox="-12 -12 24 24" className="h-full w-full" fill="currentColor">
-          {[0, 60, 120].map((angle) => (
-            <ellipse key={angle} rx="3" ry="11" transform={`rotate(${angle})`} opacity="0.85" />
-          ))}
-          <circle r="3.2" />
-        </svg>
-      </span>
+    <span className="anticode-spark h-4 w-4 shrink-0 text-brand" aria-hidden>
+      <svg viewBox="-12 -12 24 24" className="h-full w-full" fill="currentColor">
+        {[0, 45, 90, 135].map((angle) => (
+          <ellipse key={angle} rx="2.6" ry="11" transform={`rotate(${angle})`} opacity="0.85" />
+        ))}
+        <circle r="3.2" />
+      </svg>
     </span>
   )
 }
@@ -107,9 +105,9 @@ function ToolGroup({
         {running ? (
           <LiveSpark />
         ) : (
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${failed > 0 ? 'bg-del' : 'bg-faint'}`}
-          />
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <span className={`h-2 w-2 rounded-full ${failed > 0 ? 'bg-del' : 'bg-faint'}`} />
+          </span>
         )}
         <span className={`min-w-0 flex-1 truncate text-[14px] text-dim transition-colors group-hover:text-brand ${running ? 'shimmer-text' : ''}`}>
           {running
