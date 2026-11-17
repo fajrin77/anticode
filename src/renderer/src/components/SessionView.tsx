@@ -22,6 +22,7 @@ type Block =
   | { kind: 'error'; text: string }
   | { kind: 'summary'; text: string }
   | { kind: 'tools'; parts: ToolPart[] }
+  | { kind: 'question'; part: ToolPart }
 
 /** Runs of tool calls fold into one group; narration between them stays loose. */
 function groupBlocks(parts: MessagePart[]): Block[] {
@@ -34,6 +35,11 @@ function groupBlocks(parts: MessagePart[]): Block[] {
     }
     if (part.kind !== 'tool') {
       blocks.push({ kind: 'text', text: part.text })
+      continue
+    }
+    // A question and its answer are conversation, not a step to fold away.
+    if (part.name === 'ask_question') {
+      blocks.push({ kind: 'question', part })
       continue
     }
     const last = blocks.at(-1)
@@ -67,6 +73,20 @@ function LiveSpark(): JSX.Element {
         ))}
       </svg>
     </span>
+  )
+}
+
+/** The question the agent asked and the answer it got, kept in the transcript. */
+function QuestionCard({ part }: { part: ToolPart }): JSX.Element {
+  const question = (part.input as { question?: unknown } | null)?.question
+  const answer = /^The user (?:chose|'s custom answer:) "(.*?)"(?: \(.*\))?\.?$/s.exec(part.output)?.[1]
+    ?? part.output
+  return (
+    <div data-question className="my-3 rounded-xl border border-line px-4 py-3 text-[14px]">
+      <div className="text-[12.5px] text-faint">Pertanyaan</div>
+      <div className="mt-1 text-dim">{typeof question === 'string' ? question : 'Question'}</div>
+      <div className="mt-1 whitespace-pre-wrap text-text">{part.status === 'running' ? 'Menunggu jawaban…' : answer}</div>
+    </div>
   )
 }
 
@@ -495,7 +515,7 @@ function MessageView({
     tail.kind === 'tools' &&
     (message.pending || tail.parts.some((part) => part.status === 'running'))
   const done = message.summary !== undefined
-  const settledTools = !message.pending ? message.parts.filter((part): part is ToolPart => part.kind === 'tool') : []
+  const settledTools = !message.pending ? message.parts.filter((part): part is ToolPart => part.kind === 'tool' && part.name !== 'ask_question') : []
   const documents = documentsProduced(message.parts, chat)
   // While the run streams, keep live tool details closed unless the user opens
   // them. Auto-opening the first streamed tool made the transcript flash between
@@ -534,6 +554,7 @@ function MessageView({
           )
         }
         if (block.kind === 'summary') return <SessionSummaryCard key={`summary-${index}`} text={block.text} />
+        if (block.kind === 'question') return <QuestionCard key={`asked-${block.part.toolUseId}`} part={block.part} />
         // The app talking about itself, in the same grey voice a tool group
         // uses, never a bubble, because nobody said it.
         // A failure in the app's voice, and in red: never mistaken for an answer.
@@ -705,16 +726,9 @@ function OldTurn({
             )
           }
           if (block.kind === 'summary') return <SessionSummaryCard key={`summary-${index}`} text={block.text} />
-
+          if (block.kind === 'question') return <QuestionCard key={`asked-${block.part.toolUseId}`} part={block.part} />
           return null
         })}
-        {/* A question the agent asked and the answer it got are part of the conversation, not a step to fold away. */}
-        {allParts.filter((part): part is ToolPart => part.kind === 'tool' && part.name === 'ask_question').map((part) => (
-          <div key={`asked-${part.toolUseId}`} className="my-2 border-l-2 border-line pl-3 text-[14px] text-dim">
-            <div className="text-text">{typeof (part.input as { question?: unknown } | null)?.question === 'string' ? (part.input as { question: string }).question : 'Question'}</div>
-            {part.output !== '' && <div className="mt-0.5">{part.output}</div>}
-          </div>
-        ))}
         {allParts.some((part) => part.kind === 'tool' && part.name !== 'ask_question') && <ToolGroup parts={allParts.filter((part): part is ToolPart => part.kind === 'tool' && part.name !== 'ask_question')} />}
         {summary !== undefined && (
           <div className="group my-1 flex flex-col items-center">
