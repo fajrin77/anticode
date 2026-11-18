@@ -38,3 +38,14 @@ it('explains payload limits without echoing upsell links or upstream metadata', 
   expect(message).toContain('are kept')
   expect(message).not.toMatch(/example.com|Top up/)
 })
+
+it.each([
+  { detail: '{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}', expected: 'PERMISSION_DENIED' },
+  { detail: '{"error":{"code":403,"message":"models/gemini-9 is not found for API version v1internal","status":"NOT_FOUND"}}', expected: 'does not serve this model id' },
+  { detail: '{"error":{"code":403,"message":"Request had insufficient authentication scopes.","status":"ACCESS_TOKEN_SCOPE_INSUFFICIENT"}}', expected: 'sign in to the account again' },
+  { detail: '{"error":{"code":403,"message":"Gemini for Google Cloud API has not been used in project 12345 before or it is disabled","status":"PERMISSION_DENIED","details":[{"reason":"SERVICE_DISABLED"}]}}', expected: 'SERVICE_DISABLED' }
+])('names the refused Gemini reason class without echoing metadata: $expected', ({ detail, expected }) => {
+  const message = safeProviderErrorMessage(Object.assign(new Error(`Gemini request failed (403): ${detail}`), { status: 403 }))
+  expect(message).toContain(expected)
+  expect(message).not.toMatch(/12345|\{"error"|caller does not have permission/)
+})

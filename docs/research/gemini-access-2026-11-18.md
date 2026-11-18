@@ -21,3 +21,19 @@ Karena itu akses provider belum terverifikasi. Dibutuhkan konteks secureStorage
 aplikasi terpasang yang dapat diakses oleh diagnostik, atau login Gemini baru
 dalam profil diagnostik, sebelum menyimpulkan provider benar-benar menolak.
 Streaming, tool calling, dan kemampuan coding akun nyata belum diuji.
+
+## Percobaan kedua, 0.1.46
+
+Pesan 403 di UI sebelumnya membuang alasan dari Google. Mulai 0.1.46 alasan itu
+dipetakan ke kalimat tetap (scope sign-in, model id tidak dilayani endpoint,
+SERVICE_DISABLED, onboarding belum selesai, PERMISSION_DENIED); teks, email,
+project id, dan id akun upstream tidak pernah ditampilkan.
+
+Login Gemini CLI di `~/.gemini/oauth_creds.json` juga dicoba sebagai kredensial
+nyata. Refresh token ditolak Google dengan `invalid_grant`, jadi jalur ini tidak
+bisa dipakai untuk probe. Token tidak ditampilkan, disimpan, atau diperbarui.
+
+Retry berikutnya di 0.1.46 akan menyebut kategori penolakan Google. Tanpa
+kategori itu, satu-satunya kredensial hidup adalah token akun Gemini di
+keychain aplikasi terpasang, dan diagnostik di luar aplikasi tidak dapat
+membukanya.
