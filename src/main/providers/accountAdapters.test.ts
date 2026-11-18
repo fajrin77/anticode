@@ -83,6 +83,13 @@ it('Gemini plan streams text and keeps whole function calls, without repeating t
   expect(request[0]).toContain('streamGenerateContent?alt=sse')
   expect(JSON.parse(request[1].body as string)).toMatchObject({ model: 'gemini-test', project: 'p', request: { generationConfig: { maxOutputTokens: 100 } } })
 })
+it.each([401, 403])('Gemini denial %s preserves the correct access scope without retrying', async (status) => {
+  const fetch = vi.fn(async () => new Response('{"error":{"status":"PERMISSION_DENIED"}}', { status }))
+  vi.stubGlobal('fetch', fetch)
+  const iterator = new GeminiCliProvider({ accessToken: 'fixture', meta: { project: 'p' } }, 'gemini-4-hydrogen').chat(params())
+  await expect(iterator.next()).rejects.toMatchObject({ status, scope: status === 401 ? 'account' : 'model' })
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
 it('Gemini plan keeps the CLI model list when a consumer plan refuses the catalogue route', async () => {
   // A Google AI Plus account gets 403 from fetchAvailableModels; that is not a
   // reason to show an empty Models page.

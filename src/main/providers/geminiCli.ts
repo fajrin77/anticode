@@ -74,7 +74,8 @@ export class GeminiCliProvider implements LLMProvider {
     if (!response.ok) {
       // Keep the provider's own reason (never the request) so a 400 is diagnosable.
       const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
-      throw new ProviderRequestError(`Gemini request failed (${response.status})${detail ? `: ${detail}` : ''}`, response.status, response.status === 401 || response.status === 403 ? 'account' : 'model')
+      // A route permission denial does not establish that every model on the account is blocked.
+      throw new ProviderRequestError(`Gemini request failed (${response.status})${detail ? `: ${detail}` : ''}`, response.status, response.status === 401 ? 'account' : 'model')
     }
 
     const chunks: Chunk[] = []
