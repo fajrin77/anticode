@@ -57,4 +57,8 @@ if (exists) {
 } else {
   run('gh', ['release', 'create', tag, ...files, '--repo', REPO, '--title', `anticode ${version}`, '--notes', `Release ${version}`])
 }
+// gh keeps a release a draft while it uploads, and the updater never sees a
+// draft: it would report the previous version as newest until someone opened
+// the web page and published by hand. Publishing is part of releasing.
+run('gh', ['release', 'edit', tag, '--draft=false', '--latest', '--repo', REPO])
 console.log(`Published https://github.com/${REPO}/releases/tag/${tag}`)

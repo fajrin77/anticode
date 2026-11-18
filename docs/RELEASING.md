@@ -81,6 +81,16 @@ versi, nama berkas, dan sha512 — inilah yang dibaca updater.
    ```
    gh release create v0.0.31 release/*.dmg release/*.zip release/*.exe release/*.blockmap release/latest*.yml
    ```
+
+   `gh release create` menyimpan rilis sebagai **draft** selama aset diunggah. Draf
+   tidak muncul di `GET /repos/:owner/:repo/releases`, jadi updater akan terus
+   menyebut versi sebelumnya sebagai terbaru. Tutup dengan menerbitkannya:
+
+   ```
+   gh release edit v0.0.31 --draft=false --latest
+   ```
+
+   `scripts/publish-mac.mjs` sudah melakukan langkah ini sendiri.
 4. Tidak ada yang perlu diisi di app terpasang: sumbernya sudah dipatok. Update
    berjalan sendiri — cek tiap 6 jam — dan **Check automatically** /
    **Download automatically** mengatur apakah unduhan dilakukan otomatis.
