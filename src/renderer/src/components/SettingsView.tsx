@@ -1685,11 +1685,13 @@ function sinceLabel(since: number): string {
 function Models({
   status,
   providers: allProviders,
-  onSelectProvider
+  onSelectProvider,
+  onProvidersChange
 }: {
   status: SessionStatus | null
   providers: ProviderInfo[]
   onSelectProvider: (provider: ProviderId, model: string) => void
+  onProvidersChange: (providers: ProviderInfo[]) => void
 }): JSX.Element {
   const providers = groupAuthProviders(allProviders)
   const [catalogue, setCatalogue] = useState<ModelCatalogue | null>(null)
@@ -1728,7 +1730,11 @@ function Models({
     setRefreshingModels(true)
     try {
       const result = await window.anticode.listModels(provider, true)
-      if (catalogueRequest.current === request) setCatalogue(result)
+      const updatedProviders = await window.anticode.listProviders()
+      if (catalogueRequest.current === request) {
+        setCatalogue(result)
+        onProvidersChange(updatedProviders)
+      }
     } catch (failure) {
       if (catalogueRequest.current === request) setError((failure as Error).message)
     } finally {
@@ -1737,21 +1743,26 @@ function Models({
   }
 
   function setPicked(model: string, on: boolean): void {
+    void savePicked(model, on).catch((failure) => setError((failure as Error).message))
+  }
+
+  async function savePicked(model: string, on: boolean): Promise<void> {
+    // listModels updates the main-process catalogue, not this React snapshot.
+    const currentProviders = await window.anticode.listProviders()
+    onProvidersChange(currentProviders)
     const rest = pool
       .filter((entry) => !(accountIds.includes(entry.provider) && entry.model === model))
       .map(({ provider: id, model: name }) => ({ provider: id, model: name }))
     const eligible = accountIds.filter((id) => {
-      const account = allProviders.find((entry) => entry.id === id)
-      return account?.kind !== 'auth' || account.models?.includes(model)
+      const account = currentProviders.find((entry) => entry.id === id)
+      return account !== undefined && (account.kind !== 'auth' || account.models?.includes(model))
     })
     if (on && eligible.length === 0) {
       setError('This model is not in the account catalogue. Use the full model ID and update the app if the model is new.')
       return
     }
-    void window.anticode
-      .setRotation(on ? [...rest, ...eligible.map((id) => ({ provider: id, model }))] : rest)
-      .then(() => setError(null))
-      .catch((failure) => setError((failure as Error).message))
+    await window.anticode.setRotation(on ? [...rest, ...eligible.map((id) => ({ provider: id, model }))] : rest)
+    setError(null)
   }
 
   const freeClineAccount = providers.find((entry) => entry.id === provider)?.billing === 'free'
@@ -2198,7 +2209,7 @@ export function SettingsView({
           )}
           {section === 'auth' && <Auth status={status} providers={providers} onProvidersChange={onProvidersChange} />}
           {section === 'models' && (
-            <Models status={status} providers={providers} onSelectProvider={onSelectProvider} />
+            <Models status={status} providers={providers} onSelectProvider={onSelectProvider} onProvidersChange={onProvidersChange} />
           )}
           {section === 'usage' && <Usage />}
           {section === 'mcp' && <Mcp />}

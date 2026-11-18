@@ -62,7 +62,7 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   cursor: [''],
   antigravity: [''],
   // Offline fallback only; the signed-in plan's catalogue is what runs.
-  gemini: ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-2.5-flash'],
+  gemini: ['gemini-4-hydrogen', 'gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-2.5-flash'],
   'minimax-plan': MINIMAX_PLAN_MODELS,
   kilo: ['nvidia/nemotron-3.5-lightning:free'],
   // Only free routes; the live catalogue adds whatever else the key allows.

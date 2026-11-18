@@ -34,6 +34,12 @@ const CLIENT_METADATA = { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPEC
  * plan accepts it; the endpoint answers for itself when it does not.
  */
 export const GEMINI_MODELS: { id: string; name: string }[] = [
+  // Gemini 4 series, ids and 1M context from ai.google.dev/docs/models.
+  { id: 'gemini-4-hydrogen', name: 'Gemini 4 Hydrogen' },
+  { id: 'gemini-4-argon', name: 'Gemini 4 Argon' },
+  { id: 'gemini-4-carbon', name: 'Gemini 4 Carbon' },
+  { id: 'gemini-3.8-flash-lite', name: 'Gemini 3.8 Flash Lite' },
+  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
   { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite' },
   { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
@@ -194,7 +200,10 @@ export async function refreshGemini(tokens: AuthTokens): Promise<AuthTokens> {
 /**
  * The models this account can pick from. Consumer plans answer 403 on the
  * Code Assist catalogue route, so the CLI's table is the list; whatever the
- * endpoint does report, when it does, is merged in front of it.
+ * endpoint does report, when it does, is merged in front of it. A family
+ * newer than the CLI's table can also be listed using its published API id.
+ * Published API availability is not proof of subscription access: the plan's
+ * response still decides whether a listed model runs.
  */
 export async function geminiModels(tokens: AuthTokens): Promise<string[]> {
   const project = tokens.meta?.project ?? await geminiProject(tokens.accessToken)

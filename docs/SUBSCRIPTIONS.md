@@ -434,6 +434,19 @@ terbukti di sini — yang terbukti hanya bentuk request/parse. Nama model
 "Gemini 4 Hydrogen" tidak ada di katalog Google maupun di metadata CLI,
 jadi tidak dikarang di kode.
 
+## Pemilihan model Gemini — 0.1.44
+
+Daftar yang ditampilkan oleh `listModels` dapat lebih baru daripada snapshot
+`ProviderInfo.models` di renderer. Sesudah refresh, Models kini menyinkronkan
+ulang provider; sebelum menyimpan pilihan, validasi juga memakai daftar provider
+terkini dari main process. Validasi katalog akun tetap berlaku, tidak dibypass.
+Tanpa cache katalog Gemini, tabel model bawaan menjadi daftar awal.
+
+ID Gemini 4 Hydrogen, Argon, dan Carbon ditambahkan berdasarkan dokumentasi
+`https://ai.google.dev/gemini-api/docs/models`. Ini bukti ID API, bukan bukti
+bahwa akun subscription memperoleh akses lewat endpoint CLI. Fixture menguji
+keberadaan ID dan parser; belum ada probe inference Gemini 4 nyata.
+
 ## Browser pane yang dibuka otomatis menutup sendiri
 
 Kalau agent yang membuka pane (tool browser atau dev server yang dilaporkan

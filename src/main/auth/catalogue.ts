@@ -8,7 +8,7 @@ import { copilotModels } from './copilot'
 import { isDirectAuthKind } from '@shared/directAuthProviders'
 import { directApiModels } from './directApi'
 import { antigravityModels } from './antigravity'
-import { geminiModels } from './gemini'
+import { GEMINI_MODELS, geminiModels } from './gemini'
 import { cursorModels } from '../providers/cursorCli'
 import { ensureFreshAuthTokens, AUTH_MODELS } from './provider'
 import { CLINE_API_BASE, CLINE_HEADERS, clineApiToken } from '../providers/clineConfig'
@@ -33,7 +33,10 @@ export function authModelsFor(id: string, kind: AuthKind): string[] {
   }
   if (['copilot', 'cursor', 'antigravity', 'gemini'].includes(kind)) {
     const models = loadPersistedSettings().authModelCatalogues?.[id]?.models
-    return Array.isArray(models) ? models.filter((m): m is string => typeof m === 'string' && !!m.trim()) : []
+    const cached = Array.isArray(models) ? models.filter((m): m is string => typeof m === 'string' && !!m.trim()) : []
+    // A Gemini plan is usable the moment it is signed in: the CLI's table is
+    // its list, whether or not Refresh has run against a 403ing catalogue.
+    return kind === 'gemini' && cached.length === 0 ? GEMINI_MODELS.map((model) => model.id) : cached
   }
   if (kind === 'minimax-plan') {
     try {
