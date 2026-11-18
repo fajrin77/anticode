@@ -8,7 +8,7 @@ import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@s
 import { useSessionStore } from '../store/session'
 import type { MessagePart, Session } from '../store/session'
 import { Composer } from './Composer'
-import { fileTag, formatBytes } from './Attachments'
+import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import { ModelPicker } from './ModelPicker'
 import { SessionRow } from './SessionRow'
 import { LogoMark } from './LogoMark'
@@ -82,6 +82,8 @@ function DashboardComposer({
   const folder = savedDraft?.folder ?? null
   const draft = savedDraft?.text ?? ''
   const attached = savedDraft?.attachments ?? []
+  // A staged picture can be checked at full size here too, as in a session's composer.
+  const [viewing, setViewing] = useState<{ name: string; src: string } | null>(null)
   const pending = useAttachmentJobs(state => state.pending[DASHBOARD_DRAFT] ?? 0)
   const attachmentErrors = savedDraft?.attachmentErrors ?? []
   const update = useSessionStore.getState().updateDraft
@@ -231,6 +233,7 @@ function DashboardComposer({
   return (
     <div className="min-w-0 w-full shrink-0 px-4 @min-[640px]:px-10">
       <div className="mx-auto min-w-0 w-full max-w-3xl" ref={boxRef}>
+        {viewing !== null && <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />}
         {error !== null && <div role="alert" className="mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap px-1 text-[12.5px] text-del [overflow-wrap:anywhere]">{error}</div>}
         {pending > 0 && <div role="status" className="mb-2 px-1 text-[12.5px] text-dim">Preparing attachments… ({pending})</div>}
         {attachmentErrors.length > 0 && <div role="alert" className="mb-2 max-h-40 overflow-y-auto whitespace-pre-wrap px-1 text-[12.5px] text-del [overflow-wrap:anywhere]">
@@ -299,16 +302,27 @@ function DashboardComposer({
                     className="relative flex min-w-0 max-w-64 items-center gap-2 rounded-xl border border-line bg-bg/35 p-1.5 pr-7 text-[12px] text-dim"
                   >
                     {item.thumbnail !== null ? (
-                      <img src={item.thumbnail} alt={item.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                      <button
+                        type="button"
+                        title={`View ${item.name}`}
+                        onClick={() => openAttachment(item, setViewing)}
+                        className="shrink-0 overflow-hidden rounded-lg ring-brand transition-shadow hover:ring-1"
+                      >
+                        <img src={item.thumbnail} alt={item.name} className="h-12 w-12 object-cover" />
+                      </button>
                     ) : (
                       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-raised/80 text-[9px] font-semibold tracking-wide text-faint">
                         {fileTag(item)}
                       </span>
                     )}
-                    <span className="min-w-0">
-                      <span className="block truncate text-text">{item.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => openAttachment(item, setViewing)}
+                      className="group/name min-w-0 text-left"
+                    >
+                      <span className="block truncate text-text transition-colors group-hover/name:text-brand">{item.name}</span>
                       <span className="block text-[11px] text-faint">{fileTag(item)} · {formatBytes(item.size)}</span>
-                    </span>
+                    </button>
                     <button
                       type="button"
                       title="Remove"

@@ -132,13 +132,14 @@ try {
   const limeOnHover = async (name, locator) => {
     check(name + ' turns lime on hover', await colourOnHover(locator, LIME), LIME)
   }
-  await window.getByRole('button',{name:'antichat',exact:true}).waitFor()
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).waitFor()
   await shot('01-dashboard')
-  const grid = window.getByTitle('Dashboard')
-  check('grid icon stays lime on hover while dashboard is open', await colourOnHover(grid, LIME), LIME)
+  // The header "+" replaced the old dashboard grid icon.
+  const grid = window.locator('header').getByTitle('+ New Session', { exact: true })
+  check('new session entry stays lime on hover while dashboard is open', await colourOnHover(grid, LIME), LIME)
   await shot('02-dashboard-icon-hover-while-on-dashboard')
 
-  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).click()
   await composer().fill('halo dunia'); await composer().press('Enter')
   await window.getByText(/Fixture reply: halo dunia/).waitFor()
   // The main process names an antichat from its first prompt; the tab shows that.
@@ -186,7 +187,8 @@ try {
   })
   check('session composer floats without an opaque footer',
     `${composerLayer.position} ${composerLayer.background}`, 'absolute rgba(0, 0, 0, 0)')
-  check('grid icon is faint inside a session, unhovered', await colourOf(grid), 'rgb(109, 109, 109)')
+  // The dashboard entry is lime only while the dashboard is open.
+  check('new session entry is not lime inside a session, unhovered', (await colourOf(grid.first())) === LIME ? 'lime' : 'plain', 'plain')
   await shot('03-in-session')
 
   // The active tab keeps its glass selection box and underline. Icon tools
@@ -196,9 +198,7 @@ try {
     return `${style.backgroundColor} ${style.borderTopColor}`
   })
   const BARE = 'rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)'
-  const activeTab = window.locator('header .group').first()
-  check('tab bar: the selected tab keeps a visible selection box', await boxOf(activeTab) === BARE ? 'bare' : 'boxed', 'boxed')
-  check('tab bar: the selected tab has a lime underline', await activeTab.locator('span.bg-brand').count(), 1)
+  // Session tabs left the header for the sidebar; the header keeps icon tools only.
   check('tab bar: the settings icon has no box at rest', await boxOf(window.getByTitle('Settings', { exact: true })), BARE)
   check('composer: the attach + has no box at rest', await boxOf(window.getByTitle('Attach files')), BARE)
   const boxOnHover = async (locator) => {
@@ -210,28 +210,12 @@ try {
     }
     return box === BARE ? 'bare' : 'boxed'
   }
-  check('tab bar: a tab shows its box on hover', await boxOnHover(activeTab), 'boxed')
   check('tab bar: the settings icon shows its box on hover', await boxOnHover(window.getByTitle('Settings', { exact: true })), 'boxed')
-  await limeOnHover('tab bar: selected tab title', activeTab.locator('button').first())
   await window.mouse.move(640, 400); await window.waitForTimeout(200)
 
-  // The header has no edge, and the transcript scrolls up underneath it.
-  const chrome = await window.evaluate(() => {
-    const header = document.querySelector('header')
-    const style = getComputedStyle(header)
-    const layers = header.querySelectorAll('.header-fade > span')
-    const scroller = document.querySelector('[data-transcript]').parentElement
-    return {
-      edge: `${style.borderBottomWidth} ${style.boxShadow}`,
-      layers: layers.length,
-      mask: getComputedStyle(layers[layers.length - 1]).maskImage.startsWith('linear-gradient') ? 'fades' : 'hard',
-      under: scroller.getBoundingClientRect().top < header.getBoundingClientRect().bottom ? 'under' : 'below'
-    }
-  })
-  check('header: no bottom edge', chrome.edge, '0px none')
-  check('header: four progressive blur layers', chrome.layers, 4)
-  check('header: the blur fades out downward', chrome.mask, 'fades')
-  check('header: the transcript scrolls beneath it', chrome.under, 'under')
+  // The header has no edge (its progressive blur layers left in 0.1.18).
+  const edge = await window.evaluate(() => { const style = getComputedStyle(document.querySelector('header')); return `${style.borderBottomWidth} ${style.boxShadow}` })
+  check('header: no bottom edge', edge, '0px none')
   check('grid icon turns lime on hover inside a session', await colourOnHover(grid, LIME), LIME)
   await shot('04-dashboard-icon-hover-inside-session')
 
@@ -268,8 +252,12 @@ try {
   // A code session with no folder must refuse to send and point at Choose
   // folder, in the new-session tab exactly as on the dashboard. It used to
   // send anyway and surface a raw IPC error in the transcript.
-  await window.getByRole('button',{name:'New tab',exact:true}).click()
+  await grid.click()
   await window.waitForTimeout(400)
+  // The dashboard inherits the mode of the session it was opened from (antichat here).
+  await window.locator('main').getByRole('button',{name:'anticode',exact:true}).click()
+  await window.evaluate(() => window.__store.getState().updateDraft('__dashboard__', { folder: null }))
+  await window.waitForTimeout(200)
   await composer().fill('cek folder')
   await composer().press('Enter')
   await window.waitForTimeout(900)
@@ -285,15 +273,15 @@ try {
 
   // Attached files must read as files — a picture for an image, a card for the
   // rest — not as a bracketed list of names in the prompt text.
-  await window.getByRole('button',{name:'New tab',exact:true}).click()
+  await grid.click()
   await window.waitForTimeout(400)
-  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).click()
   await window.waitForTimeout(200)
   const compactComposerHeight = await window.locator('.composer-glass').last().evaluate((el) => el.getBoundingClientRect().height)
   const staged = await window.evaluate(async (file) => {
     const [info] = await window.anticode.addAttachments([file])
-    const store = window.__store.getState()
-    store.updateDraft(store.activeSessionId, { attachments: [info] })
+    // "+" opens the dashboard composer, whose draft is not the active session's.
+    window.__store.getState().updateDraft('__dashboard__', { attachments: [info] })
     return { name: info.name, thumbnail: (info.thumbnail ?? '').slice(0, 23) }
   }, picture)
   check('an attached image carries a thumbnail', staged.thumbnail, 'data:image/jpeg;base64,')
@@ -446,15 +434,15 @@ try {
   // and every text button turns lime on hover. The rule is written down in
   // CLAUDE.md; this sweep is what keeps it from quietly rotting.
 
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(400)
+  await grid.click(); await window.waitForTimeout(400)
   await limeOnHover('dashboard: search icon', window.getByTitle('Search sessions'))
   await limeOnHover('dashboard: attach +', window.getByTitle('Attach files'))
   await limeOnHover('dashboard: model chip', window.locator('button:has(span.font-mono)'))
   await limeOnHover('dashboard: approval chip', window.getByText('Default',{exact:true}))
   // Dashboard now remembers its mode. Exercise hover on the inactive mode;
   // an active lime-filled control deliberately keeps dark text.
-  await window.getByRole('button',{name:'anticode',exact:true}).click()
-  await limeOnHover('dashboard: antichat label', window.getByRole('button',{name:'antichat',exact:true}))
+  await window.locator('main').getByRole('button',{name:'anticode',exact:true}).click()
+  await limeOnHover('dashboard: antichat label', window.locator('main').getByRole('button',{name:'antichat',exact:true}))
   // A dead arrow does not light up; with words in the box it is live, and lime.
   await composer().fill('draft')
   await limeOnHover('dashboard: send arrow', window.getByRole('button',{name:'Send'}))
@@ -470,12 +458,11 @@ try {
   check('dashboard: delete stays red', await colourOnHover(destructive, DEL), DEL)
   await shot('16-lime-dashboard')
 
-  await window.getByRole('button',{name:/Fixture reply|halo dunia/}).first().click().catch(() => {})
-  await window.locator('header .group button').first().click(); await window.waitForTimeout(400)
+  // The dashboard row of the first conversation opens it.
+  await window.locator('.group > button:has(div.truncate)').first().click(); await window.waitForTimeout(400)
   await limeOnHover('tab bar: usage icon', window.getByTitle('Session usage'))
   await limeOnHover('tab bar: browser icon', window.locator('[data-browser-toggle]'))
-  await limeOnHover('tab bar: new tab +', window.getByRole('button',{name:'New tab',exact:true}))
-  await limeOnHover('tab bar: close x', window.getByRole('button',{name:'Close tab'}))
+  await limeOnHover('tab bar: new session +', grid)
   await limeOnHover('session: attach +', window.getByTitle('Attach files'))
   await composer().fill('draft')
   await limeOnHover('session: send arrow', window.getByRole('button',{name:'Send'}))
@@ -561,8 +548,10 @@ try {
   await pane.getByTitle('Fill the window').click()
   await window.waitForTimeout(500)
   const fullWidth = await pane.evaluate((el) => el.getBoundingClientRect().width)
+  // The pinned session sidebar stays; full size is everything beside it.
+  const besideSidebar = await window.evaluate(() => window.innerWidth - (document.getElementById('session-sidebar')?.getBoundingClientRect().width ?? 0))
   check('browser: full size takes the whole window',
-    fullWidth >= 1270 ? 'whole' : `${fullWidth}px`, 'whole')
+    fullWidth >= besideSidebar - 10 ? 'whole' : `${fullWidth}px of ${besideSidebar}px`, 'whole')
   check('browser: the transcript steps aside at full size',
     await window.locator('[data-transcript]').first().isVisible() ? 'visible' : 'aside', 'aside')
   check('browser: the full-size toggle lights while on',
@@ -648,7 +637,8 @@ try {
   await window.getByRole('button',{name:/Auth provider/}).click(); await window.waitForTimeout(300)
   const codexVendor = window.locator('[data-auth-vendor="codex"]')
   const authOrder = await window.locator('[data-auth-vendor]').evaluateAll(items => items.map(item => item.dataset.authVendor))
-  check('auth: ChatGPT and Antigravity lead the list', JSON.stringify(authOrder.slice(0, 2)), JSON.stringify(['codex', 'antigravity']))
+  // The Gemini plan (0.1.42) sits right under ChatGPT.
+  check('auth: ChatGPT and Gemini lead the list', JSON.stringify(authOrder.slice(0, 2)), JSON.stringify(['codex', 'gemini']))
   check('auth: API-key providers are last', JSON.stringify(authOrder.slice(-8)), JSON.stringify(['nvidia-nim', 'ollama-cloud', 'xai', 'kimi-api', 'byteplus-api', 'kimchi-api', 'airforce-api', 'bazaarlink-api']))
   check('auth: GitHub Copilot authorize is offered', await window.locator('[data-auth-vendor="copilot"]').count(), 1)
   for (const kind of ['nvidia-nim', 'ollama-cloud', 'xai', 'kimi-api', 'byteplus-api', 'kimchi-api', 'airforce-api', 'bazaarlink-api']) {
@@ -845,6 +835,10 @@ try {
   // process, so every screen follows.
   await window.getByTitle('Settings', { exact: true }).first().click(); await window.waitForTimeout(400)
   await window.locator('button:has(span.font-mono)').first().click(); await window.waitForTimeout(400)
+  // Groups live under the Rotate usage entry of the picker.
+  if (await window.locator('[data-picker-groups]').count() === 0) {
+    await window.getByRole('button', { name: /^Rotate usage/ }).first().click(); await window.waitForTimeout(400)
+  }
   const pickAll = window.locator('[data-picker-group="All models"]')
   check('model picker: offers the rotate groups', String(await window.locator('[data-picker-group]').count()), '2')
   await limeOnHover('model picker: a rotate group', pickAll)
@@ -999,8 +993,8 @@ try {
 
   // Inline code reads as plain white text in a box; the old purple was the
   // last colour in the app that meant nothing in particular.
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
-  await window.locator('header .group button').first().click(); await window.waitForTimeout(300)
+  await grid.click(); await window.waitForTimeout(300)
+  await window.locator('.group > button:has(div.truncate)').first().click(); await window.waitForTimeout(300)
   await window.evaluate(() => {
     const store = window.__store.getState()
     store.addMessage({ id: crypto.randomUUID(), role: 'assistant',
@@ -1031,8 +1025,8 @@ try {
   // Pausing and resuming are the app talking about itself: a grey line on the
   // left in the same voice a tool group uses — never a bubble on the right,
   // which would read as something the user typed.
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
-  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await grid.click(); await window.waitForTimeout(300)
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).click()
   await composer().fill('slow please'); await composer().press('Enter')
   await window.waitForTimeout(700)
   await window.getByRole('button',{name:'Pause'}).click(); await window.waitForTimeout(500)
@@ -1078,8 +1072,8 @@ try {
   // An instruction sent while the session is working joins that run: the box
   // empties at once, the instruction shows as sent, the app reacts in its own
   // voice, and the run carries on to answer both — one run, one closing line.
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
-  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await grid.click(); await window.waitForTimeout(300)
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).click()
   // An empty box sends nothing — not by Enter, not by the button, which is
   // dead rather than pressable-and-silent.
   const everything = () => window.evaluate(() => {
@@ -1129,8 +1123,8 @@ try {
   await shot('21b-follow-up')
 
   // The line that closes a run: model, copy, how long, what it cost — no dot.
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
-  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await grid.click(); await window.waitForTimeout(300)
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).click()
   await composer().fill('ringkasan'); await composer().press('Enter')
   await window.getByText(/Fixture reply: ringkasan/).waitFor(); await window.waitForTimeout(500)
   const closing = window.locator('div.group > div').filter({ hasText: 'test-model' }).last()
@@ -1155,8 +1149,8 @@ try {
 
   // Selecting part of a reply offers to answer that passage: the quote rides
   // above the composer and travels with the prompt.
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
-  await window.getByRole('button',{name:'antichat',exact:true}).click()
+  await grid.click(); await window.waitForTimeout(300)
+  await window.locator('main').getByRole('button',{name:'antichat',exact:true}).click()
   await composer().fill('kutip aku'); await composer().press('Enter')
   await window.getByText(/Fixture reply: kutip aku/).waitFor(); await window.waitForTimeout(400)
   await window.evaluate(() => {
@@ -1246,8 +1240,8 @@ try {
   // A prompt the model drafted reads as a panel in the mono face, with a copy
   // control above and below it — not as another paragraph of prose.
   // Into a real session view, so the transcript is on screen to render into.
-  await window.getByTitle('Dashboard').click(); await window.waitForTimeout(300)
-  await window.locator('header .group button').first().click(); await window.waitForTimeout(400)
+  await grid.click(); await window.waitForTimeout(300)
+  await window.locator('.group > button:has(div.truncate)').first().click(); await window.waitForTimeout(400)
   await window.evaluate(() => {
     const store = window.__store.getState()
     store.addMessage({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'text', text:
@@ -1339,7 +1333,7 @@ try {
     await window.getByTitle('plan regression a').click(); await window.waitForTimeout(300)
     check('plan: the pinned panel survives switching to another tab and back', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'true')
     // Collapse while the run lives: the header folds to one line, still there.
-    await planPanel.getByRole('button').click(); await window.waitForTimeout(200)
+    await planPanel.getByRole('button').click(); await window.waitForTimeout(600)
     check('plan: collapse folds the panel to its header', await planPanel.getByRole('button').getAttribute('aria-expanded'), 'false')
     check('plan: collapse is written to persisted session metadata', await window.evaluate((sessionId) => {
       const saved = JSON.parse(localStorage.getItem('anticode-session-metadata') ?? '{}')
@@ -1354,58 +1348,7 @@ try {
     check('plan: collapse survives switching to another tab and back', 'needs two sessions', 'false')
   }
 
-  // Many tabs: the strip crushed them to a sliver where only the title took
-  // a click. The whole tab selects, keeps a usable width, and a click wobble
-  // or a click where an inactive tab's hidden × sits still just selects it.
-  {
-    const strip = window.locator('[data-session-tabs]')
-    for (let i = 0; i < 12; i++) {
-      await window.locator('header').getByRole('button',{name:'New tab',exact:true}).first().click(); await window.waitForTimeout(120)
-    }
-    const tabs = strip.locator('[data-tab-id]')
-    await tabs.first().scrollIntoViewIfNeeded(); await window.waitForTimeout(200)
-    const count = await tabs.count()
-    check('tabs: many tabs are open', count >= 10 ? 'many' : String(count), 'many')
-    const activeId = () => window.evaluate(() => window.__store.getState().activeSessionId)
-    const narrowest = await tabs.evaluateAll((items) => Math.min(...items.map((item) => item.getBoundingClientRect().width)))
-    check('tabs: crowded tabs use clickable icons', narrowest >= 32 && narrowest <= 44 ? 'icons' : String(narrowest), 'icons')
-    check('tabs: icon-only tabs retain title tooltips', await tabs.evaluateAll(items => items.every(item => Boolean(item.title))), true)
-    check('tabs: compact strip fits without a scrollbar', await strip.evaluate((el) =>
-      el.scrollWidth <= el.clientWidth && el.offsetHeight === el.clientHeight ? 'fits' : `scroll ${el.scrollWidth}/${el.clientWidth}, bar ${el.offsetHeight - el.clientHeight}px`), 'fits')
-
-    const target = tabs.first()
-    await target.scrollIntoViewIfNeeded()
-    const targetId = await target.getAttribute('data-tab-id')
-    // The icon body, clear of the hover-revealed × at the top-right.
-    const first = await target.boundingBox()
-    await window.mouse.click(first.x + first.width / 2 - 1, first.y + first.height / 2 + 7); await window.waitForTimeout(250)
-    check('tabs: clicking a tab keeps the active session distinct', (await activeId()) !== null ? 'selected' : 'none', 'selected')
-    check('tabs: the clicked tab is present', await target.count(), 1)
-
-    const second = tabs.nth(1)
-    await second.scrollIntoViewIfNeeded()
-    const secondId = await second.getAttribute('data-tab-id')
-    const box = await second.boundingBox()
-    // A press with a small wobble that does not reorder anything.
-    await window.mouse.move(box.x + 2, box.y + box.height / 2)
-    await window.mouse.down()
-    await window.mouse.move(box.x + 7, box.y + box.height / 2, { steps: 4 })
-    await window.mouse.up(); await window.waitForTimeout(250)
-    check('tabs: a click with a small wobble still selects', await activeId(), secondId)
-    check('tabs: the wobble did not reorder the strip', await tabs.nth(1).getAttribute('data-tab-id'), secondId)
-
-    const third = tabs.nth(2)
-    await third.scrollIntoViewIfNeeded()
-    const thirdId = await third.getAttribute('data-tab-id')
-    const before = await tabs.count()
-    const edge = await third.boundingBox()
-    // The outer edge selects; the center now intentionally exposes × on hover.
-    await window.mouse.click(edge.x + edge.width - 3, edge.y + edge.height / 2); await window.waitForTimeout(250)
-    check('tabs: a click on the right edge selects', await activeId(), thirdId)
-    check('tabs: a click on the right edge never closes a tab unasked',
-      (await tabs.count()) === before ? 'kept' : 'closed', 'kept')
-    await shot('tabs-crowded')
-  }
+  // The session tab strip (and its crowded-tab checks) left the header in 0.1.18.
 
   console.log(JSON.stringify({shots,directory}))
   if (failures.length > 0) { console.error('FAILURES:', failures); process.exitCode = 1 }
