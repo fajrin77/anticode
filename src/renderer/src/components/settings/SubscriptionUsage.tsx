@@ -45,7 +45,7 @@ export function SubscriptionUsage(): JSX.Element {
   return <section className="glass-surface mb-5 overflow-hidden rounded-xl border border-line" aria-label="Plan usage limits" data-subscription-usage>
     <div className="flex items-start justify-between gap-3 px-4 py-3">
       <h2 className="text-[13.5px] text-text">Plan usage limits</h2>
-      <button type="button" aria-label="Refresh subscription quotas" disabled={busy} onClick={() => void refresh()} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim hover:text-brand disabled:text-faint">{busy ? 'Refreshing…' : 'Refresh'}</button>
+      <button type="button" aria-label="Refresh subscription quotas" disabled={busy} onClick={() => void refresh()} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim transition-colors hover:text-brand disabled:text-faint">{busy ? 'Refreshing…' : 'Refresh'}</button>
     </div>
     {error && <p role="status" className="px-4 pb-3 text-[12px] text-amber-400">{error}</p>}
     {quotas === null && !error && <p className="px-4 pb-4 text-[12px] text-faint">Reading plan quotas…</p>}

@@ -137,7 +137,8 @@ export function Composer({  status: sharedStatus,
     promptRef.current?.focus()
   }, [session?.id])
 
-  const activeRun = useSessionStore((state) => Object.values(state.activeRuns).find((run) => run.sessionId === session?.id) ?? null)
+  // A boolean, not the run: token and phase updates must not re-render the composer.
+  const hasActiveRun = useSessionStore((state) => Object.values(state.activeRuns).some((run) => run.sessionId === session?.id))
   const mirrorRunId = useSessionStore((state) => Object.entries(state.mirrorRuns).find(([, run]) => run.sessionId === session?.id)?.[0] ?? null)
   const addMessage = useSessionStore((state) => state.addMessage)
   const addNotice = useSessionStore((state) => state.addNotice)
@@ -152,7 +153,7 @@ export function Composer({  status: sharedStatus,
 
   // Streaming is judged per session: a run elsewhere must never block this
   // session's composer or swallow its Enter key.
-  const isStreaming = activeRun !== null || mirrorRunId !== null
+  const isStreaming = hasActiveRun || mirrorRunId !== null
   // Hidden for now: the offer kept coming back after a push. Restore the
   // condition once commitOffer's detection is reliable.
   const showCommit = false

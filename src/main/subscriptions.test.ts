@@ -1,5 +1,5 @@
 import { observeAccessFailure } from './accessLedger'
-import { coolDown, coolingUntil } from './rotation'
+import { clearLoginCooldown, coolDown, coolingUntil } from './rotation'
 import { ClaudeAccessCheckError } from './auth/claudeAccess'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { PersistedSettings } from './settings'
@@ -44,7 +44,7 @@ it('blocks an exhausted account across its models, persists reset time, and reco
   expect(rank(21_000)).toEqual([a, b, other])
 })
 
-it('retries a daily model the next day and a free card after its recheck, but keeps accounts blocked without a reset time', () => {
+it('retries a daily model the next day, a free card after its recheck, and an account without a reset time after a week', () => {
   const daily = { provider: 'tokenharbor', model: 'deepseek-v4.1-flash' }
   const free = { provider: 'tokenharbor', model: 'deepseek-v4.1-flash:free' }
   const account = { provider: 'auth:claude', model: 'claude-sonnet' }
@@ -57,8 +57,19 @@ it('retries a daily model the next day and a free card after its recheck, but ke
   expect(outOfUsage(daily, 1_000 + day - 1)).not.toBeNull()
   expect(outOfUsage(daily, 1_000 + day + 1)).toBeNull()
   expect(outOfUsage(free, 1_000 + day + 1)).not.toBeNull()
+  expect(outOfUsage(account, 1_000 + 7 * day - 1)).not.toBeNull()
   expect(outOfUsage(free, 1_000 + 7 * day + 1)).toBeNull()
-  expect(outOfUsage(account, 1_000 + 365 * day)).not.toBeNull()
+  expect(outOfUsage(account, 1_000 + 7 * day + 1)).toBeNull()
+})
+
+it('forgets an account-wide quota mark when the account signs in again', () => {
+  const account = { provider: 'auth:claude', model: 'claude-sonnet' }
+  setRotationEntries([account])
+  setRotationEnabled(true)
+  markOutOfUsage(account, new ProviderRequestError('usage limit reached', 429, 'account'), 1_000)
+  expect(outOfUsage(account, 2_000)).not.toBeNull()
+  clearLoginCooldown('auth:claude')
+  expect(outOfUsage(account, 2_000)).toBeNull()
 })
 
 it('keeps absent quota facts unknown and filters model metadata without inventing entitlement', () => {

@@ -10,7 +10,7 @@ import type {
 } from './types'
 import { CODEX_BASE_URL, CODEX_CLIENT_VERSION } from './codexConfig'
 import { ProviderRequestError } from './requestError'
-import { dropInvalidToolCalls } from './history'
+import { dropInvalidToolCalls, normalizeToolIds } from './history'
 
 /*
  * ChatGPT (Codex) over an OAuth account. The subscription is reached through
@@ -36,7 +36,7 @@ type ResponsesContent =
 
 export function toInput(messages: Message[]): ResponsesInput[] {
   const out: ResponsesInput[] = []
-  for (const message of dropInvalidToolCalls(messages, 64)) {
+  for (const message of normalizeToolIds(dropInvalidToolCalls(messages, 64))) {
     const parts: ResponsesContent[] = []
     for (const block of message.content) {
       if (block.type === 'text' && block.text !== '') {

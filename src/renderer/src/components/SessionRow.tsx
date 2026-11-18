@@ -70,7 +70,7 @@ export function SessionRow({
               aria-label="New session in the same project"
               title="New session in the same project"
               onClick={() => onDuplicate(session.id)}
-              className="text-faint opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-brand"
+              className="text-faint opacity-0 transition-[opacity,color] group-hover:opacity-100 focus-visible:opacity-100 hover:text-brand"
             >
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />

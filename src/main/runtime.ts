@@ -188,7 +188,7 @@ export function setWorkspaceRoot(root: string): void {
 export async function initPersistedState(): Promise<void> {
   try {
     const raw = await readFile(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')
-    const saved = JSON.parse(raw) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; pinned?: boolean; paused?: boolean; pausedForRetry?: boolean }[]
+    const saved = JSON.parse(raw) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; pinned?: boolean; paused?: boolean; pausedForRetry?: boolean; rotationGroupId?: unknown }[]
     if (Array.isArray(saved)) for (const entry of saved) {
       if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
           !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
@@ -203,7 +203,9 @@ export async function initPersistedState(): Promise<void> {
         ...(typeof choice?.provider === 'string' && typeof choice.model === 'string'
           ? { choice: { provider: choice.provider, model: choice.model } }
           : {}),
-        ...(entry.pinned === true && choice?.provider !== ROTATE_PROVIDER ? { pinned: true } : {})
+        ...(entry.pinned === true && choice?.provider !== ROTATE_PROVIDER ? { pinned: true } : {}),
+        // A session's own rotation group survives a restart instead of falling back to the default.
+        ...(typeof entry.rotationGroupId === 'string' || entry.rotationGroupId === null ? { rotationGroupId: entry.rotationGroupId as string | null } : {})
       })
       rememberSpec(entry.spec)
       if (entry.paused === true) restorePausedSession(entry.spec.sessionId, entry.pausedForRetry === true)
@@ -824,12 +826,14 @@ function entryReady(entry: RotationEntry, providers: Providers): boolean {
 
 function readiness(
   choice: ProviderSelection,
-  providers: Providers
+  providers: Providers,
+  /** The session's own rotation group; undefined follows the default one. */
+  groupId?: string | null
 ): { providerReady: boolean; blockedReason: string | null } {
   let blockedReason: string | null
   if (choice.provider === ROTATE_PROVIDER) {
-    const pool = activeRotationEntries()
-    const group = rotationGroups().find((item) => item.id === activeRotationGroupId())
+    const pool = activeRotationEntries(groupId)
+    const group = rotationGroups().find((item) => item.id === (groupId === undefined ? activeRotationGroupId() : groupId))
     const where = group === undefined ? 'Rotate usage' : `The “${group.name}” group`
     blockedReason =
       !rotationEnabled()
@@ -856,6 +860,11 @@ function readiness(
             ? 'No model selected. Choose one in Settings → Models'
             : info.authKind && info.composerVisible === false && accountCandidates(choice, providers).length === 0
               ? 'All accounts for this model are disabled in Composer. Enable an account in Settings.'
+            // Same gate getSession applies, so the composer never reads ready
+            // for a model whose every account is resting or out of quota.
+            : info.authKind && accountCandidates(choice, providers).length > 0 &&
+                !accountCandidates(choice, providers).some((entry) => coolingUntil(entry) === null && outOfUsage(entry) === null)
+              ? 'Every active account for this model is resting or out of quota. Wait for it to reset or pick another account or model.'
             : null
   }
   return { providerReady: blockedReason === null, blockedReason }
@@ -865,7 +874,7 @@ function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
   const choice = oneShotChoices.get(live.spec.sessionId) ?? effective(choiceOf(live), live.pinned === true)
   return {
     ...choice,
-    ...readiness(choice, providers),
+    ...readiness(choice, providers, live.rotationGroupId),
     rotationGroup: live.rotationGroupId === undefined ? activeRotationGroupId() : live.rotationGroupId,
     lastUsed: choice.provider === ROTATE_PROVIDER && live.selection !== undefined ? { ...live.selection } : null
   }
@@ -901,7 +910,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     const draft = draftChoices.get(id)
     if (draft === undefined || sessions.has(id)) return undefined
     const choice = effective(draft.choice, draft.pinned)
-    return { ...choice, ...readiness(choice, providers), rotationGroup: sessionRotationGroups.has(id) ? sessionRotationGroups.get(id)! : activeRotationGroupId(), lastUsed: null }
+    return { ...choice, ...readiness(choice, providers, sessionRotationGroups.get(id)), rotationGroup: sessionRotationGroups.has(id) ? sessionRotationGroups.get(id)! : activeRotationGroupId(), lastUsed: null }
   }
   const ownDraft = own === undefined && sessionId !== null && sessionId !== undefined ? draftOf(sessionId) : undefined
   const top = own !== undefined ? choiceStatus(own, providers) : ownDraft ?? { ...standard, ...readiness(standard, providers), lastUsed: null }
@@ -986,7 +995,12 @@ function waitingProvider(
         spendWait(wait)
         const deadline = Date.now() + wait
         while (Date.now() < deadline && !params.signal.aborted) {
-          await new Promise(resolve => setTimeout(resolve, Math.min(ROTATION_WAIT_TICK_MS, deadline - Date.now())))
+          // Stop ends the wait at once instead of after the current tick.
+          await new Promise<void>(resolve => {
+            const done = (): void => { clearTimeout(timer); params.signal.removeEventListener('abort', done); resolve() }
+            const timer = setTimeout(done, Math.min(ROTATION_WAIT_TICK_MS, deadline - Date.now()))
+            params.signal.addEventListener('abort', done, { once: true })
+          })
         }
       }
     }
@@ -1033,15 +1047,26 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     // The session stays on its model for promptsPerModel() prompts, then
     // moves to the pool entry with the least load other than the one it
     // leaves. One that fails mid-run rests for a while and hands the turn on.
-    const providers = listProviders()
-    if (!rotationEnabled()) throw new Error(readiness(choice, providers).blockedReason ?? 'Rotate usage is off')
+    let providers = listProviders()
+    if (!rotationEnabled()) throw new Error(readiness(choice, providers, live.rotationGroupId).blockedReason ?? 'Rotate usage is off')
     const ready = (entry: RotationEntry): boolean => entryReady(entry, providers)
+    // An access refusal on a plan must not move the turn onto a paid route.
+    let planOnly = false
+    const isPlan = (entry: RotationEntry): boolean => {
+      const info = providers.find((provider) => provider.id === entry.provider)
+      return info !== undefined && isSubscriptionProvider(info)
+    }
     const tried = new Set<string>()
     // Total time this session's run may spend waiting out cooldowns mid-run
     // instead of stopping: the pool recovers on its own, so a run only halts
     // once quotas are truly spent or this budget is exhausted.
     let waitedTotal = 0
-    const next = (): RotationEntry | undefined => rankRotation({ ready, busy: busyOn, exclude: tried, groupId: live.rotationGroupId }).find(entry => coolingUntil(entry) === null && outOfUsage(entry) === null)
+    const next = (): RotationEntry | undefined => {
+      // Read again on every pick: an account logged out or added mid-run counts.
+      providers = listProviders()
+      return rankRotation({ ready, busy: busyOn, exclude: tried, groupId: live.rotationGroupId })
+        .find(entry => coolingUntil(entry) === null && outOfUsage(entry) === null && (!planOnly || isPlan(entry)))
+    }
     const current = live.selection
     // The session group, or default pool: a model outside it is never kept.
     const pool = activeRotationEntries(live.rotationGroupId)
@@ -1075,13 +1100,16 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     }
     if (first === undefined) throw new Error(subscriptionOnly()
       ? 'No subscription route is available. Wait for the account quota to reset, sign in to another plan, or retry after its cooldown. Paid API fallback is disabled.'
-      : readiness(choice, providers).blockedReason ?? 'No model in Rotate usage is ready')
+      : readiness(choice, providers, live.rotationGroupId).blockedReason ?? 'No model in Rotate usage is ready')
     tried.add(rotationKey(first))
     target = first
     fallback = (error) => {
       const retired = isRetiredRoute(error)
       const capacity = ['input', 'output', 'payload'].includes(requestLimit(error)?.kind ?? '')
-      if (!retired && !capacity && !canFailOver(error) && !canRotateAfterRefusal(error)) return null
+      const refusal = !retired && !capacity && !canFailOver(error)
+      if (refusal && !canRotateAfterRefusal(error)) return null
+      // docs/SUBSCRIPTIONS.md: an access failure is never replaced by a paid route.
+      planOnly = refusal && live.selection !== undefined && isPlan(live.selection)
       if (live.selection !== undefined) {
         if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
         else if (!capacity) coolDown(live.selection, Date.now(), error)
@@ -1383,7 +1411,14 @@ export async function compactSession(sessionId: string, gate: ApprovalGate): Pro
   if (runForSession(sessionId) !== null) throw new Error('Pause this session before compacting it')
   const status = getStatus(sessionId)
   if (live.agent === null && !status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+  // Building the agent here must not spend a one-shot "Retry with…" pick or
+  // move rotation on: the next prompt chooses its model as if nothing happened.
+  const oneShot = oneShotChoices.get(sessionId)
+  const { selection, promptsOnEntry } = live
   const agent = live.agent ?? getSession(sessionId, gate)
+  if (oneShot !== undefined) oneShotChoices.set(sessionId, oneShot)
+  if (selection === undefined) delete live.selection; else live.selection = selection
+  if (promptsOnEntry === undefined) delete live.promptsOnEntry; else live.promptsOnEntry = promptsOnEntry
   return agent.compact(new AbortController().signal)
 }
 
@@ -1481,7 +1516,8 @@ function writeSessions(): void {
     ...(isPaused(live.spec.sessionId) ? { paused: true } : {}),
     ...(isPausedForRetry(live.spec.sessionId) ? { pausedForRetry: true } : {}),
     ...(live.choice !== undefined ? { choice: live.choice } : {}),
-    ...(live.pinned === true ? { pinned: true } : {})
+    ...(live.pinned === true ? { pinned: true } : {}),
+    ...(live.rotationGroupId !== undefined ? { rotationGroupId: live.rotationGroupId } : {})
   }))
   try {
     mkdirSync(directory, { recursive: true })

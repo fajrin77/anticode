@@ -39,7 +39,7 @@ export function RotationBulkPicker({ providers, selected, onAdd, onIndividual, o
   const key = modelSearchKey(query)
   const services = choices.services.filter(choice => modelSearchKey(choice.label).includes(key))
   const models = choices.models.filter(choice => choice.id.includes(key))
-  const buttonClass = 'flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12.5px] text-dim hover:bg-hover hover:text-brand disabled:opacity-50'
+  const buttonClass = 'flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand disabled:opacity-50'
   const rows = (kind: string, items: typeof models): JSX.Element => <div>
     <p className="px-3 py-1 text-[11px] text-faint">{kind}</p>
     {items.map(choice => <button key={choice.id} type="button" data-rotation-bulk={kind === 'Services' ? 'service' : 'model'} data-choice={choice.id} disabled={loading || saving} className={buttonClass} onClick={() => {

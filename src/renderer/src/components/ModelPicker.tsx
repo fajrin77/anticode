@@ -128,7 +128,7 @@ export function ModelPicker({
   return (
     <div ref={menuRef} popover="manual" data-model-picker role="dialog" aria-label="Choose model" className="menu-glass fixed m-0 flex w-80 flex-col overflow-hidden rounded-xl border p-0">
       {tabs.length > 1 && (
-        <div className="grid max-h-36 shrink-0 grid-cols-2 gap-0.5 overflow-y-auto border-b border-line-soft p-1.5">
+        <div className="grid max-h-36 shrink-0 grid-cols-2 gap-0.5 overflow-y-auto border-b border-line-soft p-1.5 [scrollbar-gutter:stable]">
           {tabs.map((entry) => (
             <button
               key={entry.id}
@@ -201,7 +201,7 @@ export function ModelPicker({
             </div>
           )}
           {groupError !== null && <div className="border-b border-line-soft px-3 py-1.5 text-[11.5px] text-del">{groupError}</div>}
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          <div className="min-h-0 flex-1 overflow-y-auto p-1 [scrollbar-gutter:stable]">
             {rotatingOver.map((entry) => (
               <div
                 key={`${entry.provider}\n${entry.model}`}
@@ -246,7 +246,7 @@ export function ModelPicker({
             className="border-b border-line-soft bg-transparent px-3 py-1.5 text-[12px] text-text outline-none placeholder:text-faint"
           />
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          <div className="min-h-0 flex-1 overflow-y-auto p-1 [scrollbar-gutter:stable]">
             {matches.length === 0 && (
               <div data-picker-empty className="px-2 py-3 text-[12px] leading-relaxed text-faint">
                 {viewing === ''

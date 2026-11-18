@@ -40,7 +40,15 @@ export function App(): JSX.Element {
   const bufferedEvents = useRef<RoutedAgentEvent[]>([])
   const receiveEvent = useRef<(event: RoutedAgentEvent) => void>(() => undefined)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
-  const [status, setStatus] = useState<SessionStatus | null>(null)
+  const [status, setStatusRaw] = useState<SessionStatus | null>(null)
+  // The 5 s poll returns a new object even when nothing changed; keeping the
+  // old one spares a full re-render of the app every poll.
+  const setStatus = useCallback((next: SessionStatus | null) => {
+    setStatusRaw((previous) => previous !== null && next !== null && JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+  }, [])
+  const statusRef = useRef(status)
+  statusRef.current = status
+  const focusTimer = useRef<number | undefined>(undefined)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [appError, setAppError] = useState<string | null>(null)
   const [updateState, setUpdateState] = useState<UpdateState | null>(null)
@@ -99,6 +107,7 @@ export function App(): JSX.Element {
 
   const showDashboard = useCallback(() => {
     const state = useSessionStore.getState()
+    const status = statusRef.current
     const own = status === null ? null : statusFor(status, state.activeSessionId)
     // The dashboard is a composer for the *next* session, so a plus pressed
     // inside a session keeps that session's project folder: the new one starts
@@ -112,7 +121,7 @@ export function App(): JSX.Element {
       ...(source === undefined ? {} : { mode: source.mode, folder: source.projectRoot })
     })
     setView('dashboard')
-  }, [status, view])
+  }, [view])
 
   const startSameProject = useCallback(async (id: string) => {
     const source = useSessionStore.getState().sessions.find((session) => session.id === id)
@@ -321,17 +330,20 @@ export function App(): JSX.Element {
   // it comes back if it was archived, and the view goes to it. A session
   // created a moment ago may not have reached this window yet, so it waits.
   useEffect(() => {
-    return window.anticode.onSessionFocus((sessionId) => {
+    // Only the latest request waits: a newer click replaces an older retry.
+    const unsubscribe = window.anticode.onSessionFocus((sessionId) => {
+      window.clearTimeout(focusTimer.current)
       const open = (attempt: number): void => {
         const store = useSessionStore.getState()
         if (store.sessions.some((session) => session.id === sessionId)) {
           openExistingSession(sessionId)
         } else if (attempt < 20) {
-          window.setTimeout(() => open(attempt + 1), 100)
+          focusTimer.current = window.setTimeout(() => open(attempt + 1), 100)
         }
       }
       open(0)
     })
+    return () => { window.clearTimeout(focusTimer.current); unsubscribe() }
   }, [openExistingSession])
 
   // A turn reverted from the phone is gone from the real history; the
@@ -390,10 +402,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     return window.anticode.onSessionClosed((sessionId) => {
       const store = useSessionStore.getState()
-      const run = Object.values(store.activeRuns).find((entry) => entry.sessionId === sessionId)
-      if (run !== undefined) {
-        void window.anticode.cancelRun(run.runId)
-        store.setActiveRun(null, run.runId)
+      // Every run of it, local or mirrored: a steer can sit beside the main one.
+      for (const [runId, entry] of [...Object.entries(store.activeRuns), ...Object.entries(store.mirrorRuns)]) {
+        if (entry.sessionId !== sessionId) continue
+        void window.anticode.cancelRun(runId)
+        store.setActiveRun(null, runId)
       }
       store.deleteSession(sessionId)
     })
@@ -414,9 +427,10 @@ export function App(): JSX.Element {
       }
       const store = useSessionStore.getState()
       // A session that is only archived, not deleted, has to come back the
-      // moment it moves, otherwise work started on the phone lands in a tab
-      // nobody can see, and the session reads as gone.
-      store.surfaceSession(event.sessionId)
+      // moment new work starts there, otherwise work started on the phone lands
+      // in a tab nobody can see. Only on a new prompt: surfacing on every token
+      // made a tab closed mid-stream reopen itself at once.
+      if (event.type === 'prompt' || event.type === 'steer') store.surfaceSession(event.sessionId)
       const run = store.activeRuns[event.runId]
       /** Model label for the closing summary card. */
       const modelOf = (sessionId: string): string =>
@@ -424,9 +438,10 @@ export function App(): JSX.Element {
       const summaryOf = (
         sessionId: string,
         startedAt: number,
-        tokens?: { inputTokens?: number; outputTokens?: number }
+        tokens?: { inputTokens?: number; outputTokens?: number; model?: string }
       ) => ({
-        model: modelOf(sessionId),
+        // The model that served the run, not whatever the session moved to since.
+        model: tokens?.model ?? modelOf(sessionId),
         durationMs: Date.now() - startedAt,
         inputTokens: tokens?.inputTokens ?? 0,
         outputTokens: tokens?.outputTokens ?? 0
@@ -578,7 +593,7 @@ export function App(): JSX.Element {
   // the user out of Settings mid-edit.
   useEffect(() => {
     setView((current) =>
-      current === 'settings' ? current : activeSessionId === null ? 'dashboard' : 'session'
+      current === 'settings' || current === 'schedule' ? current : activeSessionId === null ? 'dashboard' : 'session'
     )
   }, [activeSessionId])
 
@@ -632,19 +647,20 @@ export function App(): JSX.Element {
   const onSession = view === 'session'
   // An approval belongs to the session whose run asked for it. A run that
   // is not known yet still shows, so a request can never get stuck unseen.
-  const activeRuns = useSessionStore((state) => state.activeRuns)
-  const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
-  const pending = !onSession ? undefined : approvals.find((request) => {
-    const owner = (activeRuns[request.runId] ?? mirrorRuns[request.runId])?.sessionId
-    return owner === undefined || owner === activeSessionId
-  })
+  // Selected as the request itself, so token and phase updates of runs do
+  // not re-render the whole app.
+  const pending = useSessionStore((state) => !onSession ? undefined : approvals.find((request) => {
+    const owner = (state.activeRuns[request.runId] ?? state.mirrorRuns[request.runId])?.sessionId
+    return owner === undefined || owner === state.activeSessionId
+  }))
   // A question belongs to the session that asked it; other tabs stay clean.
   const pendingQuestion = onSession ? questions.find((request) => request.sessionId === activeSessionId) : undefined
-  const activeSession = useSessionStore((state) =>
-    state.sessions.find((session) => session.id === state.activeSessionId)
-  )
-  const isFreshSession =
-    activeSession !== undefined && activeSession.messages.length === 0
+  // Only an empty session is needed here; a streaming one must not re-render App per token.
+  const activeSession = useSessionStore((state) => {
+    const session = state.sessions.find((entry) => entry.id === state.activeSessionId)
+    return session !== undefined && session.messages.length === 0 ? session : undefined
+  })
+  const isFreshSession = activeSession !== undefined
   const web = useWebSession(activeSessionId)
   const swipeRoot = useSessionSwipe(view === 'session' && pending === undefined && pendingQuestion === undefined, openExistingSession)
 

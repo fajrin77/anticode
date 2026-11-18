@@ -621,7 +621,7 @@ export function NewSessionView({
   )
 
   return (
-    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto">
+    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
       <div className="flex-[0.7]" />
       <div className="flex justify-center px-10">
         <LogoMark />

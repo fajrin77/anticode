@@ -10,7 +10,7 @@ vi.mock('../runtime', () => ({
   getStatus: () => ({}), recordRunSummary: mocks.record,
   loadSessionMessages: () => mocks.messages, loadSessionSummaries: () => [], sessionTitle: () => 'session'
 }))
-import { forward, registerRun, sessionSnapshot, subscribe, forgetRun } from './bus'
+import { flushText, forward, registerRun, sessionSnapshot, subscribe, forgetRun } from './bus'
 import { beginRun, clearPause, finishRun } from '../runs'
 afterEach(() => { finishRun('run'); forgetRun('run'); clearPause('session'); mocks.messages = []; mocks.notify.mockClear() })
 
@@ -61,6 +61,7 @@ it('marks subsequent stream events newer than the snapshot boundary', () => {
   const listener = vi.fn()
   const unsubscribe = subscribe('session', listener)
   forward({ type: 'text_delta', runId: 'run', text: 'arrived during fetch' })
+  flushText()
   expect(listener.mock.calls[0]?.[0].revision).toBeGreaterThan(snapshot.revision)
   unsubscribe()
 })
@@ -120,4 +121,16 @@ it.each(['error', 'cancelled', 'complete'] as const)('persists an honest %s outc
   if (outcome === 'error') forward({ type: 'error', runId: 'run', message: 'connection lost', retryable: true })
   else forward({ type: 'end', runId: 'run', reason: outcome })
   expect(mocks.record).toHaveBeenCalledWith('session', expect.objectContaining({ outcome: outcome === 'cancelled' ? 'interrupted' : outcome }))
+})
+
+it('coalesces streamed text into one frame and flushes it before the next event', () => {
+  beginRun('run', 'session'); registerRun('run', 'session')
+  const received: { type: string; text?: string }[] = []
+  const unsubscribe = subscribe('session', (event) => received.push(event as { type: string; text?: string }))
+  forward({ type: 'text_delta', runId: 'run', text: 'a' })
+  forward({ type: 'text_delta', runId: 'run', text: 'b' })
+  expect(received).toEqual([])
+  forward({ type: 'phase', runId: 'run', phase: 'thinking' } as never)
+  expect(received.map((event) => [event.type, event.text])).toEqual([['text_delta', 'ab'], ['phase', undefined]])
+  unsubscribe()
 })

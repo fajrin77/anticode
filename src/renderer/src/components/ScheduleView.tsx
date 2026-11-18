@@ -205,7 +205,7 @@ function ScheduleModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
           <label className="mb-1.5 block text-[12.5px] text-dim">Name</label>
           <input
             value={draft.name}
@@ -435,7 +435,7 @@ export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10">
+      <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 [scrollbar-gutter:stable]">
         {entries.length === 0 ? (
           <div className="mx-auto mt-16 max-w-md text-center text-[14px] text-dim">
             No schedules yet. Create one to run a prompt on a daily or weekly clock.

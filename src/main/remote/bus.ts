@@ -127,9 +127,29 @@ export function forgetRun(runId: string): void {
  * Fans a desktop or remote event out to every desktop window (so a run started
  * on the phone streams here too) and to every SSE subscriber of its session.
  */
+/**
+ * Streamed text goes out at most once per frame: one IPC message and one SSE
+ * frame per provider chunk made both screens re-render per token. Any other
+ * event (or announcement) flushes first, so viewers keep the exact order.
+ */
+const pendingText = new Map<string, { sessionId: string; event: RoutedAgentEvent }>()
+let flushTimer: ReturnType<typeof setTimeout> | undefined
+
+export function flushText(): void {
+  if (flushTimer !== undefined) clearTimeout(flushTimer)
+  flushTimer = undefined
+  const held = [...pendingText.values()]
+  pendingText.clear()
+  for (const { sessionId, event } of held) {
+    toWindows(IpcChannel.AGENT_EVENT, event)
+    toStreams(sessionId, event)
+  }
+}
+
 export function forward(event: AgentEvent): void {
   const sessionId = runSessions.get(event.runId)
   if (sessionId === undefined) return
+  if (event.type !== 'text_delta') flushText()
   const routed: RoutedAgentEvent = { ...event, sessionId }
   // Priced here, where every run passes whoever started it, so both screens
   // show the same estimate.
@@ -217,12 +237,19 @@ export function forward(event: AgentEvent): void {
     events[events.length - 1] = { ...routed, text: previous.text + routed.text }
   } else events?.push(routed)
 
+  if (routed.type === 'text_delta') {
+    const held = pendingText.get(routed.runId)?.event
+    pendingText.set(routed.runId, { sessionId, event: held?.type === 'text_delta' ? { ...routed, text: held.text + routed.text } : routed })
+    flushTimer ??= setTimeout(flushText, 16)
+    return
+  }
   toWindows(IpcChannel.AGENT_EVENT, routed)
   toStreams(sessionId, routed)
 }
 
 /** A pause starting or ending, wherever it was pressed, reaches every viewer. */
 export function announcePause(sessionId: string, paused: boolean): void {
+  flushText()
   toWindows(IpcChannel.SESSION_PAUSED, { sessionId, paused } satisfies SessionPause)
   toStreams(sessionId, { type: 'pause', paused, revision: ++revision })
 }
@@ -234,18 +261,21 @@ export function announcePause(sessionId: string, paused: boolean): void {
  * redraw there would only lose its pause and resume markers.
  */
 export function announceHistory(sessionId: string, from: 'desktop' | 'phone'): void {
+  flushText()
   if (from === 'phone') toWindows(IpcChannel.SESSION_HISTORY, sessionId)
   toStreams(sessionId, { type: 'history', revision: ++revision })
 }
 
 /** A queued prompt added, sent, or taken out, wherever: every viewer redraws the list. */
 export function announceQueue(sessionId: string, items: QueuedPrompt[]): void {
+  flushText()
   toWindows(IpcChannel.QUEUE_UPDATED, { sessionId, items } satisfies SessionQueue)
   toStreams(sessionId, { type: 'queue', items })
 }
 
 /** A session got its name; the desktop tab and the phone header both follow. */
 export function announceSessionTitle(sessionId: string, title: string): void {
+  flushText()
   toWindows(IpcChannel.SESSION_TITLE, { sessionId, title } satisfies SessionTitle)
   toStreams(sessionId, { type: 'title', title })
 }

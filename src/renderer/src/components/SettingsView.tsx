@@ -494,7 +494,7 @@ function Providers({
                   </button>
                 )}
                 {provider.kind === 'auth' ? (
-                  <button type="button" onClick={onManageAccounts} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint hover:text-brand">Manage account</button>
+                  <button type="button" onClick={onManageAccounts} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint transition-colors hover:text-brand">Manage account</button>
                 ) : removingThis ? (
                   <>
                     <span className="shrink-0 text-[12px] text-dim">Remove?</span>
@@ -1784,7 +1784,7 @@ function Models({
       <div className="mb-6 flex items-center justify-between gap-3">
         <h1 className="text-[19px] text-text">Models</h1>
         <button type="button" disabled={refreshingModels} onClick={() => void refreshModels()}
-          className="text-[12.5px] text-faint hover:text-brand disabled:text-faint">
+          className="text-[12.5px] text-faint transition-colors hover:text-brand disabled:text-faint">
           {refreshingModels ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>

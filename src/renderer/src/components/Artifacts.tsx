@@ -186,7 +186,7 @@ export function Artifacts({
                         setMenu(null)
                         item.run()
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-text"
+                      className="block w-full px-3 py-1.5 text-left text-[12.5px] text-dim transition-colors hover:bg-hover hover:text-brand"
                     >
                       {item.label}
                     </button>

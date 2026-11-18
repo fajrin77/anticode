@@ -81,8 +81,16 @@ function mapCallNames(messages: Message[]): Map<string, string> {
   return names
 }
 
+/** Gemini 3 signs its function calls; the signature must come back with the call. */
+const SIGNATURE_PROVIDER = 'google-signature'
+
 export function toContents(messages: Message[]): Content[] {
   const clean = dropInvalidToolCalls(messages, 64)
+  const signatures = new Map<string, string>()
+  for (const message of clean) for (const block of message.content) {
+    const raw = block.type === 'opaque' && block.provider === SIGNATURE_PROVIDER ? block.raw as { id?: unknown; signature?: unknown } : undefined
+    if (typeof raw?.id === 'string' && typeof raw.signature === 'string') signatures.set(raw.id, raw.signature)
+  }
   const names = mapCallNames(clean)
 
   return clean.flatMap((message): Content[] => {
@@ -99,7 +107,8 @@ export function toContents(messages: Message[]): Content[] {
             ...(block.id.startsWith(SYNTHETIC_PREFIX) ? {} : { id: block.id }),
             name: block.name,
             args: (block.input ?? {}) as Record<string, unknown>
-          }
+          },
+          ...(signatures.has(block.id) ? { thoughtSignature: signatures.get(block.id)! } : {})
         })
       } else if (block.type === 'tool_result') {
         parts.push({
@@ -176,9 +185,11 @@ export class GoogleProvider implements LLMProvider {
           yield { type: 'text_delta', text: part.text }
         }
         if (part.functionCall) {
+          const id = part.functionCall.id ?? syntheticId()
+          if (typeof part.thoughtSignature === 'string') calls.push({ type: 'opaque', provider: SIGNATURE_PROVIDER, raw: { id, signature: part.thoughtSignature } })
           calls.push({
             type: 'tool_use',
-            id: part.functionCall.id ?? syntheticId(),
+            id,
             name: part.functionCall.name ?? 'unknown',
             input: part.functionCall.args ?? {}
           })

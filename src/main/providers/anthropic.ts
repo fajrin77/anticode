@@ -11,7 +11,7 @@ import type {
   StopReason,
   ToolDefinition
 } from './types'
-import { dropInvalidToolCalls } from './history'
+import { dropInvalidToolCalls, normalizeToolIds } from './history'
 
 const PROVIDER_NAME = 'anthropic'
 
@@ -24,7 +24,7 @@ export const CLAUDE_CODE_HEADERS: Record<string, string> = {
 function toBlockParam(block: ContentBlock): Anthropic.ContentBlockParam | null {
   switch (block.type) {
     case 'text':
-      return { type: 'text', text: block.text }
+      return block.text.trim() === '' ? null : { type: 'text', text: block.text }
     case 'image':
       return {
         type: 'image',
@@ -54,7 +54,7 @@ function toBlockParam(block: ContentBlock): Anthropic.ContentBlockParam | null {
 
 function toMessageParams(messages: Message[]): Anthropic.MessageParam[] {
   // Anthropic rejects tool_use names over 200 chars, even deep in history.
-  return dropInvalidToolCalls(messages, 200).flatMap((message) => {
+  return normalizeToolIds(dropInvalidToolCalls(messages, 200)).flatMap((message) => {
     const content = message.content
       .map(toBlockParam)
       .filter((block): block is Anthropic.ContentBlockParam => block !== null)

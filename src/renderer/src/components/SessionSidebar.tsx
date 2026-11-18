@@ -44,7 +44,7 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
         setConfirming(false)
         setError(null)
       }}
-      className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim opacity-0 hover:bg-hover hover:text-brand group-hover:opacity-100 focus-visible:opacity-100" >
+      className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim opacity-0 transition-[opacity,color,background-color] hover:bg-hover hover:text-brand group-hover:opacity-100 focus-visible:opacity-100" >
       <span aria-hidden>⋯</span>
     </button>
     <div id={id} ref={popover} popover="auto" aria-label={`Tindakan sesi ${session.title}`}
@@ -63,9 +63,9 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
         else setConfirming(true)
       }}
       style={position} className="menu-glass fixed m-0 max-h-[calc(100vh-16px)] w-56 overflow-y-auto rounded-xl border p-1.5 text-[13px] text-text">
-      <button type="button" disabled={busy} onClick={() => { popover.current?.hidePopover(); onNewSession(session.id) }} className="w-full rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50">Sesi baru di project ini</button>
-      <button type="button" disabled={busy} onClick={() => void act('export')} className="w-full rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50">Ekspor percakapan…</button>
-      <button type="button" disabled={busy} onClick={() => void act('archive')} className="w-full rounded-md px-3 py-2 text-left hover:bg-hover disabled:opacity-50">Arsipkan</button>
+      <button type="button" disabled={busy} onClick={() => { popover.current?.hidePopover(); onNewSession(session.id) }} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Sesi baru di project ini</button>
+      <button type="button" disabled={busy} onClick={() => void act('export')} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Ekspor percakapan…</button>
+      <button type="button" disabled={busy} onClick={() => void act('archive')} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Arsipkan</button>
       <button type="button" disabled={busy} aria-keyshortcuts="D" onClick={() => confirming ? void act('delete') : setConfirming(true)} className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-del transition-colors hover:bg-hover hover:text-del disabled:opacity-50"><span>{confirming ? 'Konfirmasi hapus permanen' : 'Hapus'}</span><kbd className="text-[11px]">D</kbd></button>
       {error && <p role="alert" className="px-3 py-2 text-[12px] text-del [overflow-wrap:anywhere]">{error}</p>}
     </div>
@@ -110,7 +110,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
   return (
     <aside id="session-sidebar" aria-label="Daftar sesi" className={`flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft p-3 ${preview ? 'bg-raised/80' : 'bg-raised/40'}`}>
       <button type="button" onClick={onDashboard} aria-pressed={dashboardActive}
-        className={`mb-5 rounded-lg px-3 py-2 text-left text-[14px] hover:bg-raised hover:text-brand ${dashboardActive ? 'bg-raised text-brand' : 'text-text'}`}>
+        className={`mb-5 rounded-lg px-3 py-2 text-left text-[14px] transition-colors hover:bg-raised hover:text-brand ${dashboardActive ? 'bg-raised text-brand' : 'text-text'}`}>
         + New Session
       </button>
       <nav aria-label="Sesi per project" className="sidebar-scroll min-h-0 flex-1 overflow-y-auto">
@@ -187,7 +187,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
         })}
       </nav>
       {sessions.some((session) => session.closed) && <button type="button" aria-pressed={showArchived}
-        onClick={() => setShowArchived((shown) => !shown)} className="mt-2 rounded-md px-3 py-2 text-left text-[12px] text-dim hover:bg-raised hover:text-brand">
+        onClick={() => setShowArchived((shown) => !shown)} className="mt-2 rounded-md px-3 py-2 text-left text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand">
         {showArchived ? 'Sembunyikan arsip' : 'Tampilkan arsip'}
       </button>}
     </aside>

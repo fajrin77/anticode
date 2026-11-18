@@ -487,7 +487,7 @@ export function Auth({
             <span className="text-[12.5px] text-dim">Subscription quotas</span>
             <button type="button" disabled={quotaBusy} onClick={() => void refreshQuotas()}
               aria-label={accounts.some(account => account.kind === 'claude') ? 'Refresh subscription quotas' : 'Refresh ChatGPT quota'}
-              className="text-[12px] text-faint hover:text-brand disabled:text-faint">
+              className="text-[12px] text-faint transition-colors hover:text-brand disabled:text-faint">
               {quotaBusy ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>

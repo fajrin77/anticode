@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { createJSONStorage, persist, type PersistStorage, type StorageValue } from 'zustand/middleware'
 import type {
   ProviderSelection,
   AttachmentInfo,
@@ -51,6 +51,35 @@ const sessionStoreMemoryStorage: Storage = {
   key: () => null,
   removeItem: () => {},
   setItem: () => {}
+}
+
+/**
+ * Every set() (each streamed token, each keystroke) used to stringify all
+ * sessions and drafts into localStorage synchronously. Writes now coalesce to
+ * one per 400 ms, and a pending one is flushed when the window goes away.
+ */
+function debounced<S>(storage: PersistStorage<S> | undefined): PersistStorage<S> | undefined {
+  if (storage === undefined || typeof window === 'undefined') return storage
+  let pending: { name: string; value: StorageValue<S> } | undefined
+  let timer: number | undefined
+  const flush = (): void => {
+    window.clearTimeout(timer)
+    timer = undefined
+    if (pending === undefined) return
+    const { name, value } = pending
+    pending = undefined
+    void storage.setItem(name, value)
+  }
+  window.addEventListener('beforeunload', flush)
+  window.addEventListener('pagehide', flush)
+  return {
+    getItem: (name) => storage.getItem(name),
+    removeItem: (name) => { pending = undefined; return storage.removeItem(name) },
+    setItem: (name, value) => {
+      pending = { name, value }
+      timer ??= window.setTimeout(flush, 400)
+    }
+  }
 }
 
 export interface Message {
@@ -379,12 +408,12 @@ function mapMessage(
   messageId: string,
   change: (message: Message) => Message
 ): Session {
-  return {
-    ...session,
-    messages: session.messages.map((message) =>
-      message.id === messageId ? change(message) : message
-    )
-  }
+  // Streaming always touches the newest message; look from the end.
+  const index = session.messages.findLastIndex((message) => message.id === messageId)
+  if (index < 0) return session
+  const messages = session.messages.slice()
+  messages[index] = change(messages[index]!)
+  return { ...session, messages }
 }
 
 /** Matches a rebuilt reply to the one the window already showed: role, shape, and words. */
@@ -542,11 +571,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         createdAt: Date.now(),
         messages: source.messages.map((message) => ({
           ...message,
+          pending: false,
           parts: message.parts.map((part) => ({ ...part }))
         })),
         inputTokens: 0,
         outputTokens: 0,
         lastInputTokens: 0,
+        costUsd: 0,
+        costPartial: false,
         closed: false
       }
       newId = clone.id
@@ -574,11 +606,14 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
         createdAt: Date.now(),
         messages: kept.map((message) => ({
           ...message,
+          pending: false,
           parts: message.parts.map((part) => ({ ...part }))
         })),
         inputTokens: 0,
         outputTokens: 0,
         lastInputTokens: 0,
+        costUsd: 0,
+        costPartial: false,
         closed: false
       }
       newId = clone.id
@@ -916,8 +951,11 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       delete planOpenBySession[id]
       const drafts = { ...state.drafts }; delete drafts[id]
       const readPositions = { ...state.readPositions }; delete readPositions[id]
+      const queues = { ...state.queues }; delete queues[id]
+      const pausedSessions = { ...state.pausedSessions }; delete pausedSessions[id]
+      const planModeBySession = { ...state.planModeBySession }; delete planModeBySession[id]
       return { sessions: remaining, activeSessionId, drafts, readPositions,
-        planOpenBySession,
+        planOpenBySession, queues, pausedSessions, planModeBySession,
         activeRuns: Object.fromEntries(Object.entries(state.activeRuns).filter(([, run]) => run.sessionId !== id)),
         mirrorRuns: Object.fromEntries(Object.entries(state.mirrorRuns).filter(([, run]) => run.sessionId !== id))
       }
@@ -1142,30 +1180,23 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       }
     }),
 
+  // Only the session that owns the message changes identity.
   settleMessage: (messageId, summary) =>
     set((state) => ({
-      sessions: state.sessions.map((session) => ({
-        ...session,
-        messages: session.messages.map((message) =>
-          message.id === messageId
-            ? {
-                ...message,
-                pending: false,
-                ...(summary !== undefined ? { summary } : {})
-              }
-            : message
-        )
-      }))
+      sessions: state.sessions.map((session) =>
+        mapMessage(session, messageId, (message) => ({
+          ...message,
+          pending: false,
+          ...(summary !== undefined ? { summary } : {})
+        }))
+      )
     })),
 
   reopenMessage: (messageId) =>
     set((state) => ({
-      sessions: state.sessions.map((session) => ({
-        ...session,
-        messages: session.messages.map((message) =>
-          message.id === messageId ? { ...message, pending: true } : message
-        )
-      }))
+      sessions: state.sessions.map((session) =>
+        mapMessage(session, messageId, (message) => ({ ...message, pending: true }))
+      )
     })),
 
   setActiveRun: (run, runId) => set((state) => {
@@ -1262,19 +1293,20 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     })),
 
   pauseSession: (sessionId) =>
-    set((state) => ({
+    set((state) => state.pausedSessions[sessionId] === true ? state : ({
       pausedSessions: { ...state.pausedSessions, [sessionId]: true }
     })),
 
   resumeSession: (sessionId) =>
     set((state) => {
+      if (state.pausedSessions[sessionId] !== true) return state
       const paused = { ...state.pausedSessions }
       delete paused[sessionId]
       return { pausedSessions: paused }
     })
 }), {
   name: 'anticode-session-metadata',
-  storage: createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage)),
+  storage: debounced(createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage))),
   skipHydration: typeof window === 'undefined',
   partialize: (state) => ({ readPositions: state.readPositions, followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planOpenBySession: state.planOpenBySession,
     projectOrder: state.projectOrder,

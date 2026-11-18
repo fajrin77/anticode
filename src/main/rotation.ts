@@ -346,8 +346,10 @@ export function recordRotationUsage(entry: RotationEntry, spent: Usage): void {
   tally.inputTokens += Math.max(0, spent.inputTokens || 0)
   tally.outputTokens += Math.max(0, spent.outputTokens || 0)
   usage.set(key, tally)
-  persist()
+  // Every response in every session landed here: write at most every 2 s.
+  usageWrite ??= setTimeout(() => { usageWrite = undefined; persist() }, 2000)
 }
+let usageWrite: ReturnType<typeof setTimeout> | undefined
 
 /** A rate limit, an empty quota, an outage: others go first for a while. */
 export function coolDown(entry: RotationEntry, now = Date.now(), error?: unknown): void {
@@ -364,6 +366,14 @@ export function coolDown(entry: RotationEntry, now = Date.now(), error?: unknown
 /** A renewed login must not inherit the old token's authentication cooldown. */
 export function clearLoginCooldown(provider: string): void {
   cooling.delete(`login:${provider}`)
+  // A new login may be a different (or topped-up) account: its old
+  // account-wide quota mark no longer says anything about it.
+  load()
+  let changed = false
+  for (const [key, mark] of exhausted) {
+    if (mark.scope === 'account' && key.startsWith(`${provider}\n`)) changed = exhausted.delete(key) || changed
+  }
+  if (changed) { persist(); changeSink?.() }
 }
 
 export function coolingUntil(entry: RotationEntry, now = Date.now()): number | null {
@@ -390,7 +400,10 @@ const FREE_TIER_RESET_MS = 7 * 24 * 60 * 60 * 1000
  */
 function expiryOf(mark: OutOfUsage, model: string): number {
   if (mark.resetAt !== undefined) return mark.resetAt
-  if (mark.scope === 'account') return Number.POSITIVE_INFINITY
+  // Never forever: with no reset reported, an account-wide mark used to stay
+  // for good (even across restarts and re-logins). A week covers the longest
+  // plan window; a still-empty account is simply marked again on its next try.
+  if (mark.scope === 'account') return mark.since + FREE_TIER_RESET_MS
   return mark.since + (/free/i.test(model) ? FREE_TIER_RESET_MS : DAILY_RESET_MS)
 }
 
@@ -424,9 +437,13 @@ export function markOutOfUsage(entry: RotationEntry, error: unknown, now = Date.
   changeSink?.()
 }
 
-/** It answered, so whatever ran out has been topped up. */
+/** It answered, so whatever ran out has been topped up, the account's too. */
 function markUsable(entry: RotationEntry): void {
-  if (!exhausted.delete(rotationKey(entry))) return
+  let changed = exhausted.delete(rotationKey(entry))
+  for (const [key, mark] of exhausted) {
+    if (mark.scope === 'account' && key.startsWith(`${entry.provider}\n`)) changed = exhausted.delete(key) || changed
+  }
+  if (!changed) return
   persist()
   changeSink?.()
 }
