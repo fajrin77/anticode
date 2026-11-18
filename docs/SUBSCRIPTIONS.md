@@ -397,12 +397,24 @@ Gemini CLI sendiri (`v1internal:streamGenerateContent?alt=sse`) dengan header
 Gemini CLI (`antigravityClient.ts`), jadi tidak perlu instalasi 9router; nilai
 `ANTICODE_GEMINI_CLIENT_ID`/`_SECRET` hanya menimpanya bila diisi.
 
+0.1.43 — dua koreksi setelah login nyata pada akun Google AI Plus:
+
+- `v1internal:fetchAvailableModels` menjawab **403** untuk akun konsumen (rute itu
+  untuk lisensi Code Assist), sehingga halaman Models kosong. Daftar model kini
+  berasal dari tabel Gemini CLI sendiri (`packages/core/src/config/models.js`:
+  `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.8-flash`,
+  `gemini-3.5-flash`, `gemini-3-flash`, `gemini-3-pro-preview`,
+  `gemini-3.1-pro-preview`, `gemini-2.5-*`, `gemma-4-*`, plus alias
+  `flash`/`flash-lite`/`pro`), dan hasil `fetchAvailableModels` digabungkan di
+  depannya bila akun memang melaporkannya.
+- Akun tanpa proyek managed menjalankan `v1internal:onboardUser` **satu kali**
+  (seperti run pertama CLI) untuk tier yang ditawarkan akun, lalu memakai proyek
+  managed yang Google berikan. Anticode tidak membuat proyek Cloud sendiri.
+
 Batas yang dijaga:
 
-- Katalog model diambil dari `v1internal:fetchAvailableModels` akun. Model
-  `gemini-*` non-embedding yang tidak `disabled`. Tidak ada alias karangan dan
-  tidak ada model yang tidak dilaporkan akun. `gemini-3.5-flash-lite` dan
-  `gemini-2.5-flash` hanya fallback offline sebelum katalog ditarik.
+- Tidak ada model karangan di luar tabel CLI dan laporan akun. Model yang ditolak
+  plan gagal sebagai penolakan plan, bukan dialihkan.
 - Tidak ada fallback ke key berbayar atau ke rute Antigravity. Turn yang
   ditolak plan (403/429) gagal sebagai penolakan plan (`ProviderRequestError`
   dengan kind `account`/`model`), bukan diam-diam dialihkan.

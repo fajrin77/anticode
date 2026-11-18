@@ -61,6 +61,8 @@ export class GeminiCliProvider implements LLMProvider {
       body: JSON.stringify({
         model: this.model,
         ...(project ? { project } : {}),
+        // The endpoint accepts one prompt id per turn and echoes it in traces.
+        user_prompt_id: randomUUID(),
         request: {
           contents: toContents(params.messages),
           systemInstruction: { parts: [{ text: params.system }] },

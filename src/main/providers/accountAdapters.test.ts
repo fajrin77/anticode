@@ -3,7 +3,7 @@ vi.mock('electron', () => ({ shell: { openExternal: vi.fn() } }))
 import { AntigravityProvider, antigravityResponse } from './antigravity'
 import { CursorCliProvider, parseCursorModels, parseCursorReply } from './cursorCli'
 import { antigravityModels, antigravityProject, refreshAntigravity } from '../auth/antigravity'
-import { geminiModels, refreshGemini } from '../auth/gemini'
+import { GEMINI_MODELS, geminiModels, geminiPlanInfo, refreshGemini } from '../auth/gemini'
 import { GeminiCliProvider } from './geminiCli'
 import { validCursorTokens } from '../auth/cursor'
 import type { ChatParams, ProviderEvent } from './types'
@@ -83,9 +83,33 @@ it('Gemini plan streams text and keeps whole function calls, without repeating t
   expect(request[0]).toContain('streamGenerateContent?alt=sse')
   expect(JSON.parse(request[1].body as string)).toMatchObject({ model: 'gemini-test', project: 'p', request: { generationConfig: { maxOutputTokens: 100 } } })
 })
-it('Gemini plan only offers chat models its catalogue reports, never embeddings', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: { 'gemini-3.5-flash-lite': {}, 'gemini-2.5-flash-lite': {}, 'gemini-embedding-001': {}, 'gemini-old': { disabled: true } } })))
-  expect(await geminiModels({ accessToken: 'fixture', meta: { project: 'p' } })).toEqual(['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite'])
+it('Gemini plan keeps the CLI model list when a consumer plan refuses the catalogue route', async () => {
+  // A Google AI Plus account gets 403 from fetchAvailableModels; that is not a
+  // reason to show an empty Models page.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"PERMISSION_DENIED"}', { status: 403 })))
+  const models = await geminiModels({ accessToken: 'fixture', meta: { project: 'p' } })
+  expect(models).toContain('gemini-3.5-flash-lite')
+  expect(models).toContain('gemini-3.5-flash')
+  expect(models.some((model) => model.includes('embedding'))).toBe(GEMINI_MODELS.some(() => false))
+})
+it('Gemini plan merges what the catalogue does report, without embeddings or disabled models', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: { 'gemini-9-pro': {}, 'gemini-embedding-001': {}, 'gemini-old': { disabled: true } } })))
+  const models = await geminiModels({ accessToken: 'fixture', meta: { project: 'p' } })
+  expect(models).toContain('gemini-9-pro')
+  expect(models).not.toContain('gemini-old')
+  expect(models.some((model) => model.includes('embedding'))).toBe(false)
+})
+it('Gemini plan onboards once when the plan has no project yet, and never invents one', async () => {
+  const calls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const method = String(url).split('v1internal:')[1] ?? ''
+    calls.push(method)
+    if (method === 'loadCodeAssist') return Response.json({ allowedTiers: [{ id: 'free-tier', name: 'Gemini Code Assist', isDefault: true }] })
+    if (method === 'onboardUser') return Response.json({ done: true, response: { cloudaicompanionProject: { id: 'managed-1' } } })
+    return new Response('{}', { status: 500, headers: { 'content-type': 'text/plain' } })
+  }))
+  expect(await geminiPlanInfo('fixture')).toEqual({ project: 'managed-1', tier: 'Gemini Code Assist' })
+  expect(calls).toEqual(['loadCodeAssist', 'onboardUser'])
 })
 it('Gemini plan refresh keeps the assigned project', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ access_token: 'renewed', expires_in: 3600 })))

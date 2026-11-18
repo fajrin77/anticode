@@ -9,9 +9,12 @@ import type { AuthLoginCallbacks, AuthTokens } from './types'
  * uses it: Google browser sign-in, then Google's own Cloud Code endpoint with
  * the account's plan. No API key, no billable Cloud project of our own.
  *
- * The plan is the account's, so nothing here invents extra access: the model
- * list comes from the account, and a turn the plan refuses fails as that plan
- * refuses it rather than falling back to a paid key.
+ * Two facts about this endpoint shape the code below. A consumer account gets
+ * 403 from the catalogue route (`fetchAvailableModels` is for Code Assist
+ * licences), so the model list comes from the Gemini CLI's own table; and a
+ * plan that was never assigned a project needs `onboardUser` once, which the
+ * CLI performs on first run. Only what the plan assigns is used: no project is
+ * created here and no turn is rerouted to a paid key.
  */
 
 export const GEMINI_CLOUD_BASE = 'https://cloudcode-pa.googleapis.com'
@@ -24,6 +27,30 @@ const SCOPES = [
 /** What the endpoint is told about the client; the CLI sends the same shape. */
 const CLIENT_METADATA = { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' }
 
+/**
+ * The chat models the Gemini CLI offers, with the names it gives them. These
+ * are its own ids (`packages/core/src/config/models.js`), plus the two aliases
+ * a person recognises from the Gemini app menu. A model is only run if the
+ * plan accepts it; the endpoint answers for itself when it does not.
+ */
+export const GEMINI_MODELS: { id: string; name: string }[] = [
+  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite' },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
+  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+  { id: 'gemini-3-flash', name: 'Gemini 3 Flash' },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview' },
+  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+  { id: 'gemma-4-31b-it', name: 'Gemma 4 31B' },
+  { id: 'gemma-4-26b-a4b-it', name: 'Gemma 4 26B A4B' },
+  { id: 'flash-lite', name: 'Flash Lite (alias)' },
+  { id: 'flash', name: 'Flash (alias)' },
+  { id: 'pro', name: 'Pro (alias)' }
+]
+
 export function geminiHeaders(token: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
@@ -31,6 +58,76 @@ export function geminiHeaders(token: string): Record<string, string> {
     'User-Agent': `anticode-gemini-adapter (${process.platform}; ${process.arch})`,
     'X-Goog-Api-Client': 'gl-node/22.19.0'
   }
+}
+
+async function callAssistant<T>(token: string, method: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${GEMINI_CLOUD_BASE}/v1internal:${method}`, {
+    method: 'POST',
+    headers: geminiHeaders(token),
+    body: JSON.stringify(body),
+    signal: signal ?? AbortSignal.timeout(20_000)
+  })
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)
+    throw Object.assign(new Error(`${method} failed (${response.status})${detail ? `: ${detail}` : ''}`), { status: response.status })
+  }
+  return await response.json() as T
+}
+
+interface Tier { id?: string; name?: string; isDefault?: boolean; hasOnboardedPreviously?: boolean }
+interface CodeAssist {
+  cloudaicompanionProject?: string | { id?: string }
+  currentTier?: Tier
+  paidTier?: Tier
+  allowedTiers?: Tier[]
+}
+interface Operation { done?: boolean; name?: string; response?: { cloudaicompanionProject?: { id?: string } } }
+
+/** The plan's managed project, when Google assigned one. It is never created here. */
+function projectOf(data: CodeAssist | undefined): string | undefined {
+  const project = typeof data?.cloudaicompanionProject === 'string' ? data.cloudaicompanionProject : data?.cloudaicompanionProject?.id
+  return project === '' ? undefined : project
+}
+
+async function loadCodeAssist(token: string, signal?: AbortSignal): Promise<CodeAssist | undefined> {
+  try { return await callAssistant<CodeAssist>(token, 'loadCodeAssist', { metadata: CLIENT_METADATA }, signal) } catch { return undefined }
+}
+
+/**
+ * The first run of the CLI on a plan that has no project yet: the endpoint
+ * onboards the account for the tier it offers, and answers with the managed
+ * project. The project stays Google's, not a Cloud project of this app's.
+ */
+async function onboard(token: string, tier: Tier | undefined, signal?: AbortSignal): Promise<string | undefined> {
+  if (!tier?.id) return undefined
+  const request = { tierId: tier.id, cloudaicompanionProject: undefined, metadata: CLIENT_METADATA }
+  let operation = await callAssistant<Operation>(token, 'onboardUser', request, signal).catch(() => undefined)
+  for (let attempt = 0; operation !== undefined && !operation.done && operation.name && attempt < 12; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5_000))
+    operation = await callAssistant<Operation>(token, `${operation.name}`.replace(/^\/+/, ''), undefined, signal).catch(() => undefined)
+  }
+  return operation?.response?.cloudaicompanionProject?.id
+}
+
+/** Project and plan for a signed-in account, onboarding once when needed. */
+export async function geminiPlanInfo(token: string, signal?: AbortSignal): Promise<{ project?: string; tier?: string }> {
+  const data = await loadCodeAssist(token, signal)
+  const tier = data?.paidTier ?? data?.currentTier
+  const assigned = projectOf(data)
+  if (assigned || data?.currentTier) return { ...(assigned ? { project: assigned } : {}), ...(tier?.name ?? tier?.id ? { tier: tier?.name ?? tier?.id } : {}) }
+  // No tier yet: the account has to be onboarded for the one it is offered.
+  const offered = data?.allowedTiers?.find((entry) => entry.isDefault) ?? data?.allowedTiers?.[0]
+  const created = await onboard(token, offered, signal)
+  return { ...(created ? { project: created } : {}), ...(offered?.name ?? offered?.id ? { tier: offered?.name ?? offered?.id } : {}) }
+}
+
+export async function geminiProject(token: string, signal?: AbortSignal): Promise<string | undefined> {
+  return (await geminiPlanInfo(token, signal)).project
+}
+
+/** What the account's plan is called, for the Usage panel. */
+export async function geminiPlan(token: string, signal?: AbortSignal): Promise<string | undefined> {
+  return (await geminiPlanInfo(token, signal)).tier
 }
 
 async function exchange(body: URLSearchParams, signal?: AbortSignal): Promise<AuthTokens> {
@@ -48,42 +145,8 @@ async function exchange(body: URLSearchParams, signal?: AbortSignal): Promise<Au
   }
 }
 
-interface CodeAssist {
-  cloudaicompanionProject?: string | { id?: string }
-  currentTier?: { id?: string; name?: string }
-  allowedTiers?: { id?: string; name?: string; isDefault?: boolean }[]
-}
-
-async function loadCodeAssist(token: string, signal?: AbortSignal): Promise<CodeAssist | undefined> {
-  try {
-    const response = await fetch(`${GEMINI_CLOUD_BASE}/v1internal:loadCodeAssist`, {
-      method: 'POST',
-      headers: geminiHeaders(token),
-      body: JSON.stringify({ metadata: CLIENT_METADATA, mode: 1 }),
-      signal: signal ?? AbortSignal.timeout(20_000)
-    })
-    return response.ok ? await response.json() as CodeAssist : undefined
-  } catch { return undefined }
-}
-
-/** The plan's managed project, when Google assigned one. It is never created here. */
-function projectOf(data: CodeAssist | undefined): string | undefined {
-  const project = typeof data?.cloudaicompanionProject === 'string' ? data.cloudaicompanionProject : data?.cloudaicompanionProject?.id
-  return project === '' ? undefined : project
-}
-
-export async function geminiProject(token: string, signal?: AbortSignal): Promise<string | undefined> {
-  return projectOf(await loadCodeAssist(token, signal))
-}
-
-/** What the account's plan is called, for the Usage panel. */
-export async function geminiPlan(token: string, signal?: AbortSignal): Promise<string | undefined> {
-  const data = await loadCodeAssist(token, signal)
-  return data?.currentTier?.name ?? data?.currentTier?.id
-}
-
 export async function loginGemini(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
-  const CLIENT_ID = geminiOAuthClient().id
+  const client = geminiOAuthClient()
   const verifier = makeVerifier()
   const state = makeState()
   const controller = new AbortController()
@@ -96,7 +159,7 @@ export async function loginGemini(callbacks: AuthLoginCallbacks): Promise<AuthTo
       onListening: () => {
         const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
         for (const [key, value] of Object.entries({
-          client_id: CLIENT_ID,
+          client_id: client.id,
           redirect_uri: REDIRECT,
           response_type: 'code',
           scope: SCOPES,
@@ -115,9 +178,9 @@ export async function loginGemini(callbacks: AuthLoginCallbacks): Promise<AuthTo
     const identity = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', { headers: { Authorization: `Bearer ${tokens.accessToken}` }, signal })
     if (!identity.ok) throw new Error(`Google identity lookup failed (${identity.status})`)
     const user = await identity.json() as { email?: string }
-    const project = await geminiProject(tokens.accessToken, signal)
-    tokens.meta = { account: user.email ?? 'Gemini', ...(project ? { project } : {}) }
-    callbacks.onUpdate({ message: 'Signed in', done: true })
+    const plan = await geminiPlanInfo(tokens.accessToken, signal)
+    tokens.meta = { account: user.email ?? 'Gemini', ...(plan.project ? { project: plan.project } : {}), ...(plan.tier ? { plan: plan.tier } : {}) }
+    callbacks.onUpdate({ message: `Signed in${plan.tier ? ` · ${plan.tier}` : ''}`, done: true })
     return tokens
   } finally { controller.abort() }
 }
@@ -129,23 +192,23 @@ export async function refreshGemini(tokens: AuthTokens): Promise<AuthTokens> {
 }
 
 /**
- * The models this plan may run. Gemini's own list also carries embeddings and
- * internal routes; only the chat families Anticode can drive are kept.
+ * The models this account can pick from. Consumer plans answer 403 on the
+ * Code Assist catalogue route, so the CLI's table is the list; whatever the
+ * endpoint does report, when it does, is merged in front of it.
  */
 export async function geminiModels(tokens: AuthTokens): Promise<string[]> {
   const project = tokens.meta?.project ?? await geminiProject(tokens.accessToken)
-  const response = await fetch(`${GEMINI_CLOUD_BASE}/v1internal:fetchAvailableModels`, {
-    method: 'POST',
-    headers: geminiHeaders(tokens.accessToken),
-    body: JSON.stringify(project ? { project } : {}),
-    signal: AbortSignal.timeout(20_000)
-  })
-  if (!response.ok) throw new Error(`Gemini models unavailable (${response.status})`)
-  const data = await response.json() as { models?: Record<string, { disabled?: boolean } | undefined> }
-  const models = Object.entries(data.models ?? {})
-    .filter(([id, value]) => id.startsWith('gemini-') && !id.includes('embedding') && value?.disabled !== true)
-    .map(([id]) => id)
-    .sort((a, b) => a.localeCompare(b))
-  if (!models.length) throw new Error('This Gemini plan reported no usable Gemini models')
-  return models
+  let reported: string[] = []
+  try {
+    const data = await callAssistant<{ models?: Record<string, { disabled?: boolean } | undefined> }>(
+      tokens.accessToken,
+      'fetchAvailableModels',
+      project ? { project } : {}
+    )
+    reported = Object.entries(data.models ?? {})
+      .filter(([id, value]) => id.includes('gemini') && !id.includes('embedding') && value?.disabled !== true)
+      .map(([id]) => id)
+  } catch { /* A plan without the Code Assist licence keeps the CLI's list. */ }
+  const ids = [...new Set([...reported, ...GEMINI_MODELS.map((model) => model.id)])]
+  return ids.sort((a, b) => a.localeCompare(b))
 }
