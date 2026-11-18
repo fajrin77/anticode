@@ -386,3 +386,48 @@ dilayani.
 Bukti: fixture `flows.test.ts` (PKCE, callback loopback, kode palsu, pembatalan),
 `auth.test.ts` (katalog hanya `-free`, penolakan model berbayar sebelum kirim),
 `failures.test.ts` (429 gratis bukan transient). Tidak ada benchmark coding.
+
+## Gemini plan (Google AI Plus/Pro) via Gemini CLI — 12 November 2026
+
+Akun `gemini` adalah langganan Gemini app, bukan API key. Alurnya sama seperti
+Antigravity: sign-in Google di browser (`http://localhost:8085/oauth-callback`,
+PKCE), token disegel, lalu inferensi memakai endpoint Cloud Code yang dipakai
+Gemini CLI sendiri (`v1internal:streamGenerateContent?alt=sse`) dengan header
+`Authorization: Bearer`. Client OAuth yang dipakai adalah client publik milik
+Gemini CLI (`antigravityClient.ts`), jadi tidak perlu instalasi 9router; nilai
+`ANTICODE_GEMINI_CLIENT_ID`/`_SECRET` hanya menimpanya bila diisi.
+
+Batas yang dijaga:
+
+- Katalog model diambil dari `v1internal:fetchAvailableModels` akun. Model
+  `gemini-*` non-embedding yang tidak `disabled`. Tidak ada alias karangan dan
+  tidak ada model yang tidak dilaporkan akun. `gemini-3.5-flash-lite` dan
+  `gemini-2.5-flash` hanya fallback offline sebelum katalog ditarik.
+- Tidak ada fallback ke key berbayar atau ke rute Antigravity. Turn yang
+  ditolak plan (403/429) gagal sebagai penolakan plan (`ProviderRequestError`
+  dengan kind `account`/`model`), bukan diam-diam dialihkan.
+- Proyek managed dipakai kalau Google sudah memberikannya
+  (`loadCodeAssist`); Anticode tidak membuat proyek Cloud yang bisa menagih.
+- Panel Usage hanya menampilkan tier plan. Endpoint CLI tidak memberi jendela
+  kuota bersama, jadi statusnya `unavailable` dengan penjelasan, bukan angka
+  rekaan.
+- Adapter mengalirkan teks per delta dan mengirim panggilan fungsi utuh di akhir
+  turn; teks tidak dikirim dua kali.
+
+Verifikasi: fixture `accountAdapters.test.ts` (SSE berlapis `{response}`,
+functionCall utuh, teks tidak dobel, katalog tanpa embedding/disabled, refresh
+mempertahankan project). Tidak ada probe akun Gemini nyata pada perubahan ini,
+jadi akses model `gemini-3.5-flash-lite` dan model lain di plan tertentu belum
+terbukti di sini — yang terbukti hanya bentuk request/parse. Nama model
+"Gemini 4 Hydrogen" tidak ada di katalog Google maupun di metadata CLI,
+jadi tidak dikarang di kode.
+
+## Browser pane yang dibuka otomatis menutup sendiri
+
+Kalau agent yang membuka pane (tool browser atau dev server yang dilaporkan
+`run_command`), pane itu disembunyikan otomatis setelah 10 detik kecuali
+pengguna menyentuhnya lebih dulu: membuka pane dari ikon, berpindah tab, atau
+membuka halaman sendiri. Menyembunyikan, bukan menghapus, jadi halaman dan
+tabnya masih ada saat ikon browser diklik. Pengguna yang menyembunyikan pane
+melepas klaimnya, sehingga halaman otomatis berikutnya boleh menutup sendiri
+lagi. Bukti: `web.test.ts` (dua kasus timer baru).

@@ -2,7 +2,7 @@ import sharp from 'sharp'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { clearNetworkRecords, networkRecords, requirePage, withPage } from '../browser'
-import { noteWebUrl } from '../web'
+import { noteWebAutoOpen, noteWebUrl } from '../web'
 
 const MAX_TEXT = 20_000
 const MAX_IMAGE_EDGE = 1568
@@ -99,6 +99,8 @@ export const browserNavigateTool = defineTool({
         const title = await page.title()
         // The pane beside the transcript follows the agent's page, so opening
         // one here is what puts it on screen.
+        // Unless the user takes the pane, it folds away again on its own.
+        if (context.sessionId) noteWebAutoOpen(context.sessionId)
         noteWebUrl(context.sessionId, page.url(), title)
         return `Opened: ${page.url()} (HTTP ${response?.status() ?? 'unknown'})\nTitle: ${title}`
       } catch (error) {

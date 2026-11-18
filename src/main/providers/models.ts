@@ -115,7 +115,7 @@ async function fetchModelList(id: ProviderId): Promise<string[]> {
   // catalogue, and it is written down next to the adapter that uses it.
   if (id.startsWith('auth:') || getAuthAccount(id)) {
     const account = getAuthAccount(id)
-    if (account && (isDirectAuthKind(account.kind) || ['copilot', 'cursor', 'antigravity'].includes(account.kind))) {
+    if (account && (isDirectAuthKind(account.kind) || ['copilot', 'cursor', 'antigravity', 'gemini'].includes(account.kind))) {
       const models = await fetchDirectAccountCatalogue(id)
       return models
     }

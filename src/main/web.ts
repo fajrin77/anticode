@@ -36,6 +36,50 @@ export function setWebCloser(next: (sessionId: string) => void): void {
   closer = next
 }
 
+/**
+ * How long a pane the agent opened on its own waits before it folds away. A
+ * page opened while it works must not sit in front of the conversation once
+ * the user has clearly ignored it, and nobody should have to close it by hand.
+ */
+export const AUTO_CLOSE_MS = 10_000
+
+const autoCloseTimers = new Map<string, ReturnType<typeof setTimeout>>()
+/**
+ * Panes the user has worked with since they appeared. A pane the user opened
+ * or clicked in is theirs, and the agent's next page must not close it.
+ */
+const engaged = new Set<string>()
+
+function cancelAutoClose(sessionId: string): void {
+  const timer = autoCloseTimers.get(sessionId)
+  if (timer === undefined) return
+  clearTimeout(timer)
+  autoCloseTimers.delete(sessionId)
+}
+
+function touch(sessionId: string): void {
+  cancelAutoClose(sessionId)
+  engaged.add(sessionId)
+}
+
+/**
+ * The agent put a page on screen by itself. Unless the user does something
+ * with the pane first, it hides itself after AUTO_CLOSE_MS; hiding, not
+ * forgetting, so the page and its tabs are still there to bring back.
+ */
+export function noteWebAutoOpen(sessionId: string | undefined): void {
+  if (sessionId === undefined || sessionId === '' || engaged.has(sessionId)) return
+  cancelAutoClose(sessionId)
+  const timer = setTimeout(() => {
+    autoCloseTimers.delete(sessionId)
+    const record = pages.get(sessionId)
+    if (record === undefined || record.hidden || engaged.has(sessionId)) return
+    commit(sessionId, { ...record, hidden: true })
+  }, AUTO_CLOSE_MS)
+  timer.unref?.()
+  autoCloseTimers.set(sessionId, timer)
+}
+
 export function listWeb(): WebSession[] {
   return [...pages.entries()].map(([sessionId, record]) => ({ sessionId, ...record }))
 }
@@ -177,6 +221,7 @@ export function noteWebUrl(sessionId: string | undefined, url: string, title = '
  */
 export function openWeb(sessionId: string, url: string, tabId?: string, title?: string): void {
   if (sessionId === '') return
+  touch(sessionId)
   const next = withScheme(url)
   if (next !== '' && !usable(next)) return
   const existing = pages.get(sessionId)
@@ -268,6 +313,13 @@ export function selectWebTab(sessionId: string, tabId: string): void {
 }
 
 export function setWebVisible(sessionId: string, visible: boolean): void {
+  // Showing is the user taking the pane; hiding is them done with it, and a
+  // page the agent opens later may fold away again on its own.
+  if (visible) touch(sessionId)
+  else {
+    cancelAutoClose(sessionId)
+    engaged.delete(sessionId)
+  }
   const existing = pages.get(sessionId)
   if (existing === undefined) {
     if (visible) commit(sessionId, blank())

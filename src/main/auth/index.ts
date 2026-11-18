@@ -6,6 +6,7 @@ import { loginKilo } from './kilo'
 import { loginCopilot } from './copilot'
 import { loginCursor } from './cursor'
 import { loginAntigravity } from './antigravity'
+import { loginGemini } from './gemini'
 import { loginVercel } from './vercel'
 import { loginOrcaRouter } from './orcarouter'
 import { loginMiniMaxPlan } from './minimaxPlan'
@@ -75,6 +76,7 @@ export const AUTH_KIND_LABELS: Record<AuthKind, string> = {
   copilot: 'GitHub Copilot',
   cursor: 'Cursor',
   antigravity: 'Antigravity',
+  gemini: 'Gemini',
   openrouter: 'OpenRouter Free',
   orcarouter: 'OrcaRouter Free',
   codex: 'ChatGPT (Codex)',
@@ -118,6 +120,7 @@ function runLogin(kind: AuthKind, callbacks: AuthLoginCallbacks): Promise<AuthTo
     case 'copilot': return loginCopilot(callbacks)
     case 'cursor': return loginCursor(callbacks)
     case 'antigravity': return loginAntigravity(callbacks)
+    case 'gemini': return loginGemini(callbacks)
     case 'deepseek': return loginDeepSeek(callbacks, deepSeekDeviceId())
   }
 }
@@ -127,7 +130,8 @@ function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
   switch (kind) {
     case 'cursor':
     case 'copilot':
-    case 'antigravity': return tokens.meta?.account
+    case 'antigravity':
+    case 'gemini': return tokens.meta?.account
     case 'minimax-plan': return undefined
     case 'kilo': return tokens.meta?.email || undefined
     case 'openrouter': return undefined

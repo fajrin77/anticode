@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 import { isDestructiveCommand } from '../approval/policy'
-import { noteWebUrl } from '../web'
+import { noteWebAutoOpen, noteWebUrl } from '../web'
 
 const MAX_STREAM_CHARS = 10_000
 
@@ -176,7 +176,10 @@ export const runCommandTool = defineTool({
       : `exit code ${outcome.code ?? 'unknown'}`
 
     const served = localServerUrl(`${outcome.stdout}\n${outcome.stderr}`)
-    if (served !== null) noteWebUrl(context.sessionId, served)
+    if (served !== null) {
+      noteWebUrl(context.sessionId, served)
+      if (context.sessionId) noteWebAutoOpen(context.sessionId)
+    }
 
     const sections = [`$ ${input.command}`, `[${status}]`]
     if (outcome.stdout.trim() !== '') sections.push(`stdout:\n${outcome.stdout.trimEnd()}`)

@@ -3,6 +3,7 @@ import type { SubscriptionQuota } from '@shared/ipc'
 import { listAuthAccounts } from './auth/store'
 import { ensureFreshAuthTokens } from './auth/provider'
 import { readClaudeAccess, recordClaudeAccess, parseClaudeAccess } from './auth/claudeAccess'
+import { geminiPlan } from './auth/gemini'
 import { listProviders } from './providers'
 import type { AuthAccount } from './auth/types'
 
@@ -47,7 +48,7 @@ export function parseClaudeQuota(profile: unknown, usage: unknown): Pick<Subscri
 async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
   const key = JSON.stringify([account.id, account.createdAt, account.account])
   const base = { provider: account.id, label: account.label, authKind: account.kind, ...(account.account ? { account: account.account } : {}), checkedAt: Date.now() }
-  if (account.kind !== 'claude' && account.kind !== 'codex' && account.kind !== 'clinepass') return { ...base, status: 'unsupported', windows: [], error: 'Plan limit data is not available for this service yet.' }
+  if (account.kind !== 'claude' && account.kind !== 'codex' && account.kind !== 'clinepass' && account.kind !== 'gemini') return { ...base, status: 'unsupported', windows: [], error: 'Plan limit data is not available for this service yet.' }
   const previous = cache.get(key)
   if (previous && previous.retryAt > Date.now()) return { ...previous.value, label: account.label }
   const existing = pending.get(key)
@@ -58,6 +59,11 @@ async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
       if (account.kind === 'clinepass') {
         const windows = parseClinePassQuota(await readClinePassUsage(tokens))
         return { ...base, windows, plan: 'ClinePass', status: windows.length ? 'ok' : 'unavailable', checkedAt: Date.now(), ...(windows.length ? {} : { error: 'ClinePass returned no plan limits. Connect the account with Sign in under Auth provider.' }) }
+      }
+      if (account.kind === 'gemini') {
+        // Only the plan is published; per-model windows are not a shared limit here.
+        const plan = await geminiPlan(tokens.accessToken).catch(() => undefined)
+        return { ...base, windows: [], ...(plan ? { plan } : {}), status: 'unavailable', checkedAt: Date.now(), error: 'This Google plan reports its tier but no shared limit windows through the CLI endpoint. A turn refused by the plan is stopped, never rerouted to a paid key.' }
       }
       if (account.kind === 'claude') {
         const raw = await readClaudeAccess(tokens)

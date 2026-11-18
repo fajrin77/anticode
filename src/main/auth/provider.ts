@@ -9,8 +9,10 @@ import { ORCAROUTER_BASE } from './orcarouter'
 import { COPILOT_BASE, COPILOT_HEADERS } from './copilot'
 import { validCursorTokens } from './cursor'
 import { refreshAntigravity } from './antigravity'
+import { refreshGemini } from './gemini'
 import { CursorCliProvider } from '../providers/cursorCli'
 import { AntigravityProvider } from '../providers/antigravity'
+import { GeminiCliProvider } from '../providers/geminiCli'
 import { failureStatus, isTransient } from '../providers/failures'
 import { ProviderRequestError } from '../providers/requestError'
 import { clearLoginCooldown } from '../rotation'
@@ -59,6 +61,8 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   copilot: [''],
   cursor: [''],
   antigravity: [''],
+  // Offline fallback only; the signed-in plan's catalogue is what runs.
+  gemini: ['gemini-3.5-flash-lite', 'gemini-2.5-flash'],
   'minimax-plan': MINIMAX_PLAN_MODELS,
   kilo: ['nvidia/nemotron-3.5-lightning:free'],
   // Only free routes; the live catalogue adds whatever else the key allows.
@@ -91,6 +95,7 @@ export const AUTH_DEFAULT_MODELS: Record<AuthKind, string> = {
   copilot: '',
   cursor: '',
   antigravity: '',
+  gemini: 'gemini-3.5-flash-lite',
   'minimax-plan': MINIMAX_PLAN_MODELS[0],
   kilo: AUTH_MODELS.kilo[0],
   vercel: AUTH_MODELS.vercel[0],
@@ -130,6 +135,7 @@ async function refresh(kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> 
     case 'copilot': return tokens
     case 'cursor': return validCursorTokens(tokens)
     case 'antigravity': return refreshAntigravity(tokens)
+    case 'gemini': return refreshGemini(tokens)
     case 'codebuddy': return refreshCodebuddy(tokens)
     // The Platform grant has no refresh endpoint; a 401 asks for a new sign-in.
     case 'deepseek': return tokens
@@ -212,6 +218,7 @@ const AUTH_KIND_NAMES: Record<AuthKind, string> = {
   'minimax-plan': 'MiniMax Token Plan',
   cursor: 'Cursor',
   antigravity: 'Antigravity',
+  gemini: 'Gemini',
   kilo: 'Kilo',
   vercel: 'Vercel AI Gateway',
   openrouter: 'OpenRouter',
@@ -244,7 +251,7 @@ class AuthProvider implements LLMProvider {
   private async client(force = false, sessionId?: string, signal?: AbortSignal): Promise<LLMProvider> {
     const requested = this.model || AUTH_DEFAULT_MODELS[this.kind]
     if (isDirectAuthKind(this.kind) && (!requested || !authModelsFor(this.id, this.kind).includes(requested))) throw new ProviderRequestError('Refresh the API-key account catalogue and select an available model.', 400)
-    if (['cursor', 'antigravity'].includes(this.kind) && (!requested || !authModelsFor(this.id, this.kind).includes(requested))) throw new ProviderRequestError('Refresh the account model catalogue and select an available model.', 400)
+    if (['cursor', 'antigravity', 'gemini'].includes(this.kind) && (!requested || !authModelsFor(this.id, this.kind).includes(requested))) throw new ProviderRequestError('Refresh the account model catalogue and select an available model.', 400)
     if (this.kind === 'copilot' && (!requested || !authModelsFor(this.id, 'copilot').includes(requested))) throw new ProviderRequestError('Select a model reported by this GitHub Copilot account. Refresh the model catalogue first.', 400)
     if ((['claude', 'codex', 'codebuddy', 'opencode-go'] as AuthKind[]).includes(this.kind) && (!authModelsFor(this.id, this.kind).includes(requested) || (this.kind === 'claude' && !requested.startsWith('claude-')))) {
       throw new ProviderRequestError('The selected model is not in this account’s catalogue. Choose a supported model; saved Rotate entries do not grant model access.', 400)
@@ -293,6 +300,7 @@ class AuthProvider implements LLMProvider {
         return new ClaudeCodeProvider(this.id, model, tokens.accessToken)
       case 'cursor': return new CursorCliProvider(validCursorTokens(tokens).accessToken, model)
       case 'antigravity': return new AntigravityProvider(tokens, model)
+      case 'gemini': return new GeminiCliProvider(tokens, model)
       case 'clinepass':
       case 'cline':
         return new OpenAICompatibleProvider('cline', model, {

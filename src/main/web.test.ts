@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AUTO_CLOSE_MS,
   activeWebUrl,
   addWebTab,
   clearWeb,
   closeWebTab,
   listWeb,
+  noteWebAutoOpen,
   noteWebUrl,
   openWeb,
   reportWebTab,
@@ -30,6 +32,41 @@ describe('browser pane state', () => {
     setWebSink(() => {})
     setWebCloser(() => {})
     for (const entry of listWeb()) clearWeb(entry.sessionId)
+  })
+
+  it('folds an agent-opened pane away after ten seconds nobody touched it', () => {
+    vi.useFakeTimers()
+    try {
+      noteWebUrl(SESSION, 'http://localhost:5173/', 'Dev')
+      noteWebAutoOpen(SESSION)
+      vi.advanceTimersByTime(AUTO_CLOSE_MS - 1)
+      expect(webRecord(SESSION)?.hidden).toBe(false)
+      vi.advanceTimersByTime(1)
+      expect(webRecord(SESSION)?.hidden).toBe(true)
+      // Hiding keeps the page, so the browser icon brings it straight back.
+      expect(urls()).toEqual(['http://localhost:5173/'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves an ignored pane alone once the user has taken it, and starts over after hiding', () => {
+    vi.useFakeTimers()
+    try {
+      setWebVisible(SESSION, true)
+      noteWebUrl(SESSION, 'http://localhost:5173/', 'Dev')
+      noteWebAutoOpen(SESSION)
+      vi.advanceTimersByTime(AUTO_CLOSE_MS * 2)
+      expect(webRecord(SESSION)?.hidden).toBe(false)
+      // The user hides it, so the next page the agent opens may fold away again.
+      setWebVisible(SESSION, false)
+      noteWebUrl(SESSION, 'http://localhost:5173/orders')
+      noteWebAutoOpen(SESSION)
+      vi.advanceTimersByTime(AUTO_CLOSE_MS)
+      expect(webRecord(SESSION)?.hidden).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('opens a pane with one tab when the agent navigates', () => {

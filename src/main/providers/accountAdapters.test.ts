@@ -3,6 +3,8 @@ vi.mock('electron', () => ({ shell: { openExternal: vi.fn() } }))
 import { AntigravityProvider, antigravityResponse } from './antigravity'
 import { CursorCliProvider, parseCursorModels, parseCursorReply } from './cursorCli'
 import { antigravityModels, antigravityProject, refreshAntigravity } from '../auth/antigravity'
+import { geminiModels, refreshGemini } from '../auth/gemini'
+import { GeminiCliProvider } from './geminiCli'
 import { validCursorTokens } from '../auth/cursor'
 import type { ChatParams, ProviderEvent } from './types'
 
@@ -62,4 +64,33 @@ it('Cursor image requests fail explicitly before running a native process', asyn
   input.messages = [{ role: 'user', content: [{ type: 'image', data: 'fixture', mediaType: 'image/png' }] }]
   const iterator = new CursorCliProvider('fixture', 'test').chat(input)
   await expect(iterator.next()).rejects.toThrow('text and tool')
+})
+it('Gemini plan streams text and keeps whole function calls, without repeating the text', async () => {
+  const sse = [
+    'data: {"response":{"candidates":[{"content":{"parts":[{"text":"rea"}]}}]}}',
+    'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ding"}]}}]}}',
+    'data: {"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"a"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3}}}'
+  ].join('\n\n') + '\n\n'
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(sse, { headers: { 'content-type': 'text/event-stream' } })))
+  const events: ProviderEvent[] = []
+  for await (const e of new GeminiCliProvider({ accessToken: 'fixture', meta: { project: 'p' } }, 'gemini-test').chat(params())) events.push(e)
+  expect(events.filter((e) => e.type === 'text_delta').map((e) => (e as { text: string }).text).join('')).toBe('reading')
+  const response = events.at(-1) as { type: string; response: { content: unknown[]; usage: unknown } }
+  expect(response.type).toBe('response')
+  expect(response.response.content).toEqual([{ type: 'tool_use', id: expect.stringMatching(/^gen-/), name: 'read_file', input: { path: 'a' } }])
+  expect(response.response.usage).toEqual({ inputTokens: 7, outputTokens: 3, cachedTokens: 0 })
+  const request = (vi.mocked(fetch).mock.calls[0] as unknown as [string, RequestInit])
+  expect(request[0]).toContain('streamGenerateContent?alt=sse')
+  expect(JSON.parse(request[1].body as string)).toMatchObject({ model: 'gemini-test', project: 'p', request: { generationConfig: { maxOutputTokens: 100 } } })
+})
+it('Gemini plan only offers chat models its catalogue reports, never embeddings', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: { 'gemini-3.5-flash-lite': {}, 'gemini-2.5-flash-lite': {}, 'gemini-embedding-001': {}, 'gemini-old': { disabled: true } } })))
+  expect(await geminiModels({ accessToken: 'fixture', meta: { project: 'p' } })).toEqual(['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite'])
+})
+it('Gemini plan refresh keeps the assigned project', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ access_token: 'renewed', expires_in: 3600 })))
+  const result = await refreshGemini({ accessToken: 'fixture', refreshToken: 'fixture-refresh', meta: { project: 'p' } })
+  expect(result.accessToken).toBe('renewed')
+  expect(result.refreshToken).toBe('fixture-refresh')
+  expect(result.meta?.project).toBe('p')
 })
