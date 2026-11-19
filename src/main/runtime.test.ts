@@ -790,6 +790,20 @@ it('allows bounded in-run retry after a single account transport failure instead
   expect(agentOf('single-transport').provider.name).toBe('auth:codex-only')
 })
 
+it.each([['claude', 'claude-opus-5-5'], ['codex', 'same'], ['gemini', 'same']])('reports the %s account really serving the session, not a stored one switched off', (kind, model) => {
+  const account = (n: number, visible: boolean): ProviderInfo => ({ id: `auth:${kind}-${n}`, label: kind, kind: 'auth', authKind: kind as NonNullable<ProviderInfo['authKind']>, models: [model], defaultModel: model, credentialAvailable: true, configured: true, credentialHint: '', composerVisible: visible })
+  extra.providers = [account(1, true), account(2, true)]
+  createSession({ sessionId: `serving-${kind}`, mode: 'chat', workspaceRoot: null })
+  selectProvider({ provider: `auth:${kind}-2`, model }, `serving-${kind}`)
+  expect(getStatus(`serving-${kind}`).provider).toBe(`auth:${kind}-2`)
+  // Account 2 switched off in Composer: the status follows the enabled account
+  // before any turn runs, and after one runs on it.
+  extra.providers = [account(1, true), account(2, false)]
+  expect(getStatus(`serving-${kind}`).provider).toBe(`auth:${kind}-1`)
+  expect(agentOf(`serving-${kind}`).provider.name).toBe(`auth:${kind}-1`)
+  expect(getStatus(`serving-${kind}`).provider).toBe(`auth:${kind}-1`)
+})
+
 it('leaves rotation for the picked session only, and the others keep rotating', () => {
   applyRotation([{ provider: 'one', model: 'm1' }, { provider: 'two', model: 'm2' }])
   createSession({ sessionId: 'a', mode: 'chat', workspaceRoot: null })
