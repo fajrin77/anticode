@@ -870,10 +870,24 @@ function readiness(
   return { providerReady: blockedReason === null, blockedReason }
 }
 
+/**
+ * The account a subscription session is really on: the one that served its
+ * last turn, else the stored one while it is still enabled in Composer, else
+ * the first enabled account. Plan usage reads this, not the stale stored id.
+ */
+function servingAccount(choice: ProviderSelection, live: LiveSession, providers: Providers): ProviderSelection {
+  if (!isAuthId(choice.provider)) return choice
+  const candidates = accountCandidates(choice, providers)
+  const used = live.selection?.provider
+  if (used !== undefined && candidates.some((entry) => entry.provider === used)) return { ...choice, provider: used }
+  if (candidates.some((entry) => entry.provider === choice.provider)) return choice
+  return candidates[0] ?? choice
+}
+
 function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
   const choice = oneShotChoices.get(live.spec.sessionId) ?? effective(choiceOf(live), live.pinned === true)
   return {
-    ...choice,
+    ...servingAccount(choice, live, providers),
     ...readiness(choice, providers, live.rotationGroupId),
     rotationGroup: live.rotationGroupId === undefined ? activeRotationGroupId() : live.rotationGroupId,
     lastUsed: choice.provider === ROTATE_PROVIDER && live.selection !== undefined ? { ...live.selection } : null
