@@ -1,6 +1,6 @@
 {
   "name": "anticode",
-  "version": "0.1.47",
+  "version": "0.1.48",
   "description": "Free desktop AI coding agent that runs on your ChatGPT and Claude subscriptions and API keys, rotating across many accounts and providers. No GPU needed.",
   "keywords": [
     "ai-coding-agent",
