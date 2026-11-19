@@ -2,118 +2,122 @@
 
 **Don't pay, just vibes.**
 
-A desktop coding agent that runs on the accounts you already have: your ChatGPT and Claude
-subscriptions, plus the free tiers of other providers. No Anticode account, no sign-up, no
-middleman service, no API bill. Install, connect your providers, and work.
-Everything runs directly from your machine, with file, terminal, browser, and document tools
-working inside your project, plus control from your phone.
+**anticode is a free, open-source desktop AI coding agent (macOS and Windows) that runs on the
+subscriptions and API keys you already have, and rotates across them automatically.** Sign in
+with your ChatGPT (Codex) and Claude plans, add API keys from OpenRouter, Kilo, Vercel AI
+Gateway, MiniMax, OpenCode, Cline, Ollama, or any OpenAI-compatible endpoint, and anticode
+spreads each prompt across all of those accounts. No anticode account, no middleman server,
+no extra API bill.
 
-**Why Anticode**
+[Download the latest release](https://github.com/fajrin77/anticode/releases/latest) | MIT license | Electron + React + TypeScript
 
-- **Your ChatGPT and Claude subscriptions.** Sign in through Auth provider and Anticode uses the
-  quota of the plan you already have. No separate API billing, and no silent fallback to a paid route.
-- **Dozens of accounts and providers, one pool.** Add as many accounts per service as you need,
-  and free keys from the other providers alongside them. Rotate usage picks an eligible account
-  for each new prompt by how busy it is and how much it has used.
-- **Usage control you can see.** Per-account quota windows and reset times as reported by the
-  provider, a live routing map of the provider group serving requests, and local token and cost
-  history kept separate from subscription quota.
-- **Private by design.** Credentials live in your OS secure storage; provider and auth settings
-  stay on your device.
+## Why anticode
 
-Subscription access follows each provider's own terms. Anticode does not promise unlimited usage.
+| | What you get |
+|---|---|
+| **Use your subscription plans** | Log in with ChatGPT (Codex) and Claude through **Auth provider**. Requests spend the quota of the plan you already pay for, not a separate API balance. |
+| **Rotate many subscription accounts** | Add several accounts per service. **Rotate usage** picks an eligible account for every new prompt based on how busy it is and how much it has used. |
+| **Rotate many API keys per provider** | Store multiple keys per provider (**Edit -> Add API keys**). Keys share one model list and are rotated the same way, alongside free tiers from other providers. |
+| **No silent paid fallback** | **Subscription routing** keeps automatic routing inside subscription and free sources. anticode never switches to a paid API behind your back. |
+| **Light on your machine** | Models run at the provider, so no local GPU, model download, or VRAM is needed. The app is a single desktop window plus a small menu bar helper. |
+| **Simple interface** | One dashboard, two modes (*antichat* for questions, *anticode* for a project folder), one composer. Per-account quota and reset times are visible at a glance. |
+| **Private by design** | Direct connection from your device to each provider. Credentials are encrypted in OS secure storage (Keychain / DPAPI) and never written to disk in plain text. |
 
-## Unduh
+Subscription access follows each provider's own terms. anticode does not promise unlimited usage.
 
-Ambil build terbaru dari halaman [Releases](https://github.com/fajrin77/anticode/releases/latest), lalu pilih berkas sesuai sistem operasi:
+## Download
 
-| Sistem | Berkas | Keterangan |
+Get the latest build from [Releases](https://github.com/fajrin77/anticode/releases/latest):
+
+| System | File | Notes |
 |---|---|---|
-| macOS (Apple Silicon) | `anticode-<versi>-arm64.dmg` | Buka, lalu drag anticode ke Applications |
-| macOS (Apple Silicon, zip) | `anticode-<versi>-arm64-mac.zip` | Alternatif tanpa mount dmg |
-| Windows (64-bit) | `anticode Setup <versi>.exe` | Installer NSIS, jalankan langsung |
+| macOS (Apple Silicon) | `anticode-<version>-arm64.dmg` | Open, then drag anticode to Applications |
+| macOS (Apple Silicon, zip) | `anticode-<version>-arm64-mac.zip` | Alternative without mounting the dmg |
+| Windows (64-bit) | `anticode Setup <version>.exe` | NSIS installer |
 
-Setiap release juga memuat `latest-mac.yml` (macOS) dan `latest.yml` (Windows). Kedua berkas itulah yang dibaca updater untuk menawarkan versi baru, jadi menambah atau mengubah keterangan di sini tidak memengaruhi auto update: app yang sudah terpasang tetap menemukan dan memasang build baru lewat Settings -> Updates.
+Each release also ships `latest-mac.yml` and `latest.yml`, which the built-in updater reads.
+Installed apps find and install new builds from **Settings -> Updates**.
 
 ## Features
 
-- **Multi-provider**: Codex, Claude, Cline and ClinePass, OpenRouter, Kilo, Vercel AI Gateway, MiniMax plan, OpenCode, Ollama, and any OpenAI-compatible endpoint. Credentials are encrypted in OS secure storage.
-- **Full toolset**: files, terminal, web search, Playwright browser, screenshots, sub-agents, MCP, images, Excel, Word, and PDF.
-- **Risk-based approval**: Default mode asks first; Auto mode runs without asking.
-- **Two session modes**: *antichat* for questions without a project, *anticode* for working in a project folder.
-- **From your phone**: open and control sessions from a phone browser on the same network.
+- **Multi-provider**: Codex (ChatGPT plan), Claude plan, Cline Free and ClinePass, OpenCode Go / Go Plus, CodeBuddy, OpenRouter, Kilo, Vercel AI Gateway, MiniMax plan, Ollama, and any OpenAI-compatible endpoint.
+- **Account and key rotation**: many accounts per subscription service and many keys per API provider, pooled and rotated per prompt.
+- **Usage you can see**: provider-reported quota windows (5-hour, weekly, monthly where available) and reset times, a live routing map, and local token and cost history kept separate from subscription quota.
+- **Full agent toolset**: files, terminal, web search, Playwright browser, screenshots, sub-agents, MCP servers, image generation, Excel, Word, and PDF.
+- **Risk-based approval**: Default mode asks before actions that change things; Auto mode runs without asking.
+- **Control from your phone**: open, steer, and approve sessions from a phone browser on the same network.
 - **Daily comfort**: automatic context compaction, checklists, checkpoints and Revert, menu bar quick capture, notifications, and automatic updates.
 
-## Subscription dan akun
+## How rotation works
 
-**Cline Free** dan **ClinePass** mempunyai grup Auth terpisah. ClinePass menampilkan batas 5 jam, mingguan, dan bulanan dari provider di Usage; koneksi plan lama dimigrasikan dengan ID sesi tetap.
+1. Connect accounts in **Settings -> Auth provider** (subscriptions) or **Settings -> Providers** (API keys).
+2. Turn on the sources you want with the **Composer** switch, then pick models in **Settings -> Models**.
+3. Accounts of the same service share one model list. For each new prompt anticode chooses an
+   available account, weighing current load and local usage records.
+4. With **Subscription routing** on, automatic routing stays within subscription and free sources.
 
-Hubungkan akun lewat **Settings → Auth provider**. Anticode mendukung beberapa akun dan
-routing kuota langsung di aplikasi, tanpa layanan 9Router terpisah. Model yang tersedia
-mengikuti akses akun dan rute provider; login tidak menjamin semua model bisa digunakan.
+Notes:
 
-Aktifkan **Subscription routing** untuk membatasi routing otomatis ke sumber subscription
-atau gratis yang didukung. Kuota tetap mengikuti ketentuan provider; catatan token bulanan
-di Anticode berbeda dari sisa kuota akun. Routing tidak boleh diam-diam beralih ke API berbayar.
+- The models you can use follow each account's access; signing in does not guarantee every model.
+- Several keys from the same provider account do not create separate quota.
+- For OpenCode Go / Go Plus, turn off Extra usage in OpenCode Console so plan limits do not spill into PAYG balance.
+- Provider integration rules for contributors: [docs/SUBSCRIPTIONS.md](docs/SUBSCRIPTIONS.md).
 
-Atur sakelar **Composer** di Settings → Providers atau Auth provider untuk memilih sumber
-yang ditampilkan. Sumber baru tidak otomatis masuk daftar. Pilih modelnya di Settings → Models.
-Beberapa akun pada layanan auth yang sama berbagi satu daftar model; request memakai akun
-yang tersedia dengan mempertimbangkan kesibukan dan catatan usage lokal.
+## FAQ
 
-Provider API dapat menyimpan beberapa key lewat **Edit → Add API keys**. Key disimpan
-terenkripsi dan berbagi daftar model yang sama. Menambah key tidak menjamin kuota terpisah
-jika beberapa key berasal dari akun provider yang sama.
+**Is anticode free?**
+Yes. The app is free and MIT licensed. You pay only for the provider plans you already have, or nothing when you use free tiers.
 
-**OpenCode Go / Go Plus** disiapkan di Auth provider lewat plan key; matikan Extra usage di
-OpenCode Console agar batas paket tidak beralih ke saldo PAYG. CodeBuddy menggunakan login
-akun dan pembaruan token. Akses subscription nyata kedua layanan tetap perlu diverifikasi
-dengan akun pengguna; keberhasilan fixture bukan bukti kuota provider.
+**Can I use my ChatGPT Plus/Pro or Claude Pro/Max subscription for coding instead of API credits?**
+Yes. Sign in through Auth provider and anticode uses that plan's quota directly, within the provider's terms.
 
-Untuk pengembangan provider berikutnya, ikuti [panduan integrasi subscription](docs/SUBSCRIPTIONS.md).
+**Can I rotate several accounts or API keys to stretch limits?**
+Yes. Add multiple accounts per subscription service and multiple keys per API provider; anticode rotates them per prompt and shows each account's remaining quota.
 
-## Setup
+**Does it need a GPU or run models locally?**
+No GPU is needed. Inference happens at the provider. Local models are optional through Ollama.
+
+**Will it charge my API account without asking?**
+No. With Subscription routing on, anticode never falls back to a paid route automatically.
+
+**Where are my keys stored?**
+Only on your device, encrypted in OS secure storage. There is no anticode server.
+
+**How is it different from Cursor, Claude Code, or Codex CLI?**
+anticode is a provider-agnostic desktop app: one interface for many subscriptions and API providers, with account rotation, usage tracking, and phone control, instead of being tied to one vendor.
+
+## Build from source
 
 ```bash
 npm install
+npm run dev
 ```
 
-Untuk provider berbasis API key, salin `.env.example` menjadi `.env` dan isi kredensial yang
-diperlukan, atau gunakan Settings → Providers. Untuk akun subscription, gunakan Settings →
-Auth provider. Profil baru tidak mempunyai provider bawaan; koneksi dan kredensial
-disimpan dalam profil lokal pengguna, bukan di repository atau paket pembaruan.
-
-## Perintah
-
-| Perintah | Fungsi |
+| Command | Purpose |
 |---|---|
 | `npm run dev` | Dev server + Electron (HMR) |
-| `npm test` | Test tool, kebijakan risiko, dan agent loop (Vitest) |
-| `npm run typecheck` | Typecheck main/preload/shared dan renderer |
-| `npm run build` | Typecheck lalu bundle ke `out/` |
-| `npm run pack:mac` / `pack:win` / `pack:linux` | Installer via electron-builder ke `release/` |
+| `npm test` | Tool, risk policy, and agent loop tests (Vitest) |
+| `npm run typecheck` | Typecheck main/preload/shared and renderer |
+| `npm run build` | Typecheck, then bundle to `out/` |
+| `npm run pack:mac` / `pack:win` / `pack:linux` | Installers via electron-builder into `release/` |
 
-## Mulai
+API-key providers can also be configured by copying `.env.example` to `.env`. New profiles have
+no built-in provider; connections live in your local profile, never in the repository or update packages.
 
-1. Jalankan `npm run dev`.
-2. Di dashboard pilih mode **antichat** atau **anticode** (pilih folder project dulu).
-3. Beri instruksi; tool berisiko memunculkan dialog konfirmasi di mode Default.
+Global shortcuts: **Cmd/Ctrl+Shift+Space** shows anticode, **Cmd/Ctrl+Alt+Space** opens quick capture.
 
-Shortcut global **Cmd/Ctrl+Shift+Space** memunculkan anticode; **Cmd/Ctrl+Alt+Space** membuka quick capture.
+## Remote (phone)
 
-## Remote (HP)
+Enable remote in Settings, then open the shown address in a phone browser on the same network.
+Transcript, steering, approvals, and attachments work from the phone and stay in sync with the desktop.
 
-Dari Settings, aktifkan remote lalu buka alamat yang tampil di browser ponsel (jaringan yang sama).
-Transkrip, steer, approval, dan lampiran tersedia dari HP; sesi yang dibaca terus tersinkron dengan
-desktop.
+## Security
 
-## Keamanan
+- Approval follows the mode: Default asks before changes, Auto runs without cards.
+- antichat file tools are locked to a private session folder; anticode is locked to the project folder.
+- API keys and tokens are encrypted with OS secure storage, never stored in plain text.
+- Remote browser access uses a session token and is limited to the local network.
 
-- Approval mengikuti mode: Default meminta konfirmasi pada aksi yang mengubah sesuatu, Auto berjalan tanpa kartu.
-- File tool antichat terkunci di folder privat sesi; anticode terkunci di folder project.
-- API key disimpan terenkripsi lewat secure storage OS, tidak pernah ditulis ke disk polos.
-- Browser remote memakai token sesi; akses hanya dari jaringan lokal.
+## Releases
 
-## Rilis
-
-Lihat [Releases](https://github.com/fajrin77/anticode/releases) untuk versi terbaru dan catatan perubahannya.
+See [Releases](https://github.com/fajrin77/anticode/releases) for the latest version and changelog.
