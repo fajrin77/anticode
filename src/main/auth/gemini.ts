@@ -35,6 +35,7 @@ const CLIENT_METADATA = { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPEC
  */
 export const GEMINI_MODELS: { id: string; name: string }[] = [
   // Gemini 4 series, ids and 1M context from ai.google.dev/docs/models.
+  { id: 'gemini-4-neon', name: 'Gemini 4 Neon' },
   { id: 'gemini-4-hydrogen', name: 'Gemini 4 Hydrogen' },
   { id: 'gemini-4-argon', name: 'Gemini 4 Argon' },
   { id: 'gemini-4-carbon', name: 'Gemini 4 Carbon' },

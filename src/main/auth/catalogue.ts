@@ -35,8 +35,9 @@ export function authModelsFor(id: string, kind: AuthKind): string[] {
     const models = loadPersistedSettings().authModelCatalogues?.[id]?.models
     const cached = Array.isArray(models) ? models.filter((m): m is string => typeof m === 'string' && !!m.trim()) : []
     // A Gemini plan is usable the moment it is signed in: the CLI's table is
-    // its list, whether or not Refresh has run against a 403ing catalogue.
-    return kind === 'gemini' && cached.length === 0 ? GEMINI_MODELS.map((model) => model.id) : cached
+    // its list, whether or not Refresh has run against a 403ing catalogue. A
+    // snapshot saved by an older build still gains models added to the table.
+    return kind === 'gemini' ? [...new Set([...cached, ...GEMINI_MODELS.map((model) => model.id)])].sort((a, b) => a.localeCompare(b)) : cached
   }
   if (kind === 'minimax-plan') {
     try {

@@ -100,7 +100,7 @@ it('Gemini plan keeps the CLI model list when a consumer plan refuses the catalo
   expect(models.some((model) => model.includes('embedding'))).toBe(false)
   // Gemini 4 ships in the API catalogue; the list carries it so a plan that
   // grants it can pick it without waiting for a new app build.
-  expect(GEMINI_MODELS.map((model) => model.id)).toEqual(expect.arrayContaining(['gemini-4-hydrogen', 'gemini-4-argon', 'gemini-4-carbon']))
+  expect(GEMINI_MODELS.map((model) => model.id)).toEqual(expect.arrayContaining(['gemini-4-neon', 'gemini-4-hydrogen', 'gemini-4-argon', 'gemini-4-carbon']))
 })
 it('Gemini plan merges what the catalogue does report, without embeddings or disabled models', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: { 'gemini-9-pro': {}, 'gemini-embedding-001': {}, 'gemini-old': { disabled: true } } })))
