@@ -9,6 +9,9 @@ import { isRetiredRoute, RetiredRouteError } from './routeError'
  */
 function geminiRefusal(message: string): string {
   if (/ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes/i.test(message)) return ' The sign-in is missing the Google Cloud scope this endpoint needs; sign in to the account again in Settings → Auth provider.'
+  if (/VALIDATION_REQUIRED|verify your account|account verification/i.test(message)) return ' Google requires account verification (VALIDATION_REQUIRED) before this account can use the Gemini CLI endpoint.'
+  if (/TOS_VIOLATION|SECURITY_POLICY_VIOLATED/i.test(message)) return ' Google restricted this account on the Cloud Code endpoint (TOS_VIOLATION / SECURITY_POLICY_VIOLATED).'
+  if (/CONSUMER_INVALID|USER_PROJECT_DENIED|IAM_PERMISSION_DENIED/i.test(message)) return ' Google rejected the account project binding on this endpoint (CONSUMER_INVALID / IAM_PERMISSION_DENIED); try signing in again in Settings → Auth provider.'
   if (/not found for (?:API version|model)|Requested entity was not found|is not found/i.test(message)) return ' Google does not serve this model id on the endpoint the Gemini CLI uses, so no plan can run it there; pick a model the account catalogue lists.'
   if (/SERVICE_DISABLED|has not been used in project|API has not been used|it is disabled/i.test(message)) return ' Google reports this API as disabled for the account (SERVICE_DISABLED); that is an account setting, not an exhausted quota.'
   if (/onboard|FAILED_PRECONDITION/i.test(message)) return ' The account has no managed Gemini project yet and Google onboarding did not complete for this plan.'

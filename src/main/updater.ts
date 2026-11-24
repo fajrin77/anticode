@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { access, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { spawn, execFile } from 'node:child_process'
 import { homedir } from 'node:os'
@@ -40,6 +40,8 @@ export interface Platform {
 }
 
 const FETCH_TIMEOUT_MS = 30_000
+/** What the last macOS swap did, kept in the update folder across restarts. */
+export const SWAP_LOG = 'swap.log'
 /**
  * `anticode-0.0.24-arm64.dmg`, `anticode-0.0.24-arm64-mac.zip`,
  * `anticode Setup 0.0.24.exe`: the version, with a pre-release tag only when
@@ -275,7 +277,9 @@ export async function download(asset: UpdateAsset, directory: string, onProgress
 
 function run(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: 120_000 }, (error, stdout) => (error ? reject(error) : resolve(stdout)))
+    execFile(command, args, { timeout: 120_000 }, (error, stdout, stderr) =>
+      error ? reject(Object.assign(error, { stderr })) : resolve(stdout)
+    )
   })
 }
 
@@ -285,24 +289,74 @@ async function findApp(directory: string): Promise<string> {
   return path.join(directory, found)
 }
 
+export interface MacBundle {
+  /** CFBundleExecutable, the file under Contents/MacOS that launchd starts. */
+  executable: string
+  /** Whether the build carries a signature (ad-hoc counts) to verify against. */
+  signed: boolean
+}
+
+/**
+ * Proves a staged bundle is whole before anything is swapped: Info.plist and
+ * an executable main binary, and, for a signed build, a deep codesign check,
+ * which catches any file missing or changed against _CodeSignature. A bundle
+ * copied from a half-finished extraction fails here instead of replacing the
+ * working app (0.1.49 was installed with no Frameworks and a binary of mode
+ * 600 that way).
+ */
+export async function verifyMacBundle(bundle: string): Promise<MacBundle> {
+  const damaged = (why: string): Error => new Error(`The downloaded update is incomplete or damaged (${why}); download it again`)
+  const plist = path.join(bundle, 'Contents', 'Info.plist')
+  const executable = (await run('plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', plist]).catch(() => '')).trim()
+  if (executable === '') throw damaged('no readable Info.plist')
+  await access(path.join(bundle, 'Contents', 'MacOS', executable), constants.X_OK).catch(() => {
+    throw damaged(`Contents/MacOS/${executable} is missing or not executable`)
+  })
+  try {
+    await run('codesign', ['--verify', '--deep', '--strict', bundle])
+    return { executable, signed: true }
+  } catch (error) {
+    const detail = String((error as { stderr?: unknown }).stderr ?? (error as Error).message)
+    if (/not signed at all/i.test(detail)) return { executable, signed: false }
+    throw damaged(detail.split('\n')[0]?.trim() || 'signature check failed')
+  }
+}
+
 /**
  * The script that swaps the app once it has quit: the old bundle is moved
- * aside, the new one copied in, and the old one put back if the copy fails.
+ * aside, the new one copied in and checked, and the old one put back if the
+ * copy fails or the copied bundle is not whole. What it did goes to `log`.
  */
-export function macSwapScript(pid: number, staged: string, target: string): string {
+export function macSwapScript(pid: number, staged: string, target: string, bundle: MacBundle, log: string): string {
   const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
+  const old = quote(`${target}.old`)
+  const binary = quote(path.join(target, 'Contents', 'MacOS', bundle.executable))
+  const check = [
+    `[ -f ${quote(path.join(target, 'Contents', 'Info.plist'))} ]`,
+    `[ -x ${binary} ]`,
+    ...(bundle.signed ? [`codesign --verify --deep --strict ${quote(target)}`] : [])
+  ].join(' && ')
   return [
     '#!/bin/sh',
+    `exec >${quote(log)} 2>&1`,
     `while kill -0 ${pid} 2>/dev/null; do sleep 0.3; done`,
-    `rm -rf ${quote(`${target}.old`)}`,
-    `if mv ${quote(target)} ${quote(`${target}.old`)} && ditto ${quote(staged)} ${quote(target)}; then`,
-    `  rm -rf ${quote(`${target}.old`)}`,
+    `rm -rf ${old}`,
+    // Only once the working app is safely aside may anything be deleted: if
+    // the move fails, the app stays exactly where and as it was.
+    `if mv ${quote(target)} ${old}; then`,
+    `  if ditto ${quote(staged)} ${quote(target)} && ${check}; then`,
+    `    rm -rf ${old}`,
+    '    echo "updated"',
+    '  else',
+    '    echo "the new build did not copy whole, the previous one was put back"',
+    `    rm -rf ${quote(target)}; mv ${old} ${quote(target)}`,
+    '  fi',
     'else',
-    `  rm -rf ${quote(target)}; mv ${quote(`${target}.old`)} ${quote(target)}`,
+    '  echo "could not move the current app aside, nothing was changed"',
     'fi',
     `xattr -dr com.apple.quarantine ${quote(target)} 2>/dev/null`,
     `open ${quote(target)}`,
-    `rm -rf ${quote(staged)}`,
+    `rm -rf ${quote(path.dirname(staged))}`,
     ''
   ].join('\n')
 }
@@ -318,12 +372,11 @@ export async function install(file: string, exePath: string, workDirectory: stri
     await access(path.dirname(target), constants.W_OK).catch(() => {
       throw new Error(`anticode cannot write to ${path.dirname(target)}; move the app somewhere it can, such as /Applications`)
     })
-    const unpacked = path.join(workDirectory, 'unpacked')
-    // Node's own rm chokes with ENOTEMPTY on the macOS bundles that carry
-    // extended attributes and resource forks, so the system rm is used for
-    // the recursive delete; a failed retry is still an error worth reporting.
-    await run('rm', ['-rf', unpacked])
-    await mkdir(unpacked, { recursive: true })
+    // A fresh folder for every attempt: a second install must never empty or
+    // refill the folder a swap script already spawned is about to copy from.
+    // Leftovers go at the next start-up (pruneOldDownloads).
+    await mkdir(workDirectory, { recursive: true })
+    const unpacked = await mkdtemp(path.join(workDirectory, 'staged-'))
     if (file.toLowerCase().endsWith('.zip')) {
       await run('ditto', ['-x', '-k', file, unpacked])
     } else {
@@ -337,8 +390,11 @@ export async function install(file: string, exePath: string, workDirectory: stri
       }
     }
     const staged = await findApp(unpacked)
-    const script = path.join(workDirectory, 'swap.sh')
-    await writeFile(script, macSwapScript(pid, staged, target), { mode: 0o755 })
+    // Checked here, while the app still runs, so a bad build is an error in
+    // Settings rather than a broken app after the restart.
+    const bundle = await verifyMacBundle(staged)
+    const script = path.join(unpacked, 'swap.sh')
+    await writeFile(script, macSwapScript(pid, staged, target, bundle, path.join(workDirectory, SWAP_LOG)), { mode: 0o755 })
     spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' }).unref()
     return
   }

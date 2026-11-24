@@ -72,9 +72,31 @@ describe('a folder of builds', () => {
 })
 
 it('writes a swap script that puts the old app back if the copy fails', () => {
-  const script = macSwapScript(42, "/tmp/st'aged/anticode.app", '/Applications/anticode.app')
+  const script = macSwapScript(42, "/tmp/st'aged/anticode.app", '/Applications/anticode.app', { executable: 'anticode', signed: true }, '/tmp/swap.log')
   expect(script).toContain('while kill -0 42')
   expect(script).toContain(`'/tmp/st'\\''aged/anticode.app'`)
   expect(script).toMatch(/mv '\/Applications\/anticode\.app' '\/Applications\/anticode\.app\.old'/)
   expect(script).toContain("mv '/Applications/anticode.app.old' '/Applications/anticode.app'")
+})
+
+it('only keeps the new app once the copied bundle checks out whole', () => {
+  const script = macSwapScript(42, '/tmp/staged-x/anticode.app', '/Applications/anticode.app', { executable: 'anticode', signed: true }, '/tmp/swap.log')
+  const copy = script.split('\n').find((line) => line.includes('ditto ')) ?? ''
+  expect(copy).toContain("[ -f '/Applications/anticode.app/Contents/Info.plist' ]")
+  expect(copy).toContain("[ -x '/Applications/anticode.app/Contents/MacOS/anticode' ]")
+  expect(copy).toContain("codesign --verify --deep --strict '/Applications/anticode.app'")
+  // An unsigned build has nothing for codesign to check against.
+  const unsigned = macSwapScript(42, '/tmp/staged-x/anticode.app', '/Applications/anticode.app', { executable: 'anticode', signed: false }, '/tmp/swap.log')
+  expect(unsigned).not.toContain('codesign')
+})
+
+it('never deletes the running app when it cannot be moved aside', () => {
+  const script = macSwapScript(42, '/tmp/staged-x/anticode.app', '/Applications/anticode.app', { executable: 'anticode', signed: true }, '/tmp/swap.log')
+  const lines = script.split('\n')
+  const move = lines.findIndex((line) => line.startsWith("if mv '/Applications/anticode.app' "))
+  const removal = lines.findIndex((line) => line.includes("rm -rf '/Applications/anticode.app';"))
+  expect(move).toBeGreaterThan(-1)
+  // The only delete of the target sits inside the branch where the move worked.
+  expect(removal).toBeGreaterThan(move)
+  expect(lines[removal]?.startsWith('    ')).toBe(true)
 })

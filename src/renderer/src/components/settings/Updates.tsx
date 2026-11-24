@@ -21,6 +21,10 @@ export function Updates(): JSX.Element {
   const [state, setState] = useState<UpdateState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // Unpacking and checking the build takes a few seconds before the app
+  // quits; the buttons stay off meanwhile so a second click cannot start a
+  // second install.
+  const [restarting, setRestarting] = useState(false)
 
   useEffect(() => {
     void window.anticode.getUpdateState().then(setState)
@@ -47,7 +51,9 @@ export function Updates(): JSX.Element {
         : status === 'downloading'
           ? `Downloading ${state.latest ?? ''} · ${Math.round((state.progress ?? 0) * 100)}%`
           : status === 'ready'
-            ? `Version ${state.latest ?? ''} is downloaded and ready`
+            ? restarting
+              ? `Preparing ${state.latest ?? ''}, anticode restarts in a moment…`
+              : `Version ${state.latest ?? ''} is downloaded and ready`
             : status === 'available'
               ? `Version ${state.latest ?? ''} is available`
               : status === 'current'
@@ -121,15 +127,20 @@ export function Updates(): JSX.Element {
                 <>
                   <button
                     type="button"
-                    onClick={() => void act(() => window.anticode.installUpdate())}
-                    className="rounded-lg bg-brand px-3 py-1.5 text-[12.5px] text-bg transition-colors hover:bg-brand-strong"
+                    disabled={restarting}
+                    onClick={() => {
+                      setRestarting(true)
+                      void act(() => window.anticode.installUpdate()).finally(() => setRestarting(false))
+                    }}
+                    className="rounded-lg bg-brand px-3 py-1.5 text-[12.5px] text-bg transition-colors enabled:hover:bg-brand-strong disabled:opacity-60"
                   >
                     Restart now
                   </button>
                   <button
                     type="button"
+                    disabled={restarting}
                     onClick={() => setConfirming(false)}
-                    className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:text-brand"
+                    className="rounded-lg px-3 py-1.5 text-[12.5px] text-dim transition-colors enabled:hover:text-brand disabled:text-faint"
                   >
                     Later
                   </button>

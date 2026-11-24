@@ -6,7 +6,7 @@ import { readdir, rm } from 'node:fs/promises'
 import { IpcChannel } from '@shared/ipc'
 import type { UpdateSettings, UpdateState } from '@shared/ipc'
 import { loadPersistedSettings, savePersistedSettings } from './settings'
-import { compareVersions, download, findLatest, install, parseSource, present } from './updater'
+import { compareVersions, download, findLatest, install, parseSource, present, SWAP_LOG } from './updater'
 import type { Platform, UpdateAsset } from './updater'
 
 /** How often a source is asked again while the app stays open. */
@@ -28,6 +28,8 @@ let asset: UpdateAsset | null = null
 let downloaded: string | null = null
 let timer: NodeJS.Timeout | null = null
 let announcedVersion: string | null = null
+/** Set from the first "Restart now" until the app quits; see installUpdate. */
+let installing: Promise<void> | null = null
 
 function platform(): Platform {
   return { os: process.platform, arch: process.arch }
@@ -47,7 +49,7 @@ export async function pruneOldDownloads(keep?: string): Promise<void> {
   const entries = await readdir(dir).catch(() => [])
   await Promise.all(
     entries
-      .filter((name) => name !== keep)
+      .filter((name) => name !== keep && name !== SWAP_LOG)
       .map((name) => rm(path.join(dir, name), { recursive: true, force: true }))
   )
 }
@@ -126,7 +128,7 @@ export async function checkForUpdates(): Promise<UpdateState> {
   const current = updateState()
   const source = parseSource(current.source)
   if (source === null) return publish({ status: 'idle', error: 'Set an update source first' })
-  if (current.status === 'checking' || current.status === 'downloading') return current
+  if (current.status === 'checking' || current.status === 'downloading' || installing !== null) return current
   publish({ status: 'checking', error: null })
   try {
     const found = await findLatest(source, platform())
@@ -152,7 +154,8 @@ export async function checkForUpdates(): Promise<UpdateState> {
 
 export async function downloadUpdate(): Promise<UpdateState> {
   if (asset === null) return publish({ status: 'error', error: 'Check for an update first' })
-  if (updateState().status === 'downloading') return updateState()
+  // Pruning after a download would delete the folder an install is copying.
+  if (updateState().status === 'downloading' || installing !== null) return updateState()
   publish({ status: 'downloading', progress: 0, error: null })
   let last = 0
   try {
@@ -177,10 +180,22 @@ export async function downloadUpdate(): Promise<UpdateState> {
  * Swaps the downloaded build in and quits; the helper opens the new version.
  * Only ever on the user's say-so, nothing calls this on its own.
  */
-export async function installUpdate(): Promise<void> {
+export function installUpdate(): Promise<void> {
+  // One install at a time. Unpacking takes a few seconds with the button
+  // still on screen; a second click used to empty and refill the staging
+  // folder while the first swap script was waiting for the app to quit, so it
+  // copied a half-extracted bundle over the working app.
+  if (installing !== null) return installing
   const current = updateState()
-  if (!current.canInstall) throw new Error('Only the packaged app can install updates')
-  if (current.status !== 'ready' || downloaded === null) throw new Error('Download the update first')
-  await install(downloaded, app.getPath('exe'), workDirectory(), platform(), process.pid)
-  app.quit()
+  if (!current.canInstall) return Promise.reject(new Error('Only the packaged app can install updates'))
+  if (current.status !== 'ready' || downloaded === null) return Promise.reject(new Error('Download the update first'))
+  const file = downloaded
+  installing = install(file, app.getPath('exe'), workDirectory(), platform(), process.pid).then(
+    () => app.quit(),
+    (error: unknown) => {
+      installing = null
+      throw error
+    }
+  )
+  return installing
 }

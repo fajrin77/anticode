@@ -35,7 +35,7 @@ export function geminiCliResponse(chunks: Chunk[], model: string): LLMResponse {
   }
   if (text !== '') content.push({ type: 'text', text })
   const usage = chunks.map((chunk) => chunk.usageMetadata).filter((value): value is NonNullable<Chunk['usageMetadata']> => value !== undefined).at(-1)
-  if (!model.startsWith('gemini-')) throw new Error('Unsupported Gemini model family')
+  if (!/^(?:gemini-|gemma-|flash(?:-lite)?$|pro$)/.test(model)) throw new Error('Unsupported Gemini model family')
   const finish = candidate?.finishReason
   return {
     content,
@@ -48,6 +48,26 @@ export function geminiCliResponse(chunks: Chunk[], model: string): LLMResponse {
   }
 }
 
+/** Preserves Google's status and ErrorInfo reasons even when the error message is long. */
+function summarizeGeminiError(raw: string): string {
+  const compact = raw.replace(/\s+/g, ' ').trim()
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    const entry = (Array.isArray(parsed) ? parsed[0] : parsed) as {
+      error?: { status?: string; message?: string; details?: { reason?: string }[] }
+    } | null
+    const err = entry?.error
+    if (err && typeof err === 'object') {
+      const reasons = Array.isArray(err.details) ? err.details.map((d) => d?.reason).filter((r): r is string => typeof r === 'string' && r !== '') : []
+      const tags = [err.status, ...reasons].filter((v): v is string => typeof v === 'string' && v !== '')
+      const msg = typeof err.message === 'string' ? err.message.replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+      const summary = [tags.join(' '), msg].filter(Boolean).join(': ')
+      if (summary) return summary
+    }
+  } catch { /* Fall back to compact raw text below. */ }
+  return compact.slice(0, 300)
+}
+
 export class GeminiCliProvider implements LLMProvider {
   readonly name = 'gemini'
   constructor(private tokens: AuthTokens, readonly model: string) {}
@@ -56,7 +76,7 @@ export class GeminiCliProvider implements LLMProvider {
     const project = this.tokens.meta?.project ?? await geminiProject(this.tokens.accessToken, params.signal)
     const response = await fetch(`${GEMINI_CLOUD_BASE}/v1internal:streamGenerateContent?alt=sse`, {
       method: 'POST',
-      headers: geminiHeaders(this.tokens.accessToken),
+      headers: { ...geminiHeaders(this.tokens.accessToken), Accept: 'text/event-stream' },
       signal: params.signal,
       body: JSON.stringify({
         model: this.model,
@@ -72,8 +92,8 @@ export class GeminiCliProvider implements LLMProvider {
       })
     })
     if (!response.ok) {
-      // Keep the provider's own reason (never the request) so a 400 is diagnosable.
-      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
+      // Keep the provider's own status/reason (never the request) so 400/403 is diagnosable.
+      const detail = summarizeGeminiError(await response.text().catch(() => ''))
       // A route permission denial does not establish that every model on the account is blocked.
       throw new ProviderRequestError(`Gemini request failed (${response.status})${detail ? `: ${detail}` : ''}`, response.status, response.status === 401 ? 'account' : 'model')
     }

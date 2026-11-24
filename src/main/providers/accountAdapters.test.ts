@@ -128,3 +128,31 @@ it('Gemini plan refresh keeps the assigned project', async () => {
   expect(result.refreshToken).toBe('fixture-refresh')
   expect(result.meta?.project).toBe('p')
 })
+it('Gemini error parser preserves status and ErrorInfo reasons past long messages', async () => {
+  const longMessage = 'x'.repeat(400)
+  const body = JSON.stringify([{ error: { code: 403, message: longMessage, status: 'PERMISSION_DENIED', details: [{ reason: 'VALIDATION_REQUIRED' }] } }])
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 403 })))
+  const iterator = new GeminiCliProvider({ accessToken: 'fixture', meta: { project: 'p' } }, 'gemini-3-flash-preview').chat(params())
+  await expect(iterator.next()).rejects.toThrow(/PERMISSION_DENIED.*VALIDATION_REQUIRED/)
+})
+it('Gemini plan accepts CLI aliases and Gemma models in responses', async () => {
+  const sse = 'data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}\n\n'
+  for (const model of ['flash', 'gemma-4-31b-it']) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse, { headers: { 'content-type': 'text/event-stream' } })))
+    const events: ProviderEvent[] = []
+    for await (const e of new GeminiCliProvider({ accessToken: 'fixture', meta: { project: 'p' } }, model).chat(params())) events.push(e)
+    expect(events.filter((e) => e.type === 'text_delta').map((e) => (e as { text: string }).text).join('')).toBe('ok')
+  }
+})
+it('Gemini plan onboards when currentTier exists without an assigned project', async () => {
+  const calls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const method = String(url).split('v1internal:')[1] ?? ''
+    calls.push(method)
+    if (method === 'loadCodeAssist') return Response.json({ currentTier: { id: 'free-tier', name: 'Gemini Code Assist' } })
+    if (method === 'onboardUser') return Response.json({ done: true, response: { cloudaicompanionProject: { id: 'managed-2' } } })
+    return new Response('{}', { status: 500 })
+  }))
+  expect(await geminiPlanInfo('fixture')).toEqual({ project: 'managed-2', tier: 'Gemini Code Assist' })
+  expect(calls).toEqual(['loadCodeAssist', 'onboardUser'])
+})

@@ -42,9 +42,11 @@ export const GEMINI_MODELS: { id: string; name: string }[] = [
   { id: 'gemini-3.8-flash-lite', name: 'Gemini 3.8 Flash Lite' },
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
   { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite' },
+  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite Preview' },
   { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview' },
   { id: 'gemini-3-flash', name: 'Gemini 3 Flash' },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview' },
   { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview' },
@@ -109,9 +111,9 @@ async function onboard(token: string, tier: Tier | undefined, signal?: AbortSign
   if (!tier?.id) return undefined
   const request = { tierId: tier.id, cloudaicompanionProject: undefined, metadata: CLIENT_METADATA }
   let operation = await callAssistant<Operation>(token, 'onboardUser', request, signal).catch(() => undefined)
-  for (let attempt = 0; operation !== undefined && !operation.done && operation.name && attempt < 12; attempt += 1) {
+  for (let attempt = 0; operation !== undefined && !operation.done && attempt < 12; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5_000))
-    operation = await callAssistant<Operation>(token, `${operation.name}`.replace(/^\/+/, ''), undefined, signal).catch(() => undefined)
+    operation = await callAssistant<Operation>(token, 'onboardUser', request, signal).catch(() => undefined)
   }
   return operation?.response?.cloudaicompanionProject?.id
 }
@@ -121,9 +123,9 @@ export async function geminiPlanInfo(token: string, signal?: AbortSignal): Promi
   const data = await loadCodeAssist(token, signal)
   const tier = data?.paidTier ?? data?.currentTier
   const assigned = projectOf(data)
-  if (assigned || data?.currentTier) return { ...(assigned ? { project: assigned } : {}), ...(tier?.name ?? tier?.id ? { tier: tier?.name ?? tier?.id } : {}) }
-  // No tier yet: the account has to be onboarded for the one it is offered.
-  const offered = data?.allowedTiers?.find((entry) => entry.isDefault) ?? data?.allowedTiers?.[0]
+  if (assigned) return { project: assigned, ...(tier?.name ?? tier?.id ? { tier: tier?.name ?? tier?.id } : {}) }
+  // No managed project yet: onboard once for the active or default offered tier.
+  const offered = tier ?? data?.allowedTiers?.find((entry) => entry.isDefault) ?? data?.allowedTiers?.[0]
   const created = await onboard(token, offered, signal)
   return { ...(created ? { project: created } : {}), ...(offered?.name ?? offered?.id ? { tier: offered?.name ?? offered?.id } : {}) }
 }

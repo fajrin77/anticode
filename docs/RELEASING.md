@@ -52,6 +52,11 @@ feed itulah yang dicari updater di Windows.
    menunggu proses benar-benar keluar, lalu mengganti bundel — dmg di-mount / zip dibuka,
    NSIS dijalankan senyap di Windows, AppImage diganti di Linux. Bundel lama dikembalikan
    bila penyalinan gagal.
+   Di macOS tiap percobaan memakai folder `staged-*` sendiri, dan hanya satu install yang
+   boleh berjalan. Bundel diperiksa (`Info.plist`, binary yang executable,
+   `codesign --verify --deep --strict`) sebelum app ditutup dan sekali lagi setelah disalin ke
+   `/Applications`. Bila pemeriksaan kedua gagal, bundel lama dikembalikan. Catatan swap
+   terakhir ada di `userData/updates/swap.log`.
 
 ## Menyiapkan hosting
 
