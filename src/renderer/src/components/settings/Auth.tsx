@@ -24,7 +24,7 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
     hint: 'Sign in with a ChatGPT Plus/Pro/Business account; Codex models run under your plan.'
   },
   { kind: 'gemini', title: 'Gemini plan', hint: 'Sign in with the Google account that holds your Gemini plan (Google AI Plus/Pro). Gemini runs under that plan through the endpoint the Gemini CLI uses, with the model list that CLI offers; no API key, and a turn the plan refuses is stopped rather than rerouted to a paid key.' },
-  { kind: 'antigravity', title: 'Antigravity', hint: 'Google browser authorization. Uses your activated Antigravity account directly; Gemini models only.' },
+  { kind: 'antigravity', title: 'Antigravity', hint: 'Google browser authorization. Uses your activated Antigravity account directly with the models its plan lists (Pro adds Claude). Gemini 4 Neon/Carbon come with the Gemini sign-in.' },
   { kind: 'claude', title: 'Claude Code', hint: 'Uses the official Claude Code engine with your Claude subscription. Extra usage must be off; no 9Router required.' },
   { kind: 'clinepass', title: 'ClinePass', hint: 'A ClinePass subscription on a Cline account.' },
   { kind: 'cline', title: 'Cline Free', hint: 'Sign in to your Cline account; the provider talks to api.cline.bot.' },

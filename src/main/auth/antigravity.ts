@@ -6,7 +6,16 @@ import type { AuthLoginCallbacks, AuthTokens } from './types'
 import { antigravityOAuthClient as oauthClient } from './antigravityClient'
 const REDIRECT = 'http://localhost:51121/oauth-callback'
 export const ANTIGRAVITY_BASE = 'https://daily-cloudcode-pa.sandbox.googleapis.com'
+/** Endpoints the probe compares; the official app talks to the daily and production hosts. */
+export const ANTIGRAVITY_BASES = [ANTIGRAVITY_BASE, 'https://daily-cloudcode-pa.googleapis.com', 'https://cloudcode-pa.googleapis.com']
 const metadata = { ideType: 'ANTIGRAVITY' }
+/**
+ * Chat families the account catalogue offers (a Pro plan adds Claude); the
+ * catalogue also lists editor-internal routes such as tab_* and chat_*.
+ * Gemini 4 Neon/Carbon are not on this route (404); they come with the Gemini plan sign-in.
+ */
+export const ANTIGRAVITY_CHAT_MODEL = /^(gemini|claude|gpt-oss)-/
+
 
 export function antigravityHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': `anticode-antigravity-adapter (${process.platform}; ${process.arch})` }
@@ -60,7 +69,7 @@ export async function antigravityModels(tokens: AuthTokens): Promise<string[]> {
   const response = await fetch(`${ANTIGRAVITY_BASE}/v1internal:fetchAvailableModels`, { method: 'POST', headers: antigravityHeaders(tokens.accessToken), body: JSON.stringify({ project }), signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new Error(`Antigravity models unavailable (${response.status})`)
   const data = await response.json() as { models?: Record<string, { disabled?: boolean }> }
-  const models = Object.entries(data.models ?? {}).filter(([id, value]) => id.startsWith('gemini-') && !value.disabled).map(([id]) => id)
-  if (!models.length) throw new Error('No supported Gemini models reported by this Antigravity account')
+  const models = Object.entries(data.models ?? {}).filter(([id, value]) => ANTIGRAVITY_CHAT_MODEL.test(id) && !value.disabled).map(([id]) => id)
+  if (!models.length) throw new Error('No supported chat models reported by this Antigravity account')
   return models
 }

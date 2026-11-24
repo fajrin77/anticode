@@ -36,9 +36,13 @@ it('Antigravity never provisions a Cloud project if activation is missing', asyn
   await expect(antigravityProject('fixture')).rejects.toThrow('will not create')
   expect(fetch).toHaveBeenCalledTimes(1)
 })
-it('Antigravity only offers supported enabled Gemini models reported by the account', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: { 'gemini-test': {}, 'gemini-disabled': { disabled: true }, 'claude-test': {} } })))
-  expect(await antigravityModels({ accessToken: 'fixture', meta: { project: 'p' } })).toEqual(['gemini-test'])
+it('Antigravity offers the enabled chat models the account reports, Pro plan Claude included', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: { 'gemini-test': {}, 'gemini-disabled': { disabled: true }, 'claude-sonnet-test': {}, 'gpt-oss-test': {}, tab_flash_lite_preview: {}, chat_1: {} } })))
+  expect(await antigravityModels({ accessToken: 'fixture', meta: { project: 'p' } })).toEqual(['gemini-test', 'claude-sonnet-test', 'gpt-oss-test'])
+})
+it('Antigravity keeps the call id Claude returns so the tool result can answer it', () => {
+  const result = antigravityResponse({ response: { candidates: [{ content: { parts: [{ functionCall: { id: 'toolu_1', name: 'read_file', args: {} } }] }, finishReason: 'STOP' }] } }, 'claude-sonnet-test')
+  expect(result.content[0]).toMatchObject({ type: 'tool_use', id: 'toolu_1' })
 })
 it('Antigravity refresh keeps project and refresh token', async () => {
   vi.stubEnv('ANTICODE_ANTIGRAVITY_CLIENT_ID', 'fixture-client')

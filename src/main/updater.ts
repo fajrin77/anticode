@@ -355,6 +355,10 @@ export function macSwapScript(pid: number, staged: string, target: string, bundl
     '  echo "could not move the current app aside, nothing was changed"',
     'fi',
     `xattr -dr com.apple.quarantine ${quote(target)} 2>/dev/null`,
+    // The bundle was replaced under the Dock's feet: re-register it so macOS
+    // reads the new icon instead of showing the generic app icon.
+    `touch ${quote(target)}`,
+    `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f ${quote(target)} 2>/dev/null`,
     `open ${quote(target)}`,
     `rm -rf ${quote(path.dirname(staged))}`,
     ''

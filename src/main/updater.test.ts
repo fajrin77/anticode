@@ -77,6 +77,8 @@ it('writes a swap script that puts the old app back if the copy fails', () => {
   expect(script).toContain(`'/tmp/st'\\''aged/anticode.app'`)
   expect(script).toMatch(/mv '\/Applications\/anticode\.app' '\/Applications\/anticode\.app\.old'/)
   expect(script).toContain("mv '/Applications/anticode.app.old' '/Applications/anticode.app'")
+  // The swapped bundle is re-registered before it opens, so the Dock icon is not generic.
+  expect(script.indexOf("lsregister -f '/Applications/anticode.app'")).toBeLessThan(script.indexOf("open '/Applications/anticode.app'"))
 })
 
 it('only keeps the new app once the copied bundle checks out whole', () => {

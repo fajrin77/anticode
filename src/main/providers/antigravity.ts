@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { ANTIGRAVITY_BASE, antigravityHeaders, antigravityProject } from '../auth/antigravity'
+import { ANTIGRAVITY_BASE, ANTIGRAVITY_CHAT_MODEL, antigravityHeaders, antigravityProject } from '../auth/antigravity'
 import { toContents, toDeclarations } from './google'
 import { ProviderRequestError } from './requestError'
 import type { AuthTokens } from '../auth/types'
@@ -7,15 +7,16 @@ import type { ChatParams, LLMProvider, LLMResponse, ProviderEvent } from './type
 
 export function antigravityResponse(body: unknown, model: string): LLMResponse {
   const outer = body as { response?: unknown }
-  const data = (outer.response ?? body) as { candidates?: { content?: { parts?: { text?: string; thought?: boolean; functionCall?: { name?: string; args?: Record<string, unknown> } }[] }; finishReason?: string }[]; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number } }
+  const data = (outer.response ?? body) as { candidates?: { content?: { parts?: { text?: string; thought?: boolean; functionCall?: { id?: string; name?: string; args?: Record<string, unknown> } }[] }; finishReason?: string }[]; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number } }
   const candidate = data.candidates?.[0]
   if (!candidate) throw new Error('Antigravity returned no candidate')
   const content: LLMResponse['content'] = []
   for (const part of candidate.content?.parts ?? []) {
     if (part.text && !part.thought) content.push({ type: 'text', text: part.text })
-    if (part.functionCall?.name) content.push({ type: 'tool_use', id: `gen-${randomUUID()}`, name: part.functionCall.name, input: part.functionCall.args ?? {} })
+    // Claude answers with its own call id, which the tool result must echo back.
+    if (part.functionCall?.name) content.push({ type: 'tool_use', id: part.functionCall.id || `gen-${randomUUID()}`, name: part.functionCall.name, input: part.functionCall.args ?? {} })
   }
-  if (!model.startsWith('gemini-')) throw new Error('Unsupported Antigravity model family')
+  if (!ANTIGRAVITY_CHAT_MODEL.test(model)) throw new Error('Unsupported Antigravity model family')
   return { content, stopReason: content.some((b) => b.type === 'tool_use') ? 'tool_use' : candidate.finishReason === 'MAX_TOKENS' ? 'max_tokens' : candidate.finishReason && candidate.finishReason !== 'STOP' ? 'refusal' : 'end_turn', usage: { inputTokens: data.usageMetadata?.promptTokenCount ?? 0, outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0, cachedTokens: data.usageMetadata?.cachedContentTokenCount ?? 0 } }
 }
 export class AntigravityProvider implements LLMProvider {
