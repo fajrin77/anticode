@@ -76,21 +76,24 @@ export function EffortMenu({ target, onPicked }: { target: EffortTarget; onPicke
   )
 }
 
+/** The chip's short name; the menu keeps the full one. */
+const chipLabel = (level: EffortLevel): string => level === 'xhigh' ? 'XHigh' : EFFORT_LABELS[level]
+
 /** The chip's face: bars that fill with the level, and its name. */
 export function EffortLabel({ target }: { target: EffortTarget }): JSX.Element {
   const index = target.spec.levels.indexOf(target.current)
   const filled = Math.round(((index + 1) / target.spec.levels.length) * 3)
   // Room for the longest name this model offers, so picking a level never pushes the chips beside it.
-  const longest = Math.max(...target.spec.levels.map((level) => EFFORT_LABELS[level].length))
+  const longest = Math.max(...target.spec.levels.map((level) => chipLabel(level).length))
   return (
-    <span data-menu-chip className="flex items-center gap-1.5" style={{ minWidth: `calc(${longest * 0.55}em + 17px)` }}
+    <span data-menu-chip className="flex items-center gap-1.5 whitespace-nowrap" style={{ minWidth: `calc(${longest * 0.5}em + 17px)` }}
       title={`Effort: ${EFFORT_LABELS[target.current]}`}>
       <svg aria-hidden width="11" height="11" viewBox="0 0 12 12" fill="currentColor">
         {[0, 1, 2].map((bar) => (
           <rect key={bar} x={bar * 4} y={8 - bar * 3} width="3" height={4 + bar * 3} rx="0.8" opacity={bar < filled ? 1 : 0.3} />
         ))}
       </svg>
-      <span>{EFFORT_LABELS[target.current]}</span>
+      <span>{chipLabel(target.current)}</span>
     </span>
   )
 }

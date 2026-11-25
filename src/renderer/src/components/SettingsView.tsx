@@ -2133,15 +2133,6 @@ export function SettingsView({
       )
     },
     {
-      id: 'pricing',
-      label: 'Pricing',
-      icon: (
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-          <path d="M8 2v12M10.8 4.8c0-1.1-1.2-1.8-2.8-1.8s-2.8.7-2.8 1.8 1 1.6 2.8 2 2.8.9 2.8 2-1.2 1.9-2.8 1.9-2.8-.7-2.8-1.9" strokeLinecap="round" />
-        </svg>
-      )
-    },
-    {
       id: 'usage',
       label: 'Usage',
       icon: (

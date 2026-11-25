@@ -1,4 +1,3 @@
-import { WorkspaceReview } from './WorkspaceReview'
 import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useRef, useState } from 'react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
@@ -181,7 +180,7 @@ function UsageButton({
             </div>
             <div
               className="col-span-2 flex items-baseline justify-between gap-4 py-1.5"
-              title={session.costPartial === true ? 'Some requests used a model with no price. Set one in Settings → Pricing' : 'From the prices in Settings → Pricing'}
+              title={session.costPartial === true ? 'Some requests used a model with no price' : 'Estimated from published model prices'}
             >
               <span className="text-[12px] text-faint">Estimated cost</span>
               <span className="text-[12.5px] tabular-nums text-text">
@@ -438,7 +437,6 @@ export function TabBar({
         {waitingForApproval && <button type="button" title="Open the session that is waiting for your approval"
           className="glass-ghost region-no-drag rounded px-2 py-1 text-xs text-del transition-colors hover:text-brand"
           onClick={waitingForApproval}>Waiting for approval</button>}
-        {activeSession?.mode === 'code' && <WorkspaceReview key={activeSession.id} sessionId={activeSession.id} />}
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
         {activeSession !== undefined && <PlanUsageButton provider={activeProvider} />}
         {activeSession !== undefined && <UsageButton session={activeSession} selectedModel={selectedModel} activeProvider={activeProvider} />}

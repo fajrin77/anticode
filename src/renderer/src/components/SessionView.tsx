@@ -1027,7 +1027,7 @@ function RunSummaryCard({
           {summary.costUsd !== undefined && summary.costUsd > 0 && (
             <>
               <span>·</span>
-              <span title={summary.costPartial === true ? 'Part of this run used a model with no price' : 'Estimated from Settings → Pricing'}>
+              <span title={summary.costPartial === true ? 'Part of this run used a model with no price' : 'Estimated from published model prices'}>
                 {summary.costPartial === true ? '≥ ' : '~'}
                 {formatUsd(summary.costUsd)}
               </span>
@@ -1416,11 +1416,6 @@ export function SessionView({ searchPulse = 0, terminalPulse = 0 }: { searchPuls
         <button type="button" aria-label="Close search"
           className="flex h-6 w-6 items-center justify-center rounded text-dim transition-colors hover:bg-raised hover:text-brand"
           onClick={() => { setSearchOpen(false); scrollRef.current?.focus() }}>×</button>
-      </div>}
-      {session?.mode === 'code' && <div className="absolute top-3 left-4 z-30">
-        <button type="button" aria-expanded={terminalOpen} aria-label="Terminal output"
-          className={`rounded border px-2 py-1 font-mono text-xs transition-colors hover:text-brand ${terminalOpen ? 'glass-control text-text' : 'glass-ghost text-dim'}`}
-          onClick={() => setTerminalOpen(value => !value)}>Terminal</button>
       </div>}
       {terminalOpen && <section aria-label="Terminal output"
         className="menu-glass absolute inset-x-4 top-12 z-40 flex max-h-[50vh] flex-col rounded-xl border p-3 shadow-xl"
