@@ -71,6 +71,36 @@ describe('a folder of builds', () => {
   })
 })
 
+it('resumes a download whose connection was cut off midway', async () => {
+  const { createServer } = await import('node:http')
+  const content = Buffer.from('x'.repeat(5000) + 'y'.repeat(5000))
+  let requests = 0
+  const server = createServer((request, response) => {
+    requests++
+    const range = /bytes=(\d+)-/.exec(request.headers.range ?? '')
+    if (range === null) {
+      // First answer promises the whole file, then drops the socket halfway.
+      response.writeHead(200, { 'content-length': content.length })
+      response.write(content.subarray(0, 5000), () => request.socket.destroy())
+      return
+    }
+    const start = Number(range[1])
+    response.writeHead(206, { 'content-length': content.length - start })
+    response.end(content.subarray(start))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const port = (server.address() as { port: number }).port
+    const sha = (await import('node:crypto')).createHash('sha512').update(content).digest('base64')
+    const asset = { version: '0.0.24', location: `http://127.0.0.1:${port}/a.zip`, name: 'a.zip', sha512: sha, notes: null }
+    const file = await download(asset, path.join(dir, 'downloads'), () => {})
+    expect((await readFile(file)).equals(content)).toBe(true)
+    expect(requests).toBe(2)
+  } finally {
+    server.close()
+  }
+})
+
 it('writes a swap script that puts the old app back if the copy fails', () => {
   const script = macSwapScript(42, "/tmp/st'aged/anticode.app", '/Applications/anticode.app', { executable: 'anticode', signed: true }, '/tmp/swap.log')
   expect(script).toContain('while kill -0 42')

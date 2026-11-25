@@ -256,19 +256,38 @@ export async function download(asset: UpdateAsset, directory: string, onProgress
     await copyFile(asset.location, target)
     onProgress(1)
   } else {
-    const response = await fetch(asset.location, {
-      headers: { 'user-agent': 'anticode-updater' },
-      signal: AbortSignal.timeout(10 * 60_000)
-    })
-    if (!response.ok || response.body === null) throw new Error(`The download answered ${response.status}`)
-    const total = Number(response.headers.get('content-length') ?? 0)
+    // A ~300 MB build over one connection is often cut off midway (undici
+    // reports it as "terminated"); resume from the bytes already on disk.
     let received = 0
-    const body = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>)
-    body.on('data', (chunk: Buffer) => {
-      received += chunk.length
-      if (total > 0) onProgress(Math.min(1, received / total))
-    })
-    await pipeline(body, createWriteStream(target))
+    let total = 0
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const response = await fetch(asset.location, {
+          headers: { 'user-agent': 'anticode-updater', ...(received > 0 ? { range: `bytes=${received}-` } : {}) },
+          signal: AbortSignal.timeout(10 * 60_000)
+        })
+        if (!response.ok || response.body === null) throw Object.assign(new Error(`The download answered ${response.status}`), { fatal: response.status < 500 && response.status !== 429 })
+        const resumed = received > 0 && response.status === 206
+        if (!resumed) received = 0
+        const length = Number(response.headers.get('content-length') ?? 0)
+        if (length > 0) total = received + length
+        const body = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>)
+        body.on('data', (chunk: Buffer) => {
+          received += chunk.length
+          if (total > 0) onProgress(Math.min(1, received / total))
+        })
+        await pipeline(body, createWriteStream(target, { flags: resumed ? 'a' : 'w' }))
+        if (total > 0 && received < total) throw new Error('the connection closed early')
+        break
+      } catch (error) {
+        if ((error as { fatal?: boolean }).fatal === true) throw error
+        if (attempt >= 6) {
+          await rm(target, { force: true })
+          throw new Error(`The download was cut off several times (${(error as Error).message}); check the connection and try again`)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt))
+      }
+    }
     onProgress(1)
   }
   if (asset.sha512 !== null && (await sha512Of(target)) !== asset.sha512) {
