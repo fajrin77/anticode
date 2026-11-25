@@ -193,6 +193,8 @@ const api: AnticodeApi = {
   cleanStorage: () => ipcRenderer.invoke(IpcChannel.STORAGE_CLEAN),
   revealArtifact: (sessionId: string, relativePath: string) =>
     ipcRenderer.invoke(IpcChannel.ARTIFACT_REVEAL, sessionId, relativePath) as Promise<string | null>,
+  fileExists: (sessionId: string, target: string) =>
+    ipcRenderer.invoke(IpcChannel.FILE_EXISTS, sessionId, target) as Promise<boolean>,
   previewFile: (sessionId: string | null, target: string) =>
     ipcRenderer.invoke(IpcChannel.FILE_PREVIEW, sessionId, target) as Promise<FilePreview>,
   // Electron removed File.path; a dropped file's location comes from here.

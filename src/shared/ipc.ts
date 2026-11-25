@@ -126,6 +126,7 @@ export const IpcChannel = {
   SESSION_COLOUR: 'session:colour',
   SESSION_TITLE: 'session:title',
   FILE_PREVIEW: 'file:preview',
+  FILE_EXISTS: 'file:exists',
   WEB_LIST: 'web:list',
   WEB_OPEN: 'web:open',
   WEB_REPORT: 'web:report',
@@ -1529,6 +1530,8 @@ export interface AnticodeApi {
    * the session's folder, or an attachment (sessionId null) by absolute path.
    */
   previewFile: (sessionId: string | null, target: string) => Promise<FilePreview>
+  /** Whether a path the transcript names is still a file in the session's folder. */
+  fileExists: (sessionId: string, target: string) => Promise<boolean>
   pathForFile: (file: File) => string
   /**
    * Starts a run, or, when this session already has one working, hands the

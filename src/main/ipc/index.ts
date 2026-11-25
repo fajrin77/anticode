@@ -794,6 +794,15 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(IpcChannel.FILE_EXISTS, async (_event, sessionId: unknown, target: unknown): Promise<boolean> => {
+    if (typeof sessionId !== 'string' || typeof target !== 'string') return false
+    try {
+      return (await stat(artifactPath(sessionId, target))).isFile()
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle(IpcChannel.APPROVAL_RESPOND, (_event, response: ApprovalResponse): void => {
     if (!approvals.listPending().some(request => request.requestId === response?.requestId && request.sessionId === response.sessionId)) return
     approvals.resolve(response.requestId, response.decision)
