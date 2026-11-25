@@ -5,10 +5,11 @@ import { useSessionSwipe } from './hooks/useSessionSwipe'
 import { SessionSidebar } from './components/SessionSidebar'
 import { TabBar } from './components/TabBar'
 import { SessionPicker } from './components/SessionPicker'
+import { latestReply, neighbourSession, openComposerMenu, sessionOrder } from './shortcuts'
 import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
 import { Composer } from './components/Composer'
-import { SettingsView } from './components/SettingsView'
+import { SettingsView, requestSettingsSection } from './components/SettingsView'
 import { ScheduleView } from './components/ScheduleView'
 import { CONTINUE_PROMPT, PAUSE_LABEL, RESUME_LABEL } from './components/Composer'
 import { ApprovalModal } from './components/ApprovalModal'
@@ -652,31 +653,98 @@ export function App(): JSX.Element {
 
   const [picker, setPicker] = useState(false)
   const [search, setSearch] = useState(0)
+  const [terminal, setTerminal] = useState(0)
+  const [copiedReply, setCopiedReply] = useState(false)
 
+  // Tabs closed in this window, newest last, for Mod+Shift+T.
+  const closedTabs = useRef<string[]>([])
+  useEffect(() => useSessionStore.subscribe((state, previous) => {
+    if (state.sessions === previous.sessions) return
+    const was = new Map(previous.sessions.map((session) => [session.id, session.closed]))
+    for (const session of state.sessions) {
+      if (session.closed && was.get(session.id) === false) closedTabs.current = [...closedTabs.current.filter((id) => id !== session.id), session.id].slice(-20)
+    }
+  }), [])
+
+  const openSettings = useCallback(() => {
+    setView((current) => {
+      if (current === 'settings') return current
+      viewBeforeSettings.current = current
+      return 'settings'
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!copiedReply) return
+    const timer = window.setTimeout(() => setCopiedReply(false), 1600)
+    return () => window.clearTimeout(timer)
+  }, [copiedReply])
+
+  // The list in Settings → Shortcuts (shortcuts.ts) documents every key handled here.
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
-      if (event.altKey || event.shiftKey || (!mod && key !== 'escape')) return
       const state = useSessionStore.getState()
       const id = state.activeSessionId
-      if (key === 'escape' || (mod && key === '.')) {
-        if (picker || view !== 'session' || id === null || event.repeat) return
+      const go = (step: 1 | -1): void => {
+        const next = neighbourSession(sessionOrder(state), view === 'session' ? id : null, step)
+        if (next !== null) openExistingSession(next)
+      }
+      // Ctrl+Tab moves between sessions on every platform, like browser tabs.
+      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Tab') {
+        event.preventDefault()
+        go(event.shiftKey ? -1 : 1)
+        return
+      }
+      if (event.altKey || (!mod && key !== 'escape')) return
+      if (key === 'escape' || (mod && !event.shiftKey && key === '.')) {
+        if (event.shiftKey || picker || view !== 'session' || id === null || event.repeat) return
         if (key === 'escape' && document.querySelector('[data-transcript-search], [data-image-viewer], .menu-glass:not([popover]), :popover-open, [data-approval], [data-question]')) return
         if (![...Object.values(state.activeRuns), ...Object.values(state.mirrorRuns)].some(run => run.sessionId === id)) return
         event.preventDefault()
         void window.anticode.pauseSession(id).catch(error => setAppError(String(error)))
         return
       }
+      if (event.shiftKey) {
+        // Shifted keys are matched by their physical key, which holds on any keyboard layout.
+        const code = event.code
+        if (code === 'BracketRight') go(1)
+        else if (code === 'BracketLeft') go(-1)
+        else if (code === 'KeyT') {
+          const reopen = [...closedTabs.current].reverse().find((closed) => state.sessions.some((session) => session.id === closed && session.closed))
+          if (reopen === undefined) return
+          closedTabs.current = closedTabs.current.filter((closed) => closed !== reopen)
+          openExistingSession(reopen)
+        } else if (code === 'KeyM' && view !== 'settings' && view !== 'schedule') openComposerMenu('model')
+        else if (code === 'KeyE' && view !== 'settings' && view !== 'schedule') openComposerMenu('effort')
+        else if (code === 'KeyC' && view === 'session') {
+          // Mod+Shift+C with text selected is left to the system's own copy.
+          if (window.getSelection()?.toString()) return
+          const reply = latestReply(state.sessions.find((session) => session.id === id))
+          if (reply === '') return
+          void navigator.clipboard.writeText(reply).then(() => setCopiedReply(true)).catch(error => setAppError(String(error)))
+        } else return
+        event.preventDefault()
+        return
+      }
       if (key === 'n') showDashboard()
       else if (key === 'b') toggleSidebar()
       else if (key === ',') toggleSettings()
+      else if (key === '/') { requestSettingsSection('shortcuts'); openSettings() }
       else if (key === 'f' && view === 'session') setSearch(value => value + 1)
+      else if (key === 'j' && view === 'session') setTerminal(value => value + 1)
+      else if (key === 'l' && (view === 'session' || view === 'dashboard')) {
+        const box = document.querySelector<HTMLTextAreaElement>('main textarea')
+        if (box === null) return
+        box.focus()
+        box.setSelectionRange(box.value.length, box.value.length)
+      }
       else if (key === 'k') setPicker(value => !value)
       else if (key === 'w' && view === 'session' && id !== null) state.closeSession(id)
       else if (/^[1-9]$/.test(key)) {
-        const session = state.sessions.filter(entry => !entry.closed)[Number(key) - 1]
+        const session = sessionOrder(state)[Number(key) - 1]
         if (session === undefined) return
         openExistingSession(session.id)
       } else return
@@ -684,7 +752,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openExistingSession, picker, showDashboard, toggleSettings, toggleSidebar, view])
+  }, [openExistingSession, openSettings, picker, showDashboard, toggleSettings, toggleSidebar, view])
 
   const decide = useCallback((request: ApprovalRequest, decision: ApprovalDecision) => {
     void window.anticode.respondToApproval({ requestId: request.requestId, sessionId: request.sessionId, decision }).then(() => {
@@ -820,6 +888,11 @@ export function App(): JSX.Element {
           onNewSession={startSameProject}
         /></div>}
         <main className="@container flex min-w-0 flex-1 flex-col overflow-hidden">
+      {copiedReply && (
+        <div role="status" className="glass-surface pointer-events-none fixed bottom-28 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-text shadow-lg">
+          Latest reply copied
+        </div>
+      )}
       {appError && (
         <div
           role="alert"
@@ -892,7 +965,7 @@ export function App(): JSX.Element {
                 />
               ) : (
                 <>
-                  <SessionView searchPulse={search} />
+                  <SessionView searchPulse={search} terminalPulse={terminal} />
                   <Composer
                     key={activeSessionId}
                     status={status}

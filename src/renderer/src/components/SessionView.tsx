@@ -1217,7 +1217,7 @@ function SessionChangedFiles({ messages }: { messages: Message[] }): JSX.Element
   )
 }
 
-export function SessionView({ searchPulse = 0 }: { searchPulse?: number }): JSX.Element {
+export function SessionView({ searchPulse = 0, terminalPulse = 0 }: { searchPulse?: number; terminalPulse?: number }): JSX.Element {
   const initialPulse = useRef(searchPulse)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -1234,6 +1234,14 @@ export function SessionView({ searchPulse = 0 }: { searchPulse?: number }): JSX.
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrolled, setScrolled] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const initialTerminalPulse = useRef(terminalPulse)
+  useEffect(() => {
+    if (initialTerminalPulse.current === terminalPulse) return
+    initialTerminalPulse.current = terminalPulse
+    if (session?.mode === 'code') setTerminalOpen((open) => !open)
+    // Only the pulse decides; the mode is read at the moment of the key press.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalPulse])
   const messages = session?.messages ?? []
   const needle = searchOpen ? query.trim().toLowerCase() : ''
   const matches = needle === '' ? [] : messages.filter(message => message.parts.some(

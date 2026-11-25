@@ -12,6 +12,7 @@ import { Composer } from './Composer'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import { ModelPicker } from './ModelPicker'
 import { EffortLabel, EffortMenu, effortTarget } from './EffortPicker'
+import { COMPOSER_MENU_EVENT } from '../shortcuts'
 import { SessionRow } from './SessionRow'
 import { LogoMark } from './LogoMark'
 
@@ -109,6 +110,16 @@ function DashboardComposer({
   const mention = useFileMention(folder, draft, setDraft, promptRef)
   useAttachmentFocus(DASHBOARD_DRAFT, attached, promptRef)
   const effort = effortTarget(status, providers)
+  const hasEffort = effort !== null
+  useEffect(() => {
+    const onMenu = (event: Event): void => {
+      const wanted = (event as CustomEvent<'model' | 'effort'>).detail
+      if (wanted === 'effort' && !hasEffort) return
+      setMenu((open) => (open === wanted ? 'none' : wanted))
+    }
+    window.addEventListener(COMPOSER_MENU_EVENT, onMenu)
+    return () => window.removeEventListener(COMPOSER_MENU_EVENT, onMenu)
+  }, [hasEffort])
 
   const openSession = useSessionStore((state) => state.openSession)
   const addMessage = useSessionStore((state) => state.addMessage)

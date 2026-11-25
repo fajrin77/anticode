@@ -1359,6 +1359,25 @@ try {
   await limeOnHover('transcript search: close', search.getByRole('button', { name: 'Close search' }))
   await search.getByRole('textbox').press('Escape'); await window.waitForTimeout(200)
   check('escape closes transcript search', await search.count(), 0)
+  // Ctrl+Tab steps to the next session; Mod+W closes the tab and Mod+Shift+T brings it back.
+  const before = await window.evaluate(() => window.__store.getState().activeSessionId)
+  await window.keyboard.press('Control+Tab'); await window.waitForTimeout(250)
+  const stepped = await window.evaluate(() => window.__store.getState().activeSessionId)
+  check('ctrl+tab moves to another session', stepped !== before ? 'moved' : 'stayed', 'moved')
+  await window.keyboard.press('Meta+w'); await window.waitForTimeout(250)
+  check('mod+w closes the tab', await window.evaluate((id) => window.__store.getState().sessions.find((s) => s.id === id)?.closed === true, stepped), true)
+  await window.keyboard.press('Meta+Shift+t'); await window.waitForTimeout(250)
+  check('mod+shift+t reopens it', await window.evaluate((id) => {
+    const state = window.__store.getState()
+    return state.activeSessionId === id && state.sessions.find((s) => s.id === id)?.closed === false
+  }, stepped), true)
+  // Mod+/ opens the shortcut list in Settings.
+  await window.keyboard.press('Meta+/'); await window.waitForTimeout(400)
+  check('mod+/ opens the shortcut list', await window.getByRole('heading', { name: 'Shortcuts', level: 1 }).count(), 1)
+  check('the list names the switcher shortcut', await window.getByText('Switch session', { exact: true }).count(), 1)
+  await limeOnHover('settings: an inactive menu entry', window.locator('aside nav').getByRole('button', { name: 'General' }))
+  await shot('27-shortcuts')
+  await window.keyboard.press('Meta+,'); await window.waitForTimeout(300)
 
   // The session tab strip (and its crowded-tab checks) left the header in 0.1.18.
 

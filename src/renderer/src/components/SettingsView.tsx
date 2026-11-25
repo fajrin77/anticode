@@ -1,3 +1,4 @@
+import { Shortcuts } from './settings/Shortcuts'
 import { RotationBulkPicker } from './settings/RotationBulkPicker'
 import { AccountGroup } from './settings/AccountGroup'
 import { ComposerGroupVisibility } from './settings/ComposerVisibility'
@@ -45,10 +46,17 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'auth' | 'models' | 'pricing' | 'usage' | 'mcp' | 'plugins' | 'remote' | 'updates'
+type Section = 'general' | 'providers' | 'auth' | 'models' | 'pricing' | 'usage' | 'mcp' | 'plugins' | 'remote' | 'updates' | 'shortcuts'
 
 // Remembered across leaving and reopening Settings, so it reopens where it was left.
 let lastSection: Section = 'general'
+const SECTION_EVENT = 'anticode:settings-section'
+
+/** Opens Settings on a page: the next mount starts there, an open Settings switches to it. */
+export function requestSettingsSection(section: Section): void {
+  lastSection = section
+  window.dispatchEvent(new CustomEvent(SECTION_EVENT, { detail: section }))
+}
 /** Scroll position of each page, kept while Settings is closed. */
 const scrollBySection: Partial<Record<Section, number>> = {}
 
@@ -2073,6 +2081,11 @@ export function SettingsView({
     lastSection = next
     setSectionState(next)
   }
+  useEffect(() => {
+    const onSection = (event: Event): void => setSectionState((event as CustomEvent<Section>).detail)
+    window.addEventListener(SECTION_EVENT, onSection)
+    return () => window.removeEventListener(SECTION_EVENT, onSection)
+  }, [])
 
   const allItems: { id: Section; label: string; icon: JSX.Element }[] = [
     {
@@ -2165,6 +2178,16 @@ export function SettingsView({
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
           <rect x="1.5" y="3" width="8" height="6" rx="1.2" />
           <rect x="6.5" y="7" width="8" height="6" rx="1.2" />
+        </svg>
+      )
+    },
+    {
+      id: 'shortcuts',
+      label: 'Shortcuts',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" />
+          <path d="M4 6.5h.01M6.5 6.5h.01M9 6.5h.01M11.5 6.5h.01M5 9.5h6" strokeLinecap="round" />
         </svg>
       )
     },
@@ -2289,6 +2312,7 @@ export function SettingsView({
           {section === 'plugins' && <Plugins />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
+          {section === 'shortcuts' && <Shortcuts />}
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ import { restoreRejectedDraft, useSessionStore } from '../store/session'
 import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
 import { ModelPicker } from './ModelPicker'
 import { EffortLabel, EffortMenu, effortTarget } from './EffortPicker'
+import { COMPOSER_MENU_EVENT } from '../shortcuts'
 import { TodoPanel } from './TodoPanel'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import { modelCannotSeeImages, modelLabel, statusFor } from '@shared/ipc'
@@ -112,6 +113,17 @@ export function Composer({  status: sharedStatus,
   }))
   const status = sharedStatus === null ? null : statusFor(sharedStatus, session?.id)
   const effort = effortTarget(status, providers)
+  const hasEffort = effort !== null
+  // Mod+Shift+M / Mod+Shift+E from App: open the same menus the chips open.
+  useEffect(() => {
+    const onMenu = (event: Event): void => {
+      const wanted = (event as CustomEvent<'model' | 'effort'>).detail
+      if (wanted === 'effort' && !hasEffort) return
+      setMenu((open) => (open === wanted ? 'none' : wanted))
+    }
+    window.addEventListener(COMPOSER_MENU_EVENT, onMenu)
+    return () => window.removeEventListener(COMPOSER_MENU_EVENT, onMenu)
+  }, [hasEffort])
   const savedDraft = useSessionStore((state) => state.drafts[session?.id ?? ''])
   const draft = savedDraft?.text ?? ''
   const attached = savedDraft?.attachments ?? []
