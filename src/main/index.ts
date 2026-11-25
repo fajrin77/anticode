@@ -31,6 +31,8 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#0b0e14',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // Centre the traffic lights on the 48px header so they line up with its icons.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 17 } } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

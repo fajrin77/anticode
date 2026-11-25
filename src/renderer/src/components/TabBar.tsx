@@ -146,11 +146,11 @@ function UsageButton({
         type="button"
         onClick={() => setOpen((value) => !value)}
         title="Session usage"
-        className={`glass-ghost flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
+        className={`glass-ghost flex h-8 w-8 items-center justify-center rounded-md hover:text-brand ${
           open ? 'text-brand' : 'text-dim'
         }`}
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
           <rect x="2" y="9" width="3" height="5" rx="1" />
           <rect x="6.5" y="5" width="3" height="9" rx="1" />
           <rect x="11" y="2" width="3" height="12" rx="1" />
@@ -318,9 +318,9 @@ function PlanUsageButton({ provider }: { provider: string | null }): JSX.Element
         aria-label="Plan usage"
         aria-expanded={open}
         data-plan-usage-toggle
-        className={`glass-ghost flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${open ? 'text-brand' : 'text-dim'}`}
+        className={`glass-ghost flex h-8 w-8 items-center justify-center rounded-md hover:text-brand ${open ? 'text-brand' : 'text-dim'}`}
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden>
           <path d="M2.4 11.5a5.8 5.8 0 1 1 11.2 0" />
           <path d="M8 9.6l2.4-3" />
         </svg>
@@ -378,11 +378,11 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
       title={shown ? 'Hide browser' : 'Show browser'}
       aria-pressed={shown}
       data-browser-toggle
-      className={`glass-ghost region-no-drag flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
+      className={`glass-ghost region-no-drag flex h-8 w-8 items-center justify-center rounded-md hover:text-brand ${
         shown ? 'text-brand' : 'text-dim'
       }`}
     >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
         <rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" />
         <path d="M1.7 6h12.6" />
         <path d="M4.3 4.35h.01M6.2 4.35h.01" strokeLinecap="round" strokeWidth="1.6" />
@@ -414,7 +414,7 @@ export function TabBar({
         title="Toggle sidebar (⌘/Ctrl+B)" aria-label="Toggle sidebar"
         aria-expanded={sidebarOpen} aria-controls="session-sidebar"
         className="glass-ghost region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand">
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+        <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
           <rect x="2" y="3" width="16" height="14" rx="2" /><path d="M7 3v14" />
         </svg>
       </button>
@@ -425,8 +425,8 @@ export function TabBar({
         title="+ New Session"
         className="glass-ghost region-no-drag -ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
-          <path d="M8 3v10M3 8h10" />
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden>
+          <path d="M8 2.5v11M2.5 8h11" />
         </svg>
       </button>
       <span className="min-w-0 truncate text-[13px] text-dim">
@@ -445,11 +445,11 @@ export function TabBar({
           onClick={onOpenSchedule}
           title="Schedule"
           aria-pressed={scheduleActive}
-          className={`glass-ghost region-no-drag flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
+          className={`glass-ghost region-no-drag flex h-8 w-8 items-center justify-center rounded-md hover:text-brand ${
             scheduleActive ? 'text-brand' : 'text-dim'
           }`}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
             <circle cx="8" cy="8" r="5.6" />
             <path d="M8 4.8V8l2.2 1.4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -459,11 +459,11 @@ export function TabBar({
           onClick={onOpenSettings}
           title="Settings"
           aria-pressed={settingsActive}
-          className={`glass-ghost region-no-drag flex h-7 w-7 items-center justify-center rounded-md hover:text-brand ${
+          className={`glass-ghost region-no-drag flex h-8 w-8 items-center justify-center rounded-md hover:text-brand ${
             settingsActive ? 'text-brand' : 'text-dim'
           }`}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
             <path d="M2 4.5h5.6M11.4 4.5H14M2 11.5h1.6M7.4 11.5H14" strokeLinecap="round" />
             <circle cx="9.5" cy="4.5" r="1.9" />
             <circle cx="5.4" cy="11.5" r="1.9" />
