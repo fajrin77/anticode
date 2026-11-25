@@ -30,6 +30,7 @@ import { DIRECT_AUTH_LABELS, isDirectAuthKind } from '@shared/directAuthProvider
 import { loginDirectApi } from './directApi'
 import { forgetAuthCatalogue } from './catalogue'
 import { ensureFreshAuthTokens } from './provider'
+import { clearLoginCooldown } from '../rotation'
 import { withRelogin } from './types'
 import type { AuthAccount, AuthKind, AuthLoginCallbacks, AuthTokens } from './types'
 
@@ -131,12 +132,12 @@ function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
     case 'cursor':
     case 'copilot':
     case 'antigravity':
+    case 'vercel':
     case 'gemini': return tokens.meta?.account
     case 'minimax-plan': return undefined
     case 'kilo': return tokens.meta?.email || undefined
     case 'openrouter': return undefined
     case 'orcarouter': return undefined
-    case 'vercel': return undefined
     case 'opencode-go': return undefined
     case 'codex':
       return codexLabel(tokens)
@@ -151,15 +152,26 @@ function labelFor(kind: AuthKind, tokens: AuthTokens): string | undefined {
   }
 }
 
+const GENERIC_ACCOUNT_LABELS = new Set(
+  [...Object.values(AUTH_KIND_LABELS), 'gemini', 'antigravity', 'github copilot', 'cursor', 'vercel ai gateway'].map((v) => v.toLowerCase())
+)
+
+function cleanIdentityLabel(value: string | undefined): string {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return GENERIC_ACCOUNT_LABELS.has(normalized) ? '' : normalized
+}
+
 /** Stable provider identity prevents browser SSO from creating duplicate quota slots. */
 function sameAccount(existing: AuthAccount, tokens: AuthTokens, label: string | undefined): boolean {
   const previous = readAuthTokens(existing.id)
   const oldId = (previous?.meta?.accountId || previous?.meta?.userId)?.trim()
   const newId = (tokens.meta?.accountId || tokens.meta?.userId)?.trim()
   if (oldId && newId) return oldId === newId
-  const oldLabel = (existing.account ?? previous?.meta?.email ?? '').trim().toLowerCase()
-  const newLabel = (label ?? tokens.meta?.email ?? '').trim().toLowerCase()
-  return oldLabel && newLabel ? oldLabel === newLabel : previous?.accessToken === tokens.accessToken
+  const oldLabel = cleanIdentityLabel(existing.account ?? previous?.meta?.email)
+  const newLabel = cleanIdentityLabel(label ?? tokens.meta?.email)
+  if (oldLabel && newLabel) return oldLabel === newLabel
+  if (previous === null) return !cleanIdentityLabel(existing.account) && !newLabel && !newId
+  return previous.accessToken === tokens.accessToken
 }
 
 /**
@@ -172,6 +184,7 @@ export async function loginAuthAccount(
   callbacks: AuthLoginCallbacks
 ): Promise<AuthAccount> {
   const tokens = await runLogin(kind, callbacks)
+  callbacks.signal.throwIfAborted()
   if (kind === 'clinepass' && tokens.meta?.accountId) {
     // Link an imported plan key to the same browser subscription before creating a new slot.
     for (const row of listAuthAccounts().filter(row => row.kind === 'clinepass')) {
@@ -183,18 +196,21 @@ export async function loginAuthAccount(
       } catch { callbacks.signal.throwIfAborted() }
     }
   }
+  callbacks.signal.throwIfAborted()
   const vendorLabel = AUTH_KIND_LABELS[kind]
   const account = labelFor(kind, tokens)
+  const refreshable = canRefreshAuthAccount(kind) && tokens.refreshToken !== undefined
   const existing = listAuthAccounts().find((row) => row.kind === kind && sameAccount(row, tokens, account))
   if (existing) {
     const updated: AuthAccount = {
       ...existing,
       ...(account ? { account } : {}),
       ...(tokens.expiresAt !== undefined ? { expiresAt: tokens.expiresAt } : { expiresAt: 0 }),
-      refreshable: tokens.refreshToken !== undefined
+      refreshable
     }
     saveAuthAccount(updated, { ...tokens, meta: { ...readAuthTokens(existing.id)?.meta, ...tokens.meta } })
     forgetAuthCatalogue(updated.id)
+    clearLoginCooldown(updated.id)
     if (kind === 'deepseek') {
       // The browser hands back whatever DeepSeek account is signed in there, so a
       // second sign-in silently replaces the first. Say it rather than look stuck.
@@ -219,10 +235,11 @@ export async function loginAuthAccount(
     ...(account !== undefined && account !== '' ? { account } : {}),
     ...(tokens.expiresAt !== undefined ? { expiresAt: tokens.expiresAt } : {}),
     createdAt: Date.now(),
-    refreshable: tokens.refreshToken !== undefined
+    refreshable
   }
   saveAuthAccount(record, tokens)
   forgetAuthCatalogue(id)
+  clearLoginCooldown(id)
   return record
 }
 

@@ -77,16 +77,21 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
     method: 'POST',
     headers: headers(requestId),
     body: JSON.stringify({}),
-    signal
+    signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)])
   })
   if (!start.ok) throw new Error(`CodeBuddy login could not start: ${start.status}`)
   const started = (await start.json()) as StateResponse
   const state = started.data?.state ?? ''
   const authUrl = started.data?.authUrl ?? ''
   if (state === '' || authUrl === '') throw new Error('CodeBuddy returned no login URL')
+  let parsedAuthUrl: URL
+  try { parsedAuthUrl = new URL(authUrl) } catch { throw new Error('CodeBuddy returned an invalid login URL') }
+  if (parsedAuthUrl.protocol !== 'https:' || parsedAuthUrl.username || parsedAuthUrl.password) {
+    throw new Error('CodeBuddy returned an unsafe login URL')
+  }
 
-  callbacks.onUpdate({ message: 'Sign in to CodeBuddy in the browser', url: authUrl })
-  void shell.openExternal(authUrl)
+  callbacks.onUpdate({ message: 'Sign in to CodeBuddy in the browser', url: parsedAuthUrl.href })
+  void shell.openExternal(parsedAuthUrl.href)
 
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let waited = 0
@@ -96,7 +101,7 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
     const poll = await fetch(`${TOKEN_URL}?${new URLSearchParams({ state })}`, {
       method: 'GET',
       headers: headers(makeState()),
-      signal
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)])
     })
     if (poll.status === 401 || poll.status === 403) throw new Error(`CodeBuddy refused login (HTTP ${poll.status}). Start sign in again.`)
     if (!poll.ok) continue
@@ -104,7 +109,7 @@ export async function loginCodebuddy(callbacks: AuthLoginCallbacks): Promise<Aut
     const token = payload.data?.accessToken ?? payload.data?.bearerToken
     if ((payload.code === undefined || payload.code === 0 || payload.code === 200) && token !== undefined && token !== '') {
       if (payload.data?.state && payload.data.state !== state) throw new Error('CodeBuddy login returned the wrong state')
-      const identity = await fetch(`${BASE}/v2/plugin/account`, { headers: { Authorization: `Bearer ${token}`, 'X-Domain': 'www.codebuddy.ai', 'User-Agent': `anticode/${APP_VERSION}` }, signal }).then(async response => response.ok ? (await response.json() as {data?: {uid?: string; email?: string; nickname?: string}}).data : undefined).catch(error => { if (signal.aborted) throw error; return undefined })
+      const identity = await fetch(`${BASE}/v2/plugin/account`, { headers: { Authorization: `Bearer ${token}`, 'X-Domain': 'www.codebuddy.ai', 'User-Agent': `anticode/${APP_VERSION}` }, signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) }).then(async response => response.ok ? (await response.json() as {data?: {uid?: string; email?: string; nickname?: string}}).data : undefined).catch(error => { if (signal.aborted) throw error; return undefined })
       callbacks.onUpdate({ message: 'Signed in', done: true })
       const refreshToken = payload.data?.refreshToken
       return {

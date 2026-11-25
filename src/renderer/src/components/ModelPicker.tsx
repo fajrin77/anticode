@@ -80,7 +80,7 @@ export function ModelPicker({
   useEffect(() => {
     if (!accountProvider) return
     let active = true
-    void window.anticode.listModels(viewing, true).then((result) => {
+    void window.anticode.listModels(viewing, false).then((result) => {
       if (active) setAccountCatalogue({ provider: viewing, models: result.models })
     }).catch(() => {})
     return () => { active = false }
@@ -113,6 +113,11 @@ export function ModelPicker({
     const needle = query.trim().toLowerCase()
     return needle === '' ? picked : picked.filter((id) => id.toLowerCase().includes(needle))
   }, [query, picked.join('\n')])
+
+  const [activeIndex, setActiveIndex] = useState(-1)
+  useEffect(() => {
+    setActiveIndex(-1)
+  }, [query, viewing])
 
   const typedIsNew = viewing !== '' && query.trim() !== '' && picked.length === 0 && !matches.includes(query.trim())
   // Rotate leads the tab row. It used to sit last, so every account added
@@ -221,11 +226,17 @@ export function ModelPicker({
                 >
                   {entry.unavailableReason
                     ? 'unavailable'
-                    : !entry.ready
-                    ? 'no key'
-                    : entry.outOfUsage !== null
-                      ? 'out of usage'
-                      : compactTokens(entry.inputTokens + entry.outputTokens)}
+                    : entry.composerDisabled
+                      ? 'hidden'
+                      : entry.credentialReady === false
+                        ? 'no key'
+                        : entry.coolingUntil !== null && entry.coolingUntil > Date.now()
+                          ? 'resting'
+                          : entry.outOfUsage !== null
+                            ? 'out of usage'
+                            : !entry.ready
+                              ? 'no key'
+                              : compactTokens(entry.inputTokens + entry.outputTokens)}
                 </span>
               </div>
             ))}
@@ -240,8 +251,32 @@ export function ModelPicker({
             placeholder="Search models, or type an id"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') onClose()
-              if (event.key === 'Enter' && typedIsNew) onSelect(viewing, query.trim())
+              if (event.key === 'Escape') {
+                onClose()
+                return
+              }
+              if (event.key === 'ArrowDown' && matches.length > 0) {
+                event.preventDefault()
+                setActiveIndex((idx) => (idx + 1) % matches.length)
+                return
+              }
+              if (event.key === 'ArrowUp' && matches.length > 0) {
+                event.preventDefault()
+                setActiveIndex((idx) => (idx <= 0 ? matches.length - 1 : idx - 1))
+                return
+              }
+              if (event.key === 'Enter') {
+                const chosen = activeIndex >= 0 ? matches[activeIndex] : undefined
+                if (chosen !== undefined) {
+                  const route = manualRoute(chosen)
+                  if (route.reason === null) {
+                    event.preventDefault()
+                    onSelect(route.provider, chosen)
+                  }
+                  return
+                }
+                if (typedIsNew) onSelect(viewing, query.trim())
+              }
             }}
             className="border-b border-line-soft bg-transparent px-3 py-1.5 text-[12px] text-text outline-none placeholder:text-faint"
           />
@@ -269,7 +304,7 @@ export function ModelPicker({
               </button>
             )}
 
-            {matches.map((id) => (
+            {matches.map((id, index) => (
               <button
                 key={id}
                 data-picker-model={id}
@@ -278,7 +313,7 @@ export function ModelPicker({
                 title={manualRoute(id).reason ?? undefined}
                 onClick={() => onSelect(manualRoute(id).provider, id)}
                 className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] transition-colors hover:bg-hover hover:text-brand ${
-                  current(id) ? 'text-text' : 'text-dim'
+                  index === activeIndex ? 'bg-hover text-brand' : current(id) ? 'text-text' : 'text-dim'
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{id}</span>

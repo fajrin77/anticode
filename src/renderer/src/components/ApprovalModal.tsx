@@ -90,19 +90,35 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
     observer.observe(card)
     const composer = document.querySelector<HTMLElement>('[data-composer-box]')
     if (composer !== null) observer.observe(composer)
-    window.addEventListener('resize', sync)
-    sync()
-    // The browser pane slides the composer sideways (an animated move, not a
-    // resize, and the composer element can be replaced), which the observers
-    // miss: follow it every frame so the card stays centred on the composer.
-    let frame = requestAnimationFrame(function follow() {
+    const slide = document.querySelector<HTMLElement>('[data-session-slide]') ?? document.querySelector('main')
+    if (slide !== null) observer.observe(slide)
+    let frame = 0
+    let activeTransitions = 0
+    const follow = (): void => {
       sync()
-      frame = requestAnimationFrame(follow)
-    })
+      if (activeTransitions > 0) frame = requestAnimationFrame(follow)
+      else frame = 0
+    }
+    const onTransitionStart = (): void => {
+      activeTransitions += 1
+      if (frame === 0) frame = requestAnimationFrame(follow)
+    }
+    const onTransitionDone = (): void => {
+      activeTransitions = Math.max(0, activeTransitions - 1)
+      sync()
+    }
+    window.addEventListener('resize', sync)
+    document.addEventListener('transitionrun', onTransitionStart, true)
+    document.addEventListener('transitionend', onTransitionDone, true)
+    document.addEventListener('transitioncancel', onTransitionDone, true)
+    sync()
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
       window.removeEventListener('resize', sync)
+      document.removeEventListener('transitionrun', onTransitionStart, true)
+      document.removeEventListener('transitionend', onTransitionDone, true)
+      document.removeEventListener('transitioncancel', onTransitionDone, true)
       root.style.removeProperty('--approval-height')
     }
   }, [])
@@ -111,7 +127,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
   return (
     <div
-      className="pointer-events-none fixed z-10"
+      className="pointer-events-none fixed z-30"
       style={
         anchor !== null
           ? { left: anchor.left, width: anchor.width, bottom: anchor.bottom }
@@ -137,7 +153,9 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           <span className="text-[14px] text-text">
             {/^mcp__(.+?)__(.+)$/.test(request.toolName)
               ? request.toolName.replace(/^mcp__(.+?)__(.+)$/, '$2 · MCP $1')
-              : request.toolName}
+              : /^plugin__(.+?)__(.+)$/.test(request.toolName)
+                ? request.toolName.replace(/^plugin__(.+?)__(.+)$/, '$2 · Plugin $1')
+                : request.toolName}
           </span>
           <span
             className={`text-[11.5px] ${request.risk === 'high' ? 'text-del' : 'text-dim'}`}

@@ -79,7 +79,7 @@ const app = await electron.launch({args:[bootstrap],env,cwd:directory})
 const window = await app.firstWindow()
 await window.setViewportSize({width:1280,height:820})
 const shot = async (name) => { await window.screenshot({path:path.join(shots,name+'.png')}); console.log('shot:',name) }
-const composer = () => window.getByPlaceholder(/just vibes|what to change|Add to the task/)
+const composer = () => window.getByPlaceholder(/just vibes|what to change|Add to the task|Queue the next prompt/)
 try {
   const colourOf = async (locator) => locator.evaluate((el) => getComputedStyle(el).color)
   const LIME = 'rgb(209, 250, 34)'
@@ -90,7 +90,7 @@ try {
   }
   const failures = []
   // Temporary sidebar overlays the workspace; clicking the icon still pins it.
-  const sidebarToggle = window.getByRole('button', { name: 'Buka/tutup sidebar', exact: true })
+  const sidebarToggle = window.getByRole('button', { name: 'Toggle sidebar', exact: true })
   const sidebar = window.locator('#session-sidebar')
   await sidebar.waitFor()
   await sidebarToggle.click()
@@ -1164,8 +1164,8 @@ try {
     document.dispatchEvent(new Event('selectionchange'))
   })
   await window.waitForTimeout(300)
-  const balas = window.getByRole('button',{name:'Balas',exact:true})
-  check('selecting a reply offers Balas', await balas.count(), 1)
+  const balas = window.getByRole('button',{name:'Reply',exact:true})
+  check('selecting a reply offers Reply', await balas.count(), 1)
   await balas.click(); await window.waitForTimeout(300)
   check('the quote lands above the composer',
     await window.getByText('Replying to').count() > 0 ? 'shown' : 'missing', 'shown')
@@ -1189,7 +1189,7 @@ try {
     document.dispatchEvent(new Event('selectionchange'))
   })
   await window.waitForTimeout(300)
-  await window.getByRole('button',{name:'Balas',exact:true}).click(); await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'Reply',exact:true}).click(); await window.waitForTimeout(300)
   await window.keyboard.press('Escape'); await window.waitForTimeout(300)
   check('Escape drops the quote',
     await window.getByText('Replying to').count() === 0 ? 'dropped' : 'stuck', 'dropped')
@@ -1205,7 +1205,7 @@ try {
     document.dispatchEvent(new Event('selectionchange'))
   })
   await window.waitForTimeout(300)
-  await window.getByRole('button',{name:'Balas',exact:true}).click(); await window.waitForTimeout(300)
+  await window.getByRole('button',{name:'Reply',exact:true}).click(); await window.waitForTimeout(300)
   await composer().fill('jelaskan ini')
   await composer().press('Enter')
   await window.waitForTimeout(900)

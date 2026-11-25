@@ -114,7 +114,7 @@ function completionPreview(runId: string): string {
     .replace(/[`*_#>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-  return plain.length > 240 ? `${plain.slice(0, 239).trimEnd()}…` : plain || 'Selesai. Buka sesi untuk melihat hasil.'
+  return plain.length > 240 ? `${plain.slice(0, 239).trimEnd()}…` : plain || 'Finished. Open the session to view the result.'
 }
 
 export function forgetRun(runId: string): void {

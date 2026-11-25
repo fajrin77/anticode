@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import path from 'node:path'
-import { seal, unseal, isSealed } from '../secrets'
+import { seal, unseal, isSealed, secureStorageAvailable } from '../secrets'
 import type { AuthAccount, AuthTokens } from './types'
 
 /*
@@ -18,6 +18,12 @@ interface StoreShape {
 }
 
 let cache: StoreShape | null = null
+const tokenCache = new Map<string, AuthTokens | null>()
+
+function cloneTokens(tokens: AuthTokens | null): AuthTokens | null {
+  if (tokens === null) return null
+  return { ...tokens, ...(tokens.meta !== undefined ? { meta: { ...tokens.meta } } : {}) }
+}
 
 function file(): string {
   return path.join(app.getPath('userData'), 'auth-accounts.json')
@@ -34,14 +40,14 @@ function load(): StoreShape {
   return cache
 }
 
-function persist(): void {
+function persist(strict = false): void {
   if (cache === null) return
   try {
     mkdirSync(path.dirname(file()), { recursive: true })
     writeFileSync(`${file()}.tmp`, JSON.stringify(cache, null, 2), { mode: 0o600 })
     renameSync(`${file()}.tmp`, file())
-  } catch {
-    // Best-effort, same as settings.json.
+  } catch (error) {
+    if (strict) throw error
   }
 }
 
@@ -59,19 +65,28 @@ export function authAccountExists(id: string): boolean {
   return load().accounts.some((entry) => entry.account.id === id)
 }
 
-/** Round-trips the sealed blob back to tokens; {} when the keychain is gone. */
+/** Round-trips the sealed blob back to tokens; null when the keychain is gone. */
 export function readAuthTokens(id: string): AuthTokens | null {
+  if (!secureStorageAvailable()) return null
+  if (tokenCache.has(id)) return cloneTokens(tokenCache.get(id) ?? null)
   const entry = load().accounts.find((row) => row.account.id === id)
   if (entry === undefined) return null
   if (!isSealed(entry.sealed)) {
     // Older file from a build without secure storage: refuse rather than leak.
+    tokenCache.set(id, null)
     return null
   }
   const raw = unseal(entry.sealed)
-  if (raw === '') return null
+  if (raw === '') {
+    tokenCache.set(id, null)
+    return null
+  }
   try {
-    return JSON.parse(raw) as AuthTokens
+    const parsed = JSON.parse(raw) as AuthTokens
+    tokenCache.set(id, cloneTokens(parsed))
+    return cloneTokens(parsed)
   } catch {
+    tokenCache.set(id, null)
     return null
   }
 }
@@ -90,7 +105,8 @@ export function saveAuthAccount(account: AuthAccount, tokens: AuthTokens): void 
   const next = store.accounts.filter((entry) => entry.account.id !== account.id)
   next.push(row)
   cache = { version: 1, accounts: next }
-  persist()
+  tokenCache.set(account.id, cloneTokens(tokens))
+  persist(true)
 }
 
 /**
@@ -104,7 +120,9 @@ export function updateAuthTokens(id: string, tokens: AuthTokens): void {
   const entry = store.accounts.find((row) => row.account.id === id)
   if (entry === undefined) return
   const sealed = seal(JSON.stringify(tokens))
-  if (sealed === '') return
+  if (sealed === '') {
+    throw new Error('Secure storage is not available, so renewed tokens could not be saved.')
+  }
   entry.sealed = sealed
   // A vendor that does not say when the token dies gets no expiry shown at
   // all; 0 would read as "expired in 1970".
@@ -112,7 +130,8 @@ export function updateAuthTokens(id: string, tokens: AuthTokens): void {
   else entry.account.expiresAt = tokens.expiresAt
   entry.account.refreshable = tokens.refreshToken !== undefined
   cache = { version: 1, accounts: store.accounts }
-  persist()
+  tokenCache.set(id, cloneTokens(tokens))
+  persist(true)
 }
 
 /** Renames one account without touching its tokens. */
@@ -127,6 +146,7 @@ export function renameAuthAccount(id: string, label: string): void {
 
 export function removeAuthAccount(id: string): void {
   const store = load()
+  tokenCache.delete(id)
   cache = {
     version: 1,
     accounts: store.accounts.filter((entry) => entry.account.id !== id)
@@ -137,4 +157,5 @@ export function removeAuthAccount(id: string): void {
 /** For tests: drop the in-memory cache so the next call re-reads the file. */
 export function resetAuthStoreForTests(): void {
   cache = null
+  tokenCache.clear()
 }

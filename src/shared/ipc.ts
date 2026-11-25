@@ -96,6 +96,7 @@ export const IpcChannel = {
   AUTH_CANCEL: 'auth:cancel',
   AUTH_REMOVE: 'auth:remove',
   AUTH_LIST: 'auth:list',
+  AUTH_LOGINS: 'auth:logins',
   AUTH_REFRESH: 'auth:refresh',
   AUTH_RENAME: 'auth:rename',
   AUTH_EVENT: 'auth:event',
@@ -177,8 +178,8 @@ const KNOWN_CONTEXT_WINDOWS: ReadonlyArray<readonly [string, number]> = [
   ['gemini-flash', 1_000_000],
   ['gemini-pro', 1_000_000],
   ['gemini', 1_000_000],
-  // GPT / Codex backend: GPT-5 family ships 400k; 4o/4.1 family 128k-1M.
-  // 400k is the safe common denominator for the `gpt-5*` prefix.
+  // GPT / Codex backend: GPT-5/6 family ships 400k; 4o/4.1 family 128k-1M.
+  ['gpt-6', 400_000],
   ['gpt-5.6', 400_000],
   ['gpt-5.5', 400_000],
   ['gpt-5.4', 400_000],
@@ -209,12 +210,19 @@ const KNOWN_CONTEXT_WINDOWS: ReadonlyArray<readonly [string, number]> = [
   ['glm-4', 128_000],
   ['glm', 128_000],
   // Common open families reachable via custom providers / Ollama.
+  ['deepseek-v4', 128_000],
   ['deepseek-v3', 128_000],
   ['deepseek-r1', 128_000],
   ['deepseek', 128_000],
+  ['qwen3.8-max', 256_000],
+  ['qwen3.7-max', 256_000],
   ['qwen3-max', 256_000],
   ['qwen3', 128_000],
   ['qwen', 128_000],
+  ['grok-4', 256_000],
+  ['gemma-4', 128_000],
+  ['mimo-v2', 128_000],
+  ['kimi-k3', 200_000],
   ['kimi-k2', 200_000],
   ['kimi', 200_000],
   ['llama-3.3', 128_000],
@@ -461,8 +469,12 @@ export interface RotationEntryStatus extends RotationEntry {
   /** Tokens this model has used since the last reset, from every session. */
   inputTokens: number
   outputTokens: number
-  /** Its provider is there and has credentials. */
+  /** Its provider is there, has credentials, and can serve right now. */
   ready: boolean
+  /** True when its provider exists and has usable credentials (independent of cooldown/quota). */
+  credentialReady?: boolean
+  /** True when its auth account is switched off in Composer. */
+  composerDisabled?: boolean
   /** Set while it rests after a rate limit or failure; others go first. */
   coolingUntil: number | null
   /**
@@ -1438,7 +1450,7 @@ export interface AnticodeApi {
    * headroom. A window a provider published for the id wins over the built-in
    * family table, so a new model is not measured against the 100k floor.
    */
-  contextBudget: (model: string) => Promise<ContextBudget>
+  contextBudget: (model: string, provider?: ProviderId | null) => Promise<ContextBudget>
   /** Replaces the Rotate usage pool. */
   setRotation: (entries: RotationEntry[]) => Promise<SessionStatus>
   /** Starts every pool entry's token count from zero. */
@@ -1447,7 +1459,7 @@ export interface AnticodeApi {
   setRotationEnabled: (enabled: boolean) => Promise<SessionStatus>
   setPromptsPerModel: (count: number) => Promise<SessionStatus>
   setSubscriptionRouting: (enabled: boolean) => Promise<SessionStatus>
-  getSubscriptionQuotas: () => Promise<SubscriptionQuota[]>
+  getSubscriptionQuotas: (force?: boolean) => Promise<SubscriptionQuota[]>
   getConnectorSettings: () => Promise<{ codex: boolean; claude: boolean }>
   setConnectorSettings: (settings: { codex: boolean; claude: boolean }) => Promise<{ codex: boolean; claude: boolean }>
   /** Replaces the Rotate usage groups; a model a group names joins the pool. */
@@ -1589,6 +1601,8 @@ export interface AnticodeApi {
   removeAuthProvider: (id: string) => Promise<ProviderInfo[]>
   /** Accounts on disk, without their tokens. */
   listAuthAccounts: () => Promise<AuthAccountSummary[]>
+  /** In-flight or recently settled OAuth/API-key login cards. */
+  listAuthLogins: () => Promise<AuthLoginState[]>
   /** Renews one account's token now; resolves to the refreshed list. */
   refreshAuthProvider: (id: string) => Promise<AuthAccountSummary[]>
   /** Renames an account without touching its id or its tokens. */

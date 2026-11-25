@@ -14,11 +14,13 @@ import type { UsageByDay, UsageByModel, UsageRecord, UsageSummary } from '@share
 
 /** Hard cap: old rows go first, the file never grows without bound. */
 const MAX_ENTRIES = 20_000
+const REWRITE_OVERFLOW_INTERVAL = 500
 /** Rows older than this are dropped on load, whatever the count. */
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1000
 
 let memory: UsageRecord[] | null = null
 let fileOverride: string | null = null
+let overflowAppends = 0
 
 function file(): string {
   if (fileOverride !== null) return fileOverride
@@ -29,6 +31,7 @@ function file(): string {
 export function setUsageLogFileForTests(filePath: string | null): void {
   fileOverride = filePath
   memory = null
+  overflowAppends = 0
 }
 
 function valid(record: unknown): record is UsageRecord {
@@ -94,17 +97,20 @@ function persist(): void {
 export function recordUsage(record: UsageRecord): void {
   const rows = load()
   rows.push(record)
-  if (rows.length > MAX_ENTRIES) rows.splice(0, rows.length - MAX_ENTRIES)
-  // Append fast; a full rewrite happens on prune/clear only.
+  const overflowed = rows.length > MAX_ENTRIES
+  if (overflowed) rows.splice(0, rows.length - MAX_ENTRIES)
+  // Append fast; compact the on-disk file periodically instead of rewriting 20k lines on every turn.
+  if (overflowed && ++overflowAppends >= REWRITE_OVERFLOW_INTERVAL) {
+    overflowAppends = 0
+    persist()
+    return
+  }
   try {
     mkdirSync(path.dirname(file()), { recursive: true })
     appendFileSync(file(), `${JSON.stringify(record)}\n`, { mode: 0o600 })
   } catch {
     // Best-effort; the in-memory copy still counts until restart.
   }
-  // Opportunistically drop rows past retention without rewriting every turn:
-  // only a full rewrite prunes, and only when the log is large and old.
-  if (rows.length >= MAX_ENTRIES) persist()
 }
 
 /** Drops rows past retention; answers how many went. */

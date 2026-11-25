@@ -52,18 +52,25 @@ export function dropInvalidToolCalls(messages: Message[], maxNameLength: number)
  * keeps them paired.
  */
 export function normalizeToolIds(messages: Message[]): Message[] {
+  if (messages.every((m) => m.content.every((b) => b.type !== 'tool_use' || NAME_PATTERN.test(b.id)))) return messages
+  const validIds = new Set<string>()
+  for (const m of messages) {
+    for (const b of m.content) {
+      if (b.type === 'tool_use' && NAME_PATTERN.test(b.id)) validIds.add(b.id)
+    }
+  }
   const mapped = new Map<string, string>()
   const used = new Set<string>()
   const idFor = (id: string): string => {
     const known = mapped.get(id)
     if (known !== undefined) return known
-    let next = NAME_PATTERN.test(id) ? id : id.replace(/[^A-Za-z0-9_-]/g, '_') || 'call'
-    for (let n = 1; used.has(next) && next !== id; n++) next = `${next}_${n}`
+    const base = NAME_PATTERN.test(id) ? id : id.replace(/[^A-Za-z0-9_-]/g, '_') || 'call'
+    let next = base
+    for (let n = 1; used.has(next) || (next !== id && validIds.has(next)); n++) next = `${base}_${n}`
     mapped.set(id, next)
     used.add(next)
     return next
   }
-  if (messages.every((m) => m.content.every((b) => b.type !== 'tool_use' || NAME_PATTERN.test(b.id)))) return messages
   return messages.map((message) => ({
     ...message,
     content: message.content.map((block) =>

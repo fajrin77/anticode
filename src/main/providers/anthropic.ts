@@ -1,4 +1,5 @@
 import { APP_VERSION } from '../version'
+import { FIRST_DATA_TIMEOUT_MS, STREAM_INACTIVITY_MS } from './openai'
 import { ProviderRequestError } from './requestError'
 import Anthropic from '@anthropic-ai/sdk'
 import type {
@@ -146,20 +147,40 @@ export class AnthropicProvider implements LLMProvider {
    * the ask is lowered to what the model says it allows. Not knowing is not a
    * reason to fail: the request then goes out as asked.
    */
-  private outputCap(): Promise<number | null> {
+  private outputCap(signal: AbortSignal): Promise<number | null> {
     let cap = outputCaps.get(this.capKey)
     if (cap === undefined) {
       cap = this.client.models
-        .retrieve(this.model)
+        .retrieve(this.model, {}, { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) })
         .then((info) => info.max_tokens ?? null)
-        .catch(() => null)
+        .catch(() => {
+          if (signal.aborted) outputCaps.delete(this.capKey)
+          return null
+        })
       outputCaps.set(this.capKey, cap)
     }
     return cap
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
-    const cap = await this.outputCap()
+    params.signal.throwIfAborted()
+    const cap = await this.outputCap(params.signal)
+    params.signal.throwIfAborted()
+
+    const watchdog = new AbortController()
+    const onOuterAbort = (): void => watchdog.abort()
+    params.signal.addEventListener('abort', onOuterAbort, { once: true })
+    let received = false
+    let inactivity: ReturnType<typeof setTimeout> | null = null
+    const bump = (): void => {
+      if (inactivity !== null) clearTimeout(inactivity)
+      inactivity = setTimeout(() => watchdog.abort(), received ? STREAM_INACTIVITY_MS : FIRST_DATA_TIMEOUT_MS)
+    }
+    const stalled = (): Error => received
+      ? new ProviderRequestError('Anthropic stream stalled mid-turn. The run stopped so nothing is duplicated', 503)
+      : Object.assign(new Error('Anthropic stream stalled before any data arrived'), { status: 503 })
+    bump()
+
     const stream = this.client.messages.stream(
       {
         model: this.model,
@@ -168,17 +189,27 @@ export class AnthropicProvider implements LLMProvider {
         tools: toToolParams(params.tools),
         messages: toMessageParams(params.messages)
       },
-      { signal: params.signal }
+      { signal: watchdog.signal }
     )
 
     try {
       for await (const event of stream) {
+        if (
+          event.type === 'content_block_delta' ||
+          event.type === 'content_block_start' ||
+          event.type === 'message_start' ||
+          event.type === 'message_delta'
+        ) {
+          received = true
+          bump()
+        }
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           yield { type: 'text_delta', text: event.delta.text }
         }
       }
 
       const final = await stream.finalMessage()
+      if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
       if (final.stop_reason === null) throw new ProviderRequestError('Anthropic stream ended before completion; no partial tool calls were executed.', 503)
       const response: LLMResponse = {
         content: final.content.map(fromContentBlock),
@@ -192,7 +223,11 @@ export class AnthropicProvider implements LLMProvider {
       }
       yield { type: 'response', response }
     } catch (error) {
+      if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
       throw friendlyError(this.model, error)
+    } finally {
+      if (inactivity !== null) clearTimeout(inactivity)
+      params.signal.removeEventListener('abort', onOuterAbort)
     }
   }
 }

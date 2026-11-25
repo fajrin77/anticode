@@ -38,7 +38,14 @@ async function ensurePage(scope: string, shape: PageShape = DESKTOP): Promise<Pa
   const pending = opening.get(scope)
   if (pending) return pending
   const operation = (async () => {
-    browser ??= chromium.launch({ headless: true }).catch((error: Error) => {
+    browser ??= chromium.launch({ headless: true }).then((launched) => {
+      launched.on('disconnected', () => {
+        browser = null
+        pages.clear()
+        records.clear()
+      })
+      return launched
+    }).catch((error: Error) => {
       browser = null
       throw new BrowserError(`Failed to launch Chromium: ${error.message}. Run "npx playwright install chromium" once in this project.`)
     })

@@ -37,6 +37,16 @@ type FetchFn = typeof fetch
 const CLIENT_NAME = 'Anticode'
 const TIMEOUT_MS = 15_000
 
+function assertSafeExternalUrl(raw: string, what: string): string {
+  let parsed: URL
+  try { parsed = new URL(raw) } catch { throw new Error(`${what} is not a valid URL`) }
+  const loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+  if ((parsed.protocol !== 'https:' && !(loopback && parsed.protocol === 'http:')) || parsed.username || parsed.password) {
+    throw new Error(`${what} must use https://`)
+  }
+  return parsed.href
+}
+
 async function json(response: Response, what: string): Promise<Record<string, unknown>> {
   const text = await response.text()
   let body: Record<string, unknown> = {}
@@ -179,7 +189,7 @@ export async function browserLogin(options: BrowserLoginOptions): Promise<Plugin
     const client = await registerClient(meta, redirectUri, fetchFn)
     const verifier = makeVerifier()
     const state = makeState()
-    const authorize = new URL(meta.authorization_endpoint)
+    const authorize = new URL(assertSafeExternalUrl(meta.authorization_endpoint, 'Authorization URL'))
     authorize.searchParams.set('response_type', 'code')
     authorize.searchParams.set('client_id', client.clientId)
     authorize.searchParams.set('redirect_uri', redirectUri)
@@ -260,14 +270,19 @@ export async function githubDeviceLogin(
   if (typeof device['device_code'] !== 'string' || typeof device['user_code'] !== 'string') {
     throw new Error('GitHub refused the device flow; enable “Device Flow” on the OAuth App')
   }
-  await onCode({ userCode: device['user_code'], verificationUri: typeof device['verification_uri'] === 'string' ? device['verification_uri'] : 'https://github.com/login/device' })
+  const verificationUri = assertSafeExternalUrl(
+    typeof device['verification_uri'] === 'string' ? device['verification_uri'] : 'https://github.com/login/device',
+    'Verification URL'
+  )
+  await onCode({ userCode: device['user_code'], verificationUri })
   let interval = Math.max(1, Number(device['interval']) || 5) * 1000
   const deadline = Date.now() + (Number(device['expires_in']) || 900) * 1000
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new Error('Login cancelled')
     await sleep(interval)
+    const pollSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS)
     const body = (await (await fetchFn('https://github.com/login/oauth/access_token', {
-      method: 'POST', headers,
+      method: 'POST', headers, signal: pollSignal,
       body: JSON.stringify({ client_id: clientId, device_code: device['device_code'], grant_type: 'urn:ietf:params:oauth:grant-type:device_code' })
     })).json()) as Record<string, unknown>
     if (typeof body['access_token'] === 'string') {

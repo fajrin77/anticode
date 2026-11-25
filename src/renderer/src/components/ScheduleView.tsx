@@ -112,6 +112,14 @@ function ScheduleModal({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   function update(patch: Partial<Draft>): void {
     setDraft((current) => ({ ...current, ...patch }))
   }
@@ -382,6 +390,8 @@ function ScheduleModal({
 export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.Element {
   const [entries, setEntries] = useState<ScheduleEntry[]>([])
   const [editing, setEditing] = useState<ScheduleEntry | null | 'new'>(null)
+  const [listError, setListError] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -402,13 +412,24 @@ export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.
   }
 
   async function toggle(entry: ScheduleEntry): Promise<void> {
-    const saved = await window.anticode.updateSchedule(entry.id, { enabled: !entry.enabled })
-    apply(saved)
+    setListError(null)
+    try {
+      const saved = await window.anticode.updateSchedule(entry.id, { enabled: !entry.enabled })
+      apply(saved)
+    } catch (failure) {
+      setListError((failure as Error).message)
+    }
   }
 
   async function remove(entry: ScheduleEntry): Promise<void> {
-    await window.anticode.removeSchedule(entry.id)
-    setEntries((current) => current.filter((item) => item.id !== entry.id))
+    setListError(null)
+    try {
+      await window.anticode.removeSchedule(entry.id)
+      setConfirmDeleteId(null)
+      setEntries((current) => current.filter((item) => item.id !== entry.id))
+    } catch (failure) {
+      setListError((failure as Error).message)
+    }
   }
 
   return (
@@ -436,6 +457,9 @@ export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 [scrollbar-gutter:stable]">
+        {listError !== null && (
+          <div role="alert" className="mx-auto mb-4 max-w-3xl text-[12.5px] text-del">{listError}</div>
+        )}
         {entries.length === 0 ? (
           <div className="mx-auto mt-16 max-w-md text-center text-[14px] text-dim">
             No schedules yet. Create one to run a prompt on a daily or weekly clock.
@@ -475,14 +499,34 @@ export function ScheduleView({ onBack, onOpenSession }: ScheduleViewProps): JSX.
                   >
                     Edit
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void remove(entry)}
-                    title="Delete"
-                    className="shrink-0 text-dim transition-colors hover:text-del"
-                  >
-                    Delete
-                  </button>
+                  {confirmDeleteId === entry.id ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="shrink-0 text-[12.5px] text-faint transition-colors hover:text-brand"
+                      >
+                        Keep
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void remove(entry)}
+                        title="Confirm permanent delete"
+                        className="shrink-0 text-[12.5px] text-del transition-colors hover:text-del"
+                      >
+                        Confirm delete
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(entry.id)}
+                      title="Delete"
+                      className="shrink-0 text-dim transition-colors hover:text-del"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
                 <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[12.5px] text-dim">{entry.prompt}</p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">

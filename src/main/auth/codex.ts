@@ -99,7 +99,7 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
   const callback = waitForCallback({
     ports: [REDIRECT_PORT, 1456, 1457],
     path: CALLBACK_PATH,
-    signal: callbacks.signal,
+    signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(10 * 60_000)]),
     onListening: (port) => {
       boundPort = port
       const url = new URL(AUTHORIZE_URL)
@@ -131,7 +131,7 @@ export async function loginCodex(callbacks: AuthLoginCallbacks): Promise<AuthTok
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    signal: callbacks.signal,
+    signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(30_000)]),
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code: result.code,

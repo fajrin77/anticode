@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { shell } from 'electron'
 import { APP_VERSION } from '../version'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
@@ -16,6 +17,7 @@ export async function loginVercel(callbacks: AuthLoginCallbacks): Promise<AuthTo
   await shell.openExternal(KEYS_PAGE)
 
   const pasted = (await callbacks.promptForCode('Paste the Vercel AI Gateway API key:'))?.trim() ?? ''
+  callbacks.signal.throwIfAborted()
   if (pasted === '') throw new Error('A Vercel AI Gateway key is required. Create one in the Vercel dashboard and paste it here.')
   if (!/^[A-Za-z0-9._\-]{16,}$/.test(pasted)) throw new Error('That does not look like a Vercel AI Gateway key.')
 
@@ -24,11 +26,15 @@ export async function loginVercel(callbacks: AuthLoginCallbacks): Promise<AuthTo
   try {
     response = await fetch(`${VERCEL_GATEWAY_BASE}/models`, {
       headers: { authorization: `Bearer ${pasted}`, accept: 'application/json', 'user-agent': `anticode/${APP_VERSION}` },
-      signal: AbortSignal.timeout(15_000)
+      signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(15_000)])
     })
-  } catch {
-    throw new Error('The Vercel AI Gateway could not be reached. Check the connection and try again.')
+  } catch (error) {
+    callbacks.signal.throwIfAborted()
+    throw error instanceof Error && error.name === 'AbortError'
+      ? new Error('The Vercel AI Gateway timed out. Check the connection and try again.')
+      : new Error('The Vercel AI Gateway could not be reached. Check the connection and try again.')
   }
+  callbacks.signal.throwIfAborted()
   if (response.status === 401 || response.status === 403) {
     throw new Error('Vercel rejected this key. Create a new AI Gateway key and paste it again.')
   }
@@ -36,6 +42,8 @@ export async function loginVercel(callbacks: AuthLoginCallbacks): Promise<AuthTo
 
   // expiresAt 0 marks a token that cannot renew, so the panel says to sign in
   // again rather than trying a refresh the gateway does not offer.
+  const masked = pasted.length > 10 ? `${pasted.slice(0, 4)}…${pasted.slice(-4)}` : '••••'
+  const accountId = createHash('sha256').update(pasted).digest('hex').slice(0, 12)
   callbacks.onUpdate({ message: 'Signed in', done: true })
-  return { accessToken: pasted, expiresAt: 0, meta: { account: 'Vercel AI Gateway' } }
+  return { accessToken: pasted, expiresAt: 0, meta: { account: masked, accountId } }
 }

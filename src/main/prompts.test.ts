@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('./runtime', () => ({
   getStatus: () => ({ providerReady: mocks.ready }),
   getSession: () => ({ run: mocks.run, steer: mocks.steer }), persistSessions: mocks.persist,
+  loadSessionMessages: () => [],
   announceTitle: () => undefined, selectProvider: () => undefined, takeBackPrompt: () => null
 }))
 vi.mock('./attachments/registry', () => ({

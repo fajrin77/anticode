@@ -118,6 +118,30 @@ export function languageOf(path: string): string | null {
   return EXTENSIONS[extension] ?? null
 }
 
+const FENCE_ALIASES: Record<string, string> = {
+  ...EXTENSIONS,
+  javascript: 'js',
+  typescript: 'js',
+  python: 'py',
+  golang: 'go',
+  rust: 'rs',
+  csharp: 'c',
+  'c++': 'c',
+  kotlin: 'c',
+  shell: 'sh',
+  console: 'sh',
+  dockerfile: 'sh',
+  makefile: 'sh',
+  ruby: 'rb',
+  markdown: 'html'
+}
+
+export function fenceLanguageOf(fence: string): string | null {
+  const key = (fence.trim().split(/\s+/)[0] ?? '').toLowerCase()
+  if (key === '') return null
+  return FENCE_ALIASES[key] ?? (LANGUAGES[key] !== undefined ? key : null)
+}
+
 interface State {
   /** Inside a block comment. */
   comment: boolean

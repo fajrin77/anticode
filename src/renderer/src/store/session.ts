@@ -1268,8 +1268,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       sessions: mapSession(state, sessionId, (session) => {
         for (let i = session.messages.length - 1; i >= 0; i--) {
           const message = session.messages[i]
-          if (message?.role !== 'user') continue
-          if (!message.parts.some((part) => part.kind === 'text')) continue
+          if (message === undefined || !isTypedPrompt(message)) continue
           return { ...session, messages: session.messages.slice(0, i) }
         }
         return session
@@ -1308,7 +1307,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   name: 'anticode-session-metadata',
   storage: debounced(createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage))),
   skipHydration: typeof window === 'undefined',
-  partialize: (state) => ({ readPositions: state.readPositions, followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planOpenBySession: state.planOpenBySession,
+  partialize: (state) => ({ readPositions: state.readPositions, followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planModeBySession: state.planModeBySession, planOpenBySession: state.planOpenBySession,
     projectOrder: state.projectOrder,
     sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
 }))

@@ -2,17 +2,32 @@ import { providerModelIssue } from '@shared/providerModel'
 import type { ProviderInfo, ProviderSelection } from '@shared/ipc'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 
-function monthlyUsage(): Record<string, number> {
-  const month = new Date().toISOString().slice(0, 7)
-  const stored = loadPersistedSettings().accountRoutingUsage
-  return stored?.month === month ? stored.accounts : {}
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7)
 }
+
+function monthlyUsage(): Record<string, number> {
+  const stored = loadPersistedSettings().accountRoutingUsage
+  return stored?.month === currentMonth() ? stored.accounts : {}
+}
+
+export function flushAccountUsage(): void {
+  // Account usage is persisted immediately on each completed turn.
+}
+
 export function recordAccountUsage(id: string, input: number, output: number): void {
   if (id !== 'clinepass' && !id.startsWith('auth:') && !id.startsWith('apikey:')) return
+  const month = currentMonth()
   const accounts = monthlyUsage()
-  savePersistedSettings({ accountRoutingUsage: { month: new Date().toISOString().slice(0, 7), accounts: {
-    ...accounts, [id]: (accounts[id] ?? 0) + Math.max(0, input || 0) + Math.max(0, output || 0)
-  } } })
+  savePersistedSettings({
+    accountRoutingUsage: {
+      month,
+      accounts: {
+        ...accounts,
+        [id]: (accounts[id] ?? 0) + Math.max(0, input || 0) + Math.max(0, output || 0)
+      }
+    }
+  })
 }
 export function accountCandidates(choice: ProviderSelection, providers: ProviderInfo[]): ProviderSelection[] {
   const selected = providers.find((provider) => provider.id === choice.provider)

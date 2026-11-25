@@ -16,15 +16,15 @@ const metadata = { ideType: 'ANTIGRAVITY' }
  */
 export const ANTIGRAVITY_CHAT_MODEL = /^(gemini|claude|gpt-oss)-/
 
-
 export function antigravityHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': `anticode-antigravity-adapter (${process.platform}; ${process.arch})` }
 }
 async function exchange(body: URLSearchParams, signal?: AbortSignal): Promise<AuthTokens> {
   const client = oauthClient()
   body.set('client_id', client.id); body.set('client_secret', client.secret)
-  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body, signal: signal ?? AbortSignal.timeout(20_000) })
-  if (!response.ok) throw new Error(`Antigravity token exchange failed (${response.status}). Sign in again.`)
+  const timeout = AbortSignal.timeout(20_000)
+  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body, signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+  if (!response.ok) throw Object.assign(new Error(`Antigravity token exchange failed (${response.status}). Sign in again.`), { status: response.status })
   const data = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number }
   if (!data.access_token) throw new Error('Antigravity token response is missing an access token')
   return { accessToken: data.access_token, ...(data.refresh_token ? { refreshToken: data.refresh_token } : {}), expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 }

@@ -66,3 +66,15 @@ it('deduplicates OpenRouter browser approvals by returned user identity', async 
   expect(readAuthTokens(first.id)?.accessToken).toBe('new-key')
   expect(readFileSync(path.join(profile, 'auth-accounts.json'), 'utf8')).not.toContain('new-key')
 })
+
+it('keeps multiple Vercel AI Gateway keys as distinct accounts while deduplicating identical keys', async () => {
+  flows.vercel.mockResolvedValueOnce({ accessToken: 'vck_first_key_123456', expiresAt: 0, meta: { account: 'vck_…3456', accountId: 'hash-first' } })
+  const first = await loginAuthAccount('vercel', callbacks())
+  flows.vercel.mockResolvedValueOnce({ accessToken: 'vck_second_key_789012', expiresAt: 0, meta: { account: 'vck_…9012', accountId: 'hash-second' } })
+  const second = await loginAuthAccount('vercel', callbacks())
+  expect(first.id).toBe('auth:vercel')
+  expect(second.id).toBe('auth:vercel-2')
+  flows.vercel.mockResolvedValueOnce({ accessToken: 'vck_first_key_123456', expiresAt: 0, meta: { account: 'vck_…3456', accountId: 'hash-first' } })
+  expect((await loginAuthAccount('vercel', callbacks())).id).toBe('auth:vercel')
+  expect(listAuthAccountSummaries()).toHaveLength(2)
+})

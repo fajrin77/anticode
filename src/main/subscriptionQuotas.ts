@@ -45,12 +45,12 @@ export function parseClaudeQuota(profile: unknown, usage: unknown): Pick<Subscri
   return { windows, ...(access.plan ? { plan: access.plan } : {}), extraUsageEnabled: access.extraUsageEnabled }
 }
 
-async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
+async function accountQuota(account: AuthAccount, force = false): Promise<SubscriptionQuota> {
   const key = JSON.stringify([account.id, account.createdAt, account.account])
   const base = { provider: account.id, label: account.label, authKind: account.kind, ...(account.account ? { account: account.account } : {}), checkedAt: Date.now() }
   if (account.kind !== 'claude' && account.kind !== 'codex' && account.kind !== 'clinepass' && account.kind !== 'gemini') return { ...base, status: 'unsupported', windows: [], error: 'Plan limit data is not available for this service yet.' }
   const previous = cache.get(key)
-  if (previous && previous.retryAt > Date.now()) return { ...previous.value, label: account.label }
+  if (!force && previous && previous.retryAt > Date.now()) return { ...previous.value, label: account.label }
   const existing = pending.get(key)
   if (existing) return existing
   const request = (async (): Promise<SubscriptionQuota> => {
@@ -69,7 +69,7 @@ async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
         const raw = await readClaudeAccess(tokens)
         recordClaudeAccess(account.id, tokens, raw)
         const parsed = parseClaudeQuota(raw.profile, raw.usage)
-        return { ...base, ...parsed, status: raw.stale ? 'stale' : parsed.windows.length ? 'ok' : 'unavailable', checkedAt: raw.checkedAt ?? Date.now(), ...(raw.stale ? { error: 'Claude is rate limiting quota reads for now. Showing the last data.' } : {}), ...(parsed.windows.length === 0 ? { error: 'Claude returned no plan limit data.' } : {}) }
+        return { ...base, ...parsed, status: raw.stale ? 'stale' : parsed.windows.length ? 'ok' : 'unavailable', checkedAt: raw.checkedAt ?? Date.now(), ...(raw.stale ? { error: 'Claude is rate limiting quota reads for now.' } : {}), ...(parsed.windows.length === 0 ? { error: 'Claude returned no plan limit data.' } : {}) }
       }
       const response = await fetch('https://chatgpt.com/backend-api/wham/usage', {
         headers: { authorization: `Bearer ${tokens.accessToken}`, accept: 'application/json',
@@ -95,9 +95,9 @@ async function accountQuota(account: AuthAccount): Promise<SubscriptionQuota> {
 }
 
 /** Provider quota only. Coalesced across Usage/Auth views; never sends inference. */
-export async function getSubscriptionQuotas(): Promise<SubscriptionQuota[]> {
+export async function getSubscriptionQuotas(force = false): Promise<SubscriptionQuota[]> {
   const accounts = listAuthAccounts()
-  const quotas = await Promise.all(accounts.map(accountQuota))
+  const quotas = await Promise.all(accounts.map((account) => accountQuota(account, force)))
   const ids = new Set(accounts.map(account => account.id))
   for (const provider of listProviders()) {
     if (!ids.has(provider.id) && provider.billing === 'subscription' && provider.credentialAvailable) quotas.push({ provider: provider.id, label: provider.label, checkedAt: Date.now(), status: 'unsupported', windows: [], error: 'Plan limit data is not available for this service yet.' })

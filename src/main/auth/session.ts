@@ -80,28 +80,33 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
   void (async () => {
     try {
       const existingIds = new Set(listAuthAccounts().map((account) => account.id))
+      let reconnectNote: string | null = null
       const account = await loginAuthAccount(kind, {
         onUpdate: (u) => {
+          if (entry.cancelled) return
+          if (u.message.includes('is already connected')) reconnectNote = u.message
           const url = u.url ?? entry.state.url
           update({
             status: u.message,
             ...(url !== undefined ? { url } : {}),
-            needsCode: u.needsCode === true || entry.state.needsCode,
+            needsCode: u.needsCode !== undefined ? u.needsCode : entry.state.needsCode,
             done: u.done === true
           })
         },
         promptForCode: (message) =>
           new Promise<string>((resolve, reject) => {
+            if (entry.cancelled) { reject(new Error('Login cancelled')); return }
             entry.resolveCode = resolve
             entry.rejectCode = reject
             update({ status: message, needsCode: true })
           }),
         signal: controller.signal
       })
+      if (entry.cancelled) return
       const added = !existingIds.has(account.id)
       accountSink?.(account, added)
       update({
-        status: added ? 'Account added' : 'Account reconnected',
+        status: added ? 'Account added' : (reconnectNote ?? 'Account reconnected'),
         done: true,
         accountId: account.id,
         label: account.label,
@@ -153,6 +158,11 @@ export function cancelAuthLogin(id: string): void {
   entry.rejectCode = null
   running.delete(id)
   broadcast({ ...entry.state, status: 'Cancelled', error: 'Cancelled', needsCode: false, done: false })
+}
+
+/** Active or recently finished login flows so remounting Settings keeps live cards. */
+export function listAuthLogins(): AuthLoginState[] {
+  return [...running.values()].filter((entry) => !entry.cancelled).map((entry) => entry.state)
 }
 
 /** For tests: forget every running flow. */

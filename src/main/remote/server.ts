@@ -9,7 +9,7 @@ import http from 'node:http'
 import os from 'node:os'
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { createReadStream, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, renameSync, statSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -41,6 +41,8 @@ import {
 import { writeExport } from '../exporter'
 import { knownSecrets } from '../credentials'
 import { mcpSecrets } from '../mcp/manager'
+import { pluginSecrets } from '../plugins'
+import { isSealed, seal, unseal } from '../secrets'
 import {
   addProvider,
   approvals,
@@ -83,11 +85,35 @@ const BODY_LIMIT = 2 * 1024 * 1024
 /** Room for a 100 MB file as base64-in-JSON (×4/3) plus headroom; the
  * attachment handler enforces its own 100 MB cap after decoding. */
 const UPLOAD_LIMIT = 140 * 1024 * 1024
+const MAX_EVENT_STREAMS = 16
+const MAX_CONCURRENT_SHOTS = 2
+const AUTH_WINDOW_MS = 60_000
+const AUTH_MAX_FAILURES = 20
 
 let server: http.Server | null = null
 let lastError: string | null = null
 const eventStreams = new Set<http.ServerResponse>()
+const authFailures = new Map<string, { count: number; resetAt: number }>()
+let inFlightShots = 0
 let transition: Promise<unknown> = Promise.resolve()
+
+function unsealRemoteToken(stored: string | undefined): string {
+  if (!stored) return ''
+  return isSealed(stored) ? unseal(stored) : stored
+}
+
+function sealRemoteToken(plain: string): string {
+  const sealed = seal(plain)
+  return sealed !== '' ? sealed : plain
+}
+
+export function isRemoteActive(): boolean {
+  return server?.listening === true
+}
+
+export function closeRemoteServer(): Promise<void> {
+  return closeServer()
+}
 
 export function getRemoteStatus(): RemoteStatus {
   const persisted = loadPersistedSettings().remote
@@ -97,11 +123,12 @@ export function getRemoteStatus(): RemoteStatus {
   if (lastError !== null) {
     return { enabled: true, url: null, token: null, error: lastError }
   }
+  const token = persistedToken()
   const ip = lanAddress() ?? '<your-mac-ip>'
   return {
     enabled: true,
-    url: `http://${ip}:${typeof server?.address() === 'object' ? (server.address() as { port: number } | null)?.port ?? PORT : PORT}/?token=${persisted.token}`,
-    token: persisted.token,
+    url: `http://${ip}:${typeof server?.address() === 'object' ? (server.address() as { port: number } | null)?.port ?? PORT : PORT}/?token=${token}`,
+    token,
     error: null
   }
 }
@@ -124,7 +151,7 @@ async function changeRemoteEnabled(enabled: boolean, port: number): Promise<Remo
   if (!enabled) {
     await closeServer()
     savePersistedSettings({
-      remote: { enabled: false, token: persistedToken(), port: PORT }
+      remote: { enabled: false, token: sealRemoteToken(persistedToken()), port: PORT }
     })
     return getRemoteStatus()
   }
@@ -132,7 +159,7 @@ async function changeRemoteEnabled(enabled: boolean, port: number): Promise<Remo
   if (server?.listening) return getRemoteStatus()
   lastError = null
   const token = persistedToken()
-  savePersistedSettings({ remote: { enabled: true, token, port: PORT } })
+  savePersistedSettings({ remote: { enabled: true, token: sealRemoteToken(token), port: PORT } })
 
   server = http.createServer((req, res) => {
     void handle(req, res)
@@ -176,23 +203,56 @@ export async function restoreRemoteServer(): Promise<void> {
 export async function regenerateRemoteToken(): Promise<RemoteStatus> {
   for (const stream of eventStreams) stream.end()
   const enabled = loadPersistedSettings().remote?.enabled === true
+  const token = randomUUID().replace(/-/g, '')
   savePersistedSettings({
-    remote: { enabled, token: randomUUID().replace(/-/g, ''), port: PORT }
+    remote: { enabled, token: sealRemoteToken(token), port: PORT }
   })
   return getRemoteStatus()
 }
 
 function persistedToken(): string {
-  const existing = loadPersistedSettings().remote?.token
-  if (existing !== undefined && existing !== '') return existing
+  const raw = loadPersistedSettings().remote?.token
+  const existing = unsealRemoteToken(raw)
+  if (existing !== '') {
+    if (raw !== undefined && !isSealed(raw)) {
+      const sealed = seal(existing)
+      if (sealed !== '') {
+        const current = loadPersistedSettings().remote
+        savePersistedSettings({ remote: { enabled: current?.enabled === true, token: sealed, port: current?.port ?? PORT } })
+      }
+    }
+    return existing
+  }
   const token = randomUUID().replace(/-/g, '')
-  savePersistedSettings({ remote: { enabled: false, token, port: PORT } })
+  savePersistedSettings({ remote: { enabled: false, token: sealRemoteToken(token), port: PORT } })
   return token
 }
 
+const SECURITY_HEADERS: Record<string, string> = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer'
+}
+
+function rateLimitedIp(ip: string): boolean {
+  const now = Date.now()
+  const entry = authFailures.get(ip)
+  return entry !== undefined && entry.resetAt > now && entry.count >= AUTH_MAX_FAILURES
+}
+
+function recordAuthFailure(ip: string): void {
+  const now = Date.now()
+  if (authFailures.size > 128) {
+    for (const [k, v] of authFailures) if (v.resetAt <= now) authFailures.delete(k)
+  }
+  const entry = authFailures.get(ip)
+  if (entry === undefined || entry.resetAt <= now) authFailures.set(ip, { count: 1, resetAt: now + AUTH_WINDOW_MS })
+  else entry.count += 1
+}
+
 function authorised(url: URL, req: http.IncomingMessage): boolean {
-  const expected = loadPersistedSettings().remote?.token
-  if (expected === undefined || expected === '') return false
+  const expected = unsealRemoteToken(loadPersistedSettings().remote?.token)
+  if (expected === '') return false
   const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, '') ?? url.searchParams.get('token')
   if (supplied === null || supplied === '') return false
   // Length-checked timing-safe compare: the token never decides equality by
@@ -203,26 +263,48 @@ function authorised(url: URL, req: http.IncomingMessage): boolean {
 }
 
 function json(res: http.ServerResponse, code: number, body: unknown): void {
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' })
+  res.writeHead(code, { ...SECURITY_HEADERS, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
 }
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   try {
+    const remoteIp = req.socket.remoteAddress ?? 'unknown'
+    if (rateLimitedIp(remoteIp)) {
+      res.writeHead(429, { ...SECURITY_HEADERS, 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'Too many failed pairing attempts. Try again in a minute.' }))
+      return
+    }
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/' || url.pathname === '/index.html') {
-      if (!authorised(url, req)) return deny(res)
+      if (!authorised(url, req)) { recordAuthFailure(remoteIp); return deny(res) }
       const html = await readFile(
         path.join(import.meta.dirname, 'remote/public/index.html'),
         'utf8'
       )
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      res.writeHead(200, {
+        ...SECURITY_HEADERS,
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store'
+      })
       res.end(html)
       return
     }
 
     if (!url.pathname.startsWith('/api/') || !authorised(url, req)) {
+      if (url.pathname.startsWith('/api/')) recordAuthFailure(remoteIp)
       return deny(res)
+    }
+
+    if (req.method === 'POST' || req.method === 'DELETE') {
+      const origin = req.headers.origin
+      if (origin !== undefined && origin !== 'null') {
+        try {
+          if (new URL(origin).host !== req.headers.host) return json(res, 403, { error: 'Cross-origin request denied' })
+        } catch {
+          return json(res, 403, { error: 'Invalid Origin header' })
+        }
+      }
     }
 
     const body = await readBody(req, url.pathname === '/api/attachment' ? UPLOAD_LIMIT : BODY_LIMIT)
@@ -334,7 +416,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return json(res, 200, createPhoneSession(body))
     }
 
-    const sessionMatch = /\/api\/session\/([\w-]+)$/.exec(url.pathname)
+    const sessionMatch = /^\/api\/session\/([\w-]+)$/.exec(url.pathname)
     if (req.method === 'GET' && sessionMatch !== null) {
       const snapshot = sessionSnapshot(sessionMatch[1] ?? '')
       if (snapshot === null) return json(res, 404, { error: 'Unknown session' })
@@ -343,7 +425,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     // Exports the transcript to the Mac's Downloads and streams the file to
     // the phone, the OS save dialog has no place on a phone screen.
-    const exportMatch = /\/api\/session\/([\w-]+)\/export$/.exec(url.pathname)
+    const exportMatch = /^\/api\/session\/([\w-]+)\/export$/.exec(url.pathname)
     if (req.method === 'POST' && exportMatch !== null) {
       return streamPhoneExport(res, exportMatch[1] ?? '', body)
     }
@@ -492,7 +574,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       return openEventStream(url, res)
     }
 
-    const filesMatch = /\/api\/files$/.test(url.pathname)
+    const filesMatch = /^\/api\/files$/.test(url.pathname)
     if (filesMatch && req.method === 'GET') {
       return json(res, 200, await readWorkspaceFile(String(body.sessionId ?? url.searchParams.get('sessionId') ?? ''), url.searchParams.get('path') ?? '.'))
     }
@@ -539,6 +621,8 @@ async function sendWebShot(
 ): Promise<void> {
   const target = activeWebUrl(sessionId)
   if (target === null) return json(res, 404, { error: 'No page is open in this session' })
+  if (inFlightShots >= MAX_CONCURRENT_SHOTS) return json(res, 429, { error: 'Screenshot capture busy; retry in a moment' })
+  inFlightShots += 1
   try {
     const raw = await capturePhonePage(sessionId, target, reload)
     const scaled = sharp(raw).resize({ width: SHOT_WIDTH, withoutEnlargement: true })
@@ -551,6 +635,7 @@ async function sendWebShot(
             .toBuffer()
         : await sharp(size.data).jpeg({ quality: 72 }).toBuffer()
     res.writeHead(200, {
+      ...SECURITY_HEADERS,
       'content-type': 'image/jpeg',
       'content-length': String(picture.byteLength),
       'cache-control': 'no-store'
@@ -558,6 +643,8 @@ async function sendWebShot(
     res.end(picture)
   } catch (error) {
     json(res, 502, { error: (error as Error).message })
+  } finally {
+    inFlightShots -= 1
   }
 }
 
@@ -695,12 +782,15 @@ function streamPhoneExport(
         summaries: snapshot.summaries,
         fileRoot: sessionFileRoot(sessionId),
         options: { format, range: null, redact, assets },
-        knownSecrets: redact ? knownSecrets(mcpSecrets()) : []
+        knownSecrets: redact ? knownSecrets([...mcpSecrets(), ...pluginSecrets()]) : []
       })
-      const data = readFileSync(result.path)
+      const data = await readFile(result.path)
+      const baseName = path.basename(result.path)
+      const asciiName = baseName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
       res.writeHead(200, {
+        ...SECURITY_HEADERS,
         'content-type': format === 'json' ? 'application/json' : 'text/markdown; charset=utf-8',
-        'content-disposition': `attachment; filename="${path.basename(result.path)}"`,
+        'content-disposition': `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(baseName)}`,
         'x-export-assets': String(result.assets),
         'x-export-missing': result.missing.length
       })
@@ -740,8 +830,13 @@ async function startPrompt(body: Record<string, unknown>): Promise<{
 function openEventStream(url: URL, res: http.ServerResponse): void {
   const sessionId = url.searchParams.get('sessionId') ?? ''
   if (loadSessionMessages(sessionId) === null) { json(res, 404, { error: 'Unknown session' }); return }
+  if (eventStreams.size >= MAX_EVENT_STREAMS) {
+    const oldest = eventStreams.values().next().value
+    oldest?.end()
+  }
   eventStreams.add(res)
   res.writeHead(200, {
+    ...SECURITY_HEADERS,
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
     connection: 'keep-alive'
@@ -879,7 +974,9 @@ function writeWorkspaceFile(sessionId: string, relativePath: string, content: st
   const current = readFileSync(target, 'utf8')
   if (current.includes('\0') || content.includes('\0')) throw new Error('Binary files cannot be edited as text')
   if (version === null || createHash('sha256').update(current).digest('hex') !== version) throw new Error('File changed since it was opened. Reload it before saving.')
-  writeFileSync(target, content, 'utf8')
+  const tmp = `${target}.${randomUUID()}.tmp`
+  writeFileSync(tmp, content, 'utf8')
+  renameSync(tmp, target)
   return { ok: true, path: relativePath, bytes: Buffer.byteLength(content), version: createHash('sha256').update(content).digest('hex') }
 }
 

@@ -5,8 +5,11 @@ import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 import { isDestructiveCommand } from '../approval/policy'
 import { noteWebAutoOpen, noteWebUrl } from '../web'
+import { anticodeEnvKeys } from '../config'
 
 const MAX_STREAM_CHARS = 10_000
+const HEAD_CHARS = 3_800
+const TAIL_CHARS = 5_800
 
 /**
  * Dev servers announce themselves, "Local: http://localhost:5173/", and that
@@ -31,40 +34,53 @@ export interface CommandOutcome {
   timedOut: boolean
 }
 
-function collect(chunks: string[], limit: number): string {
-  const joined = chunks.join('')
-  return joined.length > limit
-    ? `${joined.slice(0, limit)}\n… output truncated (at least ${joined.length} characters)`
-    : joined
+function sanitizedEnv(): NodeJS.ProcessEnv {
+  const hidden = anticodeEnvKeys()
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (hidden.has(key) || /^ANTICODE_.*(SECRET|TOKEN|KEY)$/i.test(key)) continue
+    env[key] = value
+  }
+  return env
 }
 
-/**
- * Killing only the shell leaves its children, dev servers, test runners,
- * running as orphans. The child gets its own process group (POSIX) so one
- * signal reaches everything it spawned; Windows walks the tree via taskkill.
- */
-export function execute(
-  command: string,
-  cwd: string,
+interface StreamBuffer {
+  head: string
+  tail: string
+  total: number
+}
+
+function formatBuffer(buf: StreamBuffer): string {
+  if (buf.total <= MAX_STREAM_CHARS) return buf.head + buf.tail
+  const omitted = buf.total - buf.head.length - buf.tail.length
+  return `${buf.head}\n… output truncated (${omitted} of ${buf.total} characters omitted) …\n${buf.tail}`
+}
+
+function runSpawn(
+  launch: () => ReturnType<typeof spawn>,
   timeoutMs: number,
   signal: AbortSignal
 ): Promise<CommandOutcome> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted()
-    const child = spawn(command, {
-      shell: true,
-      cwd,
-      detached: process.platform !== 'win32'
-    })
+    const child = launch()
 
     let timedOut = false
+    let killEscalation: NodeJS.Timeout | null = null
     const killTree = (): void => {
-      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return
+      if (child.pid === undefined) return
+      const pid = child.pid
       try {
         if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'])
+          if (child.exitCode === null && child.signalCode === null) {
+            spawn('taskkill', ['/pid', String(pid), '/T', '/F'])
+          }
         } else {
-          process.kill(-child.pid, 'SIGKILL')
+          process.kill(-pid, 'SIGTERM')
+          killEscalation ??= setTimeout(() => {
+            try { process.kill(-pid, 'SIGKILL') } catch { /* group already gone */ }
+          }, 500)
+          killEscalation.unref()
         }
       } catch {
         // The group is already gone.
@@ -79,32 +95,30 @@ export function execute(
     if (signal.aborted) onAbort()
     else signal.addEventListener('abort', onAbort, { once: true })
 
-    const stdout: string[] = []
-    const stderr: string[] = []
-    const capture = (chunks: string[]) => {
-      let count = 0
-      // A decoder instead of chunk.toString(): a multibyte character split
-      // across two chunks stays one character instead of becoming U+FFFD.
-      const decoder = new StringDecoder('utf8')
-      return (chunk: Buffer): void => {
-        if (count >= MAX_STREAM_CHARS + 1) return
-        const text = decoder.write(chunk).slice(0, MAX_STREAM_CHARS + 1 - count)
-        count += text.length
-        chunks.push(text)
+    const stdout: StreamBuffer = { head: '', tail: '', total: 0 }
+    const stderr: StreamBuffer = { head: '', tail: '', total: 0 }
+    const outDecoder = new StringDecoder('utf8')
+    const errDecoder = new StringDecoder('utf8')
+    const pushText = (buf: StreamBuffer, text: string): void => {
+      if (text === '') return
+      buf.total += text.length
+      if (buf.head.length < HEAD_CHARS) {
+        const take = Math.min(text.length, HEAD_CHARS - buf.head.length)
+        buf.head += text.slice(0, take)
+        text = text.slice(take)
+      }
+      if (text !== '') {
+        const cap = buf.total <= MAX_STREAM_CHARS ? MAX_STREAM_CHARS - HEAD_CHARS : TAIL_CHARS
+        buf.tail = (buf.tail + text).slice(-cap)
       }
     }
-    child.stdout?.on('data', capture(stdout))
-    child.stderr?.on('data', capture(stderr))
+    child.stdout?.on('data', (chunk: Buffer) => pushText(stdout, outDecoder.write(chunk)))
+    child.stderr?.on('data', (chunk: Buffer) => pushText(stderr, errDecoder.write(chunk)))
 
-    // A backgrounded grandchild (dev servers, watchers) inherits the shell's
-    // stdio pipes and can hold them open long after the shell itself is gone,
-    // so the 'close' event never fires and the tool hangs until its timeout.
-    // Once the shell has exited, only wait a short grace period for stragglers
-    // before force-closing the streams.
     let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null
     let streamGrace: NodeJS.Timeout | null = null
-    child.on('exit', (code, signal) => {
-      exitInfo = { code, signal }
+    child.on('exit', (code, exitSignal) => {
+      exitInfo = { code, signal: exitSignal }
       streamGrace = setTimeout(() => {
         child.stdout?.destroy()
         child.stderr?.destroy()
@@ -114,6 +128,7 @@ export function execute(
     const cleanup = (): void => {
       clearTimeout(timer)
       if (streamGrace !== null) clearTimeout(streamGrace)
+      if (killEscalation !== null) clearTimeout(killEscalation)
       signal.removeEventListener('abort', onAbort)
     }
 
@@ -122,16 +137,63 @@ export function execute(
       reject(error)
     })
     child.on('close', (code, closeSignal) => {
+      pushText(stdout, outDecoder.end())
+      pushText(stderr, errDecoder.end())
       cleanup()
       resolve({
-        stdout: collect(stdout, MAX_STREAM_CHARS),
-        stderr: collect(stderr, MAX_STREAM_CHARS),
+        stdout: formatBuffer(stdout),
+        stderr: formatBuffer(stderr),
         code: exitInfo?.code ?? code,
         signal: exitInfo?.signal ?? closeSignal,
         timedOut
       })
     })
   })
+}
+
+/**
+ * Killing only the shell leaves its children, dev servers, test runners,
+ * running as orphans. The child gets its own process group (POSIX) so one
+ * signal reaches everything it spawned; Windows walks the tree via taskkill.
+ */
+export function execute(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  signal: AbortSignal
+): Promise<CommandOutcome> {
+  return runSpawn(
+    () =>
+      spawn(command, {
+        shell: true,
+        cwd,
+        env: sanitizedEnv(),
+        detached: process.platform !== 'win32'
+      }),
+    timeoutMs,
+    signal
+  )
+}
+
+/** Runs an executable directly without a shell, preventing argument metacharacter injection. */
+export function executeFile(
+  file: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  signal: AbortSignal
+): Promise<CommandOutcome> {
+  return runSpawn(
+    () =>
+      spawn(file, args, {
+        shell: false,
+        cwd,
+        env: sanitizedEnv(),
+        detached: process.platform !== 'win32'
+      }),
+    timeoutMs,
+    signal
+  )
 }
 
 export const runCommandTool = defineTool({
@@ -173,7 +235,9 @@ export const runCommandTool = defineTool({
 
     const status = outcome.timedOut
       ? `killed after ${input.timeout_ms} ms`
-      : `exit code ${outcome.code ?? 'unknown'}`
+      : context.signal.aborted
+        ? 'cancelled'
+        : `exit code ${outcome.code ?? (outcome.signal ? `signal ${outcome.signal}` : 'unknown')}`
 
     const served = localServerUrl(`${outcome.stdout}\n${outcome.stderr}`)
     if (served !== null) {

@@ -1780,6 +1780,53 @@ describe('plan mode', () => {
 
     expect(await readFile(path.join(root, 'built.txt'), 'utf8')).toBe('jadi')
   })
+
+  it('preserves causal ordering between mutating tools and subsequent read-only checks in the same turn', async () => {
+    const order: string[] = []
+    const writeTool = {
+      name: 'mock_write',
+      description: 'Write file',
+      inputSchema: { type: 'object', properties: {} },
+      readOnly: false,
+      prepare: () => ({
+        risk: 'low' as const,
+        preview: async () => ({ kind: 'text' as const, subject: 'w', detail: '' }),
+        execute: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 25))
+          order.push('write')
+          return { text: 'written', images: [] }
+        }
+      })
+    }
+    const checkTool = {
+      name: 'mock_check',
+      description: 'Check file',
+      inputSchema: { type: 'object', properties: {} },
+      readOnly: true,
+      prepare: () => ({
+        risk: 'low' as const,
+        preview: async () => ({ kind: 'text' as const, subject: 'c', detail: '' }),
+        execute: async () => {
+          order.push('check')
+          return { text: 'checked', images: [] }
+        }
+      })
+    }
+    const provider = new FakeProvider([
+      turn(
+        [
+          { type: 'tool_use', id: 'c1', name: 'mock_check', input: {} },
+          { type: 'tool_use', id: 'w1', name: 'mock_write', input: {} },
+          { type: 'tool_use', id: 'c2', name: 'mock_check', input: {} }
+        ],
+        'tool_use'
+      ),
+      turn([{ type: 'text', text: 'done' }], 'end_turn')
+    ])
+    const session = new AgentSession(provider, allowAll, 'code', root, [], 'order', { tools: [writeTool, checkTool] })
+    await session.run({ runId: 'ord', prompt: 'run', signal: new AbortController().signal, emit: () => {} })
+    expect(order).toEqual(['check', 'write', 'check'])
+  })
 })
 
 describe('model hand-overs, project rules and replies', () => {

@@ -68,6 +68,14 @@ export function releaseAttachments(ids: string[]): void {
   for (const id of ids) staged.delete(id)
 }
 
+export function isRegisteredAttachmentPath(target: string): boolean {
+  const resolved = path.resolve(target)
+  for (const item of staged.values()) {
+    if (path.resolve(item.path) === resolved) return true
+  }
+  return false
+}
+
 /**
  * Resolves staged ids against the folder this session works in, so the model
  * is told the truth about which files its tools can reach. A file from outside

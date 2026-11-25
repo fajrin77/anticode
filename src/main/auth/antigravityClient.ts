@@ -18,8 +18,12 @@ export function clientFromRouterBundle(source: string, provider = 'antigravity')
   return pair ? { id: pair[1]!, secret: pair[2]! } : undefined
 }
 
+const installedCache = new Map<string, OAuthClient | null>()
+
 /** A client read from the installed 9router bundle, when one is installed. */
 function installedClient(provider: string): OAuthClient | undefined {
+  const cacheKey = `${process.env.ANTICODE_9ROUTER_PATH ?? ''}:${provider}`
+  if (installedCache.has(cacheKey)) return installedCache.get(cacheKey) ?? undefined
   const roots = [process.env.ANTICODE_9ROUTER_PATH, path.join(homedir(), '.npm-global/lib/node_modules/9router'), '/usr/local/lib/node_modules/9router', '/opt/homebrew/lib/node_modules/9router'].filter((root): root is string => !!root)
   for (const root of roots) {
     const dir = path.join(root, 'app/.next-cli-build/server/chunks')
@@ -28,10 +32,14 @@ function installedClient(provider: string): OAuthClient | undefined {
         const source = readFileSync(path.join(dir, file), 'utf8')
         if (source.length > 4_000_000) continue
         const client = clientFromRouterBundle(source, provider)
-        if (client) return client
+        if (client) {
+          installedCache.set(cacheKey, client)
+          return client
+        }
       }
     } catch { /* Try the next installation. */ }
   }
+  installedCache.set(cacheKey, null)
   return undefined
 }
 

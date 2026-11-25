@@ -41,11 +41,12 @@ const VENDORS: { kind: AuthKind; title: string; hint: string }[] = [
   { kind: 'orcarouter', title: 'OrcaRouter Free', hint: 'Sign in and approve access in the browser; the key comes back through localhost. Only -free routes are used, so the paid wallet is never billed. OrcaRouter grants free routes only to a workspace whose GitHub account is established.' },
   { kind: 'copilot', title: 'GitHub Copilot', hint: 'Authorize with a GitHub device code. Uses your Copilot account directly.' },
   { kind: 'cursor', title: 'Cursor', hint: 'Browser authorization. Requires the official Cursor Agent CLI. Text/tool adapter; native CLI tools are denied.' },
+  { kind: 'vercel', title: 'Vercel AI Gateway', hint: 'Paste a Vercel AI Gateway key; only -free model routes are used.' },
   ...Object.entries(DIRECT_AUTH_PROVIDERS).map(([kind, config]) => ({ kind: kind as DirectAuthKind, title: config.label, hint: config.hint }))
 ]
 
 /** Vendors kept in code but not offered for new sign-ins. */
-const HIDDEN = new Set<AuthKind>(['opencode-go', 'minimax-plan'])
+const HIDDEN = new Set<AuthKind>(['opencode-go', 'minimax-plan', 'vercel'])
 
 /** Manual renewal is also available for providers with refresh grants. */
 const RENEWABLE: Record<AuthKind, boolean> = {
@@ -154,7 +155,7 @@ export function Auth({
   // One row is open at a time: to be renamed, or to confirm its removal.
   const [open, setOpen] = useState<{ id: string; action: 'rename' | 'remove' } | null>(null)
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState<string | null>(null)
+  const [busy, setBusy] = useState<{ id: string; kind: 'renew' | 'rename' | 'remove' } | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Expiries are read as "good for 42 min", so the panel keeps its own clock.
   const [now, setNow] = useState(() => Date.now())
@@ -166,6 +167,13 @@ export function Auth({
 
   useEffect(() => {
     void refresh()
+    void window.anticode.listAuthLogins().then((active) => {
+      if (active.length === 0) return
+      setFlows((current) => ({
+        ...Object.fromEntries(active.map((item) => [item.id, item])),
+        ...current
+      }))
+    }).catch(() => undefined)
     return window.anticode.onAuthLogin((state) => {
       setFlows((current) => ({ ...current, [state.id]: state }))
       if (state.error !== undefined) setError(state.error)
@@ -192,9 +200,9 @@ export function Auth({
 
   const live = Object.values(flows).filter((state) => !state.done && state.error === undefined)
 
-  async function act(id: string, action: () => Promise<unknown>): Promise<void> {
+  async function act(id: string, kind: 'renew' | 'rename' | 'remove', action: () => Promise<unknown>): Promise<void> {
     setError(null)
-    setBusy(id)
+    setBusy({ id, kind })
     try {
       await action()
       await refresh()
@@ -246,12 +254,13 @@ export function Auth({
 
   async function refreshQuotas(): Promise<void> {
     setQuotaBusy(true)
-    try { setQuotas(await window.anticode.getSubscriptionQuotas()) }
+    try { setQuotas(await window.anticode.getSubscriptionQuotas(true)) }
     catch (failure) { setError(errorText(failure)) }
     finally { setQuotaBusy(false) }
   }
 
   function renderFlow(state: AuthLoginState): JSX.Element {
+    const isKeyFlow = isDirectAuthKind(state.kind) || state.kind === 'opencode-go' || state.kind === 'minimax-plan' || state.kind === 'vercel'
     return (
         <div
           key={state.id}
@@ -261,7 +270,7 @@ export function Auth({
           <div className={`text-[13.5px] ${state.error !== undefined ? 'text-del' : 'text-text'}`}>
             {state.status}
           </div>
-          {accounts.some((row) => row.kind === state.kind) && !state.done && !state.error && (
+          {!isKeyFlow && accounts.some((row) => row.kind === state.kind) && !state.done && !state.error && (
             <p className="mt-1 text-[12px] text-faint">Choose another account in your browser.</p>
           )}
           {state.url !== undefined && !state.done && (
@@ -318,12 +327,20 @@ export function Auth({
     )
   }
 
+  function shortAccountLabel(row: AuthAccountSummary): string {
+    const prefix = (VENDORS.find(vendor => vendor.kind === row.kind)?.title ?? '') + ' · '
+    return row.label.startsWith(prefix) ? row.label.slice(prefix.length) : row.label
+  }
+
   function renderAccount(row: AuthAccountSummary): JSX.Element {
             const renamingThis = open?.id === row.id && open.action === 'rename'
             const removingThis = open?.id === row.id && open.action === 'remove'
             const state = tokenState(row, now)
             const provider = providers.find((entry) => entry.id === row.id)
             const models = provider?.models ?? []
+            const shortLabel = shortAccountLabel(row)
+            const duplicate = accounts.filter(other => other.kind === row.kind && shortAccountLabel(other) === shortLabel).length > 1
+            const displayLabel = duplicate ? `${shortLabel} (${row.id.replace(/^auth:/, '')})` : shortLabel
             // What the id is and what it can run; the token's own state is
             // coloured separately and so is appended rather than joined in.
             const facts = [ models.length > 0 ? `${models.length} models · ${models[0]}` : null].filter(
@@ -334,7 +351,7 @@ export function Auth({
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5">
                   <div className="min-w-[180px] flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <span title={row.label} className="min-w-0 break-all text-[13px] text-text">{row.label.startsWith((VENDORS.find(vendor => vendor.kind === row.kind)?.title ?? '') + ' · ') ? row.label.split(' · ').slice(1).join(' · ') : row.label}</span>
+                      <span title={row.label} className="min-w-0 break-all text-[13px] text-text">{displayLabel}</span>
                       {/* The one thing that must survive a narrow window: the
                           name can be clipped, the token's state cannot. */}
                       <span className={`shrink-0 text-[11.5px] ${state.tone}`} title={state.title}>
@@ -360,9 +377,10 @@ export function Auth({
                       </button>
                       <button
                         type="button"
+                        disabled={busy?.id === row.id}
                         title={`Confirm removing ${row.label}`}
                         onClick={() =>
-                          void act(row.id, async () => {
+                          void act(row.id, 'remove', async () => {
                             onProvidersChange(await window.anticode.removeAuthProvider(row.id))
                             setOpen(null)
                           })
@@ -377,21 +395,21 @@ export function Auth({
                       {RENEWABLE[row.kind] && (
                         <button
                           type="button"
-                          disabled={busy === row.id || !row.refreshable}
+                          disabled={busy?.id === row.id || !row.refreshable}
                           title={
                             row.refreshable
                               ? `Renew the token for ${row.label}`
                               : 'This login came without a refresh token'
                           }
                           onClick={() =>
-                            void act(row.id, () => window.anticode.refreshAuthProvider(row.id))
+                            void act(row.id, 'renew', () => window.anticode.refreshAuthProvider(row.id))
                           }
                           // Renew rests at the same weight as Rename beside
                           // it; with nothing to renew it goes darker still,
                           // since faint-on-faint reads as pressable.
                           className="w-[74px] shrink-0 rounded-md px-2 py-1 text-center text-[12px] text-faint transition-colors enabled:hover:bg-raised enabled:hover:text-brand disabled:text-line"
                         >
-                          {busy === row.id ? 'Renewing…' : 'Renew'}
+                          {busy?.id === row.id && busy.kind === 'renew' ? 'Renewing…' : 'Renew'}
                         </button>
                       )}
                       <button
@@ -434,7 +452,7 @@ export function Auth({
                       onKeyDown={(event) => {
                         if (event.key === 'Escape') setOpen(null)
                         if (event.key === 'Enter' && draft.trim() !== '') {
-                          void act(row.id, async () => {
+                          void act(row.id, 'rename', async () => {
                             await window.anticode.renameAuthProvider(row.id, draft)
                             setOpen(null)
                           })
@@ -444,9 +462,9 @@ export function Auth({
                     />
                     <button
                       type="button"
-                      disabled={draft.trim() === ''}
+                      disabled={draft.trim() === '' || busy?.id === row.id}
                       onClick={() =>
-                        void act(row.id, async () => {
+                        void act(row.id, 'rename', async () => {
                           await window.anticode.renameAuthProvider(row.id, draft)
                           setOpen(null)
                         })
@@ -526,6 +544,9 @@ export function Auth({
                   className="glass-control w-[112px] shrink-0 rounded-lg border px-3 py-1.5 text-center text-[12px] text-text enabled:hover:text-brand disabled:text-faint">
                   {running ? 'Connecting…' : mine.length ? 'Add account' : keyConnection ? 'Connect key' : 'Sign in'}
                 </button></>}>
+                {vendor.hint && (
+                  <p className="px-5 pt-3 pb-2 text-[12px] leading-relaxed text-faint">{vendor.hint}</p>
+                )}
                 {Object.values(flows).filter(state => state.kind === vendor.kind).map(renderFlow)}
                 {mine.map(renderAccount)}
               </AccountGroup>

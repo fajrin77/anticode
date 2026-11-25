@@ -15,7 +15,7 @@ import { AntigravityProvider } from '../providers/antigravity'
 import { GeminiCliProvider } from '../providers/geminiCli'
 import { failureStatus, isTransient } from '../providers/failures'
 import { ProviderRequestError } from '../providers/requestError'
-import { clearLoginCooldown } from '../rotation'
+import { clearAuthRefreshCooldown } from '../rotation'
 import { CLINE_FREE_FALLBACK, isExplicitClineFreeModel, preferredClineFreeRoute } from '@shared/clineModels'
 import { authModelsFor, clineRestriction, markClineRestricted } from './catalogue'
 import { readAuthTokens, updateAuthTokens, getAuthAccount } from './store'
@@ -154,6 +154,23 @@ function deadLogin(message: string): Error {
   return Object.assign(new Error(message), { status: 401, scope: 'account', retryAt: Date.now() + DEAD_LOGIN_REST_MS })
 }
 
+// Refresh grants can rotate their refresh token: all sessions and the Renew button
+// must share one in-flight grant for each account.
+const refreshing = new Map<string, Promise<AuthTokens>>()
+
+function startRefreshGrant(id: string, kind: AuthKind, tokens: AuthTokens): Promise<AuthTokens> {
+  const pending = refreshing.get(id)
+  if (pending !== undefined) return pending
+  const work = refresh(kind, tokens).then((next) => {
+    updateAuthTokens(id, next)
+    clearAuthRefreshCooldown(id)
+    return next
+  })
+  refreshing.set(id, work)
+  void work.finally(() => { if (refreshing.get(id) === work) refreshing.delete(id) }).catch(() => {})
+  return work
+}
+
 /**
  * The live access token for an account, renewed when it is about to die.
  *
@@ -170,7 +187,7 @@ async function renewTokens(id: string, kind: AuthKind, force = false): Promise<A
       `The account ${id} could not be read. Sign in again in Settings → Auth provider`
     )
   }
-  if (!force && !isStale(tokens)) return tokens
+  if (!force && !isStale(tokens) && !refreshing.has(id)) return tokens
   if (tokens.refreshToken === undefined) {
     if (!force) return tokens
     throw deadLogin(
@@ -179,10 +196,7 @@ async function renewTokens(id: string, kind: AuthKind, force = false): Promise<A
     )
   }
   try {
-    const next = await refresh(kind, tokens)
-    updateAuthTokens(id, next)
-    clearLoginCooldown(id)
-    return next
+    return await startRefreshGrant(id, kind, tokens)
   } catch (error) {
     // A refused grant on the forced path means the stored login is dead: say
     // so plainly instead of surfacing a bare HTTP status mid-conversation.
@@ -196,19 +210,10 @@ async function renewTokens(id: string, kind: AuthKind, force = false): Promise<A
   }
 }
 
-// Refresh grants can rotate their refresh token: all sessions and the Renew button
-// must share one in-flight grant for each account.
-const refreshing = new Map<string, Promise<AuthTokens>>()
-
 export function ensureFreshAuthTokens(id: string, force = false): Promise<AuthTokens> {
-  const pending = refreshing.get(id)
-  if (pending !== undefined) return pending
   const account = getAuthAccount(id)
   if (account === undefined) return Promise.reject(new Error('That account is no longer stored.'))
-  const work = renewTokens(id, account.kind, force)
-  refreshing.set(id, work)
-  void work.finally(() => { if (refreshing.get(id) === work) refreshing.delete(id) }).catch(() => {})
-  return work
+  return renewTokens(id, account.kind, force)
 }
 
 /** Only used inside error text, so it stays here rather than in the UI layer. */
@@ -338,7 +343,7 @@ class AuthProvider implements LLMProvider {
       if (!presetAllowsModel(freeGatewayPreset(this.kind), requested) || !authModelsFor(this.id, this.kind).includes(requested)) {
         throw new ProviderRequestError(this.kind === 'orcarouter'
           ? 'This OrcaRouter connection uses free model routes only (-free routes); the paid wallet is never billed. Refresh the model list or choose a free model in the model picker.'
-          : 'This gateway connection uses free model routes only. Refresh the model list or choose a model ending in :free; paid fallback is disabled.', 400)
+          : 'This Vercel AI Gateway connection uses free model routes only (-free routes). Refresh the model list or choose a free model; paid fallback is disabled.', 400)
       }
     }
     let client = await this.client(false, params.sessionId, params.signal)
@@ -383,7 +388,7 @@ function isExpiredToken(error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
   return (
     failureStatus(error) === 401 ||
-    message.includes('401') ||
+    /\b(?:http|status|error|returned|code)\s*:?\s*401\b|\(401\)|^401\b/.test(message) ||
     /invalid[_ -]?token|unauthorized|token.{0,16}expir|jwt.{0,16}expir/i.test(message)
   )
 }

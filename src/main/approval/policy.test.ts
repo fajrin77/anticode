@@ -99,7 +99,19 @@ describe('ApprovalPolicy', () => {
 
     const second = new ApprovalPolicy()
     second.restoreAlways(stored)
-    expect(second.needsApproval('run_command', 'high', 'abc')).toBe(false)
-    expect(second.needsApproval('run_command', 'high', 'other')).toBe(true)
+    expect(second.needsApproval('run_command', 'medium', 'abc')).toBe(false)
+    expect(second.needsApproval('run_command', 'high', 'abc')).toBe(true)
+    expect(second.needsApproval('run_command', 'medium', 'other')).toBe(true)
+  })
+
+  it('never lets Always allow bypass high-risk calls in Default mode', () => {
+    const policy = new ApprovalPolicy()
+    policy.allowAlways('run_command', 's1')
+    policy.allowAlways('apply_patch', 's1')
+    expect(policy.needsApproval('run_command', 'medium', 's1')).toBe(false)
+    expect(policy.needsApproval('run_command', 'high', 's1')).toBe(true)
+    expect(policy.needsApproval('apply_patch', 'high', 's1')).toBe(true)
+    expect(policy.clearSession('s1')).toBe(true)
+    expect(policy.needsApproval('run_command', 'medium', 's1')).toBe(true)
   })
 })

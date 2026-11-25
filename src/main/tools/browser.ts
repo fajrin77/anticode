@@ -18,11 +18,23 @@ const urlSchema = z
 function clip(text: string, total?: number): string {
   if (text.length <= MAX_TEXT) return text
   const size = total ?? text.length
-  return `${text.slice(0, MAX_TEXT)}\n… dipotong (${size} karakter total)`
+  return `${text.slice(0, MAX_TEXT)}\n… truncated (${size} characters total)`
 }
 
 function describe(error: unknown): string {
   return (error as Error).message
+}
+
+async function raceAbort<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted()
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new ToolError('Browser action cancelled'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    work().then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+      (error) => { signal.removeEventListener('abort', onAbort); reject(error) }
+    )
+  })
 }
 
 export const fetchUrlTool = defineTool({
@@ -60,13 +72,13 @@ export const fetchUrlTool = defineTool({
       body += decoder.decode()
     } catch (error) {
       // Half a page with a known reason beats a failed call that drops it.
-      return `${statusLine} (berhenti di tengah: ${describe(error)})\n\n${clip(body, total)}`
+      return `${statusLine} (interrupted: ${describe(error)})\n\n${clip(body, total)}`
     } finally {
       // Cancelling must not replace the real error or result with its own.
       await reader.cancel().catch(() => undefined)
     }
     if (body.length > MAX_TEXT) {
-      return `${statusLine} (halaman lebih besar dari ${MAX_TEXT} karakter)\n\n${clip(body, total)}`
+      return `${statusLine} (page larger than ${MAX_TEXT} characters)\n\n${clip(body, total)}`
     }
     return `${statusLine}\n\n${clip(body, total)}`
   }
@@ -89,7 +101,7 @@ export const browserNavigateTool = defineTool({
       .describe('Wait condition before the page counts as loaded')
   }),
   execute: async (input, context) =>
-    withPage(async (page) => {
+    raceAbort(context.signal, () => withPage(async (page) => {
       clearNetworkRecords(context.sessionId)
       try {
         const response = await page.goto(input.url, {
@@ -97,16 +109,13 @@ export const browserNavigateTool = defineTool({
           timeout: DEFAULT_TIMEOUT
         })
         const title = await page.title()
-        // The pane beside the transcript follows the agent's page, so opening
-        // one here is what puts it on screen.
-        // Unless the user takes the pane, it folds away again on its own.
         if (context.sessionId) noteWebAutoOpen(context.sessionId)
         noteWebUrl(context.sessionId, page.url(), title)
         return `Opened: ${page.url()} (HTTP ${response?.status() ?? 'unknown'})\nTitle: ${title}`
       } catch (error) {
         throw new ToolError(`Failed to open ${input.url}: ${describe(error)}`)
       }
-    }, context.sessionId)
+    }, context.sessionId))
 })
 
 export const browserGetTextTool = defineTool({
@@ -118,22 +127,23 @@ export const browserGetTextTool = defineTool({
   schema: z.object({
     selector: z.string().optional().describe('CSS selector; leave empty for the whole page')
   }),
-  execute: async (input, context) => {
-    const page = requirePage(context.sessionId)
-    try {
-      if (input.selector === undefined) {
-        return clip(await page.innerText('body'))
+  execute: async (input, context) =>
+    raceAbort(context.signal, async () => {
+      const page = requirePage(context.sessionId)
+      try {
+        if (input.selector === undefined) {
+          return clip(await page.innerText('body'))
+        }
+        const locator = page.locator(input.selector)
+        if ((await locator.count()) === 0) {
+          throw new ToolError(`No element matches "${input.selector}"`)
+        }
+        return clip((await locator.allInnerTexts()).join('\n---\n'))
+      } catch (error) {
+        if (error instanceof ToolError) throw error
+        throw new ToolError(`Failed to read text: ${describe(error)}`)
       }
-      const locator = page.locator(input.selector)
-      if ((await locator.count()) === 0) {
-        throw new ToolError(`No element matches "${input.selector}"`)
-      }
-      return clip((await locator.allInnerTexts()).join('\n---\n'))
-    } catch (error) {
-      if (error instanceof ToolError) throw error
-      throw new ToolError(`Failed to read text: ${describe(error)}`)
-    }
-  }
+    })
 })
 
 export const browserScreenshotTool = defineTool({
@@ -145,25 +155,26 @@ export const browserScreenshotTool = defineTool({
   schema: z.object({
     full_page: z.boolean().default(false).describe('True to capture the full page height')
   }),
-  execute: async (input, context) => {
-    const page = requirePage(context.sessionId)
-    let raw: Buffer
-    try {
-      raw = await page.screenshot({ fullPage: input.full_page, type: 'png' })
-    } catch (error) {
-      throw new ToolError(`Failed to capture screenshot: ${describe(error)}`)
-    }
+  execute: async (input, context) =>
+    raceAbort(context.signal, async () => {
+      const page = requirePage(context.sessionId)
+      let raw: Buffer
+      try {
+        raw = await page.screenshot({ fullPage: input.full_page, type: 'png' })
+      } catch (error) {
+        throw new ToolError(`Failed to capture screenshot: ${describe(error)}`)
+      }
 
-    const resized = await sharp(raw)
-      .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer()
+      const resized = await sharp(raw)
+        .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer()
 
-    return {
-      text: `Screenshot of ${page.url()} attached.`,
-      images: [{ mediaType: 'image/jpeg', data: resized.toString('base64') }]
-    }
-  }
+      return {
+        text: `Screenshot of ${page.url()} attached.`,
+        images: [{ mediaType: 'image/jpeg', data: resized.toString('base64') }]
+      }
+    })
 })
 
 export const browserClickTool = defineTool({
@@ -177,17 +188,17 @@ export const browserClickTool = defineTool({
     subject: requirePage(context.sessionId).url(),
     detail: `Click element: ${input.selector}`
   }),
-  execute: async (input, context) => {
-    const page = requirePage(context.sessionId)
-    try {
-      await page.locator(input.selector).first().click({ timeout: DEFAULT_TIMEOUT })
-    } catch (error) {
-      throw new ToolError(`Failed to click "${input.selector}": ${describe(error)}`)
-    }
-    // A click is often a navigation; the pane should not lag a page behind.
-    noteWebUrl(context.sessionId, page.url())
-    return `Clicked: ${input.selector}\nURL now: ${page.url()}`
-  }
+  execute: async (input, context) =>
+    raceAbort(context.signal, async () => {
+      const page = requirePage(context.sessionId)
+      try {
+        await page.locator(input.selector).first().click({ timeout: DEFAULT_TIMEOUT })
+      } catch (error) {
+        throw new ToolError(`Failed to click "${input.selector}": ${describe(error)}`)
+      }
+      noteWebUrl(context.sessionId, page.url())
+      return `Clicked: ${input.selector}\nURL now: ${page.url()}`
+    })
 })
 
 export const browserFillTool = defineTool({
@@ -204,15 +215,16 @@ export const browserFillTool = defineTool({
     subject: requirePage(context.sessionId).url(),
     detail: `Fill ${input.selector} with:\n${input.value}`
   }),
-  execute: async (input, context) => {
-    const page = requirePage(context.sessionId)
-    try {
-      await page.locator(input.selector).first().fill(input.value, { timeout: DEFAULT_TIMEOUT })
-    } catch (error) {
-      throw new ToolError(`Failed to fill "${input.selector}": ${describe(error)}`)
-    }
-    return `Filled: ${input.selector}`
-  }
+  execute: async (input, context) =>
+    raceAbort(context.signal, async () => {
+      const page = requirePage(context.sessionId)
+      try {
+        await page.locator(input.selector).first().fill(input.value, { timeout: DEFAULT_TIMEOUT })
+      } catch (error) {
+        throw new ToolError(`Failed to fill "${input.selector}": ${describe(error)}`)
+      }
+      return `Filled: ${input.selector}`
+    })
 })
 
 export const readNetworkRequestsTool = defineTool({

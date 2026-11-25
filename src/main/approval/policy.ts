@@ -55,16 +55,29 @@ export class ApprovalPolicy {
     for (const entry of entries) this.alwaysAllowed.add(entry)
   }
 
+  clearSession(sessionId: string): boolean {
+    const prefix = `${sessionId}:`
+    let changed = false
+    for (const entry of [...this.alwaysAllowed]) {
+      if (entry.startsWith(prefix)) {
+        this.alwaysAllowed.delete(entry)
+        changed = true
+      }
+    }
+    return changed
+  }
+
   /**
    * Auto means unattended execution: the run answers to nobody, so no card at
    * any risk tier, destructive work included. The guard that matters is the
    * mode itself being a deliberate choice. Default still runs low-risk tools
-   * freely and asks for other calls unless that exact tool was explicitly
-   * allowed for the session.
+   * freely, always asks for high-risk actions per call, and asks for medium
+   * calls unless that exact tool was explicitly allowed for the session.
    */
   needsApproval(toolName: string, risk: RiskTier, sessionId = 'default'): boolean {
     if (this.autoApprove) return false
     if (risk === 'low') return false
+    if (risk === 'high') return true
     return !this.alwaysAllowed.has(`${sessionId}:${toolName}`)
   }
 }

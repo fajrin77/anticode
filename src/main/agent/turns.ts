@@ -24,8 +24,20 @@ export function answeredRuns(messages: Message[]): number {
   let runs = 0
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
-    if (message?.role !== 'user' || message.content.some((block) => block.type === 'tool_result')) continue
-    if (messages[i + 1]?.role === 'assistant') runs += 1
+    if (
+      !message ||
+      message.role !== 'user' ||
+      message.content.some((block) => block.type === 'tool_result') ||
+      message.content.every(
+        (block) =>
+          block.type === 'text' &&
+          (block.internal === true || block.followUp !== undefined || block.text.startsWith(MEMORY_HEADER))
+      )
+    ) {
+      continue
+    }
+    const reply = messages[i + 1]
+    if (reply?.role === 'assistant' && reply.content.some((block) => block.type !== 'display')) runs += 1
   }
   return runs
 }

@@ -112,7 +112,12 @@ async function onboard(token: string, tier: Tier | undefined, signal?: AbortSign
   const request = { tierId: tier.id, cloudaicompanionProject: undefined, metadata: CLIENT_METADATA }
   let operation = await callAssistant<Operation>(token, 'onboardUser', request, signal).catch(() => undefined)
   for (let attempt = 0; operation !== undefined && !operation.done && attempt < 12; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5_000))
+    await new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) { reject(new Error('Login cancelled')); return }
+      const onAbort = (): void => { clearTimeout(timer); reject(new Error('Login cancelled')) }
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve() }, 5_000)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
     operation = await callAssistant<Operation>(token, 'onboardUser', request, signal).catch(() => undefined)
   }
   return operation?.response?.cloudaicompanionProject?.id
@@ -143,8 +148,13 @@ async function exchange(body: URLSearchParams, signal?: AbortSignal): Promise<Au
   const client = geminiOAuthClient()
   body.set('client_id', client.id)
   body.set('client_secret', client.secret)
-  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', body, signal: signal ?? AbortSignal.timeout(20_000) })
-  if (!response.ok) throw new Error(`Gemini token exchange failed (${response.status}). Sign in again.`)
+  const timeout = AbortSignal.timeout(20_000)
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    body,
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+  })
+  if (!response.ok) throw Object.assign(new Error(`Gemini token exchange failed (${response.status}). Sign in again.`), { status: response.status })
   const data = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number }
   if (!data.access_token) throw new Error('Gemini token response is missing an access token')
   return {

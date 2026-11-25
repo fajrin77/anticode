@@ -71,7 +71,7 @@ export async function loginCline(callbacks: AuthLoginCallbacks): Promise<AuthTok
   const callback = waitForCallback({
     ports: Array.from({ length: 11 }, (_, i) => 48801 + i),
     path: callbackPath,
-    signal: callbacks.signal,
+    signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(10 * 60_000)]),
     onListening: (port) => {
       callbackUrl = `http://127.0.0.1:${port}${callbackPath}`
       const url = new URL('/api/v1/auth/authorize', API_BASE)
@@ -99,7 +99,7 @@ export async function loginCline(callbacks: AuthLoginCallbacks): Promise<AuthTok
   const response = await fetch(`${API_BASE}/api/v1/auth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    signal: callbacks.signal,
+    signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(30_000)]),
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code: result.code,

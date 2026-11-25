@@ -44,6 +44,9 @@ export function App(): JSX.Element {
   // The 5 s poll returns a new object even when nothing changed; keeping the
   // old one spares a full re-render of the app every poll.
   const setStatus = useCallback((next: SessionStatus | null) => {
+    if (next !== null && useSessionStore.getState().followUpMode !== next.followUpMode) {
+      useSessionStore.setState({ followUpMode: next.followUpMode })
+    }
     setStatusRaw((previous) => previous !== null && next !== null && JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
   }, [])
   const statusRef = useRef(status)
@@ -259,13 +262,18 @@ export function App(): JSX.Element {
       }
       setAppError(error.message)
     })
-    const refresh = () => { void window.anticode.getStatus().then(setStatus).catch((error: Error) => setAppError(error.message)) }
+    const refresh = () => {
+      if (document.hidden) return
+      void window.anticode.getStatus().then(setStatus).catch((error: Error) => setAppError(error.message))
+    }
     const timer = window.setInterval(refresh, 5000)
+    const onVisibility = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisibility)
     // A model picked on the phone shows here the moment it is picked.
     const unsubscribe = window.anticode.onStatus(setStatus)
     // So does a provider added or removed there.
     const unsubscribeProviders = window.anticode.onProviders(setProviders)
-    return () => { active = false; window.clearInterval(timer); unsubscribe(); unsubscribeProviders() }
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); unsubscribe(); unsubscribeProviders() }
   }, [])
 
   useEffect(() => {
@@ -573,6 +581,10 @@ export function App(): JSX.Element {
         }
         case 'end': {
           const entry = useSessionStore.getState().mirrorRuns[event.runId]
+          const pausedNow = useSessionStore.getState().pausedSessions[event.sessionId] === true
+          if (entry !== undefined && event.reason !== 'complete' && !(event.reason === 'cancelled' && pausedNow)) {
+            store.appendText(event.sessionId, entry.messageId, `\n[${event.reason}]`)
+          }
           const summary =
             event.summary ?? (entry !== undefined ? summaryOf(event.sessionId, entry.startedAt, entry) : undefined)
           store.mirrorSettle(event.runId, summary)
@@ -633,9 +645,11 @@ export function App(): JSX.Element {
     void window.anticode
       .selectProvider({ provider, model }, sessionId ?? null)
       .then(setStatus)
-      .then(() => (provider === ROTATE_PROVIDER ? undefined : window.anticode.listModels(provider)))
-      .then(() => window.anticode.getStatus())
-      .then(setStatus)
+      .then(() =>
+        provider === ROTATE_PROVIDER || model !== ''
+          ? undefined
+          : window.anticode.listModels(provider).then(() => window.anticode.getStatus()).then(setStatus)
+      )
       .catch((error: Error) => setAppError(error.message))
   }, [])
 
@@ -710,6 +724,8 @@ export function App(): JSX.Element {
         settingsActive={view === 'settings'}
         scheduleActive={view === 'schedule'}
         selectedProvider={status === null ? null : statusFor(status, activeSessionId).provider}
+        selectedModel={status === null ? null : statusFor(status, activeSessionId).model}
+        lastUsedProvider={status === null ? null : statusFor(status, activeSessionId).lastUsed?.provider ?? null}
         onDashboard={showDashboard}
         onOpenSettings={toggleSettings}
         onOpenSchedule={() => setView('schedule')}

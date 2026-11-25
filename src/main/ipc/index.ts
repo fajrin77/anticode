@@ -53,6 +53,7 @@ import {
   getStatus,
   listModels,
   listSessionSpecs,
+  loadSessionMessages,
   forgetCatalogue,
   syncAuthAccountRoutes,
   forgetProvider,
@@ -77,7 +78,7 @@ import {
 } from '../runtime'
 import { listProviders } from '../providers'
 import { setComposerVisibility, setComposerGroupVisibility } from '../providers/visibility'
-import { startAuthLogin, submitAuthCode, cancelAuthLogin, setAuthAccountSink } from '../auth/session'
+import { startAuthLogin, submitAuthCode, cancelAuthLogin, listAuthLogins, setAuthAccountSink } from '../auth/session'
 import {
   listAuthAccountSummaries,
   refreshAuthAccount,
@@ -89,6 +90,7 @@ import { ApprovalCoordinator } from '../approval/coordinator'
 import { QuestionCoordinator } from '../question'
 import { setQuestionGateway } from '../question-gateway'
 import {
+  isRegisteredAttachmentPath,
   registerAttachmentData,
   registerAttachments,
   releaseAttachments
@@ -118,14 +120,14 @@ import { setQueueSink } from '../queue'
 import { checkForUpdates, configureUpdates, downloadUpdate, installUpdate, updateState } from '../updates'
 import { mainWindow } from '../windows'
 import { preferences, setPreferences } from '../preferences'
-import { listedContextWindow, pricedModels, setCustomPrice } from '../pricing'
+import { listedContextWindow, pricedModels, publishedContextWindow, setCustomPrice } from '../pricing'
 import { clearUsage as clearUsageLog, recentUsage, summarizeUsage } from '../usageLog'
 import { importMcp, listMcp, mcpSecrets, reconnectMcp, removeMcp, saveMcp } from '../mcp/manager'
 import { listPlugins, pluginAction, pluginSecrets } from '../plugins'
 import { credentialStatus, knownSecrets, moveEnvKeys, restrictEnvFile } from '../credentials'
 import { writeExport } from '../exporter'
 import { hideQuickCapture, sendQuickCapture } from '../tray'
-import { getRemoteStatus, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
+import { getRemoteStatus, isRemoteActive, regenerateRemoteToken, setRemoteEnabled } from '../remote/server'
 import type { CustomProviderInput } from '@shared/ipc'
 import type { AttachmentInfo } from '@shared/ipc'
 
@@ -138,7 +140,7 @@ const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSende
   title: 'anticode needs approval',
   body: `${request.toolName.replace(/^mcp__(.+?)__(.+)$/, '$2 (MCP $1)')} is waiting for your decision.`,
   sessionId: sessionOfRun(request.runId)
-}), (grants) => savePersistedSettings({ alwaysAllowed: grants }))
+}), (grants) => savePersistedSettings({ alwaysAllowed: grants }), () => isRemoteActive())
 
 /** The remote server reuses the same gate and targets the desktop window. */
 export { approvals }
@@ -169,9 +171,34 @@ function artifactPath(sessionId: string, relativePath: string): string {
 /** Default or Auto, pressed on the desktop or the phone. Prompts from both obey
  * the one policy, so both screens are told which it is.
  */
+const BLOCKED_OPEN_EXTENSIONS = new Set(['.app', '.command', '.exe', '.bat', '.cmd', '.msi', '.vbs', '.scr', '.ps1', '.com'])
+
+function isLaunchBlocked(target: string): boolean {
+  return BLOCKED_OPEN_EXTENSIONS.has(path.extname(target).toLowerCase())
+}
+
+function isAllowedRendererFile(target: string): boolean {
+  if (typeof target !== 'string' || target.trim() === '') return false
+  if (isRegisteredAttachmentPath(target)) return true
+  const resolved = path.resolve(target)
+  for (const spec of listSessionSpecs()) {
+    const root = sessionFileRoot(spec.sessionId)
+    if (root !== null) {
+      const rel = path.relative(root, resolved)
+      if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) return true
+    }
+    const messages = loadSessionMessages(spec.sessionId) ?? []
+    if (messages.some((m) => m.blocks.some((b) => b.type === 'attachment' && path.resolve(b.attachment.path) === resolved))) {
+      return true
+    }
+  }
+  return false
+}
+
 /** Steer or queue, pressed on either screen; the value lives in followUp.ts. */
 export function setFollowUpModeRemote(mode: 'steer' | 'queue'): SessionStatus {
   setFollowUpMode(mode)
+  announceStatus()
   return getStatus()
 }
 
@@ -212,7 +239,7 @@ export async function addProvider(input: CustomProviderInput): Promise<ProviderI
       throw new Error('Base URL is required')
     }
     if (input.kind === 'auth') throw new Error('OAuth accounts are added with Sign in, not here')
-    const baseURL = input.baseURL.trim() || 'http://127.0.0.1:11434/v1'
+    const baseURL = input.baseURL.trim() || (input.kind === 'ollama' ? 'http://127.0.0.1:11434/v1' : '')
     if (input.kind === 'ollama') await probeLocalProvider(baseURL)
     const named = { anthropic: 'Anthropic', 'openai-api': 'OpenAI' }[input.kind as string]
     addCustomProvider({
@@ -463,7 +490,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.ROTATION_RESET, (): SessionStatus => resetRotation())
   ipcMain.handle(IpcChannel.CONNECTOR_GET, () => getConnectorSettings())
   ipcMain.handle(IpcChannel.CONNECTOR_SET, (_event, settings: unknown) => setConnectorSettings(settings))
-  ipcMain.handle(IpcChannel.SUBSCRIPTION_QUOTAS, () => getSubscriptionQuotas())
+  ipcMain.handle(IpcChannel.SUBSCRIPTION_QUOTAS, (_event, force?: unknown) => getSubscriptionQuotas(force === true))
   ipcMain.handle(IpcChannel.SUBSCRIPTION_ROUTING, async (_event, enabled: unknown): Promise<SessionStatus> => {
     if (typeof enabled !== 'boolean') throw new Error('Expected on or off')
     if (enabled) await Promise.all(listProviders().filter((provider) => provider.credentialAvailable && isSubscriptionProvider(provider)).map((provider) => listModels(provider.id, true)))
@@ -491,6 +518,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.FOLLOW_UP_SET, (_event, mode: string): SessionStatus => {
     setFollowUpMode(mode === 'queue' ? 'queue' : 'steer')
+    announceStatus()
     return getStatus()
   })
 
@@ -520,24 +548,32 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IpcChannel.AUTH_CANCEL, (_event, id: string) => cancelAuthLogin(id))
   ipcMain.handle(IpcChannel.AUTH_LIST, () => listAuthAccountSummaries())
+  ipcMain.handle(IpcChannel.AUTH_LOGINS, () => listAuthLogins())
   ipcMain.handle(IpcChannel.AUTH_REFRESH, async (_event, id: string) => {
     await refreshAuthAccount(id)
     // A renewed token can flip the account from "needs signing in" back to
     // usable, and the composer reads that off the provider list.
+    announceProviders()
     announceStatus()
     return listAuthAccountSummaries()
   })
   ipcMain.handle(IpcChannel.AUTH_RENAME, (_event, id: string, label: string) => {
+    if (typeof label !== 'string' || label.trim() === '') throw new Error('Enter an account name')
     renameAuthAccount(id, label.trim().slice(0, 80))
+    announceProviders()
     announceStatus()
     return listAuthAccountSummaries()
   })
   ipcMain.handle(IpcChannel.AUTH_REMOVE, (_event, id: string) => {
+    if (providerInUse(id as ProviderId)) {
+      throw new Error('A running session is using this account. Wait for it to finish before removing it.')
+    }
     removeAuthAccount(id)
     forgetCatalogue(id as ProviderId)
     // Like any other provider removal: sessions, the default, and Rotate
     // usage let go of it, or its pool entries brick every later save.
     forgetProvider(id as ProviderId)
+    announceProviders()
     announceStatus()
     return listProviders()
   })
@@ -593,8 +629,12 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     IpcChannel.ATTACH_DATA,
-    (_event, name: string, base64: string): Promise<AttachmentInfo[]> =>
-      registerAttachmentData(name, Buffer.from(base64, 'base64'))
+    (_event, name: string, base64: string): Promise<AttachmentInfo[]> => {
+      if (typeof base64 !== 'string' || base64.length > 140 * 1024 * 1024) {
+        throw new Error('Attachment data exceeds maximum size')
+      }
+      return registerAttachmentData(typeof name === 'string' ? name : 'attachment', Buffer.from(base64, 'base64'))
+    }
   )
 
   // Opening is by absolute path because an attachment may well sit outside any
@@ -604,6 +644,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     IpcChannel.ATTACH_READ_IMAGE,
     async (_event, target: string): Promise<string | null> => {
+      if (!isAllowedRendererFile(target)) return null
       const extension = path.extname(target).toLowerCase()
       const type = {
         '.png': 'image/png',
@@ -626,6 +667,8 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(IpcChannel.ATTACH_OPEN, async (_event, target: string): Promise<string | null> => {
+    if (!isAllowedRendererFile(target)) return 'Attachment is no longer registered'
+    if (isLaunchBlocked(target)) return 'Executable files cannot be launched directly. Reveal the file in Finder/Explorer instead.'
     const failure = await shell.openPath(target)
     return failure === '' ? null : failure
   })
@@ -648,7 +691,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     IpcChannel.ARTIFACT_OPEN,
     async (_event, sessionId: string, relativePath: string): Promise<string | null> => {
-      const failure = await shell.openPath(artifactPath(sessionId, relativePath))
+      const resolved = artifactPath(sessionId, relativePath)
+      if (isLaunchBlocked(resolved)) return 'Executable files cannot be launched directly. Reveal the file in Finder/Explorer instead.'
+      const failure = await shell.openPath(resolved)
       return failure === '' ? null : failure
     }
   )
@@ -682,8 +727,12 @@ export function registerIpcHandlers(): void {
   // path in the session's folder, an attachment by the absolute path it has.
   ipcMain.handle(
     IpcChannel.FILE_PREVIEW,
-    (_event, sessionId: string | null, target: string): Promise<FilePreview> =>
-      previewFile(sessionId === null ? target : artifactPath(sessionId, target), true)
+    (_event, sessionId: string | null, target: string): Promise<FilePreview> => {
+      if (sessionId === null && !isAllowedRendererFile(target)) {
+        throw new Error('Attachment is not registered in this session')
+      }
+      return previewFile(sessionId === null ? target : artifactPath(sessionId, target), true)
+    }
   )
 
   ipcMain.handle(IpcChannel.APPROVAL_RESPOND, (_event, response: ApprovalResponse): void => {
@@ -844,9 +893,11 @@ export function registerIpcHandlers(): void {
   })
   // The meter asks what this id really takes: the window a provider published
   // for it, or the built-in family table when none did.
-  ipcMain.handle(IpcChannel.CONTEXT_BUDGET, (_event, model: unknown): ContextBudget => {
+  ipcMain.handle(IpcChannel.CONTEXT_BUDGET, (_event, model: unknown, provider?: unknown): ContextBudget => {
     const id = typeof model === 'string' ? model : ''
-    const listed = listedContextWindow(id)
+    const listed =
+      (typeof provider === 'string' && provider !== '' ? publishedContextWindow(provider, id) : null) ??
+      listedContextWindow(id)
     return { window: contextWindowFor(id, listed), budget: historyBudgetFor(id, listed) }
   })
   ipcMain.handle(IpcChannel.ACCESS_REPORT, () => getAccessReport())

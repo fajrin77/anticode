@@ -1,6 +1,7 @@
 import { shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { ProviderRequestError } from '../providers/requestError'
 import { makeVerifier, makeChallenge } from './pkce'
 import type { AuthLoginCallbacks, AuthTokens } from './types'
 import { cursorCommand } from '../providers/cursorCli'
@@ -22,13 +23,22 @@ export async function loginCursor(callbacks: AuthLoginCallbacks): Promise<AuthTo
     const poll = new URL('https://api2.cursor.sh/auth/poll')
     poll.searchParams.set('uuid', uuid)
     poll.searchParams.set('verifier', verifier)
-    const response = await fetch(poll, { signal: callbacks.signal })
+    const response = await fetch(poll, { signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(15_000)]) })
     if (response.status === 403) throw new Error('Cursor authorization denied. Check your organization sign-in policy.')
     if (response.ok) {
       const body = await response.json() as { accessToken?: string; refreshToken?: string }
       if (body.accessToken && body.refreshToken) {
         callbacks.onUpdate({ message: 'Signed in', done: true })
-        return { accessToken: body.accessToken, refreshToken: body.refreshToken, expiresAt: tokenExpiry(body.accessToken), meta: { account: cursorIdentity(body.accessToken) } }
+        const bodyClaims = claims(body.accessToken)
+        return {
+          accessToken: body.accessToken,
+          refreshToken: body.refreshToken,
+          expiresAt: tokenExpiry(body.accessToken),
+          meta: {
+            account: cursorIdentity(body.accessToken),
+            ...(typeof bodyClaims.sub === 'string' && bodyClaims.sub ? { accountId: bodyClaims.sub } : {})
+          }
+        }
       }
     } else if (![404, 408, 429].includes(response.status)) throw new Error(`Cursor authorization failed (${response.status})`)
     await sleep(response.status === 429 ? 5000 : 1500, undefined, { signal: callbacks.signal })
@@ -48,6 +58,8 @@ function cursorIdentity(token: string): string {
 // Cursor's refresh contract is not public. Never guess an endpoint or reuse a
 // token on a different route: require browser authorization when it expires.
 export function validCursorTokens(tokens: AuthTokens): AuthTokens {
-  if (tokens.expiresAt && tokens.expiresAt < Date.now() + 60_000) throw new Error('Cursor authorization expired. Sign in again in Settings → Auth provider.')
+  if (tokens.expiresAt && tokens.expiresAt < Date.now() + 60_000) {
+    throw new ProviderRequestError('Cursor authorization expired. Sign in again in Settings → Auth provider.', 401, 'account')
+  }
   return tokens
 }

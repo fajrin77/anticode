@@ -10,7 +10,8 @@ export const COPILOT_HEADERS = { 'User-Agent': 'anticode', 'Openai-Intent': 'con
 export async function loginCopilot(callbacks: AuthLoginCallbacks): Promise<AuthTokens> {
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json' }
   const response = await fetch('https://github.com/login/device/code', {
-    method: 'POST', headers, body: JSON.stringify({ client_id: CLIENT_ID, scope: 'read:user' }), signal: callbacks.signal
+    method: 'POST', headers, body: JSON.stringify({ client_id: CLIENT_ID, scope: 'read:user' }),
+    signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(20_000)])
   })
   if (!response.ok) throw new Error(`GitHub device authorization failed (${response.status})`)
   const device = await response.json() as { device_code?: string; user_code?: string; verification_uri?: string; expires_in?: number; interval?: number }
@@ -22,7 +23,7 @@ export async function loginCopilot(callbacks: AuthLoginCallbacks): Promise<AuthT
   while (Date.now() < deadline) {
     await sleep(interval, undefined, { signal: callbacks.signal })
     const poll = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST', headers, signal: callbacks.signal,
+      method: 'POST', headers, signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(20_000)]),
       body: JSON.stringify({ client_id: CLIENT_ID, device_code: device.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' })
     })
     if (!poll.ok) throw new Error(`GitHub authorization polling failed (${poll.status})`)
@@ -30,19 +31,27 @@ export async function loginCopilot(callbacks: AuthLoginCallbacks): Promise<AuthT
     if (token.error === 'authorization_pending') continue
     if (token.error === 'slow_down') { interval = Math.max(interval + 5000, (token.interval ?? 0) * 1000); continue }
     if (!token.access_token) throw new Error(`GitHub authorization failed: ${token.error ?? 'no token'}`)
-    const user = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${token.access_token}`, Accept: 'application/vnd.github+json' }, signal: callbacks.signal })
+    const user = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${token.access_token}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.any([callbacks.signal, AbortSignal.timeout(20_000)]) })
     if (!user.ok) throw new Error(`GitHub account lookup failed (${user.status})`)
-    const identity = await user.json() as { login?: string }
+    const identity = await user.json() as { login?: string; id?: number }
     // Check subscription before storing; never silently switch to metered GitHub Models.
     await copilotModels(token.access_token, callbacks.signal)
     callbacks.onUpdate({ message: 'Signed in', done: true })
-    return { accessToken: token.access_token, expiresAt: 0, meta: { account: identity.login ?? 'GitHub Copilot' } }
+    return {
+      accessToken: token.access_token,
+      expiresAt: 0,
+      meta: {
+        account: identity.login ?? 'GitHub Copilot',
+        ...(typeof identity.id === 'number' ? { accountId: String(identity.id) } : {})
+      }
+    }
   }
   throw new Error('GitHub device authorization expired. Sign in again.')
 }
 
 export async function copilotModels(token: string, signal?: AbortSignal): Promise<string[]> {
-  const response = await fetch(`${COPILOT_BASE}/models`, { headers: { ...COPILOT_HEADERS, Authorization: `Bearer ${token}` }, signal: signal ?? AbortSignal.timeout(15000) })
+  const timeout = AbortSignal.timeout(15000)
+  const response = await fetch(`${COPILOT_BASE}/models`, { headers: { ...COPILOT_HEADERS, Authorization: `Bearer ${token}` }, signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
   if (!response.ok) throw new Error(`GitHub Copilot models unavailable (${response.status}); check your subscription and authorize the client`)
   const body = await response.json() as { data?: { id?: string; model_picker_enabled?: boolean; policy?: { state?: string }; supported_endpoints?: string[]; capabilities?: { type?: string } }[] }
   const listed = (body.data ?? []).filter((m) => m.id)

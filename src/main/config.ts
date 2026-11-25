@@ -10,10 +10,16 @@ const DEFAULT_MODEL = 'claude-opus-5'
  * per-user application-data directory instead.
  */
 let loadedEnvFile: string | null = null
+const injectedEnvKeys = new Set<string>()
 
 /** The env file credentials were read from at start-up, if any. */
 export function envFilePath(): string | null {
   return loadedEnvFile
+}
+
+/** Keys injected by Anticode's own .env file, stripped from workspace child shells. */
+export function anticodeEnvKeys(): ReadonlySet<string> {
+  return injectedEnvKeys
 }
 
 export function loadEnvFile(): void {
@@ -24,7 +30,11 @@ export function loadEnvFile(): void {
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue
     try {
+      const before = new Set(Object.keys(process.env))
       process.loadEnvFile(candidate)
+      for (const key of Object.keys(process.env)) {
+        if (!before.has(key)) injectedEnvKeys.add(key)
+      }
       loadedEnvFile = candidate
       return
     } catch (error) {

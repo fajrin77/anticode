@@ -28,6 +28,8 @@ interface ComposerProps {
   hero?: boolean
   /** Appended to the right end of the hero picker row (e.g. a search button). */
   heroExtra?: JSX.Element
+  /** Preset prompt fill when rendered as the dashboard hero composer. */
+  fill?: { text: string; pulse: number }
 }
 
 import { CONTINUE_PROMPT, RESUME_LABEL } from '../labels'
@@ -97,7 +99,8 @@ export function Composer({  status: sharedStatus,
   onSelectProvider,
   onToggleAutoApprove,
   hero = false,
-  heroExtra
+  heroExtra,
+  fill
 }: ComposerProps): JSX.Element {
   const session = useActiveSession()
   const status = sharedStatus === null ? null : statusFor(sharedStatus, session?.id)
@@ -126,6 +129,7 @@ export function Composer({  status: sharedStatus,
   const boxRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  const sendingRef = useRef(false)
   useAttachmentFocus(session?.id, attached, promptRef)
 
   // Standing by: the composer takes the caret as soon as it appears, a new
@@ -133,9 +137,19 @@ export function Composer({  status: sharedStatus,
   // a click first. The search field steals focus when it opens; the textarea
   // does not fight it, because that field re-renders on top afterwards.
   useEffect(() => {
+    setError(null)
     if (window.document.activeElement?.tagName === 'INPUT') return
     promptRef.current?.focus()
   }, [session?.id])
+
+  useEffect(() => {
+    if (status?.providerReady === true) setError(null)
+  }, [status?.providerReady])
+
+  useEffect(() => {
+    if (!fill || fill.pulse === 0) return
+    setDraft(fill.text)
+  }, [fill?.pulse, fill?.text])
 
   // A boolean, not the run: token and phase updates must not re-render the composer.
   const hasActiveRun = useSessionStore((state) => Object.values(state.activeRuns).some((run) => run.sessionId === session?.id))
@@ -303,7 +317,7 @@ export function Composer({  status: sharedStatus,
     if (quote === '' || session === undefined) return
     function onOutside(event: MouseEvent): void {
       const target = event.target as HTMLElement | null
-      // The Balas button lives outside the composer, and its own mousedown is
+      // The Reply button lives outside the composer, and its own mousedown is
       // what created this quote, it must not also dismiss it.
       if (target?.closest('[data-reply-button]') != null) return
       if (!boxRef.current?.contains(target)) clearQuote()
@@ -416,7 +430,9 @@ export function Composer({  status: sharedStatus,
    */
   async function steerNow(): Promise<void> {
     const prompt = draft.trim()
-    if (session === undefined || prompt === '' || !isStreaming || isPaused) return
+    if (sendingRef.current || session === undefined || prompt === '' || !isStreaming || isPaused || attachmentsBlocked) return
+    sendingRef.current = true
+    setError(null)
     const attachmentIds = attached.map((item) => item.id)
     const shown = quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
     const kept = { text: draft, attachments: attached, quote }
@@ -438,11 +454,14 @@ export function Composer({  status: sharedStatus,
     } catch (failure) {
       setError(errorText(failure))
       useSessionStore.getState().updateDraft(session.id, kept)
+    } finally {
+      sendingRef.current = false
     }
   }
 
   /** Explicit actions use the normal run lifecycle without consuming the draft. */
   async function send(action?: string): Promise<void> {
+    if (sendingRef.current) return
     const prompt = action ?? draft.trim()
     const live = useSessionStore.getState()
     if (action && (Object.values(live.activeRuns).some(run => run.sessionId === session?.id) || Object.values(live.mirrorRuns).some(run => run.sessionId === session?.id))) return
@@ -461,6 +480,8 @@ export function Composer({  status: sharedStatus,
       }
       return
     }
+    sendingRef.current = true
+    setError(null)
 
     const quoted = action || quote === '' ? prompt : `${quote.replace(/^/gm, '> ')}\n\n${prompt}`
     // Plan travels as a flag, not as text: the transcript keeps showing the
@@ -480,6 +501,8 @@ export function Composer({  status: sharedStatus,
       } catch (failure) {
         setError(errorText(failure))
         useSessionStore.getState().updateDraft(session.id, kept)
+      } finally {
+        sendingRef.current = false
       }
       return
     }
@@ -531,6 +554,8 @@ export function Composer({  status: sharedStatus,
       useSessionStore.getState().appendText(session.id, messageId, errorText(failure))
       useSessionStore.getState().settleMessage(messageId)
       setActiveRun(null, runId)
+    } finally {
+      sendingRef.current = false
     }
   }
 
@@ -610,6 +635,9 @@ export function Composer({  status: sharedStatus,
                   }`}
                 >
                   <div className="text-[12.5px]">{option.name}</div>
+                  <div className="text-[11px] text-faint transition-colors group-hover:text-brand">
+                    {option.hint}
+                  </div>
                 </button>
               ))}
             </div>
@@ -755,6 +783,13 @@ export function Composer({  status: sharedStatus,
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
+                  if (isStreaming && !isPaused && draft.trim() !== '') {
+                    const alternate = (event.metaKey || event.ctrlKey) && !event.altKey
+                    const shouldSteer = alternate ? followUpMode === 'queue' : followUpMode === 'steer'
+                    if (shouldSteer) void steerNow()
+                    else void send()
+                    return
+                  }
                   void send(showCommit && (event.metaKey || event.ctrlKey) && !event.altKey && draft.trim() === '' ? COMMIT_PROMPT : undefined)
                 }
               }}
@@ -822,6 +857,25 @@ export function Composer({  status: sharedStatus,
                   }`}
                 >
                   {planMode ? 'plan' : 'build'}
+                </button>
+              )}
+
+              {isStreaming && !isPaused && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = followUpMode === 'steer' ? 'queue' : 'steer'
+                    useSessionStore.setState({ followUpMode: next })
+                    void window.anticode.setFollowUpMode(next).catch(() => undefined)
+                  }}
+                  title={
+                    followUpMode === 'steer'
+                      ? 'Steer on Enter (⌘/Ctrl+Enter queues) — click to switch to Queue'
+                      : 'Queue on Enter (⌘/Ctrl+Enter steers) — click to switch to Steer'
+                  }
+                  className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim transition-colors hover:text-brand"
+                >
+                  {followUpMode}
                 </button>
               )}
 

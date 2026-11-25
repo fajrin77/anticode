@@ -115,10 +115,17 @@ export function Usage(): JSX.Element {
     // While the page is open a run elsewhere keeps appending rows; poll
     // lightly so the cards track it without any event plumbing.
     const timer = window.setInterval(() => {
+      if (document.hidden) return
       void window.anticode
         .getUsageSummary(rangeMs(range))
         .then((result) => {
           if (!cancelled) setSummary(result)
+        })
+        .catch(() => undefined)
+      void window.anticode
+        .listUsageRecent(50)
+        .then((rows) => {
+          if (!cancelled) setRecent(rows)
         })
         .catch(() => undefined)
     }, 5000)
@@ -195,7 +202,7 @@ export function Usage(): JSX.Element {
         <div className="text-[13px] text-faint">Loading usage…</div>
       ) : (
         <>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Card label="Total requests" value={formatNumber(summary.requests)} />
             <Card label="Total input" value={formatNumber(summary.inputTokens)} />
             <Card label="Cached tokens" value={formatNumber(summary.cachedTokens)} sub="Served from cache" />
@@ -218,7 +225,7 @@ export function Usage(): JSX.Element {
                 <div>
                   <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px] text-dim">
                     <span><i className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-sky-400" />Input non-cache</span>
-                    <span><i className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-violet-400" />Cache (bagian input)</span>
+                    <span><i className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-violet-400" />Cache (part of input)</span>
                     <span><i className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-amber-400" />Output</span>
                   </div>
                   <div className="flex h-40 items-end gap-2 overflow-x-auto" aria-label="Tokens per day">

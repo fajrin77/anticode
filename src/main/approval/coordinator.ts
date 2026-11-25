@@ -16,10 +16,13 @@ export class ApprovalCoordinator implements ApprovalGate {
     private readonly onDismissed?: (requestId: string) => void,
     private readonly onRequested?: (request: ApprovalRequest) => void,
     /** Fires when "Always allow" adds a grant, so the caller can persist it. */
-    private readonly onAlways?: (grants: string[]) => void
+    private readonly onAlways?: (grants: string[]) => void,
+    /** True when another viewer (remote phone) can answer while no desktop window is open. */
+    private readonly hasAlternateViewer: () => boolean = () => false
   ) {}
 
   resolve(requestId: string, decision: ApprovalDecision): void {
+    if (!['approve', 'reject', 'always'].includes(decision)) return
     this.pending.get(requestId)?.(decision)
   }
 
@@ -27,16 +30,20 @@ export class ApprovalCoordinator implements ApprovalGate {
     if (request.signal.aborted) return false
     if (!this.policy.needsApproval(request.toolName, request.risk, request.sessionId)) return true
 
-    const target = this.sender()
-
     // In Default mode, a high-risk decision applies only to this call.
     const allowAlways = request.risk !== 'high'
+    const preview = await request.preview()
+    if (request.signal.aborted) return false
+
+    const target = this.sender()
+    if ((target === null || target.isDestroyed()) && !this.hasAlternateViewer()) return false
+
     const payload: ApprovalRequest = {
       requestId: randomUUID(),
       runId: request.runId,
       toolName: request.toolName,
       risk: request.risk,
-      preview: await request.preview(),
+      preview,
       allowAlways
     }
 
@@ -55,7 +62,10 @@ export class ApprovalCoordinator implements ApprovalGate {
     target: WebContents | null,
     signal: AbortSignal
   ): Promise<ApprovalDecision> {
-    if (signal.aborted || target?.isDestroyed()) return Promise.resolve('reject')
+    if (signal.aborted) return Promise.resolve('reject')
+    if ((target === null || target.isDestroyed()) && !this.hasAlternateViewer()) {
+      return Promise.resolve('reject')
+    }
 
     return new Promise((resolve) => {
       // A closed window must not leave the run waiting forever, on macOS the

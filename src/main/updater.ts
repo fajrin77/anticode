@@ -256,7 +256,10 @@ export async function download(asset: UpdateAsset, directory: string, onProgress
     await copyFile(asset.location, target)
     onProgress(1)
   } else {
-    const response = await fetch(asset.location, { headers: { 'user-agent': 'anticode-updater' } })
+    const response = await fetch(asset.location, {
+      headers: { 'user-agent': 'anticode-updater' },
+      signal: AbortSignal.timeout(10 * 60_000)
+    })
     if (!response.ok || response.body === null) throw new Error(`The download answered ${response.status}`)
     const total = Number(response.headers.get('content-length') ?? 0)
     let received = 0
@@ -339,7 +342,8 @@ export function macSwapScript(pid: number, staged: string, target: string, bundl
   return [
     '#!/bin/sh',
     `exec >${quote(log)} 2>&1`,
-    `while kill -0 ${pid} 2>/dev/null; do sleep 0.3; done`,
+    `i=0; while kill -0 ${pid} 2>/dev/null && [ $i -lt 200 ]; do i=$((i + 1)); sleep 0.3; done`,
+    `if kill -0 ${pid} 2>/dev/null; then echo "timed out waiting for anticode to quit"; exit 1; fi`,
     `rm -rf ${old}`,
     // Only once the working app is safely aside may anything be deleted: if
     // the move fails, the app stays exactly where and as it was.
@@ -413,7 +417,7 @@ export async function install(file: string, exePath: string, workDirectory: stri
   const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
   await writeFile(
     script,
-    `#!/bin/sh\nwhile kill -0 ${pid} 2>/dev/null; do sleep 0.3; done\ncp ${quote(file)} ${quote(appImage)} && chmod +x ${quote(appImage)}\n${quote(appImage)} &\n`,
+    `#!/bin/sh\ni=0; while kill -0 ${pid} 2>/dev/null && [ $i -lt 200 ]; do i=$((i + 1)); sleep 0.3; done\nkill -0 ${pid} 2>/dev/null && exit 1\ncp ${quote(appImage)} ${quote(`${appImage}.old`)} 2>/dev/null || true\nif cp ${quote(file)} ${quote(appImage)} && chmod +x ${quote(appImage)}; then rm -f ${quote(`${appImage}.old`)}; else mv ${quote(`${appImage}.old`)} ${quote(appImage)} 2>/dev/null || true; fi\n${quote(appImage)} &\n`,
     { mode: 0o755 }
   )
   spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' }).unref()

@@ -95,8 +95,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ROTATION_CADENCE, count) as Promise<SessionStatus>,
   setSubscriptionRouting: (enabled: boolean) =>
     ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_ROUTING, enabled) as ReturnType<AnticodeApi['setSubscriptionRouting']>,
-  getSubscriptionQuotas: () =>
-    ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_QUOTAS) as ReturnType<AnticodeApi['getSubscriptionQuotas']>,
+  getSubscriptionQuotas: (force?: boolean) =>
+    ipcRenderer.invoke(IpcChannel.SUBSCRIPTION_QUOTAS, force === true) as ReturnType<AnticodeApi['getSubscriptionQuotas']>,
   getConnectorSettings: () => ipcRenderer.invoke(IpcChannel.CONNECTOR_GET),
   setConnectorSettings: (settings) => ipcRenderer.invoke(IpcChannel.CONNECTOR_SET, settings),
   setRotationGroups: (groups: RotationGroupInput[]) =>
@@ -137,8 +137,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.PROVIDER_REMOVE, id) as Promise<ProviderInfo[]>,
   updateProvider: (id: ProviderId, edit: ProviderEdit) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_UPDATE, id, edit) as Promise<ProviderInfo[]>,
-  contextBudget: (model: string) =>
-    ipcRenderer.invoke(IpcChannel.CONTEXT_BUDGET, model) as Promise<ContextBudget>,
+  contextBudget: (model: string, provider?: ProviderId | null) =>
+    ipcRenderer.invoke(IpcChannel.CONTEXT_BUDGET, model, provider ?? null) as Promise<ContextBudget>,
   startAuthLogin: (kind) =>
     ipcRenderer.invoke(IpcChannel.AUTH_LOGIN, kind) as ReturnType<AnticodeApi['startAuthLogin']>,
   submitAuthCode: (id, code) =>
@@ -149,6 +149,8 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.AUTH_REMOVE, id) as Promise<ProviderInfo[]>,
   listAuthAccounts: () =>
     ipcRenderer.invoke(IpcChannel.AUTH_LIST) as ReturnType<AnticodeApi['listAuthAccounts']>,
+  listAuthLogins: () =>
+    ipcRenderer.invoke(IpcChannel.AUTH_LOGINS) as ReturnType<AnticodeApi['listAuthLogins']>,
   refreshAuthProvider: (id) =>
     ipcRenderer.invoke(IpcChannel.AUTH_REFRESH, id) as ReturnType<AnticodeApi['refreshAuthProvider']>,
   renameAuthProvider: (id, label) =>

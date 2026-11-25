@@ -3,7 +3,21 @@ import path from 'node:path'
 import { z } from 'zod'
 import { defineTool } from './types'
 import { resolveInWorkspace } from './workspace'
-import { execute } from './runCommand'
+import { executeFile } from './runCommand'
+
+function resolveNodeBin(root: string, binName: string, jsFallback: string[]): { file: string; prefixArgs: string[] } | null {
+  if (process.platform === 'win32') {
+    for (const rel of jsFallback) {
+      const entry = path.join(root, 'node_modules', rel)
+      if (existsSync(entry)) return { file: process.execPath, prefixArgs: [entry] }
+    }
+    const exe = path.join(root, 'node_modules', '.bin', `${binName}.exe`)
+    if (existsSync(exe)) return { file: exe, prefixArgs: [] }
+    return null
+  }
+  const bin = path.join(root, 'node_modules', '.bin', binName)
+  return existsSync(bin) ? { file: bin, prefixArgs: [] } : null
+}
 
 const MAX_OUTPUT_CHARS = 8_000
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -14,9 +28,9 @@ function truncate(text: string): string {
     : text
 }
 
-function binExists(root: string, name: string): boolean {
+function binExists(root: string, name: string, jsFallback: string[]): boolean {
   try {
-    return existsSync(path.join(root, 'node_modules', '.bin', name))
+    return resolveNodeBin(root, name, jsFallback) !== null
   } catch {
     return false
   }
@@ -75,12 +89,16 @@ export const checkProblemsTool = defineTool({
     if (input.path !== undefined) target = resolveInWorkspace(root, input.path)
     const checks: Check[] = []
 
-    if (hasFile(root, 'tsconfig.json') && binExists(root, 'tsc')) {
+    const tscJs = ['typescript/bin/tsc', 'typescript/lib/tsc.js']
+    const eslintJs = ['eslint/bin/eslint.js']
+    const tscBin = hasFile(root, 'tsconfig.json') ? resolveNodeBin(root, 'tsc', tscJs) : null
+    if (tscBin !== null) {
       checks.push({
         label: 'TypeScript',
         run: async () => {
-          const outcome = await execute(
-            `${JSON.stringify(path.join(root, 'node_modules', '.bin', 'tsc'))} --noEmit -p ${JSON.stringify(path.join(root, 'tsconfig.json'))}`,
+          const outcome = await executeFile(
+            tscBin.file,
+            [...tscBin.prefixArgs, '--noEmit', '-p', path.join(root, 'tsconfig.json')],
             root,
             input.timeout_ms,
             context.signal
@@ -93,12 +111,14 @@ export const checkProblemsTool = defineTool({
     }
 
     const eslintConfig = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc'].some((name) => hasFile(root, name))
-    if (eslintConfig && binExists(root, 'eslint')) {
+    const eslintBin = eslintConfig ? resolveNodeBin(root, 'eslint', eslintJs) : null
+    if (eslintBin !== null) {
       checks.push({
         label: 'ESLint',
         run: async () => {
-          const outcome = await execute(
-            `${JSON.stringify(path.join(root, 'node_modules', '.bin', 'eslint'))} ${JSON.stringify(target)}`,
+          const outcome = await executeFile(
+            eslintBin.file,
+            [...eslintBin.prefixArgs, '--', target],
             root,
             input.timeout_ms,
             context.signal
@@ -113,9 +133,9 @@ export const checkProblemsTool = defineTool({
     if (checks.length === 0) {
       const hints: string[] = []
       if (!hasFile(root, 'tsconfig.json')) hints.push('no tsconfig.json')
-      else if (!binExists(root, 'tsc')) hints.push('TypeScript is not installed in the workspace')
+      else if (!binExists(root, 'tsc', tscJs)) hints.push('TypeScript is not installed in the workspace')
       if (!eslintConfig) hints.push('no ESLint config')
-      else if (!binExists(root, 'eslint')) hints.push('ESLint is not installed in the workspace')
+      else if (!binExists(root, 'eslint', eslintJs)) hints.push('ESLint is not installed in the workspace')
       return `No checkers available (${hints.join('; ')}). Verify the change by reading the edited file back.`
     }
 

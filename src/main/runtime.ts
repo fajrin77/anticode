@@ -410,6 +410,13 @@ export function providerInUse(provider: ProviderId): boolean {
 /** Replaces the Rotate usage pool; sessions set to rotate use it from their next prompt. */
 export function applyRotation(entries: RotationEntry[]): void {
   setRotationEntries(entries)
+  const kept = new Set(rotationEntries().map(rotationKey))
+  for (const [sessionId, live] of sessions) {
+    if (runForSession(sessionId) === null && live.selection !== undefined && !kept.has(rotationKey(live.selection))) {
+      delete live.selection
+      delete live.promptsOnEntry
+    }
+  }
   // While the global mode is on, an empty pool remains visibly Rotate but
   // blocked, so every composer still reflects the setting truthfully.
   if (!rotationEnabled() && rotationEntries().length === 0 && current().provider === ROTATE_PROVIDER) {
@@ -434,7 +441,27 @@ function releaseRotatingSessions(): void {
 /** The groups replaced; sessions follow the group in use from their next prompt. */
 export function applyRotationGroups(next: unknown[]): void {
   const before = JSON.stringify(activeRotationEntries())
-  setRotationGroups(next)
+  const updated = setRotationGroups(next)
+  const validIds = new Set(updated.map((group) => group.id))
+  let sessionChanged = false
+  for (const [sessionId, live] of sessions) {
+    if (live.rotationGroupId !== undefined && live.rotationGroupId !== null && !validIds.has(live.rotationGroupId)) {
+      live.rotationGroupId = null
+      if (runForSession(sessionId) === null) delete live.selection
+      delete live.promptsOnEntry
+      sessionChanged = true
+    } else if (typeof live.rotationGroupId === 'string') {
+      const entriesNow = activeRotationEntries(live.rotationGroupId)
+      if (runForSession(sessionId) === null && live.selection !== undefined && !entriesNow.some((e) => rotationKey(e) === rotationKey(live.selection!))) {
+        delete live.selection
+        delete live.promptsOnEntry
+      }
+    }
+  }
+  for (const [draftId, groupId] of sessionRotationGroups) {
+    if (groupId !== null && !validIds.has(groupId)) sessionRotationGroups.delete(draftId)
+  }
+  if (sessionChanged) persistSessions()
   if (JSON.stringify(activeRotationEntries()) !== before) releaseRotatingSessions()
 }
 
@@ -449,8 +476,9 @@ export function applyRotationGroup(id: string | null, sessionId?: string | null)
     sessionRotationGroups.set(sessionId, id)
     if (!live) return
     live.rotationGroupId = id
-    delete live.selection
+    if (runForSession(sessionId) === null) delete live.selection
     live.promptsOnEntry = 0
+    persistSessions()
     return
   }
   if (id === activeRotationGroupId()) return
@@ -517,14 +545,16 @@ export function syncAuthAccountRoutes(id: string): void {
   const account = providers.find((provider) => provider.id === id)
   if (!account) return
   const family = account.authKind ? providers.filter((provider) => provider.authKind === account.authKind) : [account]
+  const familyIds = new Set(family.map((provider) => provider.id))
   const known = rotationEntries()
-  // A cold catalogue lists no models yet; what the family offers is what this account offers too.
-  const modelled = [...new Set(known.map((entry) => entry.model))]
-  const modelsOf = (provider: { models?: string[] }): string[] => (provider.models?.length ? provider.models : modelled)
-  if (family.length > 1) {
+  // Inherit only models already switched on for sibling accounts of THIS service family.
+  const familyPicked = [...new Set(known.filter((entry) => familyIds.has(entry.provider)).map((entry) => entry.model))]
+  if (family.length > 1 && familyPicked.length > 0) {
     const missing: RotationEntry[] = []
     for (const provider of family) {
-      for (const model of modelsOf(provider)) {
+      if (provider.billing === 'metered') continue
+      for (const model of familyPicked) {
+        if (provider.models?.length && !provider.models.includes(model)) continue
         if ([...known, ...missing].some((entry) => entry.provider === provider.id && entry.model === model)) continue
         missing.push({ provider: provider.id, model })
       }
@@ -533,7 +563,7 @@ export function syncAuthAccountRoutes(id: string): void {
     return
   }
   if (!subscriptionOnly() || !rotationEnabled()) return
-  const eligible = subscriptionEntries(family)
+  const eligible = subscriptionEntries([account])
   if (eligible.length) setRotationEntries([...known, ...eligible])
 }
 
@@ -724,7 +754,8 @@ export function cloneSession(
     messages,
     summaries: structuredClone(source.summaries.slice(0, answeredRuns(messages))),
     ...(source.choice !== undefined ? { choice: { ...source.choice } } : {}),
-    ...(source.pinned === true ? { pinned: true } : {})
+    ...(source.pinned === true ? { pinned: true } : {}),
+    ...(source.rotationGroupId !== undefined ? { rotationGroupId: source.rotationGroupId } : {})
   }
 
   sessions.set(newSessionId, live)
@@ -783,6 +814,9 @@ export function deleteSession(sessionId: string): void {
   sessionRotationGroups.delete(sessionId)
   oneShotChoices.delete(sessionId)
   announcedTitles.delete(sessionId)
+  if (policy.clearSession(sessionId)) {
+    savePersistedSettings({ alwaysAllowed: policy.allowedAlways() })
+  }
   clearWeb(sessionId)
   if (live !== undefined) rememberSpec(live.spec)
   persistSessions()
@@ -809,19 +843,20 @@ function routeIssue(entry: RotationEntry, providers: Providers): string | null {
   return unavailableRoute(entry.provider, entry.model) ?? (info ? providerModelIssue(info, entry.model) : null)
 }
 
-function entryReady(entry: RotationEntry, providers: Providers): boolean {
+function entryEligibleIgnoringCooldown(entry: RotationEntry, providers: Providers): boolean {
   const provider = providers.find(provider => provider.id === entry.provider)
   if (provider === undefined) return false
-  // Cooldown and spent-quota marks gate every entry, whatever the routing
-  // mode: a resting or exhausted route is never "ready", so rotation hands
-  // the turn on instead of parking a prompt on a model that just said 429.
-  const cooldownOk = coolingUntil(entry) === null && outOfUsage(entry) === null
   const subscriptionOk = !subscriptionOnly() ||
     (isSubscriptionProvider(provider) && (provider.billing === 'free' ? (provider.models ?? []).includes(entry.model)
       : (cachedCatalogue(entry.provider) ?? provider.models ?? [provider.defaultModel]).includes(entry.model)))
   return !!(routeIssue(entry, providers) === null && !modelIsBatchOnly(entry.model) && provider.credentialAvailable &&
-    cooldownOk && subscriptionOk &&
+    subscriptionOk &&
     (!provider.authKind || accountCandidates(entry, providers).some(e => e.provider === entry.provider)))
+}
+
+function entryReady(entry: RotationEntry, providers: Providers): boolean {
+  const cooldownOk = coolingUntil(entry) === null && outOfUsage(entry) === null
+  return cooldownOk && entryEligibleIgnoringCooldown(entry, providers)
 }
 
 function readiness(
@@ -835,37 +870,48 @@ function readiness(
     const pool = activeRotationEntries(groupId)
     const group = rotationGroups().find((item) => item.id === (groupId === undefined ? activeRotationGroupId() : groupId))
     const where = group === undefined ? 'Rotate usage' : `The “${group.name}” group`
+    const targetName = group === undefined ? 'Rotate usage' : `“${group.name}”`
     blockedReason =
       !rotationEnabled()
         ? 'Rotate usage is off. Turn it on in Settings → Providers, or pick a model'
         : pool.length === 0
           ? `${where} has no models yet. Add them in Settings → Providers`
           : !pool.some((entry) => entryReady(entry, providers))
-            ? `No model in ${group === undefined ? 'Rotate usage' : `“${group.name}”`} is ready. Check their providers in Settings → Providers`
+            ? (pool.some((entry) => entryEligibleIgnoringCooldown(entry, providers) && coolingUntil(entry) !== null && outOfUsage(entry) === null)
+                ? `No model in ${targetName} is ready right now — cooling down after a rate limit.`
+                : pool.some((entry) => entryEligibleIgnoringCooldown(entry, providers) && outOfUsage(entry) !== null)
+                  ? `No model in ${targetName} is ready — every eligible route is out of quota.`
+                  : `No model in ${targetName} is ready. Check their providers in Settings → Providers`)
             : null
   } else {
     const info = providers.find((p) => p.id === choice.provider)
+    const candidates = info?.authKind ? accountCandidates(choice, providers) : []
+    const hasHealthySibling = candidates.length > 0
     // Every provider's credentials can be set in Settings now, so that is where
     // the hint points, the env file still works, but it is not the only way.
     blockedReason =
       info === undefined
         ? 'No provider set up. Add one in Settings → Providers'
-        : unavailableRoute(choice.provider, choice.model) !== null && (!info.authKind || !accountCandidates(choice, providers).some(entry => unavailableRoute(entry.provider, entry.model) === null))
+        : unavailableRoute(choice.provider, choice.model) !== null && (!info.authKind || !candidates.some(entry => unavailableRoute(entry.provider, entry.model) === null))
           ? unavailableRoute(choice.provider, choice.model)
-        : providerModelIssue(info, choice.model) !== null
+        : !hasHealthySibling && providerModelIssue(info, choice.model) !== null
           ? providerModelIssue(info, choice.model)
-        : !info.credentialAvailable
+        : !hasHealthySibling && !info.credentialAvailable
           ? `${info.label} has no ${info.credentialHint} yet. Add it in Settings → Providers`
-          : choice.model === ''
-            ? 'No model selected. Choose one in Settings → Models'
-            : info.authKind && info.composerVisible === false && accountCandidates(choice, providers).length === 0
-              ? 'All accounts for this model are disabled in Composer. Enable an account in Settings.'
-            // Same gate getSession applies, so the composer never reads ready
-            // for a model whose every account is resting or out of quota.
-            : info.authKind && accountCandidates(choice, providers).length > 0 &&
-                !accountCandidates(choice, providers).some((entry) => coolingUntil(entry) === null && outOfUsage(entry) === null)
-              ? 'Every active account for this model is resting or out of quota. Wait for it to reset or pick another account or model.'
-            : null
+        : choice.model === ''
+          ? 'No model selected. Choose one in Settings → Models'
+        : info.authKind && candidates.length === 0 && providers.some(p => p.authKind === info.authKind && p.composerVisible === false)
+          ? 'All accounts for this model are disabled in Composer. Enable an account in Settings.'
+        : info.authKind && candidates.length === 0 && !info.credentialAvailable
+          ? `${info.label} has no ${info.credentialHint} yet. Add it in Settings → Auth provider`
+        : info.authKind && candidates.length === 0 && providerModelIssue(info, choice.model) !== null
+          ? providerModelIssue(info, choice.model)
+        // Same gate getSession applies, so the composer never reads ready
+        // for a model whose every account is resting or out of quota.
+        : info.authKind && candidates.length > 0 &&
+            !candidates.some((entry) => coolingUntil(entry) === null && outOfUsage(entry) === null)
+          ? 'Every active account for this model is resting or out of quota. Wait for it to reset or pick another account or model.'
+        : null
   }
   return { providerReady: blockedReason === null, blockedReason }
 }
@@ -895,15 +941,20 @@ function choiceStatus(live: LiveSession, providers: Providers): ModelChoice {
 }
 
 function rotationStatus(providers: Providers): RotationEntryStatus[] {
-  return rotationEntries().map((entry) => ({
-    ...entry,
-    ...rotationUsage(entry),
-    label: providers.find((provider) => provider.id === entry.provider)?.label ?? entry.provider,
-    ready: entryReady(entry, providers),
-    unavailableReason: routeIssue(entry, providers),
-    coolingUntil: coolingUntil(entry),
-    outOfUsage: outOfUsage(entry)
-  }))
+  return rotationEntries().map((entry) => {
+    const info = providers.find((provider) => provider.id === entry.provider)
+    return {
+      ...entry,
+      ...rotationUsage(entry),
+      label: info?.label ?? entry.provider,
+      ready: entryReady(entry, providers),
+      credentialReady: info !== undefined && info.credentialAvailable,
+      composerDisabled: Boolean(info?.authKind && info.composerVisible === false),
+      unavailableReason: routeIssue(entry, providers),
+      coolingUntil: coolingUntil(entry),
+      outOfUsage: outOfUsage(entry)
+    }
+  })
 }
 
 /**
@@ -955,11 +1006,14 @@ const ROTATION_MAX_WAIT_MS = 10 * 60_000
 /** Poll period while waiting for a cooldown to lapse. */
 const ROTATION_WAIT_TICK_MS = 2_000
 
-/** The pool entry whose cooldown lapses soonest, ignoring spent-out ones. */
-function soonestCoolingOff(pool: RotationEntry[]): { entry: RotationEntry; at: number } | null {
+/** The eligible pool entry whose cooldown lapses soonest, ignoring spent-out ones. */
+function soonestCoolingOff(
+  pool: RotationEntry[],
+  eligible: (entry: RotationEntry) => boolean
+): { entry: RotationEntry; at: number } | null {
   let best: { entry: RotationEntry; at: number } | null = null
   for (const entry of pool) {
-    if (outOfUsage(entry) !== null) continue
+    if (!eligible(entry) || outOfUsage(entry) !== null) continue
     const at = coolingUntil(entry)
     if (at === null) continue
     if (best === null || at < best.at) best = { entry, at }
@@ -967,54 +1021,54 @@ function soonestCoolingOff(pool: RotationEntry[]): { entry: RotationEntry; at: n
   return best
 }
 
-/**
- * A stand-in provider for the gap when every pool entry is resting: it polls
- * the pool until one recovers (bounded by the caller's wait budget), then
- * hands the turn over by streaming that entry. Cooldowns that lapse or appear
- * during the wait are picked up on the next poll instead of being pinned to
- * one deadline. Never used for a spent-out pool — that failure stands, so the
- * user sees the quota truth.
- */
 function waitingProvider(
   pickNext: () => RotationEntry | undefined,
   adopt: (entry: RotationEntry) => void,
   nextDeadline: () => number | null,
   spendWait: (ms: number) => void
 ): LLMProvider {
+  let adopted: LLMProvider | null = null
   return {
     name: 'rotate-wait',
     id: ROTATE_PROVIDER,
     model: '',
     async *chat(params) {
+      if (adopted !== null) {
+        yield* adopted.chat(params)
+        return
+      }
       for (;;) {
         if (params.signal.aborted) throw new Error('Cancelled by the user')
         const following = pickNext()
         if (following !== undefined) {
           adopt(following)
           const inner = providerFor(following)
-          // The run reports usage under this object's name and model: once an
-          // entry is adopted, they are that entry's, not the stand-in's.
-          Object.assign(this, { name: inner.name, model: inner.model })
+          adopted = inner
+          Object.assign(this, {
+            name: inner.name,
+            id: inner.id,
+            model: inner.model,
+            ...(inner.generateImage !== undefined ? { generateImage: (req: Parameters<NonNullable<LLMProvider['generateImage']>>[0]) => inner.generateImage!(req) } : {})
+          })
           yield* inner.chat(params)
           return
         }
         const until = nextDeadline()
         if (until === null) {
-          // Nothing left to wait for: the pool is spent or the wait budget
-          // ran out mid-cooldown. Surface the truth instead of spinning.
           throw new Error('No model in Rotate usage is ready yet. Wait for the quotas to reset, or update the providers or accounts in use.')
         }
         const wait = Math.max(0, until - Date.now())
         if (wait <= 0) continue
-        spendWait(wait)
         const deadline = Date.now() + wait
         while (Date.now() < deadline && !params.signal.aborted) {
-          // Stop ends the wait at once instead of after the current tick.
+          const tickStart = Date.now()
           await new Promise<void>(resolve => {
             const done = (): void => { clearTimeout(timer); params.signal.removeEventListener('abort', done); resolve() }
-            const timer = setTimeout(done, Math.min(ROTATION_WAIT_TICK_MS, deadline - Date.now()))
+            const timer = setTimeout(done, Math.min(ROTATION_WAIT_TICK_MS, Math.max(1, deadline - Date.now())))
             params.signal.addEventListener('abort', done, { once: true })
           })
+          spendWait(Math.max(0, Date.now() - tickStart))
+          if (Date.now() < deadline && !params.signal.aborted && pickNext() !== undefined) break
         }
       }
     }
@@ -1123,18 +1177,16 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
       const refusal = !retired && !capacity && !canFailOver(error)
       if (refusal && !canRotateAfterRefusal(error)) return null
       // docs/SUBSCRIPTIONS.md: an access failure is never replaced by a paid route.
-      planOnly = refusal && live.selection !== undefined && isPlan(live.selection)
+      planOnly ||= refusal && live.selection !== undefined && isPlan(live.selection)
       if (live.selection !== undefined) {
-        if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
-        else if (!capacity) coolDown(live.selection, Date.now(), error)
+        if (retired && unavailableRoute(live.selection.provider, live.selection.model) === null) {
+          markRetiredRoute(live.selection.provider, live.selection.model)
+        } else if (!retired && !capacity) {
+          coolDown(live.selection, Date.now(), error)
+        }
       }
       const following = next()
       if (following === undefined) {
-        // Nothing left to hand the turn to right now. While entries are only
-        // resting (rate limit, blip) the run waits out the cooldown instead of
-        // stopping; it stops only once a quota is truly spent or the wait
-        // budget is gone — the user's rule: halt only when every model's
-        // tokens are gone, never mid-run on a recoverable 429.
         if (isTransient(error) && !isOutOfUsage(error) && waitedTotal < ROTATION_MAX_WAIT_MS) {
           return waitingProvider(() => {
             tried.clear()
@@ -1144,7 +1196,12 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
             live.promptsOnEntry = 1
             notifyRotationChange()
           }, () => {
-            const soonest = soonestCoolingOff(pool)
+            providers = listProviders()
+            const livePool = activeRotationEntries(live.rotationGroupId)
+            const soonest = soonestCoolingOff(
+              livePool,
+              (entry) => entryEligibleIgnoringCooldown(entry, providers) && (!planOnly || isPlan(entry))
+            )
             if (soonest === null) return null
             const wait = Math.max(0, soonest.at - Date.now())
             if (waitedTotal + wait > ROTATION_MAX_WAIT_MS) return null
@@ -1193,8 +1250,11 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
           const capacity = ['input', 'output', 'payload'].includes(requestLimit(error)?.kind ?? '')
           if (!retired && !capacity && !canFailOver(error)) return null
           if (live.selection) {
-            if (retired) markRetiredRoute(live.selection.provider, live.selection.model)
-            else if (!capacity) coolDown(live.selection, Date.now(), error)
+            if (retired && unavailableRoute(live.selection.provider, live.selection.model) === null) {
+              markRetiredRoute(live.selection.provider, live.selection.model)
+            } else if (!retired && !capacity) {
+              coolDown(live.selection, Date.now(), error)
+            }
           }
           const following = next()
           if (!following) { if (isTransient(error) && !isOutOfUsage(error)) return null; throw error }
@@ -1224,7 +1284,9 @@ export function getSession(sessionId: string, gate: ApprovalGate): AgentSession 
     )
   }
   live.agent.useProvider(provider, fallback)
-  live.selection = { provider: target.provider, model: target.model }
+  if (oneShot === undefined) {
+    live.selection = { provider: target.provider, model: target.model }
+  }
   return live.agent
 }
 
@@ -1331,9 +1393,9 @@ export function revertLastTurn(sessionId: string): string | null {
     // No agent yet: the session is still just its stored messages.
     for (let i = live.messages.length - 1; i >= 0; i--) {
       const message = live.messages[i]
-      if (message?.role !== 'user') continue
+      if (message === undefined || !isTypedPrompt(message)) continue
       const text = message.content.find(
-        (block) => block.type === 'text' && block.attachment === undefined
+        (block) => block.type === 'text' && block.attachment === undefined && block.followUp === undefined && block.internal !== true
       )
       if (text === undefined || text.type !== 'text') continue
       live.messages.length = i
@@ -1424,16 +1486,18 @@ export async function compactSession(sessionId: string, gate: ApprovalGate): Pro
   if (live === undefined) throw new Error('Unknown session; reopen this tab')
   if (runForSession(sessionId) !== null) throw new Error('Pause this session before compacting it')
   const status = getStatus(sessionId)
-  if (live.agent === null && !status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
-  // Building the agent here must not spend a one-shot "Retry with…" pick or
-  // move rotation on: the next prompt chooses its model as if nothing happened.
+  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+  // Building or refreshing the agent here must not spend a one-shot "Retry with…"
+  // pick or move rotation on: the next prompt chooses its model as if nothing happened.
   const oneShot = oneShotChoices.get(sessionId)
   const { selection, promptsOnEntry } = live
-  const agent = live.agent ?? getSession(sessionId, gate)
+  const agent = getSession(sessionId, gate)
   if (oneShot !== undefined) oneShotChoices.set(sessionId, oneShot)
   if (selection === undefined) delete live.selection; else live.selection = selection
   if (promptsOnEntry === undefined) delete live.promptsOnEntry; else live.promptsOnEntry = promptsOnEntry
-  return agent.compact(new AbortController().signal)
+  const result = await agent.compact(new AbortController().signal)
+  if (result.after < result.before) persistSessions()
+  return result
 }
 
 /** Closes a run: appends what it cost, for every viewer of this session. */

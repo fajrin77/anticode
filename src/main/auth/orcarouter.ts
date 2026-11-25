@@ -54,7 +54,7 @@ export async function loginOrcaRouter(callbacks: AuthLoginCallbacks): Promise<Au
     signal.addEventListener('abort', abort, { once: true })
     const settle = (value: string): void => { signal.removeEventListener('abort', abort); resolve(value) }
     const fail = (error: unknown): void => { if (!signal.aborted) { signal.removeEventListener('abort', abort); reject(error) } }
-    callback.then(settle, fail)
+    callback.then((value) => { callbacks.onUpdate({ message: 'Exchanging authorization code…', needsCode: false }); settle(value) }, fail)
     callbacks.promptForCode('If the browser shows a code, paste it here').then(settle, fail)
   }).finally(() => local.abort())
   signal.throwIfAborted()

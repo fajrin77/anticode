@@ -1,4 +1,4 @@
-import { readFile as read } from 'node:fs/promises'
+import { open, readFile as read, stat } from 'node:fs/promises'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
@@ -6,6 +6,7 @@ import { resolveInWorkspace } from './workspace'
 const MAX_LINE_LENGTH = 2000
 /** Reads stay bounded by default so one call cannot flood the context. */
 const DEFAULT_READ_LINES = 250
+const MAX_READ_BYTES = 10 * 1024 * 1024
 
 export const readFileTool = defineTool({
   name: 'read_file',
@@ -24,6 +25,23 @@ export const readFileTool = defineTool({
 
     let raw: string
     try {
+      const info = await stat(target)
+      if (info.isDirectory()) throw new Error('EISDIR: path is a directory; use list_directory')
+      if (info.size > MAX_READ_BYTES) {
+        throw new Error(`file is too large (${Math.round(info.size / (1024 * 1024))} MB; max 10 MB for read_file)`)
+      }
+      if (info.size > 0) {
+        const handle = await open(target, 'r')
+        try {
+          const sample = Buffer.alloc(Math.min(info.size, 8192))
+          const { bytesRead } = await handle.read(sample, 0, sample.length, 0)
+          if (sample.subarray(0, bytesRead).includes(0)) {
+            throw new Error('binary file cannot be read as UTF-8 text')
+          }
+        } finally {
+          await handle.close()
+        }
+      }
       raw = await read(target, 'utf8')
     } catch (error) {
       throw new ToolError(`Failed to read ${input.path}: ${(error as Error).message}`)

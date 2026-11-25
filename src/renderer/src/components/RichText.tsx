@@ -1,5 +1,18 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
+import { fenceLanguageOf, highlightLines } from '../highlight'
+import type { TokenKind } from '../highlight'
+
+const TOKEN_CLASS: Record<TokenKind, string> = {
+  plain: '',
+  keyword: 'text-syn-keyword',
+  string: 'text-syn-string',
+  number: 'text-syn-number',
+  comment: 'text-faint italic',
+  type: 'text-syn-type',
+  call: 'text-syn-call',
+  tag: 'text-syn-keyword'
+}
 
 /**
  * A deliberately small markdown subset, fenced code, tables, headings, bullets,
@@ -40,7 +53,7 @@ export function linkify(text: string, keyPrefix = 'u'): ReactNode[] {
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = []
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s<>"'`]+)/g
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|~~[^~\n]+~~|(?<!\*)\*(?!\s|\*)[^*\n]+?(?<!\s|\*)\*(?!\*)|\[[^\]\n]+\]\([^)\s]+\)|https?:\/\/[^\s<>"'`]+)/g
   let cursor = 0
   let match: RegExpExecArray | null
   let index = 0
@@ -65,6 +78,18 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
         <strong key={key} className="font-semibold text-text">
           {inline(token.slice(2, -2), key)}
         </strong>
+      )
+    } else if (token.startsWith('~~')) {
+      nodes.push(
+        <del key={key} className="text-dim line-through">
+          {inline(token.slice(2, -2), key)}
+        </del>
+      )
+    } else if (token.startsWith('*')) {
+      nodes.push(
+        <em key={key} className="italic">
+          {inline(token.slice(1, -1), key)}
+        </em>
       )
     } else if (token.startsWith('http')) {
       const url = token.replace(/[.,;:!?)\]}]+$/, '')
@@ -129,7 +154,11 @@ function CopyButton({ text, label }: { text: string; label: string }): JSX.Eleme
  * in the composer, in a panel with a copy control at each end, so a long block
  * can be copied without scrolling back to find the button.
  */
-function PromptBlock({ text, label }: { text: string; label: string }): JSX.Element {
+function PromptBlock({ text, label, language = null }: { text: string; label: string; language?: string | null }): JSX.Element {
+  const highlighted = useMemo(
+    () => (language === null ? null : highlightLines(text.split('\n'), language)),
+    [text, language]
+  )
   return (
     <div className="my-3">
       <div className="mb-1 flex items-center gap-2 px-1">
@@ -138,7 +167,18 @@ function PromptBlock({ text, label }: { text: string; label: string }): JSX.Elem
         <CopyButton text={text} label={`Copy this ${label.toLowerCase()}`} />
       </div>
       <pre className="overflow-x-auto rounded-lg border border-line bg-surface px-4 py-3 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text">
-        {text}
+        {highlighted === null
+          ? text
+          : highlighted.map((tokens, lineIndex) => (
+              <span key={lineIndex}>
+                {lineIndex > 0 && '\n'}
+                {tokens.map((token, tokenIndex) => (
+                  <span key={tokenIndex} className={TOKEN_CLASS[token.kind]}>
+                    {token.text}
+                  </span>
+                ))}
+              </span>
+            ))}
       </pre>
       <div className="mt-1 flex px-1">
         <div className="flex-1" />
@@ -149,10 +189,31 @@ function PromptBlock({ text, label }: { text: string; label: string }): JSX.Elem
 }
 
 function cells(row: string): string[] {
-  return row
-    .replace(/^\||\|$/g, '')
-    .split('|')
-    .map((cell) => cell.trim())
+  const stripped = row.replace(/^\||\|$/g, '')
+  const out: string[] = []
+  let current = ''
+  let inCode = false
+  for (let i = 0; i < stripped.length; i++) {
+    const ch = stripped[i]!
+    if (ch === '\\' && i + 1 < stripped.length && stripped[i + 1] === '|') {
+      current += '|'
+      i += 1
+      continue
+    }
+    if (ch === '`') {
+      inCode = !inCode
+      current += ch
+      continue
+    }
+    if (ch === '|' && !inCode) {
+      out.push(current.trim())
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  out.push(current.trim())
+  return out
 }
 
 function isSeparator(row: string): boolean {
@@ -221,34 +282,11 @@ export function RichText({ text }: { text: string }): JSX.Element {
           key={key}
           text={body.join('\n')}
           label={language === '' ? 'Code' : language}
+          language={fenceLanguageOf(language)}
         />,
         'block'
       )
       continue
-    }
-
-    // A prompt the model drafted for the user to take away: a whole paragraph
-    // wrapped in quotes, rather than a quoted phrase inside a sentence.
-    if (/^\s*["\u201c]/.test(line)) {
-      const paragraph: string[] = []
-      let scan = index
-      while (scan < lines.length && (lines[scan] ?? '').trim() !== '') {
-        paragraph.push(lines[scan] ?? '')
-        scan += 1
-      }
-      const joined = paragraph.join('\n').trim()
-      if (/["\u201d]$/.test(joined) && joined.length > 60) {
-        index = scan
-        push(
-          <PromptBlock
-            key={key}
-            text={joined.replace(/^["\u201c]/, '').replace(/["\u201d]$/, '').trim()}
-            label="Prompt"
-          />,
-          'block'
-        )
-        continue
-      }
     }
 
     if (line.trimStart().startsWith('|') && isSeparator(lines[index + 1] ?? '')) {

@@ -54,7 +54,7 @@ const RECENT_TOOL_TURNS = 3
  * so a model that ignores the instruction cannot edit files behind the user's
  * back. Read-only tools and the terminal stay available for inspection.
  */
-const PLAN_BLOCKED_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'apply_patch'])
+const PLAN_ALLOWED_MUTATING = new Set(['run_command', 'todo_write', 'ask_question', 'load_tools'])
 /** Older tool outputs are squashed to a short tail so the outcome still shows. */
 const STUB_CHARS = 300
 /** Stubbing only pays off once there is real bulk to remove. */
@@ -520,7 +520,17 @@ export class AgentSession {
         this.condenseHistory()
         if (signal.aborted) break
         const queued = takeIn()
-        if (queued.length > 0) emit({ type: 'phase', runId, phase: 'follow-up' })
+        if (queued.length > 0) {
+          emit({ type: 'phase', runId, phase: 'follow-up' })
+          const lastHistory = this.history.at(-1)
+          const lastTranscript = this.transcript.at(-1)
+          if (lastHistory?.role === 'user' && lastTranscript?.role === 'user') {
+            lastHistory.content.push(...queued)
+            if (lastTranscript.content !== lastHistory.content) lastTranscript.content.push(...queued)
+          } else {
+            this.record({ role: 'user', content: queued })
+          }
+        }
         await this.compactHistory(params)
         emit({ type: 'phase', runId, phase: 'thinking' })
         const response = await this.requestTurn(params)
@@ -542,7 +552,8 @@ export class AgentSession {
         if (response.stopReason !== 'tool_use') {
           // An instruction that arrived while the model was writing its last
           // reply keeps the run going: it is the next thing to do.
-          if (response.stopReason === 'end_turn' && this.followUps.length > 0) {
+          if ((response.stopReason === 'end_turn' || response.stopReason === 'max_tokens') && this.followUps.length > 0) {
+            emit({ type: 'phase', runId, phase: 'follow-up' })
             this.record({ role: 'user', content: takeIn() })
             continue
           }
@@ -587,7 +598,18 @@ export class AgentSession {
         this.record({ role: 'user', content: [...results, ...roundImages, ...added, ...limit] })
         this.pendingImages = []
 
-        if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
+        const toolsByName = new Map(this.toolset().map((tool) => [tool.name, tool]))
+        const nonWorkTools = new Set(['run_command', 'todo_write', 'load_tools', 'ask_question', 'share_file', 'open_in_browser_pane'])
+        const didMutate = results.some((block) => {
+          if (block.type !== 'tool_result' || block.isError) return false
+          if (block.diff) return true
+          const call = calls.find((entry) => entry.id === block.toolUseId)
+          if (!call || nonWorkTools.has(call.name)) return false
+          const tool = toolsByName.get(call.name)
+          return tool !== undefined && tool.readOnly !== true
+        })
+
+        if (added.length > 0 || didMutate) {
           recentToolRounds.length = 0
           planNudgesWithoutWork = 0
         }
@@ -614,7 +636,7 @@ export class AgentSession {
         // New search/read output is evidence, but does not fulfil a repeated
         // promise to implement the same change. Keep this guard independent
         // of discovery results; actual edits or user steering reset it.
-        if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
+        if (added.length > 0 || didMutate) {
           recentPromises.length = 0
           promiseNudges = 0
         }
@@ -628,7 +650,7 @@ export class AgentSession {
             this.record({ role: 'user', content: [{ type: 'text', internal: true, text: '[You keep promising the same implementation while reading or searching again. New discovery output does not complete that change. Use the evidence already collected and implement the authorized change now. If you cannot, stop with the specific blocker. Do not repeat the promise or restart discovery.]' }] })
           }
         }
-        if (added.length > 0 || results.some((block) => block.type === 'tool_result' && !block.isError && block.diff)) {
+        if (added.length > 0 || didMutate) {
           discoveryRounds = 0
           discoveryNudges = 0
         } else if (++discoveryRounds >= DISCOVERY_NUDGE_ROUNDS) {
@@ -996,6 +1018,28 @@ export class AgentSession {
           return block
         })
       }
+      const prev = i > 0 ? this.history[i - 1] : undefined
+      if (prev?.role === 'assistant' && prev.content.some((block) => block.type === 'tool_use')) {
+        this.history[i - 1] = {
+          role: 'assistant',
+          content: prev.content.map((block) => {
+            if (block.type !== 'tool_use' || block.input === null || typeof block.input !== 'object' || Array.isArray(block.input)) {
+              return block
+            }
+            const input = block.input as Record<string, unknown>
+            let changed = false
+            const nextInput: Record<string, unknown> = { ...input }
+            for (const key of ['content', 'old_string', 'new_string', 'patch']) {
+              const val = input[key]
+              if (typeof val === 'string' && val.length > STUB_MIN_LENGTH) {
+                nextInput[key] = stubOutput(val)
+                changed = true
+              }
+            }
+            return changed ? { ...block, input: nextInput } : block
+          })
+        }
+      }
     }
   }
 
@@ -1027,7 +1071,18 @@ export class AgentSession {
     const boundaries = this.history.flatMap((message, index) => isPlainPrompt(message) ? [index] : [])
     const fits = (limit: number): number | undefined =>
       boundaries.find((index) => (suffixCosts[index] ?? Infinity) <= limit)
-    const cut = fits(compactTarget) ?? fits(budget) ?? -1
+    let cut = fits(compactTarget) ?? fits(budget) ?? -1
+    if (cut <= 0 && this.history.length > 3) {
+      // A single autonomous coding turn with many tool rounds has only one plain
+      // prompt at index 0: cutting at an assistant message boundary summarizes
+      // the prompt + early rounds into a user memory while keeping recent tool pairs valid.
+      const midBoundaries = this.history.flatMap((message, index) =>
+        index >= 1 && message.role === 'assistant' ? [index] : []
+      )
+      const fitsMid = (limit: number): number | undefined =>
+        midBoundaries.find((index) => (suffixCosts[index] ?? Infinity) <= limit)
+      cut = fitsMid(compactTarget) ?? fitsMid(budget) ?? cut
+    }
 
     // Do not repeatedly send an oversized single turn to the provider. A new
     // user prompt supplies a safe boundary for the next continuation.
@@ -1065,7 +1120,8 @@ export class AgentSession {
       }
       // Only the memory itself precedes the latest prompt: nothing new to fold.
       const alreadyCompact = cut === 1 && isMemory(this.history[0])
-      if (cut > 0 && !alreadyCompact) await this.replaceWithMemory(cut, DEFAULT_COMPACTION_TARGET, signal, onUsage)
+      const target = Math.floor(agentHistoryBudget(this.provider) * 0.72) || DEFAULT_COMPACTION_TARGET
+      if (cut > 0 && !alreadyCompact) await this.replaceWithMemory(cut, target, signal, onUsage)
       return { before, after: replayCost(this.history) }
     } finally {
       this.running = false
@@ -1075,7 +1131,12 @@ export class AgentSession {
   private async replaceWithMemory(cut: number, compactTarget: number, signal: AbortSignal, onUsage?: (usage: Usage) => void, onSummary?: (text: string) => void): Promise<void> {
     const memory = await this.writeMemory(this.history.slice(0, cut), signal, onUsage)
     this.history.splice(0, cut)
-    if (memory === '') return
+    if (memory === '') {
+      if (this.history[0]?.role === 'assistant') {
+        this.history.unshift({ role: 'user', content: [{ type: 'text', text: MEMORY_HEADER }] })
+      }
+      return
+    }
     this.history.unshift({ role: 'user', content: [{ type: 'text', text: `${MEMORY_HEADER}\n${memory}` }] })
     // The same memory, kept in the transcript as a folded card: the session
     // summary a long conversation shows, on the desktop and the phone alike.
@@ -1124,20 +1185,28 @@ export class AgentSession {
 
   private async executeCalls(calls: ToolUseBlock[], params: RunParams): Promise<ContentBlock[]> {
     const results = new Array<ContentBlock | undefined>(calls.length)
-    const entries = calls.map((call, index) => ({ call, index }))
     const byName = new Map(this.toolset().map((tool) => [tool.name, tool]))
     const isReadOnly = (name: string): boolean => byName.get(name)?.readOnly === true
 
-    await Promise.all(
-      entries
-        .filter((entry) => isReadOnly(entry.call.name))
-        .map(async (entry) => {
-          results[entry.index] = await this.executeCall(entry.call, params)
-        })
-    )
-
-    for (const entry of entries.filter((entry) => !isReadOnly(entry.call.name))) {
-      results[entry.index] = await this.executeCall(entry.call, params)
+    // Group contiguous read-only calls into parallel batches while running
+    // mutating calls strictly in order, so [edit_file, check_problems] never
+    // checks problems before the edit has landed on disk.
+    let i = 0
+    while (i < calls.length) {
+      if (isReadOnly(calls[i]!.name)) {
+        let end = i + 1
+        while (end < calls.length && isReadOnly(calls[end]!.name)) end += 1
+        const batch = calls.slice(i, end).map((call, offset) => ({ call, index: i + offset }))
+        await Promise.all(
+          batch.map(async (entry) => {
+            results[entry.index] = await this.executeCall(entry.call, params)
+          })
+        )
+        i = end
+      } else {
+        results[i] = await this.executeCall(calls[i]!, params)
+        i += 1
+      }
     }
 
     return results.filter((block): block is ContentBlock => block !== undefined)
@@ -1161,7 +1230,7 @@ export class AgentSession {
     // Plan mode is a promise, not a hint: a file-changing tool is refused here
     // rather than left to the prompt. Read-only tools and the terminal stay
     // open, so the model can still inspect the project and describe the work.
-    if (this.activePlan && tool.readOnly !== true && PLAN_BLOCKED_TOOLS.has(tool.name)) {
+    if (this.activePlan && tool.readOnly !== true && !PLAN_ALLOWED_MUTATING.has(tool.name)) {
       return this.finishCall(
         params,
         call.id,
@@ -1394,11 +1463,10 @@ export class AgentSession {
   revertLastTurn(): string | null {
     for (let i = this.transcript.length - 1; i >= 0; i--) {
       const message = this.transcript[i]
-      if (message?.role !== 'user') continue
-      // Tool results are also user turns; the prompt is the one with prose.
+      if (message === undefined || !isTypedPrompt(message)) continue
       const text = message.content.find(
         (block): block is Extract<ContentBlock, { type: 'text' }> =>
-          block.type === 'text' && block.attachment === undefined
+          block.type === 'text' && block.attachment === undefined && block.followUp === undefined && block.internal !== true
       )
       if (text === undefined) continue
       this.cutAt(i)
@@ -1450,8 +1518,16 @@ export class AgentSession {
     this.transcript.length = index
     const replayed = target === undefined ? -1 : this.history.indexOf(target)
     if (replayed >= 0) this.history.length = replayed
-    else this.history.splice(0, this.history.length, ...this.transcript)
-    this.checkpoints?.restoreFrom(index)
+    else {
+      this.history.splice(0, this.history.length, ...this.transcript.flatMap((message) => {
+        const content = message.content.filter((block) => block.type !== 'display')
+        return content.length === 0 ? [] : [{ ...message, content }]
+      }))
+    }
+    const report = this.checkpoints?.restoreFrom(index)
+    if (report !== undefined && report.skipped.length > 0 && this.transcript.length > 0) {
+      this.recordDisplay('notice', `Some files could not be restored automatically: ${report.skipped.slice(0, 5).join(', ')}`)
+    }
   }
 
   private record(message: Message): void { this.history.push(message); this.transcript.push(message) }
@@ -1499,7 +1575,7 @@ export class AgentSession {
 
   private systemPrompt(): string {
     const base = this.basePrompt() + '\nWrite clear Markdown in the language of the user. Lead final work reports with the result, then changes, verification, and unfinished work when relevant. Distinguish attempted work from verified results. Use the tool results already received; reread unchanged files only when necessary to resolve a specific missing fact. Do not restart discovery after each tool call or repeat the same progress promise. After an interruption, resume from the recorded state and finish with one self-contained report; never claim interrupted work is complete.' +
-      '\nNo work narration: while tools are running, send tool calls only. Do not write "now I will…", do not restate what a tool returned, do not post plans, interim status, or verification notes as text; the transcript shows every step on its own. Text in your reply is one of two things: a question the work cannot proceed without, or the final answer, written once, as short as the result allows.' + (this.fixedTools === undefined
+      '\nNo work narration: while tools are running, send tool calls only. Do not write "now I will…", do not restate what a tool returned, do not post plans, interim status, or verification notes as text; the transcript shows every step on its own. Text in your reply is one of two things: a question the work cannot proceed without, or the final answer, written once, as short as the result allows.' + (this.fixedTools === null
       ? '\nCall load_tools before using document, interactive browser, media, or MCP capabilities. Load only the groups or named connectors needed for the task. Settings → Plugins connectors are independent of ChatGPT/Claude account connectors; when the user requests an Anticode plugin, choose the matching connector labeled "plugin" in load_tools, not a similarly named account connector. A 403 or empty list from one connector does not prove another connector has no access. Report which connector was actually tested; do not ask for reconnection without evidence from that connector.'
       : '')
     const given = this.options.instructions?.()

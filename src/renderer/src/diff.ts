@@ -45,7 +45,7 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       hunks.push(current)
       continue
     }
-    if (raw.startsWith('… diff dipotong')) { truncated = true; continue }
+    if (raw.startsWith('… diff truncated') || raw.startsWith('… diff dipotong')) { truncated = true; continue }
     if (current === null) continue
     if (raw.startsWith('\\')) continue
     if (raw.startsWith('+')) {

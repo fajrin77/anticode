@@ -24,7 +24,7 @@ export async function loginOpenRouter(callbacks: AuthLoginCallbacks): Promise<Au
       url.searchParams.set('code_challenge', makeChallenge(verifier))
       url.searchParams.set('code_challenge_method', 'S256')
       url.searchParams.set('key_label', 'Anticode Free')
-      callbacks.onUpdate({ message: 'Setujui akses di OpenRouter; Anticode menerima kodenya otomatis.', url: url.toString() })
+      callbacks.onUpdate({ message: 'Approve access in OpenRouter; Anticode receives the code automatically.', url: url.toString() })
       void shell.openExternal(url.toString())
     }
   }).then(result => {
@@ -37,8 +37,8 @@ export async function loginOpenRouter(callbacks: AuthLoginCallbacks): Promise<Au
     signal.addEventListener('abort', abort, { once: true })
     const settle = (value: string): void => { signal.removeEventListener('abort', abort); resolve(value) }
     const fail = (error: unknown): void => { if (!signal.aborted) { signal.removeEventListener('abort', abort); reject(error) } }
-    callback.then(settle, fail)
-    callbacks.promptForCode('Jika browser menampilkan kode, tempel di sini').then(settle, fail)
+    callback.then((value) => { callbacks.onUpdate({ message: 'Exchanging authorization code…', needsCode: false }); settle(value) }, fail)
+    callbacks.promptForCode('If the browser shows a code, paste it here').then(settle, fail)
   }).finally(() => local.abort())
   signal.throwIfAborted()
   if (!code.trim() || /\s/.test(code.trim()) || code.trim().startsWith('sk-') || /^https?:/i.test(code.trim())) throw new Error('Paste the single-use OpenRouter authorization code, not an API key or dashboard URL. Open the authorization link again to obtain a code.')

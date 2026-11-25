@@ -37,7 +37,7 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
   }
 
   return <>
-    <button type="button" popoverTarget={id} aria-label={`Opsi sesi ${session.title}`} title="Opsi sesi"
+    <button type="button" popoverTarget={id} aria-label={`Session options ${session.title}`} title="Session options"
       onClick={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
         setPosition({ left: Math.max(8, Math.min(box.right - 224, window.innerWidth - 232)), top: Math.max(8, Math.min(box.bottom + 4, window.innerHeight - 300)) })
@@ -47,7 +47,7 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
       className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim opacity-0 transition-[opacity,color,background-color] hover:bg-hover hover:text-brand group-hover:opacity-100 focus-visible:opacity-100" >
       <span aria-hidden>⋯</span>
     </button>
-    <div id={id} ref={popover} popover="auto" aria-label={`Tindakan sesi ${session.title}`}
+    <div id={id} ref={popover} popover="auto" aria-label={`Session actions ${session.title}`}
       onToggle={(event) => {
         if (event.newState === 'open') {
           setConfirming(false)
@@ -63,10 +63,10 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
         else setConfirming(true)
       }}
       style={position} className="menu-glass fixed m-0 max-h-[calc(100vh-16px)] w-56 overflow-y-auto rounded-xl border p-1.5 text-[13px] text-text">
-      <button type="button" disabled={busy} onClick={() => { popover.current?.hidePopover(); onNewSession(session.id) }} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Sesi baru di project ini</button>
-      <button type="button" disabled={busy} onClick={() => void act('export')} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Ekspor percakapan…</button>
-      <button type="button" disabled={busy} onClick={() => void act('archive')} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Arsipkan</button>
-      <button type="button" disabled={busy} aria-keyshortcuts="D" onClick={() => confirming ? void act('delete') : setConfirming(true)} className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-del transition-colors hover:bg-hover hover:text-del disabled:opacity-50"><span>{confirming ? 'Konfirmasi hapus permanen' : 'Hapus'}</span><kbd className="text-[11px]">D</kbd></button>
+      <button type="button" disabled={busy} onClick={() => { popover.current?.hidePopover(); onNewSession(session.id) }} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">New session in this project</button>
+      <button type="button" disabled={busy} onClick={() => void act('export')} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Export conversation…</button>
+      <button type="button" disabled={busy} onClick={() => void act('archive')} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-hover hover:text-brand disabled:opacity-50">Archive</button>
+      <button type="button" disabled={busy} aria-keyshortcuts="D" onClick={() => confirming ? void act('delete') : setConfirming(true)} className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-del transition-colors hover:bg-hover hover:text-del disabled:opacity-50"><span>{confirming ? 'Confirm permanent delete' : 'Delete'}</span><kbd aria-hidden className="text-[11px]">D</kbd></button>
       {error && <p role="alert" className="px-3 py-2 text-[12px] text-del [overflow-wrap:anywhere]">{error}</p>}
     </div>
   </>
@@ -108,16 +108,16 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
   const orderedGroups = sidebarProjectOrder({ projectOrder, sessions }).filter((root) => groups.has(root))
 
   return (
-    <aside id="session-sidebar" aria-label="Daftar sesi" className={`flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft p-3 ${preview ? 'bg-raised/80' : 'bg-raised/40'}`}>
+    <aside id="session-sidebar" aria-label="Session list" className={`flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft p-3 ${preview ? 'bg-raised/80' : 'bg-raised/40'}`}>
       <button type="button" onClick={onDashboard} aria-pressed={dashboardActive}
         className={`mb-5 rounded-lg px-3 py-2 text-left text-[14px] transition-colors hover:bg-raised hover:text-brand ${dashboardActive ? 'bg-raised text-brand' : 'text-text'}`}>
         + New Session
       </button>
-      <nav aria-label="Sesi per project" className="sidebar-scroll min-h-0 flex-1 overflow-y-auto">
-        {groups.size === 0 && <p className="px-3 text-[12px] text-faint">Belum ada sesi.</p>}
+      <nav aria-label="Sessions by project" className="sidebar-scroll min-h-0 flex-1 overflow-y-auto">
+        {groups.size === 0 && <p className="px-3 text-[12px] text-faint">No sessions yet.</p>}
         {orderedGroups.map((root, index) => {
           const entries = groups.get(root)!
-          const label = root === '' ? 'Tanpa project' : root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
+          const label = root === '' ? 'Without project' : root.split(/[\\/]/).filter(Boolean).at(-1) ?? root
           const expanded = !collapsed.has(root)
           return (
             <section key={root} className="mb-1">
@@ -141,7 +141,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
                   draggedProject.current = null
                   setDropTarget(null)
                 }}>
-                <button type="button" draggable aria-expanded={expanded} aria-controls={`project-sessions-${index}`} title={`${root || label} — tarik untuk mengurutkan; Alt+↑/↓`}
+                <button type="button" draggable aria-expanded={expanded} aria-controls={`project-sessions-${index}`} title={`${root || label} — drag to reorder; Alt+↑/↓`}
                   onDragStart={(event) => {
                     draggedProject.current = root
                     event.dataTransfer.effectAllowed = 'move'
@@ -160,7 +160,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
                   <span aria-hidden>{expanded ? '⌄' : '›'}</span><span className="truncate">{label}</span>
                 </button>
                 <button type="button" onClick={() => onNewSession((entries.find((session) => session.id === activeId) ?? entries.at(-1)!).id)}
-                  aria-label={`Sesi baru di ${label}`} title={`Sesi baru di ${label}`}
+                  aria-label={`New session in ${label}`} title={`New session in ${label}`}
                   className="h-7 w-7 shrink-0 rounded-md text-dim transition-colors hover:bg-raised hover:text-brand">+</button>
               </div>
               {expanded && <div id={`project-sessions-${index}`}>
@@ -188,7 +188,7 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
       </nav>
       {sessions.some((session) => session.closed) && <button type="button" aria-pressed={showArchived}
         onClick={() => setShowArchived((shown) => !shown)} className="mt-2 rounded-md px-3 py-2 text-left text-[12px] text-dim transition-colors hover:bg-raised hover:text-brand">
-        {showArchived ? 'Sembunyikan arsip' : 'Tampilkan arsip'}
+        {showArchived ? 'Hide archived' : 'Show archived'}
       </button>}
     </aside>
   )

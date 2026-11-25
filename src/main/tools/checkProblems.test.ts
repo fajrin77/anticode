@@ -44,9 +44,17 @@ describe('check_problems', () => {
 
   it('runs ESLint when configured, scoped to a path', async () => {
     await writeFile(path.join(root, 'eslint.config.js'), 'export default []')
-    await fakeBin('eslint', 'echo "lint of $1"; echo "1 problem"; exit 1')
+    await fakeBin('eslint', 'echo "lint of $*"; echo "1 problem"; exit 1')
     const output = await checkProblemsTool.prepare({ path: 'src' }).execute(context)
     expect(output.text).toContain('ESLint:')
+  })
+
+  it('does not evaluate shell command substitutions in path arguments', async () => {
+    await writeFile(path.join(root, 'eslint.config.js'), 'export default []')
+    await fakeBin('eslint', 'exit 0')
+    const marker = path.join(root, 'injected')
+    await checkProblemsTool.prepare({ path: `$(touch "${marker}")` }).execute(context)
+    await expect(readFile(marker, 'utf8')).rejects.toThrow()
   })
 
   it('rejects paths outside the workspace', async () => {

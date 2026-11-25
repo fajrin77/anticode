@@ -18,12 +18,12 @@ export function SubscriptionUsage(): JSX.Element {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(openState)
   const mounted = useRef(false)
   const loading = useRef(false)
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (loading.current) return
     loading.current = true
     setBusy(true)
     try {
-      const result = await window.anticode.getSubscriptionQuotas()
+      const result = await window.anticode.getSubscriptionQuotas(force)
       if (mounted.current) { setQuotas(result); setError(null); setNow(Date.now()) }
     } catch {
       if (mounted.current) setError('Could not refresh the quota. The last data is still shown.')
@@ -31,8 +31,8 @@ export function SubscriptionUsage(): JSX.Element {
   }, [])
   useEffect(() => {
     mounted.current = true
-    void refresh()
-    const timer = window.setInterval(() => { setNow(Date.now()); if (!document.hidden) void refresh() }, 60_000)
+    void refresh(false)
+    const timer = window.setInterval(() => { setNow(Date.now()); if (!document.hidden) void refresh(false) }, 60_000)
     return () => { mounted.current = false; window.clearInterval(timer) }
   }, [refresh])
 
@@ -45,7 +45,7 @@ export function SubscriptionUsage(): JSX.Element {
   return <section className="glass-surface mb-5 overflow-hidden rounded-xl border border-line" aria-label="Plan usage limits" data-subscription-usage>
     <div className="flex items-start justify-between gap-3 px-4 py-3">
       <h2 className="text-[13.5px] text-text">Plan usage limits</h2>
-      <button type="button" aria-label="Refresh subscription quotas" disabled={busy} onClick={() => void refresh()} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim transition-colors hover:text-brand disabled:text-faint">{busy ? 'Refreshing…' : 'Refresh'}</button>
+      <button type="button" aria-label="Refresh subscription quotas" disabled={busy} onClick={() => void refresh(true)} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-dim transition-colors hover:text-brand disabled:text-faint">{busy ? 'Refreshing…' : 'Refresh'}</button>
     </div>
     {error && <p role="status" className="px-4 pb-3 text-[12px] text-amber-400">{error}</p>}
     {quotas === null && !error && <p className="px-4 pb-4 text-[12px] text-faint">Reading plan quotas…</p>}
@@ -57,7 +57,7 @@ export function SubscriptionUsage(): JSX.Element {
           <h3 className="min-w-0 break-words text-[12.5px] text-dim">{quota.account ?? quota.label}{quota.plan && <span className="ml-2 capitalize text-faint">· {quota.plan}</span>}</h3>
           {quota.status !== 'unsupported' && <time dateTime={new Date(quota.checkedAt).toISOString()} title={new Date(quota.checkedAt).toLocaleString()} className="text-[11px] text-faint">{quota.status === 'stale' || error ? 'Last data' : 'Updated'} {new Date(quota.checkedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</time>}
         </div>
-        {quota.error && <p role="status" className={`mt-2 text-[12px] ${quota.status === 'unsupported' ? 'text-faint' : 'text-amber-400'}`}>{quota.error}{quota.status === 'stale' ? ' Showing the last data.' : ''}</p>}
+        {quota.error && <p role="status" className={`mt-2 text-[12px] ${quota.status === 'unsupported' ? 'text-faint' : 'text-amber-400'}`}>{quota.error}{quota.status === 'stale' && !quota.error.includes('last data') ? ' Showing the last data.' : ''}</p>}
         {quota.windows.map((window, index) => {
           const label = quotaWindowLabel(window.label)
           const used = window.usedPercent === null || !Number.isFinite(window.usedPercent) ? null : Math.max(0, Math.min(100, window.usedPercent))

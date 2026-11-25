@@ -76,7 +76,7 @@ export class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
     const { error, crashes } = this.state
     if (error === null) return this.props.children
     const latest = crashes[crashes.length - 1]
-    const looping = latest !== undefined && crashes.length >= 3 && latest - (crashes[0] ?? latest) <= LOOP_WINDOW_MS
+    const looping = latest !== undefined && crashes.length >= 3 && latest - (crashes[crashes.length - 3] ?? latest) <= LOOP_WINDOW_MS
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-bg p-8 text-center">
         <div className="max-w-xl space-y-2">
@@ -88,7 +88,7 @@ export class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
             {error.message}
             {error.stack !== undefined ? `\n\n${error.stack.split('\n').slice(0, 6).join('\n')}` : null}
           </pre>
-          {looping ? <p className="text-[12px] text-faint">Three failures within 30 seconds; recovery mode is on.</p> : null}
+          {looping ? <p className="text-[12px] text-faint">Three failures within 30 seconds — click &ldquo;Reload without restoring sessions&rdquo; below to open in recovery mode.</p> : null}
         </div>
         <div className="flex items-center gap-2">
           <button

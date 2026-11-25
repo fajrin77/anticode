@@ -1,7 +1,14 @@
 import { rm, stat } from 'node:fs/promises'
+import path from 'node:path'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
+
+function assertNotWorkspaceRoot(workspaceRoot: string, target: string): void {
+  if (path.resolve(target) === path.resolve(workspaceRoot)) {
+    throw new ToolError('Refusing to delete the workspace root folder')
+  }
+}
 
 export const deleteFileTool = defineTool({
   name: 'delete_file',
@@ -19,6 +26,7 @@ export const deleteFileTool = defineTool({
   }),
   preview: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
+    assertNotWorkspaceRoot(context.workspaceRoot, target)
     const info = await stat(target).catch(() => null)
     const kind = info === null ? 'not found' : info.isDirectory() ? 'folder' : 'file'
     const size = info?.isFile() === true ? `\nsize: ${info.size} bytes` : ''
@@ -30,6 +38,7 @@ export const deleteFileTool = defineTool({
   },
   execute: async (input, context) => {
     const target = resolveInWorkspace(context.workspaceRoot, input.path)
+    assertNotWorkspaceRoot(context.workspaceRoot, target)
 
     const info = await stat(target).catch(() => null)
     if (info === null) throw new ToolError(`Not found: ${input.path}`)

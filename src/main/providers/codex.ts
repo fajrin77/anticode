@@ -9,6 +9,7 @@ import type {
   ToolDefinition
 } from './types'
 import { CODEX_BASE_URL, CODEX_CLIENT_VERSION } from './codexConfig'
+import { FIRST_DATA_TIMEOUT_MS, STREAM_INACTIVITY_MS } from './openai'
 import { ProviderRequestError } from './requestError'
 import { dropInvalidToolCalls, normalizeToolIds } from './history'
 
@@ -139,58 +140,19 @@ export class CodexProvider implements LLMProvider {
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
     params.signal.throwIfAborted()
-    const response = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.accessToken}`,
-        'content-type': 'application/json',
-        accept: 'text/event-stream',
-        'openai-beta': 'responses=experimental',
-        originator: 'codex_cli_rs',
-        'user-agent': `codex_cli_rs/${CODEX_CLIENT_VERSION}`,
-        ...(this.accountId !== undefined && this.accountId !== ''
-          ? { 'chatgpt-account-id': this.accountId }
-          : {})
-      },
-      body: JSON.stringify({
-        model: this.model,
-        instructions: params.system,
-        input: toInput(params.messages),
-        tools: toTools(params.tools),
-        tool_choice: 'auto',
-        parallel_tool_calls: false,
-        store: false,
-        stream: true
-      }),
-      signal: params.signal
-    })
-
-    if (!response.ok || response.body === null) {
-      const detail = await response.text().catch(() => '')
-      if (/not supported when using codex/i.test(detail)) {
-        throw new Error(
-          `Model "${this.model}" is not available on this ChatGPT plan. Pick another Codex model from the model picker and retry.`
-        )
-      }
-      if (response.status === 429) {
-        let body: { error?: { type?: string; resets_at?: number; resets_in_seconds?: number } } = {}
-        try { body = JSON.parse(detail) as typeof body } catch { /* unknown error body */ }
-        const error = body.error
-        const quota = error?.type === 'usage_limit_reached' || /usage.limit|quota.exhausted|insufficient.quota/i.test(detail)
-        const now = Date.now()
-        const resetAt = typeof error?.resets_at === 'number' && Number.isFinite(error.resets_at) ? error.resets_at * 1000
-          : typeof error?.resets_in_seconds === 'number' && Number.isFinite(error.resets_in_seconds) ? now + error.resets_in_seconds * 1000 : undefined
-        const retry = response.headers.get('retry-after')
-        const seconds = retry === null ? NaN : Number(retry)
-        const retryAt = retry !== null ? (Number.isFinite(seconds) ? now + seconds * 1000 : Date.parse(retry)) : undefined
-        throw new ProviderRequestError(quota
-          ? 'ChatGPT plan usage limit reached. Wait for its quota reset or use another subscription account. Paid API fallback is disabled in subscription routing.'
-          : 'Codex rate limited this request (429). Wait for the account cooldown or use another subscription account.',
-        429, 'account', resetAt, retryAt)
-      }
-      throw new ProviderRequestError(`Codex returned ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 200)}`}`, response.status)
-
+    const watchdog = new AbortController()
+    const onOuterAbort = (): void => watchdog.abort()
+    params.signal.addEventListener('abort', onOuterAbort, { once: true })
+    let received = false
+    let inactivity: ReturnType<typeof setTimeout> | null = null
+    const bump = (): void => {
+      if (inactivity !== null) clearTimeout(inactivity)
+      inactivity = setTimeout(() => watchdog.abort(), received ? STREAM_INACTIVITY_MS : FIRST_DATA_TIMEOUT_MS)
     }
+    const stalled = (): Error => received
+      ? new ProviderRequestError('Codex stream stalled mid-turn. The run stopped so nothing is duplicated', 503)
+      : Object.assign(new Error('Codex stream stalled before any data arrived'), { status: 503 })
+    bump()
 
     let text = ''
     const calls = new Map<string, { name: string; args: string }>()
@@ -199,53 +161,122 @@ export class CodexProvider implements LLMProvider {
     let reason: string | null = null
     let finished = false
 
-    for await (const event of sse(response.body)) {
-      const type = typeof event.type === 'string' ? event.type : ''
-      if (type === 'error' || type === 'response.failed') {
-        const failure = event.response as { error?: { message?: string; code?: string } } | undefined
-        const direct = event.error as { message?: string; code?: string } | undefined
-        const message = failure?.error?.message ?? direct?.message ?? (typeof event.message === 'string' ? event.message : undefined)
-        const code = failure?.error?.code ?? direct?.code ?? (typeof event.code === 'string' ? event.code : undefined)
-        // Do not serialize the event: it may include input or partial outputs.
-        throw new Error(`Codex stream failed${code ? ` (${code})` : ''}: ${message ?? 'provider rejected the response without an error reason'}`)
-      }
-      if (type === 'response.incomplete') throw new Error('Codex response was incomplete; no tool calls were executed.')
-      if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
-        text += event.delta
-        yield { type: 'text_delta', text: event.delta }
-      } else if (type === 'response.output_item.added') {
-        const item = event.item as { type?: string; call_id?: string; name?: string } | undefined
-        if (item?.type === 'function_call' && typeof item.call_id === 'string') {
-          calls.set(item.call_id, { name: item.name ?? '', args: '' })
-          order.push(item.call_id)
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.accessToken}`,
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+          'openai-beta': 'responses=experimental',
+          originator: 'codex_cli_rs',
+          'user-agent': `codex_cli_rs/${CODEX_CLIENT_VERSION}`,
+          ...(this.accountId !== undefined && this.accountId !== ''
+            ? { 'chatgpt-account-id': this.accountId }
+            : {})
+        },
+        body: JSON.stringify({
+          model: this.model,
+          instructions: params.system,
+          input: toInput(params.messages),
+          tools: toTools(params.tools),
+          tool_choice: 'auto',
+          parallel_tool_calls: false,
+          store: false,
+          stream: true
+        }),
+        signal: watchdog.signal
+      })
+
+      if (!response.ok || response.body === null) {
+        const detail = await response.text().catch(() => '')
+        if (/not supported when using codex/i.test(detail)) {
+          throw new Error(
+            `Model "${this.model}" is not available on this ChatGPT plan. Pick another Codex model from the model picker and retry.`
+          )
         }
-      } else if (type === 'response.function_call_arguments.delta') {
-        const callId = typeof event.call_id === 'string' ? event.call_id : ''
-        const existing = calls.get(callId)
-        if (existing !== undefined && typeof event.delta === 'string') existing.args += event.delta
-      } else if (type === 'response.output_item.done') {
-        const item = event.item as { type?: string; call_id?: string; name?: string; arguments?: string } | undefined
-        if (item?.type === 'function_call' && typeof item.call_id === 'string') {
-          const existing = calls.get(item.call_id) ?? { name: item.name ?? '', args: '' }
-          calls.set(item.call_id, {
-            name: item.name ?? existing.name,
-            args: item.arguments !== undefined && item.arguments !== '' ? item.arguments : existing.args
-          })
-          if (!order.includes(item.call_id)) order.push(item.call_id)
+        if (response.status === 429) {
+          let body: { error?: { type?: string; resets_at?: number; resets_in_seconds?: number } } = {}
+          try { body = JSON.parse(detail) as typeof body } catch { /* unknown error body */ }
+          const error = body.error
+          const quota = error?.type === 'usage_limit_reached' || /usage.limit|quota.exhausted|insufficient.quota/i.test(detail)
+          const now = Date.now()
+          const resetAt = typeof error?.resets_at === 'number' && Number.isFinite(error.resets_at) ? error.resets_at * 1000
+            : typeof error?.resets_in_seconds === 'number' && Number.isFinite(error.resets_in_seconds) ? now + error.resets_in_seconds * 1000 : undefined
+          const retry = response.headers.get('retry-after')
+          const seconds = retry === null ? NaN : Number(retry)
+          const retryAt = retry !== null ? (Number.isFinite(seconds) ? now + seconds * 1000 : Date.parse(retry)) : undefined
+          throw new ProviderRequestError(quota
+            ? 'ChatGPT plan usage limit reached. Wait for its quota reset or use another subscription account. Paid API fallback is disabled in subscription routing.'
+            : 'Codex rate limited this request (429). Wait for the account cooldown or use another subscription account.',
+          429, 'account', resetAt, retryAt)
         }
-      } else if (type === 'response.completed') {
-        finished = true
-        const completed = event.response as
-          | { usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }; incomplete_details?: { reason?: string } }
-          | undefined
-        usage.inputTokens = completed?.usage?.input_tokens ?? usage.inputTokens
-        usage.outputTokens = completed?.usage?.output_tokens ?? usage.outputTokens
-        const cached = completed?.usage?.input_tokens_details?.cached_tokens
-        if (typeof cached === 'number' && Number.isFinite(cached)) usage.cachedTokens = cached
-        reason = completed?.incomplete_details?.reason ?? reason
+        throw new ProviderRequestError(`Codex returned ${response.status}${detail === '' ? '' : `: ${detail.slice(0, 200)}`}`, response.status)
       }
+
+      for await (const event of sse(response.body)) {
+        const type = typeof event.type === 'string' ? event.type : ''
+        if (type === 'error' || type === 'response.failed') {
+          const failure = event.response as { error?: { message?: string; code?: string } } | undefined
+          const direct = event.error as { message?: string; code?: string } | undefined
+          const message = failure?.error?.message ?? direct?.message ?? (typeof event.message === 'string' ? event.message : undefined)
+          const code = failure?.error?.code ?? direct?.code ?? (typeof event.code === 'string' ? event.code : undefined)
+          // Do not serialize the event: it may include input or partial outputs.
+          throw new Error(`Codex stream failed${code ? ` (${code})` : ''}: ${message ?? 'provider rejected the response without an error reason'}`)
+        }
+        if (type === 'response.incomplete') throw new Error('Codex response was incomplete; no tool calls were executed.')
+        if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
+          received = true
+          text += event.delta
+          yield { type: 'text_delta', text: event.delta }
+        } else if (type === 'response.output_item.added') {
+          received = true
+          const item = event.item as { type?: string; call_id?: string; name?: string } | undefined
+          if (item?.type === 'function_call' && typeof item.call_id === 'string') {
+            calls.set(item.call_id, { name: item.name ?? '', args: '' })
+            order.push(item.call_id)
+          }
+        } else if (type === 'response.function_call_arguments.delta') {
+          received = true
+          const callId = typeof event.call_id === 'string' ? event.call_id : ''
+          const existing = calls.get(callId)
+          if (existing !== undefined && typeof event.delta === 'string') existing.args += event.delta
+        } else if (type === 'response.output_item.done') {
+          received = true
+          const item = event.item as { type?: string; call_id?: string; name?: string; arguments?: string } | undefined
+          if (item?.type === 'function_call' && typeof item.call_id === 'string') {
+            const existing = calls.get(item.call_id) ?? { name: item.name ?? '', args: '' }
+            calls.set(item.call_id, {
+              name: item.name ?? existing.name,
+              args: item.arguments !== undefined && item.arguments !== '' ? item.arguments : existing.args
+            })
+            if (!order.includes(item.call_id)) order.push(item.call_id)
+          }
+        } else if (type.startsWith('response.reasoning')) {
+          received = true
+        } else if (type === 'response.completed') {
+          received = true
+          finished = true
+          const completed = event.response as
+            | { usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }; incomplete_details?: { reason?: string } }
+            | undefined
+          usage.inputTokens = completed?.usage?.input_tokens ?? usage.inputTokens
+          usage.outputTokens = completed?.usage?.output_tokens ?? usage.outputTokens
+          const cached = completed?.usage?.input_tokens_details?.cached_tokens
+          if (typeof cached === 'number' && Number.isFinite(cached)) usage.cachedTokens = cached
+          reason = completed?.incomplete_details?.reason ?? reason
+        }
+        bump()
+      }
+    } catch (error) {
+      if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
+      throw error
+    } finally {
+      if (inactivity !== null) clearTimeout(inactivity)
+      params.signal.removeEventListener('abort', onOuterAbort)
     }
 
+    if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
     if (!finished) throw new ProviderRequestError('Codex connection closed before the response completed', 503)
     const content: ContentBlock[] = []
     if (text !== '') content.push({ type: 'text', text })

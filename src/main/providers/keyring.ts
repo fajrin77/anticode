@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { accountRoutingTokens, recordAccountUsage } from '../auth/sharing'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 import { ProviderRequestError } from './requestError'
-import { canFailOver, failureStatus, isAccountAccessFailure } from './failures'
+import { canFailOver, failureStatus, isAccountAccessFailure, isTransportFailure } from './failures'
 import { requestLimit } from './requestLimits'
 import type { ChatParams, LLMProvider, ProviderEvent } from './types'
 const busy = new Map<string, number>()
@@ -60,12 +60,17 @@ export function keyringProvider(id: string, model: string, keys: string[], creat
           }
           const detail = error as { resetAt?: number; retryAt?: number; scope?: string }
           const resetAt = detail.retryAt ?? detail.resetAt
-          // With one key, a dropped socket is not evidence that the key is
-          // unusable. Let the bounded request retry / explicit Continue try
-          // again; quota, auth, and explicit provider cooldowns still apply.
+          // A dropped socket or DNS blip is not evidence that an API key is spent:
+          // try remaining keys in this turn, or rethrow with 1 key without persisting a cooldown.
+          if (isTransportFailure(error) && !accountFailure && status !== 429 && !isOutOfUsage(error) && resetAt === undefined) {
+            if (unique.length === 1 || produced) throw error
+            continue
+          }
           if (unique.length === 1 && !accountFailure && status !== 429 && !isOutOfUsage(error) && resetAt === undefined) throw error
-          const until = typeof resetAt === 'number' && Number.isFinite(resetAt) && resetAt > Date.now() ? resetAt : Date.now() + (accountFailure || isOutOfUsage(error) ? 15 * 60000 : 60000)
-          savePersistedSettings({providerKeyCooldowns:{...loadPersistedSettings().providerKeyCooldowns,[accountFailure || detail.scope === 'account' ? entry.id : `${entry.id}:${model}`]:until}})
+          const now = Date.now()
+          const until = typeof resetAt === 'number' && Number.isFinite(resetAt) && resetAt > now ? resetAt : now + (accountFailure || isOutOfUsage(error) ? 15 * 60000 : 60000)
+          const activeCooldowns = Object.fromEntries(Object.entries(loadPersistedSettings().providerKeyCooldowns ?? {}).filter(([, exp]) => exp > now))
+          savePersistedSettings({ providerKeyCooldowns: { ...activeCooldowns, [accountFailure || detail.scope === 'account' ? entry.id : `${entry.id}:${model}`]: until } })
           // A partial answer cannot be replayed, but Continue must still skip
           // the failed key instead of hitting its limit again.
           if (produced) throw error
@@ -75,7 +80,7 @@ export function keyringProvider(id: string, model: string, keys: string[], creat
       const cooldowns = loadPersistedSettings().providerKeyCooldowns ?? {}
       const back = Math.min(...entries.map(item => Math.max(cooldowns[item.id] ?? 0, cooldowns[`${item.id}:${model}`] ?? 0)))
       const minutes = Math.max(1, Math.ceil((back - Date.now()) / 60000))
-      throw new ProviderRequestError(`All API keys for ${model} are cooling down after earlier errors; the first is usable again in about ${minutes} min. Pick another model or add another key.`, 429)
+      throw new ProviderRequestError(`All API keys for ${model} are cooling down after earlier errors; the first is usable again in about ${minutes} min. Pick another model or add another key.`, 429, undefined, undefined, back)
     }
   }
 }

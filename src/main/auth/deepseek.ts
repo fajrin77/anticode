@@ -1,6 +1,6 @@
 import { shell } from 'electron'
 import { arch, platform, release } from 'node:os'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { APP_VERSION } from '../version'
 import { ProviderRequestError } from '../providers/requestError'
 import { failureStatus, isTransient } from '../providers/failures'
@@ -98,51 +98,56 @@ export function platformPage(value: unknown, path: string): string {
  * looking like a brand new machine each time.
  */
 export async function loginDeepSeek(callbacks: AuthLoginCallbacks, deviceId: string = randomUUID()): Promise<AuthTokens> {
-  const { signal } = callbacks
+  const local = new AbortController()
+  const signal = AbortSignal.any([callbacks.signal, local.signal, AbortSignal.timeout(10 * 60_000)])
   const verifier = makeVerifier()
   const state = makeState()
   let onPort: (port: number) => void = () => {}
   const port = new Promise<number>((resolve) => { onPort = resolve })
   const callback = waitForCallback({ ports: [0], path: '/oauth/callback', signal, onListening: (bound) => onPort(bound) })
   callback.catch(() => {})
-  const redirectUri = `http://127.0.0.1:${await Promise.race([port, callback.then(() => 0)])}/oauth/callback`
+  try {
+    const redirectUri = `http://127.0.0.1:${await Promise.race([port, callback.then(() => 0)])}/oauth/callback`
 
-  callbacks.onUpdate({ message: 'Starting DeepSeek sign-in' })
-  const init = await platformRequest('/auth-api/v0/dsh/auth_init', {
-    method: 'POST',
-    headers: { ...clientHeaders(), 'content-type': 'application/json' },
-    body: JSON.stringify({ code_challenge: makeChallenge(verifier), code_challenge_method: 'S256', state, redirect_uri: redirectUri, locale: 'en_US', login_source: 'desktop' })
-  }, signal) as { authorize_url?: unknown }
-  const authorizeUrl = platformPage(init?.authorize_url, '/dsh/authorize')
-  callbacks.onUpdate({ message: 'Sign in to DeepSeek in the browser', url: authorizeUrl })
-  void shell.openExternal(authorizeUrl)
+    callbacks.onUpdate({ message: 'Starting DeepSeek sign-in' })
+    const init = await platformRequest('/auth-api/v0/dsh/auth_init', {
+      method: 'POST',
+      headers: { ...clientHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ code_challenge: makeChallenge(verifier), code_challenge_method: 'S256', state, redirect_uri: redirectUri, locale: 'en_US', login_source: 'desktop' })
+    }, signal) as { authorize_url?: unknown }
+    const authorizeUrl = platformPage(init?.authorize_url, '/dsh/authorize')
+    callbacks.onUpdate({ message: 'Sign in to DeepSeek in the browser', url: authorizeUrl })
+    void shell.openExternal(authorizeUrl)
 
-  const result = await callback
-  if (result.error !== undefined) throw new Error(result.error)
-  if (result.state !== state) throw new Error('Login returned the wrong state')
-  if (result.code === '') throw new Error('Login did not return a code')
+    const result = await callback
+    if (result.error !== undefined) throw new Error(result.error)
+    if (result.state !== state) throw new Error('Login returned the wrong state')
+    if (result.code === '') throw new Error('Login did not return a code')
 
-  callbacks.onUpdate({ message: 'Exchanging the DeepSeek session' })
-  const exchanged = await platformRequest('/auth-api/v0/dsh/auth_exchange', {
-    method: 'POST',
-    headers: { ...clientHeaders(), 'content-type': 'application/json' },
-    body: JSON.stringify({ code: result.code, code_verifier: verifier, redirect_uri: redirectUri, device_id: deviceId, device_model: `${platform()}-${arch()}`, os_version: release() })
-  }, signal) as { token?: unknown; user?: { id?: unknown; email?: unknown; mobile?: unknown } }
-  const token = typeof exchanged?.token === 'string' && /^[\x21-\x7e]+$/.test(exchanged.token) ? exchanged.token : ''
-  if (token === '') throw new Error('DeepSeek returned no account token')
-  const user = exchanged.user
-  const tokens: AuthTokens = {
-    accessToken: token,
-    expiresAt: 0,
-    meta: {
-      deviceId,
-      ...(typeof user?.id === 'string' ? { accountId: user.id } : {}),
-      ...(typeof user?.email === 'string' && user.email ? { email: user.email } : typeof user?.mobile === 'string' && user.mobile ? { email: user.mobile } : {})
+    callbacks.onUpdate({ message: 'Exchanging the DeepSeek session' })
+    const exchanged = await platformRequest('/auth-api/v0/dsh/auth_exchange', {
+      method: 'POST',
+      headers: { ...clientHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ code: result.code, code_verifier: verifier, redirect_uri: redirectUri, device_id: deviceId, device_model: `${platform()}-${arch()}`, os_version: release() })
+    }, signal) as { token?: unknown; user?: { id?: unknown; email?: unknown; mobile?: unknown } }
+    const token = typeof exchanged?.token === 'string' && /^[\x21-\x7e]+$/.test(exchanged.token) ? exchanged.token : ''
+    if (token === '') throw new Error('DeepSeek returned no account token')
+    const user = exchanged.user
+    const tokens: AuthTokens = {
+      accessToken: token,
+      expiresAt: 0,
+      meta: {
+        deviceId,
+        ...(typeof user?.id === 'string' ? { accountId: user.id } : {}),
+        ...(typeof user?.email === 'string' && user.email ? { email: user.email } : typeof user?.mobile === 'string' && user.mobile ? { email: user.mobile } : {})
+      }
     }
+    // A paid-only account is still stored, but the guard explains why turns are refused.
+    callbacks.onUpdate({ message: 'Signed in', done: true })
+    return tokens
+  } finally {
+    local.abort()
   }
-  // A paid-only account is still stored, but the guard explains why turns are refused.
-  callbacks.onUpdate({ message: 'Signed in', done: true })
-  return tokens
 }
 
 export interface DeepSeekWallets {
@@ -185,30 +190,40 @@ const verified = new Map<string, number>()
 const CHECK_TTL_MS = 30_000
 const GRACE_MS = 5 * 60_000
 
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
 /** Throws before any inference unless the account can only spend granted credit. */
 export async function assertDeepSeekFreeCredit(token: string, signal: AbortSignal): Promise<void> {
-  if ((checked.get(token) ?? 0) > Date.now()) return
+  const key = tokenFingerprint(token)
+  const now = Date.now()
+  if ((checked.get(key) ?? 0) > now) return
+  if (checked.size > 64) {
+    for (const [k, exp] of checked) if (exp <= now) checked.delete(k)
+    for (const [k, ts] of verified) if (now - ts >= GRACE_MS) verified.delete(k)
+  }
   let block: string | null
   try {
     block = freeCreditBlock(await readDeepSeekWallets(token, signal))
   } catch (failure) {
     // A throttled check is not a reason to end the turn: granted credit cannot
     // turn into paid balance by itself, so keep the last verified answer for a while.
-    const good = verified.get(token)
+    const good = verified.get(key)
     const transient = failureStatus(failure) === 202 || isTransient(failure)
     if (good !== undefined && Date.now() - good < GRACE_MS && transient) {
-      checked.set(token, Date.now() + CHECK_TTL_MS)
+      checked.set(key, Date.now() + CHECK_TTL_MS)
       return
     }
     throw failure
   }
   if (block !== null) {
-    checked.delete(token)
-    verified.delete(token)
+    checked.delete(key)
+    verified.delete(key)
     throw new ProviderRequestError(block, 402, 'account')
   }
-  verified.set(token, Date.now())
-  checked.set(token, Date.now() + CHECK_TTL_MS)
+  verified.set(key, Date.now())
+  checked.set(key, Date.now() + CHECK_TTL_MS)
 }
 
 export function accountLabel(tokens: AuthTokens): string | undefined {

@@ -112,7 +112,8 @@ function load(): RotationEntry[] {
   activeGroup = groups.some((group) => group.id === saved?.group) ? (saved?.group ?? null) : null
   for (const [storedKey, mark] of Object.entries(saved?.outOfUsage ?? {})) {
     const key = canonicalStoredKey(storedKey)
-    if (inPool.has(key) && typeof mark?.since === 'number' && typeof mark.reason === 'string') {
+    const provider = key.slice(0, key.indexOf('\n'))
+    if ((inPool.has(key) || provider.startsWith('auth:') || provider === 'clinepass') && typeof mark?.since === 'number' && typeof mark.reason === 'string') {
       exhausted.set(key, { since: mark.since, reason: mark.reason,
         ...(typeof mark.resetAt === 'number' && Number.isFinite(mark.resetAt) ? { resetAt: mark.resetAt } : {}),
         ...(mark.scope === 'account' ? { scope: 'account' } : {}) })
@@ -182,7 +183,11 @@ function persist(): void {
       usage: Object.fromEntries([...usage].filter(([key]) => keys.has(key))),
       groups,
       group: activeGroup,
-      outOfUsage: Object.fromEntries([...exhausted].filter(([key]) => keys.has(key)))
+      outOfUsage: Object.fromEntries([...exhausted].filter(([key]) => {
+        const sep = key.indexOf('\n')
+        const provider = sep < 0 ? '' : key.slice(0, sep)
+        return keys.has(key) || provider.startsWith('auth:') || provider === 'clinepass'
+      }))
     }
   })
 }
@@ -317,10 +322,14 @@ export function setRotationEntries(next: unknown[]): RotationEntry[] {
 /** Drops every entry of a provider that is gone, and every group's link to it. */
 export function forgetRotationProvider(provider: string): void {
   const list = load()
-  const linked = groups.some((group) => group.providers.includes(provider))
+  for (const key of [...exhausted.keys()]) {
+    if (key.startsWith(`${provider}\n`)) exhausted.delete(key)
+  }
+  cooling.delete(`login:${provider}`)
+  cooling.delete(`account:${provider}`)
   groups = groups.map((group) => ({ ...group, providers: group.providers.filter((id) => id !== provider) }))
   if (list.some((entry) => entry.provider === provider)) setRotationEntries(list.filter((entry) => entry.provider !== provider))
-  else if (linked) persist()
+  else persist()
 }
 
 /** Counts start over, and every model gets another chance. */
@@ -363,11 +372,23 @@ export function coolDown(entry: RotationEntry, now = Date.now(), error?: unknown
   cooling.set(key, until)
 }
 
-/** A renewed login must not inherit the old token's authentication cooldown. */
+export function flushRotationUsage(): void {
+  if (usageWrite !== undefined) {
+    clearTimeout(usageWrite)
+    usageWrite = undefined
+    persist()
+  }
+}
+
+/** A renewed OAuth access token clears only an authentication cooldown, never quota marks. */
+export function clearAuthRefreshCooldown(provider: string): void {
+  cooling.delete(`login:${provider}`)
+}
+
+/** A new/reconnected login clears old auth/account cooldowns and stale account-wide quota marks. */
 export function clearLoginCooldown(provider: string): void {
   cooling.delete(`login:${provider}`)
-  // A new login may be a different (or topped-up) account: its old
-  // account-wide quota mark no longer says anything about it.
+  cooling.delete(`account:${provider}`)
   load()
   let changed = false
   for (const [key, mark] of exhausted) {
@@ -422,10 +443,12 @@ export function outOfUsage(entry: RotationEntry, now = Date.now()): OutOfUsage |
   return mark === undefined ? null : { ...mark }
 }
 
-/** Marks a pool model whose quota ran out; one outside the pool is not tracked. */
+/** Marks a pool or auth-account model whose quota ran out. */
 export function markOutOfUsage(entry: RotationEntry, error: unknown, now = Date.now()): void {
   const key = rotationKey(entry)
-  if (!load().some((item) => rotationKey(item) === key)) return
+  const trackedAccount = entry.provider.startsWith('auth:') || entry.provider === 'clinepass'
+  if (!trackedAccount && !load().some((item) => rotationKey(item) === key)) return
+  load()
   const message = safeProviderErrorMessage(error, entry.model)
   const reason = message.replace(/\s+/g, ' ').trim().slice(0, 160)
   const detail = error as { resetAt?: number; scope?: 'account' | 'model' } | null
@@ -531,6 +554,10 @@ export function countedProvider(entry: RotationEntry, inner: LLMProvider): LLMPr
 
 /** For tests: forget everything loaded. */
 export function resetRotationForTests(): void {
+  if (usageWrite !== undefined) {
+    clearTimeout(usageWrite)
+    usageWrite = undefined
+  }
   entries = null
   enabled = false
   plansOnly = false

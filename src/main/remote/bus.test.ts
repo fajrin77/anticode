@@ -38,7 +38,7 @@ it('does not expose tool narration when there is no closing answer', () => {
   forward({ type: 'text_delta', runId: 'run', text: 'Memeriksa rahasia.' })
   forward({ type: 'tool_start', runId: 'run', toolUseId: 'tool', name: 'read_file', input: {} })
   forward({ type: 'end', runId: 'run', reason: 'complete' })
-  expect(mocks.notify.mock.calls[0]?.[1].body).toBe('Selesai. Buka sesi untuk melihat hasil.')
+  expect(mocks.notify.mock.calls[0]?.[1].body).toBe('Finished. Open the session to view the result.')
 })
 it('snapshots replay all live events from a stable baseline without duplicating committed text', () => {
   beginRun('run', 'session'); registerRun('run', 'session')

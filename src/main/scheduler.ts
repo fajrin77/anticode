@@ -2,7 +2,7 @@ import { setInterval, clearInterval } from 'node:timers'
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { IpcChannel } from '@shared/ipc'
 import { submitPrompt } from './prompts'
 import { approvals } from './ipc/index'
@@ -60,21 +60,18 @@ function isEntry(value: unknown): value is ScheduleEntry {
 }
 
 function persist(): void {
-  try { writeFileSync(FILE(), JSON.stringify([...entries.values()], null, 2)) } catch { /* readonly disk is not fatal */ }
+  try {
+    const target = FILE()
+    mkdirSync(path.dirname(target), { recursive: true })
+    writeFileSync(`${target}.tmp`, JSON.stringify([...entries.values()], null, 2), { mode: 0o600 })
+    renameSync(`${target}.tmp`, target)
+  } catch { /* readonly disk is not fatal */ }
 }
 
-function announce(entry: ScheduleEntry): void {
+function announce(_entry: ScheduleEntry): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send(IpcChannel.SCHEDULE_STATE, scheduleState())
   }
-  // The phone follows sessions it has open; the scheduler touches them the
-  // same way an agent event would, so its transcript stays honest.
-  void busForward({ type: 'schedule-updated', sessionId: entry.sessionId } as never).catch(() => undefined)
-}
-
-async function busForward(event: unknown): Promise<void> {
-  const bus = await import('./remote/bus')
-  bus.forward(event as never)
 }
 
 /** A fire reuses the session's own model and folder, nothing to re-pick. */
@@ -226,7 +223,18 @@ export function updateSchedule(id: string, patch: Partial<ScheduleEntry>): Sched
   const entry = entries.get(id)
   if (entry === undefined) throw new Error('No such schedule')
   const merged: ScheduleEntry = { ...entry, ...patch, id: entry.id }
-  if (typeof patch.prompt === 'string' && patch.prompt.trim() === '') throw new Error('Give the schedule a prompt')
+  if (typeof merged.prompt !== 'string' || merged.prompt.trim() === '') throw new Error('Give the schedule a prompt')
+  if (merged.frequency !== 'daily' && merged.frequency !== 'weekly') throw new Error('Pick daily or weekly')
+  if (!Number.isInteger(merged.hour) || merged.hour < 0 || merged.hour > 23 ||
+      !Number.isInteger(merged.minute) || merged.minute < 0 || merged.minute > 59) {
+    throw new Error('Pick a time of day')
+  }
+  if (merged.frequency === 'weekly' && (merged.weekday === undefined || !Number.isInteger(merged.weekday) || merged.weekday < 0 || merged.weekday > 6)) {
+    throw new Error('Pick a weekday for a weekly schedule')
+  }
+  merged.prompt = merged.prompt.trim()
+  merged.name = (typeof merged.name === 'string' ? merged.name.trim() : '') || 'Scheduled run'
+  merged.enabled = Boolean(merged.enabled)
   merged.nextRunAt = merged.enabled ? nextOccurrence(merged, Date.now()) : null
   entries.set(id, merged)
   persist()

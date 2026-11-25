@@ -1,5 +1,6 @@
 import { chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import type { CredentialStatus, EnvCredential } from '@shared/ipc'
+import { listAuthAccounts, readAuthTokens } from './auth/store'
 import { envFilePath } from './config'
 import { clinepassConfig, editClinepass } from './providers/clinepass'
 import { listCustomProviders } from './providers/custom'
@@ -19,6 +20,15 @@ const SECRET_NAME = /(API_KEY|APIKEY|TOKEN|SECRET|PASSWORD|PASSWD)$/i
 /** The keys anticode itself reads, and how each moves into sealed storage. */
 const MOVABLE: Record<string, { usedBy: string; move: (value: string) => void }> = {
   CLINEPASS_API_KEY: { usedBy: 'Clinepass', move: (value) => editClinepass({ apiKey: value }) }
+}
+
+const RECOGNIZED_ENV: Record<string, string> = {
+  ANTHROPIC_API_KEY: 'Anthropic',
+  OPENAI_API_KEY: 'OpenAI',
+  GEMINI_API_KEY: 'Google Gemini',
+  GOOGLE_API_KEY: 'Google Gemini',
+  ANTICODE_ANTIGRAVITY_CLIENT_SECRET: 'Antigravity OAuth',
+  ANTICODE_GEMINI_CLIENT_SECRET: 'Gemini OAuth'
 }
 
 interface EnvLine {
@@ -63,9 +73,14 @@ function openToOthers(file: string): boolean {
  * mask them wherever they turn up in a transcript.
  */
 export function knownSecrets(extra: string[] = []): string[] {
+  const authTokens = listAuthAccounts().flatMap((account) => {
+    const tokens = readAuthTokens(account.id)
+    return tokens === null ? [] : [tokens.accessToken, tokens.refreshToken ?? '', tokens.meta?.idToken ?? '']
+  })
   const values = [
     ...listCustomProviders().flatMap((provider) => [provider.apiKey, ...(provider.apiKeys ?? [])]),
     ...(clinepassConfig().apiKeys ?? [clinepassConfig().apiKey ?? '']),
+    ...authTokens,
     ...Object.entries(process.env).filter(([name]) => SECRET_NAME.test(name)).map(([, value]) => value ?? ''),
     ...extra
   ]
@@ -83,7 +98,7 @@ export function credentialStatus(): CredentialStatus {
         .map((line) => ({
           name: line.name,
           masked: mask(line.value),
-          usedBy: MOVABLE[line.name]?.usedBy ?? null,
+          usedBy: MOVABLE[line.name]?.usedBy ?? RECOGNIZED_ENV[line.name] ?? null,
           movable: MOVABLE[line.name] !== undefined
         }))
     } catch { /* The file went away since start-up; nothing to report. */ }

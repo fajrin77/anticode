@@ -8,11 +8,17 @@ type ToolPart = Extract<MessagePart, { kind: 'tool' }>
 
 /** The one-line subject shown beside the tool name, mirroring a shell prompt. */
 function subject(part: ToolPart): string {
-  // An MCP tool is named after its server and itself.
-  const mcp = /^mcp__(.+?)__(.+)$/.exec(part.name)
+  // An MCP or plugin tool is named after its server/plugin and itself.
+  const mcp = /^(?:mcp|plugin)__(.+?)__(.+)$/.exec(part.name)
   if (mcp !== null) return `${mcp[1]} · ${mcp[2]}`
   if (part.input === null || typeof part.input !== 'object') return ''
   const record = part.input as Record<string, unknown>
+  if (part.name === 'apply_patch' && typeof record.patch === 'string') {
+    const paths = [...record.patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File:\s*(.+)$/gm)]
+      .map((match) => match[1]?.trim() ?? '')
+      .filter((entry) => entry !== '')
+    if (paths.length > 0) return paths.join(', ')
+  }
   for (const key of ['command', 'path', 'cell', 'description']) {
     const value = record[key]
     if (typeof value === 'string') return value
@@ -28,8 +34,9 @@ function subject(part: ToolPart): string {
 function label(name: string): string {
   if (name === 'task') return 'Agent'
   if (name.startsWith('mcp__')) return 'MCP'
+  if (name.startsWith('plugin__')) return 'Plugin'
   if (name === 'run_command') return 'Code'
-  if (/^(write|edit|delete|add|fill)_/.test(name)) return 'Edit'
+  if (name === 'apply_patch' || /^(write|edit|delete|add|fill|create|format)_/.test(name)) return 'Edit'
   return 'Explore'
 }
 

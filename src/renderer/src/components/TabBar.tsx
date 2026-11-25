@@ -21,7 +21,8 @@ function formatNumber(value: number): string {
  */
 function useDwellPopover(
   open: boolean,
-  setOpen: (next: boolean) => void
+  setOpen: (next: boolean) => void,
+  keepOpen?: () => boolean
 ): {
   onPointerEnter: (event: ReactPointerEvent<HTMLDivElement>) => void
   onPointerLeave: () => void
@@ -39,13 +40,22 @@ function useDwellPopover(
     },
     onPointerLeave: () => {
       clear()
+      if (keepOpen?.() === true) return
       timer.current = setTimeout(() => setOpen(false), 180)
     }
   }
 }
 
 /** Per-session usage only, an icon that unfolds the totals on demand. */
-function UsageButton({ session }: { session: Session }): JSX.Element {
+function UsageButton({
+  session,
+  selectedModel,
+  activeProvider
+}: {
+  session: Session
+  selectedModel: string | null
+  activeProvider: string | null
+}): JSX.Element {
   const [open, setOpen] = useState(false)
   const [compacting, setCompacting] = useState(false)
   const [editingInstructions, setEditingInstructions] = useState(false)
@@ -79,7 +89,11 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
       .finally(() => setCompacting(false))
   }
   const boxRef = useRef<HTMLDivElement>(null)
-  const dwell = useDwellPopover(open, setOpen)
+  const dwell = useDwellPopover(
+    open,
+    setOpen,
+    () => editingInstructions || Boolean(boxRef.current?.contains(document.activeElement))
+  )
 
   useEffect(() => {
     if (!open) return
@@ -104,13 +118,13 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
   // number reads as "used of total" instead of a mystery denominator. Both
   // come from the main process, which also knows a window a gateway published
   // for this exact id rather than only the built-in family table.
-  const model = session.model ?? ''
+  const model = session.model ?? selectedModel ?? ''
   const fallbackWindow = contextWindowFor(model)
   const [sizes, setSizes] = useState<{ window: number; budget: number } | null>(null)
   useEffect(() => {
     let active = true
     void window.anticode
-      .contextBudget(model)
+      .contextBudget(model, activeProvider ?? undefined)
       .then((next) => {
         if (active) setSizes(next)
       })
@@ -118,7 +132,7 @@ function UsageButton({ session }: { session: Session }): JSX.Element {
     return () => {
       active = false
     }
-  }, [model])
+  }, [model, activeProvider])
   const modelWindow = sizes?.window ?? fallbackWindow
   const budget = sizes?.budget ?? historyBudgetFor(model, fallbackWindow)
   const used = session.lastInputTokens
@@ -259,6 +273,8 @@ interface TabBarProps {
   scheduleActive: boolean
   /** Provider the session on screen is set to, null until the status loads. */
   selectedProvider: string | null
+  selectedModel?: string | null
+  lastUsedProvider?: string | null
 }
 
 /** Plan limits of the account behind the model in use; API-key routes have none to show. */
@@ -375,19 +391,22 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
 
 export function TabBar({
   onDashboard, onOpenSettings, onOpenSchedule,
-  sidebarOpen, onToggleSidebar, onSidebarPointerEnter, onSidebarPointerLeave, dashboardActive, settingsActive, scheduleActive, selectedProvider
+  sidebarOpen, onToggleSidebar, onSidebarPointerEnter, onSidebarPointerLeave, dashboardActive, settingsActive, scheduleActive, selectedProvider, selectedModel = null, lastUsedProvider = null
 }: TabBarProps): JSX.Element {
   const activeSession = useSessionStore((state) =>
     state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
   )
   // Rotate has no single model; the account of the latest turn stands in for it.
-  const activeProvider = selectedProvider === null || selectedProvider === ROTATE_PROVIDER ? activeSession?.provider ?? null : selectedProvider
+  const activeProvider =
+    selectedProvider === null || selectedProvider === ROTATE_PROVIDER
+      ? activeSession?.provider ?? lastUsedProvider ?? null
+      : selectedProvider
   return (
-    <header className="desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-3 pr-3 pl-20">
+    <header className={`desktop-header-glass region-drag flex h-12 shrink-0 items-center gap-3 pr-3 ${/Mac/i.test(navigator.userAgent) ? 'pl-20' : 'pl-3'}`}>
       <button type="button" onClick={onToggleSidebar}
         onPointerEnter={(event) => { if (event.pointerType === 'mouse') onSidebarPointerEnter() }}
         onPointerLeave={onSidebarPointerLeave}
-        title="Buka/tutup sidebar (⌘/Ctrl+B)" aria-label="Buka/tutup sidebar"
+        title="Toggle sidebar (⌘/Ctrl+B)" aria-label="Toggle sidebar"
         aria-expanded={sidebarOpen} aria-controls="session-sidebar"
         className="glass-ghost region-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim hover:text-brand">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
@@ -412,7 +431,7 @@ export function TabBar({
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
         {activeSession !== undefined && <PlanUsageButton provider={activeProvider} />}
-        {activeSession !== undefined && <UsageButton session={activeSession} />}
+        {activeSession !== undefined && <UsageButton session={activeSession} selectedModel={selectedModel} activeProvider={activeProvider} />}
         <button
           type="button"
           onClick={onOpenSchedule}

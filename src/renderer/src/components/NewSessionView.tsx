@@ -3,7 +3,7 @@ import { useAttachmentFocus } from '../useAttachmentFocus'
 import { DASHBOARD_DRAFT, stageDraftAttachments, useAttachmentJobs, fileAttachmentJob } from '../draftAttachments'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { modelLabel, ROTATE_PROVIDER, statusFor } from '@shared/ipc'
+import { modelCannotSeeImages, modelLabel, ROTATE_PROVIDER, statusFor } from '@shared/ipc'
 import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
 import { useSessionStore } from '../store/session'
 import type { MessagePart, Session } from '../store/session'
@@ -69,7 +69,10 @@ function DashboardComposer({
   fill: { text: string; pulse: number }
 }): JSX.Element {
   const savedDraft = useSessionStore(state => state.drafts[DASHBOARD_DRAFT])
-  const selected = savedDraft?.selection
+  const rawSelected = savedDraft?.selection
+  const selected = rawSelected !== undefined && !(rawSelected.provider === ROTATE_PROVIDER && globalStatus?.rotationEnabled !== true)
+    ? rawSelected
+    : undefined
   const selectedProvider = providers.find(provider => provider.id === selected?.provider)
   const manual = selected !== undefined && selected.provider !== ROTATE_PROVIDER
   const denial = manual ? globalStatus?.rotation.find(entry => entry.provider === selected.provider && entry.model === selected.model)?.unavailableReason ?? (selectedProvider ? providerModelIssue(selectedProvider, selected.model) : null) : null
@@ -113,6 +116,7 @@ function DashboardComposer({
   const ready =
     status?.providerReady === true && (mode === 'chat' || folder !== null)
   const canSend = draft.trim() !== '' && !sending && ready && pending === 0 && attachmentErrors.length === 0
+  const imageWarning = attached.some((item) => item.kind === 'image') && modelCannotSeeImages(status?.model)
 
   // The dashboard composer stands by as well: caret in place from mount, so
   // typing starts with zero clicks even before a session exists.
@@ -240,6 +244,11 @@ function DashboardComposer({
           {attachmentErrors.map((message, index) => <div key={index}>{message}</div>)}
           <button type="button" onClick={() => update(DASHBOARD_DRAFT, { attachmentErrors: [] })} className="mt-1 text-dim transition-colors hover:text-brand">Dismiss attachment errors</button>
         </div>}
+        {imageWarning && (
+          <div role="status" className="mb-2 px-1 text-[12.5px] text-del">
+            {status?.model} is a text-only model and cannot inspect the attached image. Choose a vision model before sending.
+          </div>
+        )}
 
 
         {/* Menus beside the glass card, not inside it, so their blur reaches
@@ -560,10 +569,14 @@ export function NewSessionView({
   // Deleting wipes the session everywhere: cancel its run if one is live,
   // free the main-process side, then drop it from the store.
   function removeSession(id: string): void {
-    for (const run of Object.values(activeRuns)) if (run.sessionId === id) void window.anticode.cancelRun(run.runId)
+    for (const [runId, run] of [...Object.entries(activeRuns), ...Object.entries(mirrorRuns)]) {
+      if (run.sessionId === id) void window.anticode.cancelRun(runId)
+    }
     void window.anticode.closeSession(id)
     deleteSession(id)
   }
+
+  const [duplicateError, setDuplicateError] = useState<string | null>(null)
 
   /**
    * The copy icon starts a blank session in the same project, not a second
@@ -572,13 +585,15 @@ export function NewSessionView({
   async function startSameProject(id: string): Promise<void> {
     const source = useSessionStore.getState().sessions.find((item) => item.id === id)
     if (source === undefined) return
+    setDuplicateError(null)
     const choice = status === null ? source : statusFor(status, source.id)
     const sessionId = openBlankSession(source.mode, source.projectRoot, choice.provider, choice.model)
     try {
       if (choice.provider) await window.anticode.selectProvider({ provider: choice.provider, model: choice.model ?? '' }, sessionId)
       onSelectSession(sessionId)
     } catch (error) {
-      useSessionStore.getState().updateDraft(sessionId, { text: error instanceof Error ? error.message : String(error) })
+      setDuplicateError(error instanceof Error ? error.message : String(error))
+      onSelectSession(sessionId)
     }
   }
 
@@ -645,6 +660,7 @@ export function NewSessionView({
           <Composer
             hero
             heroExtra={heroExtra}
+            fill={{ text: fillText, pulse: fillPulse }}
             status={status}
             providers={providers}
             onSelectProvider={onSelectProvider}
@@ -660,6 +676,12 @@ export function NewSessionView({
           />
         )}
       </div>
+
+      {duplicateError !== null && (
+        <div role="alert" className="mx-auto mt-3 max-w-3xl px-10 text-[12.5px] text-del">
+          {duplicateError}
+        </div>
+      )}
 
       {searchOpen && (
         <div className="mx-auto mt-4 w-full max-w-md px-10">

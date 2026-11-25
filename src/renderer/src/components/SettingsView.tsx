@@ -31,6 +31,8 @@ import { Mcp } from './settings/Mcp'
 import { Plugins } from './settings/Plugins'
 import { Capabilities } from './settings/Capabilities'
 import { Auth } from './settings/Auth'
+import { Credentials } from './settings/Credentials'
+import { Pricing } from './settings/Pricing'
 import { InstructionsField } from './InstructionsField'
 
 interface SettingsViewProps {
@@ -43,7 +45,7 @@ interface SettingsViewProps {
   onBack: () => void
 }
 
-type Section = 'general' | 'providers' | 'auth' | 'models' | 'usage' | 'mcp' | 'plugins' | 'remote' | 'updates'
+type Section = 'general' | 'providers' | 'auth' | 'models' | 'pricing' | 'usage' | 'mcp' | 'plugins' | 'remote' | 'updates'
 
 // Remembered across leaving and reopening Settings, so it reopens where it was left.
 let lastSection: Section = 'general'
@@ -125,7 +127,7 @@ function General({
         <SettingRow title="Notifications" hint="Off mutes every kind below at once">
           <Toggle
             on={preferences?.notifications.enabled === true}
-            onChange={(value) => change({ notifications: { ...preferences!.notifications, enabled: value } })}
+            onChange={(value) => { if (preferences !== null) change({ notifications: { ...preferences.notifications, enabled: value } }) }}
           />
         </SettingRow>
         {(
@@ -143,7 +145,7 @@ function General({
           <SettingRow key={key} title={title} hint={hint}>
             <Toggle
               on={preferences?.notifications[key] === true}
-              onChange={(value) => change({ notifications: { ...preferences!.notifications, [key]: value } })}
+              onChange={(value) => { if (preferences !== null) change({ notifications: { ...preferences.notifications, [key]: value } }) }}
               label={title}
             />
           </SettingRow>
@@ -565,6 +567,8 @@ function Providers({
   return (
     <>
       <h1 className="mb-6 text-[19px] text-text">Providers</h1>
+
+      <Credentials onChanged={() => void window.anticode.listProviders().then(onProvidersChange)} />
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-[14px] text-text">Connected providers</h2>
@@ -1443,7 +1447,13 @@ function RotateUsage({
                       >
                         {entry.model}
                       </span>
-                      {entry.unavailableReason ? <Tag>unavailable</Tag> : !entry.ready && <Tag>needs key</Tag>}
+                      {entry.unavailableReason
+                        ? <Tag>unavailable</Tag>
+                        : entry.composerDisabled
+                          ? <Tag>hidden</Tag>
+                          : entry.credentialReady === false
+                            ? <Tag>needs key</Tag>
+                            : !entry.ready && !resting && <Tag>needs key</Tag>}
                       {!providers.some((info) => info.id === entry.provider) && <Tag>provider gone</Tag>}
                       {spent !== null && (
                         <span
@@ -1513,7 +1523,10 @@ function RotateUsage({
               onIndividual={() => setBulk(false)}
               onCancel={() => setAdding(null)}
               onAdd={async entries => {
-                const saved = await saveGroups(groupsWith(viewed.id, group => ({ ...group, entries: [...group.entries, ...entries] })))
+                const saved = await saveGroups(groupsWith(viewed.id, group => ({
+                  ...group,
+                  entries: [...group.entries, ...entries.filter(candidate => !group.entries.some(existing => sameEntry(existing, candidate)))]
+                })))
                 if (saved) setAdding(null)
                 return saved
               }}
@@ -1717,22 +1730,27 @@ function Models({
     const request = ++catalogueRequest.current
     setRefreshingModels(false)
     setCatalogue(null)
-    void window.anticode.listModels(provider).then((result) => {
-      if (active && catalogueRequest.current === request) setCatalogue(result)
+    void Promise.all(accountIds.map((id) => window.anticode.listModels(id))).then((results) => {
+      if (!active || catalogueRequest.current !== request) return
+      const models = [...new Set(results.flatMap((item) => item.models))]
+      const firstError = results.find((item) => item.error !== null)?.error ?? null
+      setCatalogue({ provider, models, error: models.length > 0 ? null : firstError })
     })
     return () => {
       active = false
     }
-  }, [provider])
+  }, [provider, accountIds.join('\n')])
 
   async function refreshModels(): Promise<void> {
     const request = ++catalogueRequest.current
     setRefreshingModels(true)
     try {
-      const result = await window.anticode.listModels(provider, true)
+      const results = await Promise.all(accountIds.map((id) => window.anticode.listModels(id, true)))
       const updatedProviders = await window.anticode.listProviders()
       if (catalogueRequest.current === request) {
-        setCatalogue(result)
+        const models = [...new Set(results.flatMap((item) => item.models))]
+        const firstError = results.find((item) => item.error !== null)?.error ?? null
+        setCatalogue({ provider, models, error: models.length > 0 ? null : firstError })
         onProvidersChange(updatedProviders)
       }
     } catch (failure) {
@@ -1794,7 +1812,8 @@ function Models({
         // lines, so long and short provider names sit in a tidy grid.
         <div className="mb-3 grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-1">
           {providers.map((entry) => {
-            const count = pool.filter((item) => item.provider === entry.id).length
+            const ids = entry.accountIds ?? [entry.id]
+            const count = new Set(pool.filter((item) => ids.includes(item.provider)).map((item) => item.model)).size
             return (
               <button
                 key={entry.id}
@@ -1864,7 +1883,12 @@ function Models({
         )}
         {matches.map((id) => {
           const on = picked.includes(id)
-          const isDefault = id === status?.defaultModel && status.defaultProvider === provider
+          const isDefault = status !== null && id === status.defaultModel && accountIds.includes(status.defaultProvider)
+          const targetProvider =
+            accountIds.find((accId) => {
+              const acc = allProviders.find((p) => p.id === accId)
+              return acc?.credentialAvailable && (acc.kind !== 'auth' || acc.models?.includes(id))
+            }) ?? accountIds[0] ?? provider
           return (
             <div
               key={id}
@@ -1889,7 +1913,7 @@ function Models({
                 <button
                   type="button"
                   title="Start new sessions on this model"
-                  onClick={() => onSelectProvider(provider, id)}
+                  onClick={() => onSelectProvider(targetProvider, id)}
                   className="shrink-0 rounded-md px-2 py-1 text-[12px] text-faint opacity-0 transition-colors hover:bg-raised hover:text-brand focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   Use
@@ -2023,6 +2047,8 @@ export function SettingsView({
   onBack
 }: SettingsViewProps): JSX.Element {
   const [section, setSectionState] = useState<Section>(lastSection)
+  const restoreCleanup = useRef<(() => void) | null>(null)
+  useEffect(() => () => { restoreCleanup.current?.() }, [])
   const setSection = (next: Section): void => {
     lastSection = next
     setSectionState(next)
@@ -2070,6 +2096,15 @@ export function SettingsView({
       icon: (
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
           <path d="M8 1.8l1.4 3.6 3.8.2-3 2.4 1 3.7L8 9.6l-3.2 2.1 1-3.7-3-2.4 3.8-.2z" strokeLinejoin="round" />
+        </svg>
+      )
+    },
+    {
+      id: 'pricing',
+      label: 'Pricing',
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <path d="M8 2v12M10.8 4.8c0-1.1-1.2-1.8-2.8-1.8s-2.8.7-2.8 1.8 1 1.6 2.8 2 2.8.9 2.8 2-1.2 1.9-2.8 1.9-2.8-.7-2.8-1.9" strokeLinecap="round" />
         </svg>
       )
     },
@@ -2166,25 +2201,42 @@ export function SettingsView({
       <div
         ref={(node) => {
           if (node === null || node.dataset.restored === section) return
+          restoreCleanup.current?.()
+          restoreCleanup.current = null
           node.dataset.restored = section
           // A page that loads its data late is too short at first, and the
           // browser clamps the position (and reports that as a scroll). Keep
           // re-applying the saved spot as the content grows, until the user
           // scrolls on their own or the spot is reached.
           const target = scrollBySection[section] ?? 0
-          if (target === 0) return
+          if (target === 0) {
+            node.scrollTop = 0
+            return
+          }
           let done = false
           node.dataset.restoring = '1'
-          const stop = (): void => { done = true; delete node.dataset.restoring; observer.disconnect() }
+          const observer = new ResizeObserver(() => apply())
+          const stop = (): void => {
+            if (done) return
+            done = true
+            delete node.dataset.restoring
+            observer.disconnect()
+            window.clearTimeout(timer)
+            for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const) {
+              node.removeEventListener(type, stop)
+            }
+          }
           const apply = (): void => {
             if (done) return
             node.scrollTop = target
             if (Math.abs(node.scrollTop - target) < 2) stop()
           }
-          const observer = new ResizeObserver(apply)
           if (node.firstElementChild !== null) observer.observe(node.firstElementChild)
-          for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const) node.addEventListener(type, stop, { once: true })
-          window.setTimeout(stop, 4000)
+          for (const type of ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const) {
+            node.addEventListener(type, stop, { once: true })
+          }
+          const timer = window.setTimeout(stop, 4000)
+          restoreCleanup.current = stop
           apply()
         }}
         onScroll={(event) => {
@@ -2211,6 +2263,7 @@ export function SettingsView({
           {section === 'models' && (
             <Models status={status} providers={providers} onSelectProvider={onSelectProvider} onProvidersChange={onProvidersChange} />
           )}
+          {section === 'pricing' && <Pricing status={status} providers={providers} />}
           {section === 'usage' && <Usage />}
           {section === 'mcp' && <Mcp />}
           {section === 'plugins' && <Plugins />}

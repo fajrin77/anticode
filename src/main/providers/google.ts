@@ -1,3 +1,4 @@
+import { FIRST_DATA_TIMEOUT_MS, STREAM_INACTIVITY_MS } from './openai'
 import { ProviderRequestError } from './requestError'
 import { randomUUID } from 'node:crypto'
 import { GoogleGenAI } from '@google/genai'
@@ -93,7 +94,8 @@ export function toContents(messages: Message[]): Content[] {
   }
   const names = mapCallNames(clean)
 
-  return clean.flatMap((message): Content[] => {
+  const out: Content[] = []
+  for (const message of clean) {
     const parts: Part[] = []
 
     for (const block of message.content) {
@@ -123,9 +125,13 @@ export function toContents(messages: Message[]): Content[] {
       }
     }
 
-    if (parts.length === 0) return []
-    return [{ role: message.role === 'assistant' ? 'model' : 'user', parts }]
-  })
+    if (parts.length === 0) continue
+    const role = message.role === 'assistant' ? 'model' : 'user'
+    const previous = out[out.length - 1]
+    if (previous?.role === role && previous.parts) previous.parts.push(...parts)
+    else out.push({ role, parts })
+  }
+  return out
 }
 
 function toStopReason(reason: string | undefined, hasCalls: boolean): StopReason {
@@ -148,55 +154,84 @@ export class GoogleProvider implements LLMProvider {
   }
 
   async *chat(params: ChatParams): AsyncIterable<ProviderEvent> {
+    params.signal.throwIfAborted()
     // Gemini rejects an empty functionDeclarations array, so chat mode, which
     // is offered no tools at all, must not send the tools key.
     const tools =
       params.tools.length > 0 ? [{ functionDeclarations: toDeclarations(params.tools) }] : undefined
 
-    const stream = await this.client.models.generateContentStream({
-      model: this.model,
-      contents: toContents(params.messages),
-      config: {
-        systemInstruction: params.system,
-        ...(tools !== undefined ? { tools } : {}),
-        maxOutputTokens: params.maxTokens,
-        abortSignal: params.signal
-      }
-    })
+    const watchdog = new AbortController()
+    const onOuterAbort = (): void => watchdog.abort()
+    params.signal.addEventListener('abort', onOuterAbort, { once: true })
+    let received = false
+    let inactivity: ReturnType<typeof setTimeout> | null = null
+    const bump = (): void => {
+      if (inactivity !== null) clearTimeout(inactivity)
+      inactivity = setTimeout(() => watchdog.abort(), received ? STREAM_INACTIVITY_MS : FIRST_DATA_TIMEOUT_MS)
+    }
+    const stalled = (): Error => received
+      ? new ProviderRequestError('Google stream stalled mid-turn. The run stopped so nothing is duplicated', 503)
+      : Object.assign(new Error('Google stream stalled before any data arrived'), { status: 503 })
+    bump()
 
     let text = ''
     let finishReason: string | undefined
     const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 }
     const calls: ContentBlock[] = []
 
-    for await (const chunk of stream) {
-      if (chunk.usageMetadata) {
-        usage.inputTokens = chunk.usageMetadata.promptTokenCount ?? usage.inputTokens
-        usage.outputTokens = chunk.usageMetadata.candidatesTokenCount ?? usage.outputTokens
-        usage.cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? usage.cachedTokens
-      }
-
-      const candidate = chunk.candidates?.[0]
-      if (candidate?.finishReason) finishReason = candidate.finishReason
-
-      for (const part of candidate?.content?.parts ?? []) {
-        if (typeof part.text === 'string' && part.text !== '') {
-          text += part.text
-          yield { type: 'text_delta', text: part.text }
+    try {
+      const stream = await this.client.models.generateContentStream({
+        model: this.model,
+        contents: toContents(params.messages),
+        config: {
+          systemInstruction: params.system,
+          ...(tools !== undefined ? { tools } : {}),
+          maxOutputTokens: params.maxTokens,
+          abortSignal: watchdog.signal
         }
-        if (part.functionCall) {
-          const id = part.functionCall.id ?? syntheticId()
-          if (typeof part.thoughtSignature === 'string') calls.push({ type: 'opaque', provider: SIGNATURE_PROVIDER, raw: { id, signature: part.thoughtSignature } })
-          calls.push({
-            type: 'tool_use',
-            id,
-            name: part.functionCall.name ?? 'unknown',
-            input: part.functionCall.args ?? {}
-          })
+      })
+
+      for await (const chunk of stream) {
+        if (chunk.usageMetadata) {
+          usage.inputTokens = chunk.usageMetadata.promptTokenCount ?? usage.inputTokens
+          usage.outputTokens = chunk.usageMetadata.candidatesTokenCount ?? usage.outputTokens
+          usage.cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? usage.cachedTokens
         }
+
+        const candidate = chunk.candidates?.[0]
+        if (candidate?.finishReason) finishReason = candidate.finishReason
+
+        for (const part of candidate?.content?.parts ?? []) {
+          if (typeof part.text === 'string' && part.text !== '') {
+            received = true
+            text += part.text
+            yield { type: 'text_delta', text: part.text }
+          } else if ((part as { thought?: unknown }).thought) {
+            received = true
+          }
+          if (part.functionCall) {
+            received = true
+            const id = part.functionCall.id ?? syntheticId()
+            if (typeof part.thoughtSignature === 'string') calls.push({ type: 'opaque', provider: SIGNATURE_PROVIDER, raw: { id, signature: part.thoughtSignature } })
+            calls.push({
+              type: 'tool_use',
+              id,
+              name: part.functionCall.name ?? 'unknown',
+              input: part.functionCall.args ?? {}
+            })
+          }
+        }
+        bump()
       }
+    } catch (error) {
+      if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
+      throw error
+    } finally {
+      if (inactivity !== null) clearTimeout(inactivity)
+      params.signal.removeEventListener('abort', onOuterAbort)
     }
 
+    if (watchdog.signal.aborted && !params.signal.aborted) throw stalled()
     if (!finishReason) throw new ProviderRequestError('Google stream ended before completion; no partial tool calls were executed.', 503)
     const content: ContentBlock[] = text !== '' ? [{ type: 'text', text }, ...calls] : calls
     const response: LLMResponse = {

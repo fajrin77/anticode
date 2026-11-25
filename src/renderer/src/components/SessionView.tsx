@@ -3,13 +3,14 @@ import type { JSX } from 'react'
 import { isTypedPrompt, useActiveSession, useSessionStore } from '../store/session'
 import type { Message, MessagePart } from '../store/session'
 import type { ProviderSelection, RotationEntryStatus } from '@shared/ipc'
-import { PHASE_LABEL } from '@shared/ipc'
+import { PHASE_LABEL, ROTATE_PROVIDER, statusFor } from '@shared/ipc'
 import { ToolBlock } from './ToolBlock'
 import { activitySummary } from './activity'
 import { RichText, linkify } from './RichText'
 import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
 import { DiffView } from './DiffView'
+import { parseUnifiedDiff } from '../diff'
 import { formatUsd } from '../money'
 import { FOLLOW_UP_LABEL, PAUSE_LABEL, RESUME_LABEL } from '../labels'
 import { COMMIT_PROMPT } from '../commitOffer'
@@ -83,9 +84,9 @@ function QuestionCard({ part }: { part: ToolPart }): JSX.Element {
     ?? part.output
   return (
     <div data-question className="my-3 rounded-xl border border-line px-4 py-3 text-[14px]">
-      <div className="text-[12.5px] text-faint">Pertanyaan</div>
+      <div className="text-[12.5px] text-faint">Question</div>
       <div className="mt-1 text-dim">{typeof question === 'string' ? question : 'Question'}</div>
-      <div className="mt-1 whitespace-pre-wrap text-text">{part.status === 'running' ? 'Menunggu jawaban…' : answer}</div>
+      <div className="mt-1 whitespace-pre-wrap text-text">{part.status === 'running' ? 'Waiting for answer…' : answer}</div>
     </div>
   )
 }
@@ -208,7 +209,7 @@ export function breakdownOf(parts: MessagePart[]): string {
     else if (part.name === 'run_command') code += 1
     else if (part.name === 'share_file') shared += 1
     // Every tool that writes: the same families the produced-files list reads.
-    else if (/^(write|edit|delete|add|fill|create|format)_/.test(part.name)) edit += 1
+    else if (part.name === 'apply_patch' || /^(write|edit|delete|add|fill|create|format)_/.test(part.name)) edit += 1
     else explore += 1
   }
   const bits: string[] = []
@@ -616,6 +617,7 @@ function MessageView({
       )}
       {done && (
         <RunSummaryCard
+          sessionId={sessionId}
           message={message}
           open={stepsOpen}
           onToggle={() => setStepsOpen((value) => !value)}
@@ -679,6 +681,13 @@ function OldTurn({
     return (
       <>
         {prompt !== null && renderFull(prompt)}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="mt-2 block text-left text-[13px] text-faint transition-colors hover:text-brand"
+        >
+          Collapse turn
+        </button>
         {replies.map((reply) => renderFull(reply))}
         <SessionChangedFiles messages={prompt !== null ? [prompt, ...replies] : replies} />
       </>
@@ -770,8 +779,31 @@ const STAT_PATTERN = /\(\+(\d+)(?:\s*-\s*(\d+))?\)/
 /** Files the run touched, with per-file line counts from tool outputs. */
 function fileStats(parts: MessagePart[]): FileStat[] {
   const files = new Map<string, FileStat>()
+  const addStat = (stat: FileStat): void => {
+    const existing = files.get(stat.path)
+    if (existing === undefined) {
+      files.set(stat.path, stat)
+    } else {
+      existing.added += stat.added
+      existing.removed += stat.removed
+      existing.diffs.push(...stat.diffs)
+    }
+  }
   for (const part of parts) {
     if (part.kind !== 'tool' || part.status !== 'ok') continue
+    if (part.name === 'apply_patch') {
+      if (part.diff !== undefined && part.diff.trim() !== '') {
+        for (const chunk of part.diff.split(/(?=^--- a\/)/m)) {
+          if (chunk.trim() === '') continue
+          const header = /^\+\+\+ b\/(.+)$/m.exec(chunk) ?? /^--- a\/(.+)$/m.exec(chunk)
+          const path = header?.[1]?.trim() ?? ''
+          if (path === '') continue
+          const parsed = parseUnifiedDiff(chunk)
+          addStat({ path, added: parsed.added, removed: parsed.removed, diffs: [chunk.trimEnd()] })
+        }
+      }
+      continue
+    }
     if (!['edit_file', 'write_file', 'delete_file'].includes(part.name)) continue
     const path =
       part.input !== null &&
@@ -781,20 +813,12 @@ function fileStats(parts: MessagePart[]): FileStat[] {
         : ''
     if (path === '') continue
     const match = STAT_PATTERN.exec(part.output)
-    const stat: FileStat = {
+    addStat({
       path,
       added: match !== null ? Number(match[1] ?? 0) : 0,
       removed: match !== null ? Number(match[2] ?? 0) : 0,
       diffs: part.diff !== undefined ? [part.diff] : []
-    }
-    const existing = files.get(path)
-    if (existing === undefined) {
-      files.set(path, stat)
-    } else {
-      existing.added += stat.added
-      existing.removed += stat.removed
-      existing.diffs.push(...stat.diffs)
-    }
+    })
   }
   return [...files.values()]
 }
@@ -835,7 +859,7 @@ function summaryText(message: Message): string {
  * Settings → Models, for this one answer. Picking one changes nothing else:
  * the session keeps its model, rotation keeps rotating, the default stays.
  */
-function RetryButton({ onRetry, onOpenChange }: { onRetry: (choice: ProviderSelection | null) => void; onOpenChange: (open: boolean) => void }): JSX.Element {
+function RetryButton({ sessionId, onRetry, onOpenChange }: { sessionId: string; onRetry: (choice: ProviderSelection | null) => void; onOpenChange: (open: boolean) => void }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<RotationEntryStatus[] | null>(null)
   const [rotating, setRotating] = useState(false)
@@ -845,7 +869,8 @@ function RetryButton({ onRetry, onOpenChange }: { onRetry: (choice: ProviderSele
     onOpenChange(open)
     if (!open) return
     void window.anticode.getStatus().then((status) => {
-      setRotating(status.rotationEnabled)
+      const own = statusFor(status, sessionId)
+      setRotating(own.provider === ROTATE_PROVIDER)
       setModels(status.rotation.filter((entry) => entry.ready))
     })
     function onOutside(event: MouseEvent): void {
@@ -914,11 +939,13 @@ function RetryButton({ onRetry, onOpenChange }: { onRetry: (choice: ProviderSele
 }
 
 function RunSummaryCard({
+  sessionId,
   message,
   open,
   onToggle,
   onRetry
 }: {
+  sessionId: string
   message: Message
   open: boolean
   onToggle: () => void
@@ -976,7 +1003,7 @@ function RunSummaryCard({
           )}
         </button>
 
-        {onRetry !== undefined && <RetryButton onRetry={onRetry} onOpenChange={setMenuOpen} />}
+        {onRetry !== undefined && <RetryButton sessionId={sessionId} onRetry={onRetry} onOpenChange={setMenuOpen} />}
 
         <button
           type="button"
@@ -1080,10 +1107,13 @@ function ReplyToSelection({ sessionId }: { sessionId: string }): JSX.Element {
         document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
       }}
       data-reply-button
-      style={{ left: at.x, top: at.y - 10 }}
+      style={{
+        left: Math.min(Math.max(48, at.x), window.innerWidth - 48),
+        top: Math.max(56, at.y - 10)
+      }}
       className="fixed z-40 -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-raised px-3 py-1.5 text-[12.5px] text-text shadow-2xl transition-colors hover:text-brand"
     >
-      Balas
+      Reply
     </button>
   )
 }

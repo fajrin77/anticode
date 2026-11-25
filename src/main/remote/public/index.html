@@ -757,23 +757,23 @@
 <div id="imgViewer" class="hidden">
   <div class="vhead">
     <span class="vname" id="imgName"></span>
-    <button class="vbtn" id="imgZoom" onclick="toggleImageZoom()">Perbesar</button>
-    <button class="vbtn" onclick="closeImage()">Tutup</button>
+    <button class="vbtn" id="imgZoom" onclick="toggleImageZoom()">Zoom in</button>
+    <button class="vbtn" onclick="closeImage()">Close</button>
   </div>
   <div class="vbody" id="imgBody"><img id="imgFull" alt="" /></div>
 </div>
 <div id="fileViewer" class="hidden">
   <div class="vhead">
     <span class="vname" id="fileName"></span>
-    <a class="vbtn hidden" id="fileDownload">Unduh</a>
-    <button class="vbtn" onclick="closeFileViewer()">Tutup</button>
+    <a class="vbtn hidden" id="fileDownload">Download</a>
+    <button class="vbtn" onclick="closeFileViewer()">Close</button>
   </div>
   <div id="fileTabs"></div>
   <div id="fileNote"></div>
   <div id="fileBody"></div>
 </div>
 <button id="replyBtn" class="hidden"
-  onpointerdown="event.preventDefault(); quoteSelection()">Balas</button>
+  onpointerdown="event.preventDefault(); quoteSelection()">Reply</button>
 <div class="composer hidden" id="inputRow">
   <div id="quoteRow" class="hidden">
     <span class="qbar"></span>
@@ -864,8 +864,16 @@
   </div>
 </div>
 <script>
-const token = new URLSearchParams(location.search).get('token') || '';
-const api = (path, options) => fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + token, options);
+const urlToken = new URLSearchParams(location.search).get('token') || '';
+if (urlToken) {
+  try { sessionStorage.setItem('anticode.remote.token', urlToken); } catch {}
+  try { history.replaceState(null, '', location.pathname + location.hash); } catch {}
+}
+const token = urlToken || (() => { try { return sessionStorage.getItem('anticode.remote.token') || ''; } catch { return ''; } })();
+const api = (path, options = {}) => fetch(path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token), {
+  ...options,
+  headers: { ...(options.headers || {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }
+});
 const jfetch = (path, options) => api(path, options).then(async (r) => {
   const body = await r.json();
   if (!r.ok) {
@@ -992,7 +1000,7 @@ async function pollQuestions() {
     if (request.requestId === questionRequestId) return;
     questionRequestId = request.requestId;
     panel.replaceChildren();
-    const title = document.createElement('strong'); title.textContent = 'Pertanyaan';
+    const title = document.createElement('strong'); title.textContent = 'Question';
     const body = document.createElement('p'); body.textContent = request.question;
     panel.append(title, body);
     const answer = async (optionId, text) => {
@@ -1011,12 +1019,12 @@ async function pollQuestions() {
     if (request.allowCustom) {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;margin-top:6px';
       const input = document.createElement('input');
-      input.placeholder = 'Atau jawab sendiri…'; input.style.cssText = 'flex:1;background:#1a1a1a;border:1px solid #555;border-radius:10px;padding:10px 12px;color:#ededed';
-      const send = document.createElement('button'); send.textContent = 'Kirim';
+      input.placeholder = 'Or type your own answer…'; input.style.cssText = 'flex:1;background:#1a1a1a;border:1px solid #555;border-radius:10px;padding:10px 12px;color:#ededed';
+      const send = document.createElement('button'); send.textContent = 'Send';
       send.onclick = () => { if (input.value.trim() !== '') void answer(null, input.value.trim()); };
       row.append(input, send); panel.append(row);
     }
-    const skip = document.createElement('button'); skip.textContent = 'Lewati'; skip.style.cssText = 'margin-top:8px';
+    const skip = document.createElement('button'); skip.textContent = 'Skip'; skip.style.cssText = 'margin-top:8px';
     skip.onclick = () => { void answer(null, ''); };
     panel.append(skip);
     panel.classList.remove('hidden');
@@ -2541,7 +2549,7 @@ function openImage(item) {
   const full = document.getElementById('imgFull');
   document.getElementById('imgName').textContent = item.name;
   viewer.classList.remove('zoomed');
-  document.getElementById('imgZoom').textContent = 'Perbesar';
+  document.getElementById('imgZoom').textContent = 'Zoom in';
   // The original if the session still knows it, the thumbnail if not.
   full.src = item.thumbnail ?? '';
   full.alt = item.name;
@@ -2563,7 +2571,7 @@ function closeImage() {
 function toggleImageZoom() {
   const viewer = document.getElementById('imgViewer');
   const zoomed = viewer.classList.toggle('zoomed');
-  document.getElementById('imgZoom').textContent = zoomed ? 'Perkecil' : 'Perbesar';
+  document.getElementById('imgZoom').textContent = zoomed ? 'Zoom out' : 'Zoom in';
   document.getElementById('imgBody').scrollTop = 0;
 }
 
@@ -2658,7 +2666,7 @@ function artifactEl(sessionId, target) {
   info.append(name, kind);
   const link = document.createElement('a');
   link.href = downloadUrl(sessionId, target);
-  link.textContent = 'Unduh';
+  link.textContent = 'Download';
   link.setAttribute('download', target.split('/').pop());
   link.onclick = (event) => event.stopPropagation();
   row.append(tag, info, link);
@@ -2692,7 +2700,7 @@ async function openFileViewer(sessionId, target, attachment) {
   download.setAttribute('download', name);
   document.getElementById('fileTabs').innerHTML = '';
   document.getElementById('fileNote').textContent = '';
-  showViewerMessage('Membuka…');
+  showViewerMessage('Opening…');
   document.getElementById('fileViewer').classList.remove('hidden');
   const query = 'sessionId=' + encodeURIComponent(sessionId) + '&path=' + encodeURIComponent(target) +
     (attachment ? '&attachment=1' : '');
@@ -3331,7 +3339,7 @@ async function renderListing() {
       const link = document.createElement('a');
       link.className = 'dl';
       link.textContent = '↓';
-      link.title = 'Unduh';
+      link.title = 'Download';
       link.href = '/api/download?sessionId=' + encodeURIComponent(sessionId) +
         '&path=' + encodeURIComponent(joinPath(currentPath, entry)) +
         '&token=' + encodeURIComponent(token);

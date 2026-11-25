@@ -77,7 +77,11 @@ export function updateState(): UpdateState {
       error: null,
       checkedAt: null,
       // A dev run is Electron itself, not a bundle of anticode to replace.
-      canInstall: app.isPackaged && ['darwin', 'win32', 'linux'].includes(process.platform)
+      canInstall:
+        app.isPackaged &&
+        (process.platform === 'darwin' ||
+          process.platform === 'win32' ||
+          (process.platform === 'linux' && Boolean(process.env['APPIMAGE'])))
     }
   }
   return state

@@ -4,7 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readFileTool } from './readFile'
 import { writeFileTool } from './writeFile'
-import { editFileTool } from './editFile'
+import { diffStat, editFileTool } from './editFile'
+import { deleteFileTool } from './deleteFile'
 import { listDirectoryTool } from './listDirectory'
 import { runCommandTool } from './runCommand'
 import { activeWebUrl, listWeb } from '../web'
@@ -147,6 +148,24 @@ describe('edit_file', () => {
     await expect(
       editFileTool.prepare({ path: 'a.txt', old_string: 'tidak ada', new_string: 'y' }).execute(context)
     ).rejects.toThrow(/not found/)
+  })
+
+  it('handles 25k-line files in diffStat without OOM and supports replace_all + CRLF', async () => {
+    const bigBefore = Array.from({ length: 25_000 }, (_, i) => `line ${i}`).join('\n')
+    const bigAfter = bigBefore.replace('line 12500', 'changed 12500')
+    expect(diffStat(bigBefore, bigAfter)).toBe('(+1 -1)')
+
+    await writeFile(path.join(root, 'crlf.txt'), 'foo\r\nbar\r\nfoo\r\n')
+    await editFileTool.prepare({ path: 'crlf.txt', old_string: 'foo\nbar', new_string: 'baz\nqux' }).execute(context)
+    expect(await readFile(path.join(root, 'crlf.txt'), 'utf8')).toBe('baz\r\nqux\r\nfoo\r\n')
+
+    await writeFile(path.join(root, 'all.txt'), 'a\na\na')
+    await editFileTool.prepare({ path: 'all.txt', old_string: 'a', new_string: 'b', replace_all: true }).execute(context)
+    expect(await readFile(path.join(root, 'all.txt'), 'utf8')).toBe('b\nb\nb')
+  })
+
+  it('refuses deleting the workspace root folder', async () => {
+    await expect(deleteFileTool.prepare({ path: '.', recursive: true }).execute(context)).rejects.toThrow(/workspace root/)
   })
 })
 

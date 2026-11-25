@@ -113,10 +113,22 @@ export function applyTray(): void {
   if (tray !== null) return
   tray = new Tray(trayImage())
   tray.setToolTip('anticode')
+  if (process.platform === 'linux') tray.setContextMenu(menu())
   // Built on every open, so the recent sessions and their state are current.
-  const open = (): void => tray?.popUpContextMenu(menu())
+  const open = (): void => {
+    const built = menu()
+    if (process.platform === 'linux') tray?.setContextMenu(built)
+    else tray?.popUpContextMenu(built)
+  }
   tray.on('click', open)
   tray.on('right-click', open)
+}
+
+export function destroyTray(): void {
+  tray?.destroy()
+  tray = null
+  if (capture !== null && !capture.isDestroyed()) capture.destroy()
+  capture = null
 }
 
 /** Where the renderer lives, so the capture panel loads the same bundle. */

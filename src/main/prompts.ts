@@ -6,7 +6,7 @@ import { attachmentsFor, blocksOf, refsOf, releaseAttachments, stagedRefs } from
 import { randomUUID } from 'node:crypto'
 import { clearQueue, dequeue, enqueue, removeQueued, requeue } from './queue'
 import type { QueuedPrompt } from '@shared/ipc'
-import { announceTitle, forgetOneShotChoice, getSession, getStatus, persistSessions, selectProviderOnce, takeBackPrompt } from './runtime'
+import { announceTitle, forgetOneShotChoice, getSession, getStatus, loadSessionMessages, persistSessions, selectProviderOnce, takeBackPrompt } from './runtime'
 import { beginRun, finishRun, isPaused, runForSession } from './runs'
 import { announceHistory, announceStatus, forward, registerRun } from './remote/bus'
 
@@ -55,8 +55,6 @@ async function admit(
       const queued = await queuePrompt(req, gate)
       return { runId: queued.runId, steered: false }
     }
-    const status = getStatus(req.sessionId)
-    if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
     const agent = getSession(req.sessionId, gate)
     if (!agent.steer(req.prompt, [])) throw new Error('Wait for this session to finish stopping')
     forward({ type: 'steer', runId: runningNow, text: req.prompt, attachments: [] })
@@ -69,9 +67,6 @@ async function admit(
   // Preparation can outlive a deletion, model change, or a finishing run.
   // Recheck the current main-process state after that asynchronous work,
   // this session's own model, not whichever was picked last elsewhere.
-  const status = getStatus(req.sessionId)
-  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
-  const agent = getSession(req.sessionId, gate)
   const existing = runForSession(req.sessionId)
   if (existing !== null) {
     // A session the user paused is not really working: a prompt typed now is
@@ -81,11 +76,15 @@ async function admit(
       const queued = await queuePrompt(req, gate)
       return { runId: queued.runId, steered: false }
     }
+    const agent = getSession(req.sessionId, gate)
     if (!agent.steer(req.prompt, blocks)) throw new Error('Wait for this session to finish stopping')
     forward({ type: 'steer', runId: existing, text: req.prompt, attachments: refs })
     releaseAttachments(req.attachmentIds)
     return { runId: existing, steered: true }
   }
+  const status = getStatus(req.sessionId)
+  if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+  const agent = getSession(req.sessionId, gate)
 
   const controller = beginRun(req.runId, req.sessionId)
   registerRun(req.runId, req.sessionId)
@@ -209,12 +208,21 @@ export function forgetQueue(sessionId: string): void {
 }
 
 function sendNextQueued(sessionId: string, gate: ApprovalGate): void {
+  if (loadSessionMessages(sessionId) === null) {
+    forgetQueue(sessionId)
+    return
+  }
   const next = dequeue(sessionId)
   if (next === undefined) return
   const { attachmentIds, ...shown } = next
   void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds, plan: next.plan }, gate).catch(() => {
+    if (loadSessionMessages(sessionId) === null) {
+      releaseAttachments(attachmentIds)
+      return
+    }
     // It could not start, the model is not ready, the files are gone. It
     // waits at the front of the line rather than vanishing.
     requeue(sessionId, { ...shown, attachmentIds })
+    announceStatus()
   })
 }

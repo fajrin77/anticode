@@ -1,9 +1,10 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
 import { defineTool, ToolError } from './types'
 import { resolveInWorkspace } from './workspace'
 import { TRANSCRIPT_DIFF_CHARS, unifiedDiff } from './diff'
+import { diffStat } from './editFile'
 
 type Operation = { kind: 'Add' | 'Update' | 'Delete'; path: string; lines: string[] }
 
@@ -55,6 +56,11 @@ function update(original: string, body: string[]): string {
         if (index !== body.length) throw new ToolError('End of File must be the final hunk line')
         break
       }
+      if (line === '') {
+        before.push('')
+        after.push('')
+        continue
+      }
       if (![' ', '+', '-'].includes(line[0] ?? '')) throw new ToolError('Hunk lines must start with space, +, or -')
       if (line[0] !== '+') before.push(line.slice(1))
       if (line[0] !== '-') after.push(line.slice(1))
@@ -75,15 +81,19 @@ function update(original: string, body: string[]): string {
   return lines.join(eol) + (trailing && lines.length ? eol : '')
 }
 
-type Change = { target: string; name: string; before: string | null; after: string | null }
+type Change = { target: string; name: string; before: string | null; after: string | null; mode?: number }
 
 async function prepareChanges(patch: string, root: string): Promise<Change[]> {
   const changes: Change[] = []
   const seen = new Set<string>()
   for (const operation of parse(patch)) {
     const target = resolveInWorkspace(root, operation.path)
+    if (path.resolve(target) === path.resolve(root)) {
+      throw new ToolError('Refusing to patch or delete the workspace root folder')
+    }
     if (seen.has(target)) throw new ToolError('Each file may appear only once in a patch')
     seen.add(target)
+    const info = await stat(target).catch(() => null)
     const before = await readFile(target, 'utf8').catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return null
       throw error
@@ -98,13 +108,18 @@ async function prepareChanges(patch: string, root: string): Promise<Change[]> {
       if (operation.kind === 'Delete' && operation.lines.length) throw new ToolError('Delete File takes no hunk lines')
       after = operation.kind === 'Delete' ? null : update(before, operation.lines)
     }
-    changes.push({ target, name: operation.path, before, after })
+    changes.push({ target, name: operation.path, before, after, ...(info ? { mode: info.mode } : {}) })
   }
   return changes
 }
 
+const MAX_COMBINED_PATCH_CHARS = TRANSCRIPT_DIFF_CHARS * 2
+
 function diffOf(changes: Change[]): string {
-  return changes.map((change) => unifiedDiff(change.name, change.before ?? '', change.after ?? '', TRANSCRIPT_DIFF_CHARS)).join('\n')
+  const combined = changes.map((change) => unifiedDiff(change.name, change.before ?? '', change.after ?? '', TRANSCRIPT_DIFF_CHARS)).join('\n')
+  return combined.length > MAX_COMBINED_PATCH_CHARS
+    ? `${combined.slice(0, MAX_COMBINED_PATCH_CHARS)}\n… diff truncated`
+    : combined
 }
 
 export const applyPatchTool = defineTool({
@@ -141,11 +156,16 @@ export const applyPatchTool = defineTool({
       for (const change of applied.reverse()) {
         try {
           if (change.before === null) await unlink(change.target)
-          else await writeFile(change.target, change.before, 'utf8')
+          else {
+            await writeFile(change.target, change.before, 'utf8')
+            if (change.mode !== undefined) await chmod(change.target, change.mode).catch(() => undefined)
+          }
         } catch { failed.push(change.name) }
       }
       throw new ToolError(`Patch failed: ${(error as Error).message}${failed.length ? `. Could not restore: ${failed.join(', ')}` : '. Earlier changes restored.'}`)
     }
-    return { text: `Applied patch: ${changes.map((change) => change.name).join(', ')}`, images: [], diff: diffOf(changes) }
+    const beforeJoined = changes.map((c) => c.before ?? '').join('\n')
+    const afterJoined = changes.map((c) => c.after ?? '').join('\n')
+    return { text: `Applied patch: ${changes.map((change) => change.name).join(', ')} ${diffStat(beforeJoined, afterJoined)}`, images: [], diff: diffOf(changes) }
   }
 })

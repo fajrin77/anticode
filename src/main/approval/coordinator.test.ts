@@ -23,3 +23,14 @@ it('scopes Always allow to a single session', () => {
   expect(policy.needsApproval('write_file', 'medium', 'a')).toBe(false)
   expect(policy.needsApproval('write_file', 'medium', 'b')).toBe(true)
 })
+it('rejects immediately instead of hanging when no desktop window or remote viewer exists', async () => {
+  const gate = new ApprovalCoordinator(new ApprovalPolicy(), () => null)
+  const result = await gate.authorize({
+    runId: 'r',
+    toolName: 'write_file',
+    risk: 'medium',
+    signal: new AbortController().signal,
+    preview: async () => ({ kind: 'text', subject: 'file', detail: 'write' })
+  })
+  expect(result).toBe(false)
+})
