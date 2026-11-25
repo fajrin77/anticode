@@ -343,6 +343,13 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
             )}
           </IconButton>
 
+          <IconButton label="Open browser DevTools" onClick={() => {
+            const page = guest()
+            if (page && !state.loading) page.openDevTools()
+          }}>
+            <span aria-hidden className="font-mono text-xs">{'{ }'}</span>
+          </IconButton>
+
           <input
             value={address}
             spellCheck={false}
@@ -353,8 +360,10 @@ export function WebPanel({ sessionId, entry, open, onHide }: WebPanelProps): JSX
             }}
             onBlur={() => setEditing(false)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return
               if (event.key === 'Enter') go()
               if (event.key === 'Escape') {
+                event.preventDefault()
                 setEditing(false)
                 setAddress(active?.url ?? '')
                 event.currentTarget.blur()

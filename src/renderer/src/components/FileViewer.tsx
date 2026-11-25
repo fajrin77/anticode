@@ -85,7 +85,10 @@ export function FileViewer(): JSX.Element {
   useEffect(() => {
     if (target === null) return
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') close()
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented ||
+        document.querySelector('[data-image-viewer], .menu-glass:not([popover]), :popover-open')) return
+      event.preventDefault()
+      close()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -166,6 +169,18 @@ export function FileViewer(): JSX.Element {
           {name}
         </span>
         {saved !== null && <span className="max-w-72 truncate text-[11.5px] text-add">Saved to {saved}</span>}
+        {target.kind === 'artifact' && target.line !== undefined && <select aria-label="Open in editor"
+          className="max-w-32 rounded bg-raised text-xs text-dim transition-colors hover:text-brand" value=""
+          onChange={event => {
+            const editor = event.currentTarget.value
+            if (editor !== 'code' && editor !== 'cursor') return
+            void window.anticode.openInEditor(target.sessionId, target.path, editor, target.line ?? 1)
+              .catch((error: Error) => setFailure(error.message))
+          }}>
+          <option value="">Open in editor…</option>
+          <option value="code">VS Code</option>
+          <option value="cursor">Cursor</option>
+        </select>}
         <button
           type="button"
           onClick={openInApp}
@@ -180,7 +195,7 @@ export function FileViewer(): JSX.Element {
               onClick={() => {
                 void window.anticode.revealArtifact(target.sessionId, target.path).then((failure) => {
                   if (failure !== null) setFailure(failure)
-                })
+                }).catch((error: Error) => setFailure(error.message))
               }}
               className="glass-ghost shrink-0 rounded-md px-2 py-1 text-[12.5px] text-dim hover:text-brand"
             >

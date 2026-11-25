@@ -962,7 +962,7 @@ async function pollApprovals() {
     panel.replaceChildren();
     const title = document.createElement('strong'); title.textContent = 'Approval · ' + request.toolName + ' · ' + request.risk;
     const detail = document.createElement('pre'); detail.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:30vh;overflow:auto';
-    detail.textContent = request.preview.subject + '\n';
+    detail.textContent = (request.workspaceRoot || 'Chat workspace') + '\n' + request.preview.subject + '\n';
     for (const line of String(request.preview.detail).split('\n')) {
       const span = document.createElement('span');
       if (request.preview.kind === 'diff' && /^\+(?!\+\+)/.test(line)) span.className = 'dadd';
@@ -976,7 +976,7 @@ async function pollApprovals() {
       button.style.marginRight = '8px';
       button.onclick = async () => {
         button.disabled = true;
-        try { await jfetch('/api/approval', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId,decision})}); panel.classList.add('hidden'); approvalRequestId=null; }
+        try { await jfetch('/api/approval', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({requestId:request.requestId,sessionId:id,decision})}); panel.classList.add('hidden'); approvalRequestId=null; }
         catch (error) { showError(error); button.disabled=false; }
       };
       panel.append(button);

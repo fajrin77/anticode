@@ -1,6 +1,5 @@
 import {
   cancelRun,
-  cancelSessionRuns,
   pauseSession,
   listActiveRuns,
   runForSession
@@ -34,6 +33,7 @@ import {
   listSessionSpecs,
   listSessionSummaries,
   loadSessionMessages,
+  sessionMode,
   revertLastTurn,
   sessionFileRoot,
   sessionWorkspaceRoot
@@ -432,8 +432,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
     if (req.method === 'DELETE' && sessionMatch !== null) {
       const id = sessionMatch[1] ?? ''
-      cancelSessionRuns(id)
-      deleteSession(id)
+      await deleteSession(id)
       return json(res, 200, { ok: true })
     }
 
@@ -522,15 +521,16 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       // serves as the heartbeat telling it the session is still there, a
       // delete on the desktop would otherwise leave it on a dead screen.
       return json(res, 200, {
-        exists: sessionId === '' || loadSessionMessages(sessionId) !== null,
+        exists: sessionId === '' || sessionMode(sessionId) !== null,
         status: getStatus(),
-        requests: approvals.listPending().filter((request) => request.runId === runId)
+        requests: approvals.listPending().filter((request) => request.runId === runId && request.sessionId === sessionId)
       })
     }
     if (req.method === 'POST' && url.pathname === '/api/approval') {
       if (typeof body.requestId !== 'string' || !['approve', 'reject', 'always'].includes(String(body.decision))) throw new Error('Invalid approval response')
       const pending = approvals.listPending().find((request) => request.requestId === body.requestId)
-      if (!pending) throw new Error('This approval is no longer pending')
+      if (!pending || pending.sessionId !== body.sessionId) throw new Error('This approval is no longer pending in this session')
+      if (body.decision === 'always' && !pending.allowAlways) throw new Error('This request cannot be allowed permanently')
       approvals.resolve(body.requestId, body.decision as 'approve' | 'reject' | 'always')
       return json(res, 200, { ok: true })
     }

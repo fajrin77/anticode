@@ -143,16 +143,20 @@ export function ImageViewer({
 }): JSX.Element {
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      onClose()
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [onClose])
 
   // Portaled to the body: transcript rows use content-visibility, which clips a
   // fixed overlay to the row and left the rest of the window unclickable.
   return createPortal(
     <div
+      data-image-viewer
       role="dialog"
       aria-label={name}
       onClick={onClose}

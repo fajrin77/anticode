@@ -1,8 +1,10 @@
-import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
 import type { Dirent } from 'node:fs'
-import { copyFile, lstat, mkdir, readdir, rename, rm } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, readdir, readFile, rename, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { unifiedDiff, TRANSCRIPT_DIFF_CHARS } from './tools/diff'
+import { resolveInWorkspace } from './tools/workspace'
 import { isIgnoredEntry } from './tools/ignore'
 
 /*
@@ -30,6 +32,7 @@ const DIRECTORY_MAX_FILES = 5_000
 const CAPTURE_MAX_FILE_BYTES = 200 * 1024 * 1024
 /** Checkpoints older than this many prompts are dropped. */
 const KEEP_TURNS = 40
+const MAX_TURN_BYTES = 300 * 1024 * 1024
 
 type EntryKind =
   /** It was a file; `blob` holds its bytes. */
@@ -59,6 +62,8 @@ interface Manifest {
 
 interface FileStat {
   mtimeMs: number
+  ctimeMs: number
+  inode: number
   size: number
 }
 
@@ -77,7 +82,7 @@ export interface RestoreReport {
 const CLONE = constants.COPYFILE_FICLONE
 
 function sameStat(a: FileStat | undefined, b: FileStat | undefined): boolean {
-  return a !== undefined && b !== undefined && a.mtimeMs === b.mtimeMs && a.size === b.size
+  return a !== undefined && b !== undefined && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.inode === b.inode && a.size === b.size
 }
 
 function isInside(root: string, target: string): boolean {
@@ -87,10 +92,43 @@ function isInside(root: string, target: string): boolean {
 
 export class CheckpointStore {
   private current: Manifest | null = null
+  private currentBytes = 0
   private pendingTurn: number | null = null
   /** Path → the clone that holds its bytes as of the last scan. */
   private readonly mirror = new Map<string, FileStat & { blob: string }>()
   private mirrorBytes = 0
+  private commandActive = false
+  private disposed = false
+  private static readonly mirrors = new Set<CheckpointStore>()
+
+  static forgetIdleMirror(dir: string): void {
+    for (const store of this.mirrors) {
+      if (store.dir !== dir || store.commandActive) continue
+      store.mirror.clear()
+      store.mirrorBytes = 0
+      this.mirrors.delete(store)
+    }
+  }
+
+  static notePruned(dir: string, turn: number): void {
+    const file = path.join(dir, '.pruned-before')
+    const previous = existsSync(file) ? Number(readFileSync(file, 'utf8')) : 0
+    if (Number.isFinite(previous) && previous >= turn + 1) return
+    writeFileSync(file, String(turn + 1), { mode: 0o600 })
+  }
+
+  private clearMirror(): void {
+    rmSync(this.mirrorDir(), { recursive: true, force: true })
+    this.mirror.clear()
+    this.mirrorBytes = 0
+    CheckpointStore.mirrors.delete(this)
+  }
+
+  private pruneWorkspaceMirrors(): void {
+    for (const store of CheckpointStore.mirrors) {
+      if (store !== this && !store.commandActive && store.root === this.root) store.clearMirror()
+    }
+  }
 
   constructor(
     private readonly dir: string,
@@ -98,7 +136,8 @@ export class CheckpointStore {
   ) {
     // The mirror only describes the files as this process last saw them; one
     // left by an earlier run of the app describes nothing trustworthy.
-    rmSync(this.mirrorDir(), { recursive: true, force: true })
+    try { this.root = realpathSync(root) } catch { /* The workspace may be offline. */ }
+    this.clearMirror()
   }
 
   private mirrorDir(): string {
@@ -118,7 +157,7 @@ export class CheckpointStore {
       if (name.startsWith('.')) continue
       try {
         const manifest = JSON.parse(readFileSync(path.join(this.dir, name, 'manifest.json'), 'utf8')) as Manifest
-        if (manifest.version === 1 && typeof manifest.turn === 'number' && Array.isArray(manifest.entries)) found.push(manifest)
+        if (manifest.version === 1 && manifest.id === name && typeof manifest.turn === 'number' && Array.isArray(manifest.entries)) found.push(manifest)
       } catch {
         // A half-written checkpoint from a crash restores nothing; drop it.
         rmSync(path.join(this.dir, name), { recursive: true, force: true })
@@ -138,6 +177,7 @@ export class CheckpointStore {
    */
   begin(turn: number): void {
     this.current = null
+    this.currentBytes = 0
     this.pendingTurn = turn
   }
 
@@ -165,7 +205,9 @@ export class CheckpointStore {
     const turns = [...new Set(this.manifests().map((manifest) => manifest.turn).filter((value) => value < turn))]
     const drop = new Set(turns.slice(0, Math.max(0, turns.length - (KEEP_TURNS - 1))))
     for (const manifest of this.manifests()) {
-      if (drop.has(manifest.turn)) rmSync(path.join(this.dir, manifest.id), { recursive: true, force: true })
+      if (!drop.has(manifest.turn)) continue
+      CheckpointStore.notePruned(this.dir, manifest.turn)
+      rmSync(path.join(this.dir, manifest.id), { recursive: true, force: true })
     }
   }
 
@@ -210,9 +252,14 @@ export class CheckpointStore {
       manifest.skipped.push(`${relative} (too large to keep)`)
       return
     }
+    if (this.currentBytes + size > MAX_TURN_BYTES) {
+      manifest.skipped.push(`${relative} (checkpoint size limit)`)
+      return
+    }
     const blob = String(manifest.entries.length)
     try {
       copyFileSync(absolute, this.blobPath(blob), CLONE)
+      this.currentBytes += size
       manifest.entries.push({ path: relative, kind: 'file', blob })
     } catch {
       manifest.skipped.push(`${relative} (unreadable)`)
@@ -277,7 +324,7 @@ export class CheckpointStore {
           if (files.size + pending.length >= SCAN_MAX_FILES) return { files, dirs, truncated: true }
           pending.push(
             lstat(path.join(this.root, relative)).then(
-              (info) => { files.set(relative, { mtimeMs: info.mtimeMs, size: info.size }) },
+              (info) => { files.set(relative, { mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, inode: info.ino, size: info.size }) },
               () => undefined
             )
           )
@@ -293,6 +340,18 @@ export class CheckpointStore {
    * so every file the command might change has its before-image at hand.
    */
   async beforeCommand(): Promise<WorkspaceScan> {
+    this.commandActive = true
+    CheckpointStore.mirrors.add(this)
+    try {
+      this.pruneWorkspaceMirrors()
+      return await this.prepareMirror()
+    } catch (error) {
+      this.commandActive = false
+      throw error
+    }
+  }
+
+  private async prepareMirror(): Promise<WorkspaceScan> {
     const scan = await this.scan()
     if (scan.truncated) return scan
     await mkdir(this.mirrorDir(), { recursive: true })
@@ -329,7 +388,17 @@ export class CheckpointStore {
    * After a shell command: whatever it created, changed, or deleted becomes
    * part of this run's checkpoint, with the before-image the mirror held.
    */
-  async afterCommand(before: WorkspaceScan): Promise<void> {
+  async afterCommand(before: WorkspaceScan): Promise<string | undefined> {
+    try {
+      return await this.recordCommand(before)
+    } finally {
+      this.commandActive = false
+      if (this.disposed) this.clearMirror()
+      else this.pruneWorkspaceMirrors()
+    }
+  }
+
+  private async recordCommand(before: WorkspaceScan): Promise<string | undefined> {
     if (before.truncated) {
       this.open().skipped.push(`terminal changes (the workspace has more than ${SCAN_MAX_FILES} files)`)
       this.save()
@@ -348,6 +417,19 @@ export class CheckpointStore {
     if (created.length + removed.length + changed.length + added.length === 0) return
 
     const manifest = this.open()
+    let diff = ''
+    const addDiff = async (relative: string, previous: string | null): Promise<void> => {
+      if (diff.length >= TRANSCRIPT_DIFF_CHARS - 100) return
+      if (Math.max(before.files.get(relative)?.size ?? 0, after.files.get(relative)?.size ?? 0) > 128 * 1024) return
+      try {
+        const target = resolveInWorkspace(this.root, relative)
+        const old = previous === null ? Buffer.alloc(0) : await readFile(previous)
+        const now = after.files.has(relative) ? await readFile(target) : Buffer.alloc(0)
+        if (old.includes(0) || now.includes(0) || old.equals(now)) return
+        diff += unifiedDiff(relative.replaceAll(path.sep, '/'), old.toString('utf8'), now.toString('utf8'), TRANSCRIPT_DIFF_CHARS - diff.length)
+        if (!diff.endsWith('\n')) diff += '\n'
+      } catch { /* A concurrent edit or a non-text file may not produce a useful diff. */ }
+    }
     // Restores run newest-first, so new folders go in first: they are removed
     // last, after the files inside them are gone, deepest first.
     for (const folder of created.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length)) {
@@ -355,15 +437,21 @@ export class CheckpointStore {
     }
     for (const folder of removed) if (!this.has(folder)) manifest.entries.push({ path: folder, kind: 'dir' })
     for (const [relative, info] of changed) {
-      if (this.has(relative)) continue
       const kept = this.mirror.get(relative)
       if (kept === undefined || !sameStat(kept, info)) {
         manifest.skipped.push(`${relative} (too large to keep)`)
         continue
       }
+      await addDiff(relative, path.join(this.mirrorDir(), kept.blob))
+      if (this.has(relative)) continue
+      if (this.currentBytes + kept.size > MAX_TURN_BYTES) {
+        manifest.skipped.push(`${relative} (checkpoint size limit)`)
+        continue
+      }
       const blob = String(manifest.entries.length)
       try {
         await rename(path.join(this.mirrorDir(), kept.blob), this.blobPath(blob))
+        this.currentBytes += kept.size
         manifest.entries.push({ path: relative, kind: 'file', blob })
       } catch {
         manifest.skipped.push(`${relative} (could not be kept)`)
@@ -371,8 +459,12 @@ export class CheckpointStore {
       this.mirror.delete(relative)
       this.mirrorBytes -= kept.size
     }
-    for (const relative of added) if (!this.has(relative)) manifest.entries.push({ path: relative, kind: 'absent' })
+    for (const relative of added) {
+      if (!this.has(relative)) manifest.entries.push({ path: relative, kind: 'absent' })
+      await addDiff(relative, null)
+    }
     this.save()
+    return diff || undefined
   }
 
   /**
@@ -382,13 +474,18 @@ export class CheckpointStore {
    */
   restoreFrom(turn: number): RestoreReport {
     const report: RestoreReport = { restored: 0, skipped: [] }
+    const marker = path.join(this.dir, '.pruned-before')
+    if (existsSync(marker) && turn < Number(readFileSync(marker, 'utf8'))) {
+      report.skipped.push('older file checkpoints expired')
+    }
     const undone = this.manifests().filter((manifest) => manifest.turn >= turn).reverse()
     for (const manifest of undone) {
       for (const entry of [...manifest.entries].reverse()) {
         const target = path.join(this.root, entry.path)
         if (!isInside(this.root, target)) continue
         try {
-          if (entry.kind === 'file' && entry.blob !== undefined) {
+          resolveInWorkspace(this.root, target)
+          if (entry.kind === 'file' && entry.blob !== undefined && /^\d+$/.test(entry.blob)) {
             const existing = existsSync(target) ? lstatSync(target) : null
             if (existing?.isDirectory() === true) rmSync(target, { recursive: true, force: true })
             mkdirSync(path.dirname(target), { recursive: true })
@@ -413,10 +510,14 @@ export class CheckpointStore {
     }
     if (this.current !== null && this.current.turn >= turn) this.current = null
     // Restored files no longer match what the mirror remembers.
-    for (const info of this.mirror.values()) rmSync(path.join(this.mirrorDir(), info.blob), { force: true })
-    this.mirror.clear()
-    this.mirrorBytes = 0
+    this.clearMirror()
     return report
+  }
+
+  release(): void {
+    this.disposed = true
+    CheckpointStore.mirrors.delete(this)
+    if (!this.commandActive) this.clearMirror()
   }
 
   /** The session is gone; so are its checkpoints. */
@@ -424,5 +525,6 @@ export class CheckpointStore {
     rmSync(this.dir, { recursive: true, force: true })
     this.mirror.clear()
     this.mirrorBytes = 0
+    CheckpointStore.mirrors.delete(this)
   }
 }

@@ -1,3 +1,4 @@
+import { claudeEffort, requestEffort } from '../effort'
 import { APP_VERSION } from '../version'
 import { FIRST_DATA_TIMEOUT_MS, STREAM_INACTIVITY_MS } from './openai'
 import { ProviderRequestError } from './requestError'
@@ -181,13 +182,16 @@ export class AnthropicProvider implements LLMProvider {
       : Object.assign(new Error('Anthropic stream stalled before any data arrived'), { status: 503 })
     bump()
 
+    const effort = this.model.startsWith('claude-') ? claudeEffort(requestEffort('claude', this.model)) : undefined
     const stream = this.client.messages.stream(
       {
         model: this.model,
         max_tokens: cap !== null ? Math.min(params.maxTokens, cap) : params.maxTokens,
         ...(params.system === '' ? {} : { system: toSystemParam(params.system) }),
         tools: toToolParams(params.tools),
-        messages: toMessageParams(params.messages)
+        messages: toMessageParams(params.messages),
+        // Anthropic-compatible endpoints for other vendors share this adapter; only Claude takes the level.
+        ...(effort !== undefined ? { output_config: { effort } } : {})
       },
       { signal: watchdog.signal }
     )

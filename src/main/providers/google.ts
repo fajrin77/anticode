@@ -2,7 +2,7 @@ import { FIRST_DATA_TIMEOUT_MS, STREAM_INACTIVITY_MS } from './openai'
 import { ProviderRequestError } from './requestError'
 import { randomUUID } from 'node:crypto'
 import { GoogleGenAI } from '@google/genai'
-import type { Content, FunctionDeclaration, Part, Schema } from '@google/genai'
+import type { Content, FunctionDeclaration, Part, Schema, ThinkingLevel } from '@google/genai'
 import type {
   ChatParams,
   ContentBlock,
@@ -14,6 +14,8 @@ import type {
   ToolDefinition
 } from './types'
 import { dropInvalidToolCalls } from './history'
+import { requestEffort } from '../effort'
+import { thinkingConfig } from './geminiThinking'
 
 /** Ids we invent for calls Gemini returned without one; never sent back. */
 const SYNTHETIC_PREFIX = 'gen-'
@@ -187,6 +189,7 @@ export class GoogleProvider implements LLMProvider {
           systemInstruction: params.system,
           ...(tools !== undefined ? { tools } : {}),
           maxOutputTokens: params.maxTokens,
+          ...thinkingConfig(requestEffort('gemini', this.model)) as { thinkingConfig?: { thinkingLevel: ThinkingLevel } },
           abortSignal: watchdog.signal
         }
       })

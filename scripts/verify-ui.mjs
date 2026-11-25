@@ -174,9 +174,13 @@ try {
   await sidebar.getByRole('button', { name: '+ New Session', exact: true }).hover()
   await window.waitForTimeout(1100)
   check('leaving session cancels hover selection', await window.evaluate(() => window.__store.getState().activeSessionId), forkedSession)
+  // Hovering only previews; switching sessions always takes a click.
   await originalRow.hover()
+  await window.waitForTimeout(1100)
+  check('preview never selects on hover alone', await window.evaluate(() => window.__store.getState().activeSessionId), forkedSession)
+  await originalRow.click()
   await window.waitForFunction((id) => window.__store.getState().activeSessionId === id, originalSession)
-  check('preview selects session after dwelling', await originalRow.getAttribute('aria-current'), 'page')
+  check('preview selects session on click', await originalRow.getAttribute('aria-current'), 'page')
   await sidebarToggle.click()
   await window.evaluate((id) => window.__store.getState().selectSession(id), originalSession)
   await window.waitForTimeout(200)
@@ -1237,8 +1241,8 @@ try {
   check('reverting removes the turn from the transcript', gone ? 'still there' : 'gone', 'gone')
   await shot('24-reverted')
 
-  // A prompt the model drafted reads as a panel in the mono face, with a copy
-  // control above and below it — not as another paragraph of prose.
+  // Since 0.1.52 a quoted prompt the model drafted stays in the prose; only
+  // fenced code gets the mono panel with copy controls.
   // Into a real session view, so the transcript is on screen to render into.
   await grid.click(); await window.waitForTimeout(300)
   await window.locator('.group > button:has(div.truncate)').first().click(); await window.waitForTimeout(400)
@@ -1246,27 +1250,19 @@ try {
     const store = window.__store.getState()
     store.addMessage({ id: crypto.randomUUID(), role: 'assistant', parts: [{ kind: 'text', text:
       'Berikut contoh prompt untuk membuat foto Gunung Everest 4K:\n\n' +
-      '"Ultra-realistic photograph of Mount Everest at 4K resolution, majestic snow-capped peak ' +
-      'touching a clear blue sky, golden hour sunlight hitting the summit, National Geographic style"\n\n' +
-      'Catatan: saya hanya mode tanya-jawab.' }], pending: false })
+      '"Ultra-realistic photograph of Mount Everest at 4K resolution, majestic snow-capped peak"\n\n' +
+      '```bash\nnpm run build\n```' }], pending: false })
   })
   await window.waitForTimeout(400)
-  const panel = window.locator('pre').filter({ hasText: 'Ultra-realistic photograph' })
-  check('a drafted prompt gets its own panel', await panel.count(), 1)
+  check('a quoted prompt stays prose', await window.locator('pre').filter({ hasText: 'Ultra-realistic photograph' }).count(), 0)
+  const panel = window.locator('pre').filter({ hasText: 'npm run build' })
+  check('fenced code gets its own panel', await panel.count(), 1)
   const face = await panel.evaluate((el) => getComputedStyle(el).fontFamily)
   const chipFace = await window.locator('span.font-mono').first().evaluate((el) => getComputedStyle(el).fontFamily)
   check('the panel wears the model-name face', face === chipFace ? 'same' : `${face} vs ${chipFace}`, 'same')
-  check('the quotes are stripped from the panel',
-    (await panel.textContent()).trim().startsWith('Ultra-realistic') ? 'stripped' : 'kept', 'stripped')
   const block = window.locator('div').filter({ has: panel }).last()
   check('a copy control sits above and below the panel',
     await block.getByRole('button',{name:/Copy/}).count(), 2)
-  check('the prose around it stays prose',
-    await window.getByText('Berikut contoh prompt untuk membuat foto Gunung Everest 4K:').count(), 1)
-  await block.getByRole('button',{name:/Copy/}).first().click(); await window.waitForTimeout(300)
-  const copiedPrompt = await window.evaluate(() => navigator.clipboard.readText())
-  check('copying yields the prompt without its quotes',
-    copiedPrompt.startsWith('Ultra-realistic') && copiedPrompt.endsWith('style') ? 'clean' : copiedPrompt.slice(0,30), 'clean')
   await shot('25-prompt-panel')
 
   // A ticked checklist item wears the green mark; an unticked bullet keeps its
@@ -1347,6 +1343,22 @@ try {
   } else {
     check('plan: collapse survives switching to another tab and back', 'needs two sessions', 'false')
   }
+
+  // Keyboard: Cmd+K switches sessions, Cmd+F searches the transcript. Both
+  // follow the lime rule and close on Escape without touching anything else.
+  await window.mouse.move(640, 400)
+  await window.keyboard.press('Meta+k'); await window.waitForTimeout(200)
+  const switcher = window.getByRole('dialog', { name: 'Switch session' })
+  check('cmd+k opens the session switcher', await switcher.count(), 1)
+  await limeOnHover('session switcher row', switcher.getByRole('button').first())
+  await window.keyboard.press('Escape'); await window.waitForTimeout(200)
+  check('escape closes the session switcher', await switcher.count(), 0)
+  await window.keyboard.press('Meta+f'); await window.waitForTimeout(200)
+  const search = window.getByRole('search', { name: 'Find in transcript' })
+  check('cmd+f opens transcript search', await search.count(), 1)
+  await limeOnHover('transcript search: close', search.getByRole('button', { name: 'Close search' }))
+  await search.getByRole('textbox').press('Escape'); await window.waitForTimeout(200)
+  check('escape closes transcript search', await search.count(), 0)
 
   // The session tab strip (and its crowded-tab checks) left the header in 0.1.18.
 

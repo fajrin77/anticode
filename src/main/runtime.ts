@@ -3,8 +3,8 @@ import { providerModelIssue } from '@shared/providerModel'
 import { isOutOfUsage } from './usageErrors'
 import { canFailOver, canRotateAfterRefusal, isTransient } from './providers/failures'
 import { accountCandidates, rankAccounts } from './auth/sharing'
-import { cpSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { cancelSessionRuns, clearPause, isPaused, isPausedForRetry, restorePausedSession, runForSession } from './runs'
 import { app } from 'electron'
@@ -26,11 +26,12 @@ import type {
 } from '@shared/ipc'
 import { AgentSession, titleOf } from './agent/loop'
 import { followUpMode } from './followUp'
+import { chosenEfforts } from './effort'
 import { answeredRuns, isTypedPrompt } from './agent/turns'
 import { CheckpointStore } from './checkpoints'
 import type { ProviderFallback } from './agent/loop'
 import type { LLMProvider } from './providers/types'
-import { clearWeb, restoreWeb, webRecord } from './web'
+import { clearWeb, restoreWeb, setWebPersistence, webRecord } from './web'
 import { createProvider, listProviders } from './providers'
 import { authProvider, isAuthProvider as isAuthId } from './auth/provider'
 import { isSubscriptionProvider, subscriptionEntries } from './subscriptions'
@@ -67,6 +68,10 @@ import {
 import { ApprovalPolicy } from './approval/policy'
 import { preferences } from './preferences'
 import type { ApprovalGate } from './approval/types'
+
+import { clearSessionBrowserData } from './storageCleanup'
+import { SessionStorage, validSessionId } from './sessionStorage'
+import type { SavedSession } from './sessionStorage'
 
 export const policy = new ApprovalPolicy()
 
@@ -107,6 +112,7 @@ let selection: ProviderSelection | null = null
 /** The explicit provider/model to restore whenever global rotation is off. */
 let fallbackSelection: ProviderSelection | null = null
 const sessions = new Map<string, LiveSession>()
+const deleting = new Set<string>()
 /**
  * Picks made in a tab whose session does not exist in the main process yet
  * (a "+" draft). The pick belongs to that tab: it is shown on its chip and
@@ -178,6 +184,14 @@ export function setWorkspaceRoot(root: string): void {
   workspaceRoot = root
 }
 
+export function hasWorkspaceRoot(root: string): boolean {
+  return workspaceRoot === root || [...sessions.values()].some(live => live.spec.workspaceRoot === root)
+}
+
+export function sessionStorageWarning(): string | undefined {
+  return storage?.warning
+}
+
 /**
  * Restores what the user left behind: the approval mode and the last
  * provider/model, guarded against providers whose credentials have since
@@ -186,35 +200,34 @@ export function setWorkspaceRoot(root: string): void {
  * freezing startup behind a synchronous disk read.
  */
 export async function initPersistedState(): Promise<void> {
-  try {
-    const raw = await readFile(path.join(app.getPath('userData'), 'sessions.json'), 'utf8')
-    const saved = JSON.parse(raw) as { spec: SessionSpec; messages: Message[]; summaries?: RunSummary[]; web?: unknown; choice?: unknown; pinned?: boolean; paused?: boolean; pausedForRetry?: boolean; rotationGroupId?: unknown }[]
-    if (Array.isArray(saved)) for (const entry of saved) {
-      if (typeof entry?.spec?.sessionId !== 'string' || !['code', 'chat'].includes(entry.spec.mode) ||
-          !(entry.spec.workspaceRoot === null || typeof entry.spec.workspaceRoot === 'string') ||
-          !Array.isArray(entry.messages) || !entry.messages.every((message) =>
-            ['user', 'assistant'].includes(message.role) && Array.isArray(message.content))) continue
-      const choice = entry.choice as ProviderSelection | undefined
-      sessions.set(entry.spec.sessionId, {
-        spec: entry.spec,
-        messages: entry.messages,
-        agent: null,
-        summaries: Array.isArray(entry.summaries) ? entry.summaries : [],
-        ...(typeof choice?.provider === 'string' && typeof choice.model === 'string'
-          ? { choice: { provider: choice.provider, model: choice.model } }
-          : {}),
-        ...(entry.pinned === true && choice?.provider !== ROTATE_PROVIDER ? { pinned: true } : {}),
-        // A session's own rotation group survives a restart instead of falling back to the default.
-        ...(typeof entry.rotationGroupId === 'string' || entry.rotationGroupId === null ? { rotationGroupId: entry.rotationGroupId as string | null } : {})
-      })
-      rememberSpec(entry.spec)
-      if (entry.paused === true) restorePausedSession(entry.spec.sessionId, entry.pausedForRetry === true)
-      // The page this session had open comes back with it, so relaunching the
-      // app lands on the same local server the last run was looking at.
-      restoreWeb(entry.spec.sessionId, entry.web)
-      if (validColour(entry.spec.colour)) nextColour = (entry.spec.colour + 1) % SESSION_COLOURS.length
-    }
-  } catch { /* First launch or unreadable archive: keep the original file untouched. */ }
+  storage = new SessionStorage(app.getPath('userData'), savedSession)
+  const saved = await storage.load().catch(error => {
+    if (storage) storage.warning = 'The app could not open session storage. It preserved the original files.'
+    console.error('Could not load session history:', (error as Error).message)
+    return []
+  })
+  for (const entry of saved) {
+    const choice = entry.choice as ProviderSelection | undefined
+    sessions.set(entry.spec.sessionId, {
+      spec: entry.spec,
+      messages: [...entry.messages],
+      agent: null,
+      summaries: Array.isArray(entry.summaries) ? entry.summaries : [],
+      ...(typeof choice?.provider === 'string' && typeof choice.model === 'string'
+        ? { choice: { provider: choice.provider, model: choice.model } }
+        : {}),
+      ...(entry.pinned === true && choice?.provider !== ROTATE_PROVIDER ? { pinned: true } : {}),
+      // A session's own rotation group survives a restart instead of falling back to the default.
+      ...(typeof entry.rotationGroupId === 'string' || entry.rotationGroupId === null ? { rotationGroupId: entry.rotationGroupId as string | null } : {})
+    })
+    rememberSpec(entry.spec)
+    if (entry.paused === true) restorePausedSession(entry.spec.sessionId, entry.pausedForRetry === true)
+    // The page this session had open comes back with it, so relaunching the
+    // app lands on the same local server the last run was looking at.
+    restoreWeb(entry.spec.sessionId, entry.web)
+    if (validColour(entry.spec.colour)) nextColour = (entry.spec.colour + 1) % SESSION_COLOURS.length
+  }
+  setWebPersistence(id => { if (sessions.has(id)) persistSessions(id) })
   const persisted = loadPersistedSettings()
   if (persisted.autoApprove !== undefined) {
     policy.setAutoApprove(persisted.autoApprove)
@@ -240,11 +253,10 @@ export function forgetProvider(provider: ProviderId): void {
   for (const [draftId, draft] of draftChoices) {
     if (draft.choice.provider === provider) draftChoices.delete(draftId)
   }
-  let changed = false
   for (const live of sessions.values()) {
     if (live.choice?.provider === provider) {
       delete live.choice
-      changed = true
+      persistSessions(live.spec.sessionId)
     }
   }
   if (fallback().provider === provider) {
@@ -252,7 +264,6 @@ export function forgetProvider(provider: ProviderId): void {
     saveFallback(firstConnectedSelection())
   }
   if (current().provider === provider) selection = null
-  if (changed) persistSessions()
 }
 
 /**
@@ -261,13 +272,11 @@ export function forgetProvider(provider: ProviderId): void {
  */
 function pinSessions(): void {
   const active = current()
-  let changed = false
   for (const live of sessions.values()) {
     if (live.choice !== undefined) continue
     live.choice = { ...active }
-    changed = true
+    persistSessions(live.spec.sessionId)
   }
-  if (changed) persistSessions()
 }
 
 function choiceOf(live: LiveSession): ProviderSelection {
@@ -338,7 +347,7 @@ export function selectProvider(next: ProviderSelection, sessionId?: string | nul
     else live.pinned = true
     // Picking Rotate again starts a fresh turn on the pool.
     delete live.promptsOnEntry
-    persistSessions()
+    persistSessions(live.spec.sessionId)
   }
   // While Rotate usage is on, new sessions start on the pool. A model picked
   // in one session must not silently become what the next session runs on.
@@ -443,13 +452,12 @@ export function applyRotationGroups(next: unknown[]): void {
   const before = JSON.stringify(activeRotationEntries())
   const updated = setRotationGroups(next)
   const validIds = new Set(updated.map((group) => group.id))
-  let sessionChanged = false
   for (const [sessionId, live] of sessions) {
     if (live.rotationGroupId !== undefined && live.rotationGroupId !== null && !validIds.has(live.rotationGroupId)) {
       live.rotationGroupId = null
       if (runForSession(sessionId) === null) delete live.selection
       delete live.promptsOnEntry
-      sessionChanged = true
+      persistSessions(sessionId)
     } else if (typeof live.rotationGroupId === 'string') {
       const entriesNow = activeRotationEntries(live.rotationGroupId)
       if (runForSession(sessionId) === null && live.selection !== undefined && !entriesNow.some((e) => rotationKey(e) === rotationKey(live.selection!))) {
@@ -461,7 +469,6 @@ export function applyRotationGroups(next: unknown[]): void {
   for (const [draftId, groupId] of sessionRotationGroups) {
     if (groupId !== null && !validIds.has(groupId)) sessionRotationGroups.delete(draftId)
   }
-  if (sessionChanged) persistSessions()
   if (JSON.stringify(activeRotationEntries()) !== before) releaseRotatingSessions()
 }
 
@@ -478,7 +485,7 @@ export function applyRotationGroup(id: string | null, sessionId?: string | null)
     live.rotationGroupId = id
     if (runForSession(sessionId) === null) delete live.selection
     live.promptsOnEntry = 0
-    persistSessions()
+    persistSessions(sessionId)
     return
   }
   if (id === activeRotationGroupId()) return
@@ -515,12 +522,11 @@ export function applyRotationEnabled(on: boolean): void {
     ? { provider: ROTATE_PROVIDER, model: '' }
     : { ...fallback() }
   selection = chosen
-  let changed = false
   for (const [sessionId, live] of sessions) {
     // A session that left rotation by picking a model keeps that model: the
     // global switch never rewrites a choice the user made on purpose.
     if (live.pinned === true) continue
-    if (live.choice?.provider !== chosen.provider || live.choice.model !== chosen.model) changed = true
+    if (live.choice?.provider !== chosen.provider || live.choice.model !== chosen.model) persistSessions(sessionId)
     live.choice = { ...chosen }
     // Do not replace the provider beneath a run already in progress. Its next
     // prompt follows the newly applied global mode.
@@ -530,7 +536,6 @@ export function applyRotationEnabled(on: boolean): void {
   for (const [draftId, draft] of draftChoices) {
     if (!draft.pinned) draftChoices.delete(draftId)
   }
-  if (changed) persistSessions()
 }
 
 /** A provider's model list changed in Settings; the next listModels refetches. */
@@ -648,6 +653,8 @@ export function setOnSessionClosed(sink: (sessionId: string) => void): void {
 }
 
 export function createSession(spec: SessionSpec): SessionSpec {
+  if (!validSessionId(spec.sessionId)) throw new Error('Invalid session ID')
+  if (deleting.has(spec.sessionId)) throw new Error('This session is being deleted')
   const previous = sessions.get(spec.sessionId)
   if (previous && (runForSession(spec.sessionId) !== null || (previous.agent?.messageCount ?? previous.messages.length) > 0)) {
     if (previous.spec.mode === spec.mode && previous.spec.workspaceRoot === spec.workspaceRoot) return specOf(previous)
@@ -683,7 +690,7 @@ export function createSession(spec: SessionSpec): SessionSpec {
   }
   sessions.set(spec.sessionId, live)
   rememberSpec(settled)
-  persistSessions()
+  persistSessions(spec.sessionId)
   const announced = specOf(live)
   announcedTitles.set(spec.sessionId, announced.title ?? '')
   sessionCreatedSink?.(announced)
@@ -704,8 +711,8 @@ export function cloneSession(
 ): SessionSpec {
   const source = sessions.get(sourceSessionId)
   if (source === undefined) throw new Error('The conversation to copy no longer exists')
-  if (sessions.has(newSessionId)) throw new Error('The new conversation already exists')
-  if (!/^[A-Za-z0-9_-]{1,100}$/.test(newSessionId)) throw new Error('Invalid conversation ID')
+  if (sessions.has(newSessionId) || deleting.has(newSessionId)) throw new Error('The new conversation already exists')
+  if (!validSessionId(newSessionId)) throw new Error('Invalid conversation ID')
   if (throughPrompt !== null && (!Number.isInteger(throughPrompt) || throughPrompt < 1)) {
     throw new Error('Choose a prompt to branch from')
   }
@@ -759,7 +766,7 @@ export function cloneSession(
   }
 
   sessions.set(newSessionId, live)
-  persistSessions()
+  persistSessions(newSessionId)
   const announced = specOf(live)
   announcedTitles.set(newSessionId, announced.title ?? '')
   sessionCreatedSink?.(announced)
@@ -777,7 +784,7 @@ export function setSessionInstructions(sessionId: string, instructions: unknown)
   const text = instructions.trim()
   const { instructions: _previous, ...rest } = live.spec
   live.spec = text === '' ? rest : { ...rest, instructions: text }
-  persistSessions()
+  persistSessions(sessionId)
   return specOf(live)
 }
 
@@ -789,20 +796,29 @@ export function adoptSessionColour(sessionId: string, colour: number): void {
   const live = sessions.get(sessionId)
   if (live === undefined || validColour(live.spec.colour) || !validColour(colour)) return
   live.spec = { ...live.spec, colour }
-  persistSessions()
+  persistSessions(sessionId)
 }
 
-/** Closing a desktop tab only archives it, so this stays silent. */
-export function closeSession(sessionId: string): void {
-  deleteSession(sessionId)
-}
-
-/** A hard delete (phone-initiated): the session is gone everywhere. */
-export function deleteSession(sessionId: string): void {
-  cancelSessionRuns(sessionId)
+/** A hard delete, requested from the desktop or phone. */
+export async function deleteSession(sessionId: string): Promise<void> {
+  if (deleting.has(sessionId)) return
+  const live = sessions.get(sessionId)
+  if (live !== undefined) {
+    deleting.add(sessionId)
+    cancelSessionRuns(sessionId)
+    sessions.delete(sessionId)
+    try {
+      if (storage !== undefined) await storage.remove(sessionId)
+    } catch (error) {
+      sessions.set(sessionId, live)
+      persistSessions(sessionId)
+      throw error
+    } finally {
+      deleting.delete(sessionId)
+    }
+  }
   clearPause(sessionId)
   draftChoices.delete(sessionId)
-  const live = sessions.get(sessionId)
   live?.agent?.dispose()
   // antichat's folder holds only copies it was sent and files it made for
   // this conversation; they go with it. A project folder is never touched.
@@ -810,7 +826,9 @@ export function deleteSession(sessionId: string): void {
   if (own !== null) void rm(own, { recursive: true, force: true }).catch(() => undefined)
   const kept = checkpointDir(sessionId)
   if (kept !== null) void rm(kept, { recursive: true, force: true }).catch(() => undefined)
-  sessions.delete(sessionId)
+  if (live !== undefined) void clearSessionBrowserData(sessionId).catch(error => {
+    console.error('Could not clear session browser data:', (error as Error).message)
+  })
   sessionRotationGroups.delete(sessionId)
   oneShotChoices.delete(sessionId)
   announcedTitles.delete(sessionId)
@@ -819,7 +837,6 @@ export function deleteSession(sessionId: string): void {
   }
   clearWeb(sessionId)
   if (live !== undefined) rememberSpec(live.spec)
-  persistSessions()
   sessionClosedSink?.(sessionId)
 }
 
@@ -988,6 +1005,7 @@ export function getStatus(sessionId?: string | null): SessionStatus {
     defaultModel: fallback().model,
     autoApprove: policy.isAutoApprove(),
     followUpMode: followUpMode(),
+    efforts: chosenEfforts(),
     providerReady: top.providerReady,
     blockedReason: top.blockedReason,
     lastUsed: top.lastUsed,
@@ -1325,7 +1343,7 @@ export function listSessionSummaries(): SessionSummary[] {
   }))
 }
 
-function toSnapshot(messages: Message[]): SnapshotMessage[] {
+function toSnapshot(messages: readonly Message[]): SnapshotMessage[] {
   return messages.map((message) => ({
     role: message.role,
     blocks: message.content
@@ -1365,10 +1383,20 @@ function toSnapshot(messages: Message[]): SnapshotMessage[] {
   }))
 }
 
+export function isSessionAttachmentPath(target: string): boolean {
+  for (const live of sessions.values()) {
+    if (live.agent !== null) {
+      if (live.agent.hasAttachmentPath(target)) return true
+    } else if (live.messages.some(message => message.content.some(block =>
+      block.type === 'text' && block.attachment !== undefined && path.resolve(block.attachment.path) === target))) return true
+  }
+  return false
+}
+
 export function loadSessionMessages(sessionId: string): SnapshotMessage[] | null {
   const live = sessions.get(sessionId)
   if (live === undefined) return null
-  return toSnapshot(live.agent?.snapshot().messages ?? live.messages)
+  return toSnapshot(live.agent?.persistedMessages ?? live.messages)
 }
 
 /**
@@ -1408,14 +1436,14 @@ export function revertLastTurn(sessionId: string): string | null {
         } catch { /* The transcript revert stands even if files cannot be restored. */ }
       }
       live.summaries.pop()
-      persistSessions()
+      persistSessions(sessionId)
       announceTitle(sessionId)
       return text.text
     }
     return null
   }
   live.summaries.pop()
-  persistSessions()
+  persistSessions(sessionId)
   // Taking back the first prompt takes its name back with it.
   announceTitle(sessionId)
   return reverted
@@ -1467,7 +1495,7 @@ export function takeBackPrompt(sessionId: string, count: number): TakenPrompt | 
   // One summary per answered run, aligned from the end: the runs that went take theirs along.
   const runs = answeredRuns(taken.removed)
   if (runs > 0) live.summaries.splice(Math.max(0, live.summaries.length - runs), runs)
-  persistSessions()
+  persistSessions(sessionId)
   announceTitle(sessionId)
   return {
     prompt: taken.prompt,
@@ -1496,7 +1524,7 @@ export async function compactSession(sessionId: string, gate: ApprovalGate): Pro
   if (selection === undefined) delete live.selection; else live.selection = selection
   if (promptsOnEntry === undefined) delete live.promptsOnEntry; else live.promptsOnEntry = promptsOnEntry
   const result = await agent.compact(new AbortController().signal)
-  if (result.after < result.before) persistSessions()
+  if (result.after < result.before) persistSessions(sessionId)
   return result
 }
 
@@ -1552,43 +1580,22 @@ export function createRemoteSession(mode: SessionMode, workspaceRoot: string | n
   return sessionId
 }
 
-/** Atomic snapshots at turn completion and shutdown; never save credentials here. */
-/**
- * Serialising the whole archive on every mutation blocks the main process
- * for hundreds of milliseconds once it reaches tens of megabytes, right in
- * the middle of agent runs, which mutate constantly. Mutations therefore
- * schedule one trailing write; quitting flushes it synchronously. The write
- * itself stays atomic (tmp + rename), so a crash can only lose the trailing
- * window, never tear the file.
- */
-let persistTimer: NodeJS.Timeout | null = null
-const PERSIST_DELAY_MS = 1500
+let storage: SessionStorage | undefined
 
-export function persistSessions(): void {
-  if (persistTimer !== null) return
-  persistTimer = setTimeout(() => {
-    persistTimer = null
-    writeSessions()
-  }, PERSIST_DELAY_MS)
-  // A stray timer must not keep tests or the app alive on its own.
-  if (typeof persistTimer.unref === 'function') persistTimer.unref()
+export function persistSessions(sessionId: string): void {
+  storage?.mark(sessionId)
 }
 
-/** Write the archive now; used on quit so no scheduled write is lost. */
-export function flushPersistedSessions(): void {
-  if (persistTimer !== null) {
-    clearTimeout(persistTimer)
-    persistTimer = null
-  }
-  writeSessions()
+export async function flushPersistedSessions(): Promise<void> {
+  await storage?.flush()
 }
 
-function writeSessions(): void {
-  const directory = app.getPath('userData')
-  const target = path.join(directory, 'sessions.json')
-  const data = [...sessions.values()].map((live) => ({
+function savedSession(sessionId: string): SavedSession | undefined {
+  const live = sessions.get(sessionId)
+  if (live === undefined) return undefined
+  return {
     spec: live.spec,
-    messages: live.agent?.snapshot().messages ?? live.messages,
+    messages: live.agent?.persistedMessages ?? live.messages,
     summaries: live.summaries,
     web: webRecord(live.spec.sessionId),
     ...(isPaused(live.spec.sessionId) ? { paused: true } : {}),
@@ -1596,12 +1603,7 @@ function writeSessions(): void {
     ...(live.choice !== undefined ? { choice: live.choice } : {}),
     ...(live.pinned === true ? { pinned: true } : {}),
     ...(live.rotationGroupId !== undefined ? { rotationGroupId: live.rotationGroupId } : {})
-  }))
-  try {
-    mkdirSync(directory, { recursive: true })
-    writeFileSync(`${target}.tmp`, JSON.stringify(data), { mode: 0o600 })
-    renameSync(`${target}.tmp`, target)
-  } catch (error) { console.error('Could not save session history:', (error as Error).message) }
+  }
 }
 export function listSessionSpecs(): SessionSpec[] { return [...sessions.values()].map(specOf) }
 

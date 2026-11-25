@@ -9,6 +9,8 @@ import type { Query, SDKUserMessage, Options } from '@anthropic-ai/claude-agent-
 import type { ChatParams, ContentBlock, LLMProvider, ProviderEvent, Usage } from './types'
 import { APP_VERSION } from '../version'
 import { ProviderRequestError } from './requestError'
+import { claudeEffort, requestEffort } from '../effort'
+import type { EffortLevel } from '@shared/effort'
 
 export function unpackedClaudeExecutable(file: string): string {
   return file.replace(/([/\\])app\.asar([/\\])/, '$1app.asar.unpacked$2')
@@ -86,7 +88,7 @@ class ClaudeCodeRun {
   private maxTokens: number
   private directory?: string
   private readonly onAbort = (): void => this.close()
-  constructor(readonly key: string, readonly token: string, public params: ChatParams, readonly model: string) {
+  constructor(readonly key: string, readonly token: string, public params: ChatParams, readonly model: string, readonly effort: Exclude<EffortLevel, 'none' | 'minimal'> | undefined) {
     this.syncedLength = params.messages.length
     this.userKey = userKey(params.messages)
     this.system = params.system; this.maxTokens = params.maxTokens
@@ -177,6 +179,7 @@ class ClaudeCodeRun {
         permissionMode: 'default', persistSession: false, includePartialMessages: true,
         systemPrompt: this.params.system, maxTurns: 100,
         ...(this.params.maxTokens < 1024 ? { thinking: { type: 'disabled' as const } } : {}),
+        ...(this.effort !== undefined ? { effort: this.effort } : {}),
         canUseTool: async (name, input) => this.params.tools.some(t => name === `mcp__anticode__${t.name}`)
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: 'Only Anticode tools are available.' }
@@ -241,7 +244,9 @@ export class ClaudeCodeProvider implements LLMProvider {
     let run = runs.get(key)
     // Discovery descriptions and schemas can change before any new tool is loaded.
     const currentToolKey = toolKey(params.tools)
-    if (run && (run.model !== this.model || run.token !== this.token || run.toolKey !== currentToolKey || (run.idle ? !run.canResume(params) : run.params.signal !== params.signal))) { run.close(); run = undefined }
+    const effort = claudeEffort(requestEffort('claude', this.model))
+    // A new level applies from the next prompt; a prompt in progress keeps the engine it started on.
+    if (run && (run.model !== this.model || run.token !== this.token || run.toolKey !== currentToolKey || (run.idle ? !run.canResume(params) || run.effort !== effort : run.params.signal !== params.signal))) { run.close(); run = undefined }
     if (run) {
       if (run.idle) run.resume(params)
       run.steer(params)
@@ -251,7 +256,7 @@ export class ClaudeCodeProvider implements LLMProvider {
         if (resolve) { run.pending.delete(block.toolUseId); resolve({ content: [{ type: 'text', text: block.content }], isError: block.isError }) }
       }
     } else {
-      run = new ClaudeCodeRun(key, this.token, params, this.model)
+      run = new ClaudeCodeRun(key, this.token, params, this.model, effort)
       runs.set(key, run)
       void run.start()
     }

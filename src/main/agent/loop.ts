@@ -2,6 +2,7 @@ import { closeBrowser, closeSearchPage } from '../browser'
 import { withoutHistoricalImages } from './payloadReplay'
 import { ToolMarkupError, ToolMarkupGuard } from './toolMarkup'
 import { InputRequestLimitError, requestLimit } from '../providers/requestLimits'
+import { isRetiredRoute } from '../providers/routeError'
 import { safeProviderErrorMessage } from '../providers/errorMessage'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
@@ -842,7 +843,8 @@ export class AgentSession {
    */
   private sayHandOver(params: RunParams, from: string, next: LLMProvider, error: unknown): void {
     const status = failureStatus(error)
-    const why = isOutOfUsage(error) ? 'its quota ran out'
+    const why = isRetiredRoute(error) ? 'the provider retired this route'
+      : isOutOfUsage(error) ? 'its quota ran out'
       : status === 429 ? 'it was rate limited'
         : status === 401 ? 'its login was refused'
           : requestLimit(error) !== null ? 'the request was too large for it'
@@ -1259,6 +1261,7 @@ export class AgentSession {
       const approved = await this.gate.authorize({
         runId,
         sessionId: this.scope,
+        workspaceRoot: this.mode === 'code' ? this.workspaceRoot : null,
         toolName: tool.name,
         risk: prepared.risk,
         preview: () => prepared.preview(context),
@@ -1279,11 +1282,12 @@ export class AgentSession {
       params.signal.throwIfAborted()
       const scan = await this.captureCheckpoint(tool, call)
       let output: Awaited<ReturnType<typeof prepared.execute>>
+      let commandDiff: string | undefined
       try {
         output = await prepared.execute(context)
       } finally {
         // A command that failed halfway may still have changed files.
-        if (scan !== null) await this.checkpoints?.afterCommand(scan).catch(() => undefined)
+        if (scan !== null) commandDiff = await this.checkpoints?.afterCommand(scan).catch(() => undefined)
       }
       this.pendingImages.push(
         ...output.images.map((image) => ({
@@ -1292,7 +1296,7 @@ export class AgentSession {
           data: image.data
         }))
       )
-      return this.finishCall(params, call.id, truncate(output.text), output.isError === true, false, output.diff)
+      return this.finishCall(params, call.id, truncate(output.text), output.isError === true, false, output.diff ?? commandDiff)
     } catch (error) {
       return this.finishCall(params, call.id, describeError(error), true)
     }
@@ -1561,9 +1565,19 @@ export class AgentSession {
   }
 
   dispose(): void {
+    try { this.checkpoints?.release() } catch { /* Disk cleanup can be retried later. */ }
     void closeBrowser(this.scope)
     // web_search keeps a page of its own beside the agent's; both go.
     void closeSearchPage(this.scope)
+  }
+
+  hasAttachmentPath(target: string): boolean {
+    return this.transcript.some(message => message.content.some(block =>
+      block.type === 'text' && block.attachment !== undefined && path.resolve(block.attachment.path) === target))
+  }
+
+  get persistedMessages(): readonly Message[] {
+    return this.transcript
   }
 
   /** A copy of the replayed history, for the remote API and dashboards. */

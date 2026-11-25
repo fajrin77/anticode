@@ -1,3 +1,5 @@
+import { requestEffort } from '../effort'
+import { thinkingConfig } from './geminiThinking'
 import { randomUUID } from 'node:crypto'
 import { GEMINI_CLOUD_BASE, geminiHeaders, geminiProject } from '../auth/gemini'
 import { toContents, toDeclarations } from './google'
@@ -86,7 +88,7 @@ export class GeminiCliProvider implements LLMProvider {
         request: {
           contents: toContents(params.messages),
           systemInstruction: { parts: [{ text: params.system }] },
-          generationConfig: { maxOutputTokens: params.maxTokens },
+          generationConfig: { maxOutputTokens: params.maxTokens, ...thinkingConfig(requestEffort('gemini', this.model)) },
           ...(params.tools.length ? { tools: [{ functionDeclarations: toDeclarations(params.tools) }] } : {})
         }
       })

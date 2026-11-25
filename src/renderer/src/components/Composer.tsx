@@ -1,10 +1,13 @@
+import { useFileMention } from './FileMention'
+import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAttachmentFocus } from '../useAttachmentFocus'
 import { COMMIT_PROMPT } from '../commitOffer'
 import type { ClipboardEvent, JSX } from 'react'
-import { useActiveSession, useSessionStore } from '../store/session'
+import { restoreRejectedDraft, useSessionStore } from '../store/session'
 import { attachmentError as errorText, stageDraftAttachments, useAttachmentJobs } from '../draftAttachments'
 import { ModelPicker } from './ModelPicker'
+import { EffortLabel, EffortMenu, effortTarget } from './EffortPicker'
 import { TodoPanel } from './TodoPanel'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import { modelCannotSeeImages, modelLabel, statusFor } from '@shared/ipc'
@@ -102,8 +105,13 @@ export function Composer({  status: sharedStatus,
   heroExtra,
   fill
 }: ComposerProps): JSX.Element {
-  const session = useActiveSession()
+  const session = useSessionStore(useShallow(state => {
+    const current = state.sessions.find(entry => entry.id === state.activeSessionId)
+    if (!current) return undefined
+    return { id: current.id, mode: current.mode, projectRoot: current.projectRoot, empty: current.messages.length === 0 }
+  }))
   const status = sharedStatus === null ? null : statusFor(sharedStatus, session?.id)
+  const effort = effortTarget(status, providers)
   const savedDraft = useSessionStore((state) => state.drafts[session?.id ?? ''])
   const draft = savedDraft?.text ?? ''
   const attached = savedDraft?.attachments ?? []
@@ -114,7 +122,7 @@ export function Composer({  status: sharedStatus,
   const clearQuote = (): void => {
     if (session) useSessionStore.getState().quoteInDraft(session.id, '')
   }
-  const setDraft = (text: string): void => { if (session) useSessionStore.getState().updateDraft(session.id, { text }) }
+  const setDraft = (text: string): void => { if (session) useSessionStore.getState().updateDraft(session.id, { text, sendError: null }) }
   const setAttached = (next: AttachmentInfo[] | ((items: AttachmentInfo[]) => AttachmentInfo[])): void => {
     if (session) {
       const previous = useSessionStore.getState().drafts[session.id]?.attachments ?? []
@@ -123,13 +131,16 @@ export function Composer({  status: sharedStatus,
   }
   const [viewing, setViewing] = useState<{ name: string; src: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [menu, setMenu] = useState<'none' | 'model' | 'mode' | 'folder'>('none')
+  const [menu, setMenu] = useState<'none' | 'model' | 'mode' | 'folder' | 'effort'>('none')
   const [shake, setShake] = useState(false)
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const sendingRef = useRef(false)
+  const mention = useFileMention(session?.projectRoot, draft, setDraft, promptRef)
+  const history = useRef<{ index: number; draft: string } | null>(null)
+
   useAttachmentFocus(session?.id, attached, promptRef)
 
   // Standing by: the composer takes the caret as soon as it appears, a new
@@ -138,6 +149,7 @@ export function Composer({  status: sharedStatus,
   // does not fight it, because that field re-renders on top afterwards.
   useEffect(() => {
     setError(null)
+    history.current = null
     if (window.document.activeElement?.tagName === 'INPUT') return
     promptRef.current?.focus()
   }, [session?.id])
@@ -189,7 +201,8 @@ export function Composer({  status: sharedStatus,
   // run in progress.
   const canSend = draft.trim() !== '' && blocked === null && !attachmentsBlocked
   /** Working, with something typed: Enter queues, the arrow button steers. */
-  const steering = isStreaming && !isPaused && draft.trim() !== ''
+  const hasFollowUp = isStreaming && !isPaused && draft.trim() !== ''
+  const steering = hasFollowUp && followUpMode === 'steer'
   /**
    * Paused, with nothing typed: the button picks the work back up. It wears a
    * play mark of its own, as a send arrow it read as sending an empty prompt.
@@ -247,7 +260,7 @@ export function Composer({  status: sharedStatus,
       const target = event.target as HTMLElement | null
       if (target === null) return
       // A click inside the open picker/panel keeps it open (scrolling, typing).
-      if (target.closest('[data-model-picker], [data-mode-menu]') != null) return
+      if (target.closest('[data-model-picker], [data-mode-menu], [data-effort-menu]') != null) return
       // The chips that opened the menu toggle it themselves; do not pre-close.
       if (target.closest('[data-menu-chip]') != null) return
       // Anywhere else — transcript, header, the composer's own box or textarea
@@ -257,7 +270,10 @@ export function Composer({  status: sharedStatus,
     // Escape dismisses the model/mode menu, matching the approval modal and
     // the model picker; without it the only way out was a click elsewhere.
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setMenu('none')
+      if (event.key === 'Escape' && menu !== 'none' && !event.defaultPrevented && !event.isComposing) {
+        event.preventDefault()
+        setMenu('none')
+      }
     }
     document.addEventListener('mousedown', onOutside)
     document.addEventListener('keydown', onKey)
@@ -323,7 +339,10 @@ export function Composer({  status: sharedStatus,
       if (!boxRef.current?.contains(target)) clearQuote()
     }
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') clearQuote()
+      if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented ||
+        document.querySelector('.menu-glass:not([popover]), :popover-open, [data-approval], [data-question], [data-file-viewer]')) return
+      event.preventDefault()
+      clearQuote()
     }
     document.addEventListener('mousedown', onOutside)
     document.addEventListener('keydown', onKey)
@@ -347,7 +366,7 @@ export function Composer({  status: sharedStatus,
     // old approach re-opened the previous assistant message, which lit the
     // working dot far up the transcript (or nowhere, once the view had been
     // scrolled past it), reading as "nothing is happening".
-    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true }, session.id)
     setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
     try {
       await window.anticode.sendPrompt({
@@ -452,8 +471,7 @@ export function Composer({  status: sharedStatus,
         return
       }
     } catch (failure) {
-      setError(errorText(failure))
-      useSessionStore.getState().updateDraft(session.id, kept)
+      restoreRejectedDraft(session.id, kept, errorText(failure))
     } finally {
       sendingRef.current = false
     }
@@ -463,6 +481,21 @@ export function Composer({  status: sharedStatus,
   async function send(action?: string): Promise<void> {
     if (sendingRef.current) return
     const prompt = action ?? draft.trim()
+    if (!action && session !== undefined && !isStreaming && attached.length === 0 && quote === '') {
+      if (prompt === '/plan') {
+        setPlanMode(session.id, !planMode)
+        setDraft('')
+        return
+      }
+      if (prompt === '/compact') {
+        try {
+          await window.anticode.compactSession(session.id)
+          setDraft('')
+          addNotice(session.id, 'Conversation compacted.')
+        } catch (failure) { setError(errorText(failure)) }
+        return
+      }
+    }
     const live = useSessionStore.getState()
     if (action && (Object.values(live.activeRuns).some(run => run.sessionId === session?.id) || Object.values(live.mirrorRuns).some(run => run.sessionId === session?.id))) return
     if (!action && session && ((useAttachmentJobs.getState().pending[session.id] ?? 0) > 0 || (live.drafts[session.id]?.attachmentErrors?.length ?? 0) > 0)) return
@@ -499,8 +532,7 @@ export function Composer({  status: sharedStatus,
         const request = { sessionId: session.id, runId: crypto.randomUUID(), prompt: shown, attachmentIds, plan: planMode }
         await window.anticode.queuePrompt(request)
       } catch (failure) {
-        setError(errorText(failure))
-        useSessionStore.getState().updateDraft(session.id, kept)
+        restoreRejectedDraft(session.id, kept, errorText(failure))
       } finally {
         sendingRef.current = false
       }
@@ -522,37 +554,34 @@ export function Composer({  status: sharedStatus,
     }
     // A new prompt ends a pause as surely as Continue does; the main process
     // clears it when the run begins, and tells every viewer.
+    const kept = { text: draft, attachments: attached, quote }
     const userMessageId = crypto.randomUUID()
-    addMessage({ id: userMessageId, role: 'user', parts, pending: false })
+    addMessage({ id: userMessageId, role: 'user', parts, pending: false }, session.id)
 
     const messageId = crypto.randomUUID()
     const runId = crypto.randomUUID()
-    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true }, session.id)
     setActiveRun({ runId, messageId, sessionId: session.id, startedAt: Date.now() })
 
     try {
-    // The first prompt finalises a fresh session's binding: the main process
-    // session is (re)created with the mode and folder chosen in the hero.
-    if (session.messages.length === 0) {
-      await window.anticode.createSession({
-        sessionId: session.id,
-        mode: session.mode,
-        workspaceRoot: session.mode === 'code' ? session.projectRoot : null
-      })
-    }
-
-      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds, plan: action ? false : planMode })
+      if (session.empty) {
+        await window.anticode.createSession({
+          sessionId: session.id,
+          mode: session.mode,
+          workspaceRoot: session.mode === 'code' ? session.projectRoot : null
+        })
+      }
+      const outcome = await window.anticode.sendPrompt({ sessionId: session.id, runId, prompt: shown, attachmentIds, plan: action ? false : planMode, followUp: followUpMode })
       // A run started elsewhere a moment ago took this as a follow-up; the
       // steer event draws it, so what was drawn here for a new run goes.
-      if (outcome.steered) {
+      if (outcome.steered || outcome.queued) {
         useSessionStore.getState().removeMessages(session.id, [userMessageId, messageId])
         setActiveRun(null, runId)
       }
     } catch (failure) {
-      // A refused send must not leave a ghost run blocking the composer.
-      setError(errorText(failure))
-      useSessionStore.getState().appendText(session.id, messageId, errorText(failure))
-      useSessionStore.getState().settleMessage(messageId)
+      const store = useSessionStore.getState()
+      store.removeMessages(session.id, [userMessageId, messageId])
+      restoreRejectedDraft(session.id, action ? { text: '', attachments: [] } : kept, errorText(failure))
       setActiveRun(null, runId)
     } finally {
       sendingRef.current = false
@@ -571,7 +600,7 @@ export function Composer({  status: sharedStatus,
       {viewing !== null && (
         <ImageViewer name={viewing.name} src={viewing.src} onClose={() => setViewing(null)} />
       )}
-      <div className="mx-auto min-w-0 w-full max-w-3xl" ref={boxRef} data-composer-box>
+      <div className="mx-auto min-w-0 w-full max-w-3xl 2xl:max-w-5xl" ref={boxRef} data-composer-box>
         {showCommit && (
           <div className="mb-2 flex items-center justify-center gap-3 px-1 text-[12.5px]" role="group" aria-label="Repository actions">
             <button type="button" disabled={blocked !== null || status?.providerReady !== true}
@@ -584,7 +613,7 @@ export function Composer({  status: sharedStatus,
         {blocked !== null && !(hero && folderMissing) && (
           <div className="mb-2 px-1 text-[12.5px] text-dim">{blocked}</div>
         )}
-        {error !== null && <div className="mb-2 px-1 text-[12.5px] text-del">{error}</div>}
+        {(error ?? savedDraft?.sendError) != null && <div className="mb-2 px-1 text-[12.5px] text-del">{error ?? savedDraft?.sendError}</div>}
         {attachmentPending > 0 && <div role="status" className="mb-2 px-1 text-[12.5px] text-dim">Preparing attachments… ({attachmentPending})</div>}
         {attachmentErrors.length > 0 && (
           <div role="alert" className="mb-2 px-1 text-[12.5px] text-del">
@@ -643,7 +672,9 @@ export function Composer({  status: sharedStatus,
             </div>
           )}
 
-          {!hero && session !== undefined && <TodoPanel sessionId={session.id} messages={session.messages} working={isStreaming && !isPaused} />}
+          {menu === 'effort' && effort !== null && <EffortMenu target={effort} onPicked={() => setMenu('none')} />}
+
+          {!hero && session !== undefined && <TodoPanel sessionId={session.id} working={isStreaming && !isPaused} />}
 
           {queued.length > 0 && (
             <div className="mb-2 flex flex-col gap-1" data-queue>
@@ -763,6 +794,7 @@ export function Composer({  status: sharedStatus,
               </div>
             )}
 
+            {mention.menu}
             <textarea
               ref={promptRef}
               rows={1}
@@ -778,9 +810,32 @@ export function Composer({  status: sharedStatus,
                       : 'Tell anticode what to change…'
                     : "Don't work today, just vibes."
               }
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={event => {
+                history.current = null
+                mention.track(event.currentTarget)
+                setDraft(event.currentTarget.value)
+              }}
+              onSelect={event => mention.track(event.currentTarget)}
               onPaste={onPaste}
               onKeyDown={(event) => {
+                if (mention.onKey(event) || event.nativeEvent.isComposing) return
+                if (session && (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+                    event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0 &&
+                    !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey &&
+                    (event.key === 'ArrowUp' || history.current !== null)) {
+                  const sent = useSessionStore.getState().sessions.find(entry => entry.id === session.id)?.messages
+                    .filter(message => message.role === 'user' && !message.followUp)
+                    .flatMap(message => message.parts.flatMap(part => part.kind === 'text' ? [part.text] : [])) ?? []
+                  if (sent.length) {
+                    const kept = history.current ?? { index: sent.length, draft }
+                    kept.index = Math.max(0, Math.min(sent.length, kept.index + (event.key === 'ArrowUp' ? -1 : 1)))
+                    history.current = kept.index === sent.length ? null : kept
+                    event.preventDefault()
+                    setDraft(sent[kept.index] ?? kept.draft)
+                    requestAnimationFrame(() => promptRef.current?.setSelectionRange(0, 0))
+                    return
+                  }
+                }
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   if (isStreaming && !isPaused && draft.trim() !== '') {
@@ -840,6 +895,12 @@ export function Composer({  status: sharedStatus,
                 <span data-menu-chip className="max-w-56 truncate font-mono">{shortModel}</span>
               </Chip>
 
+              {effort !== null && (
+                <Chip onClick={() => setMenu(menu === 'effort' ? 'none' : 'effort')} active={menu === 'effort'}>
+                  <EffortLabel target={effort} />
+                </Chip>
+              )}
+
               <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
                 <span data-menu-chip>{status?.autoApprove === true ? 'Auto' : 'Default'}</span>
               </Chip>
@@ -883,7 +944,7 @@ export function Composer({  status: sharedStatus,
                   composer; a second arrow steers it into the live run. */}
               <div className="flex-1" />
 
-              {steering && (
+              {hasFollowUp && (
                 <button type="button" aria-label="Pause" title="Pause this task and keep your draft" disabled={pausing}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => void pause()} className="glass-ghost mr-1 flex h-8 w-8 items-center justify-center rounded-lg text-dim transition-colors hover:text-brand disabled:opacity-50">
@@ -909,8 +970,9 @@ export function Composer({  status: sharedStatus,
               <button
                 type="button"
                 onClick={() => {
-                  if (steering) {
-                    void steerNow()
+                  if (hasFollowUp) {
+                    if (steering) void steerNow()
+                    else void send()
                     return
                   }
                   if (isStreaming && !isPaused) {
@@ -928,7 +990,7 @@ export function Composer({  status: sharedStatus,
                 // missing, so pressing it points at the folder button.
                 disabled={
                   pausing ||
-                  (attachmentsBlocked && (!isStreaming || steering)) ||
+                  (attachmentsBlocked && (!isStreaming || hasFollowUp)) ||
                   (isPaused && isStreaming) ||
                   (!isStreaming && !resuming && (draft.trim() === '' || (!canSend && !folderMissing)))
                 }
@@ -940,7 +1002,7 @@ export function Composer({  status: sharedStatus,
                       : undefined
                 }
                 aria-label={
-                  resuming ? 'Continue' : steering ? 'Steer' : isStreaming ? 'Pause' : 'Send'
+                  resuming ? 'Continue' : steering ? 'Steer' : hasFollowUp ? 'Queue prompt' : isStreaming ? 'Pause' : 'Send'
                 }
                 className={`flex h-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:text-faint ${
                   resuming
@@ -955,7 +1017,7 @@ export function Composer({  status: sharedStatus,
                     </svg>
                     <span className="text-[12.5px]">Continue</span>
                   </>
-                ) : isStreaming && !isPaused && !steering ? (
+                ) : isStreaming && !isPaused && !hasFollowUp ? (
                   <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
                 ) : (
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">

@@ -1,3 +1,4 @@
+import { requestEffort } from '../effort'
 import OpenAI from 'openai'
 import { isAccountAccessFailure } from './failures'
 import { modelCannotSeeImages } from '@shared/ipc'
@@ -181,6 +182,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
       defaultHeaders?: Record<string, string>
       /** Public free endpoints only; never used as fallback for a rejected key. */
       anonymous?: boolean
+      /** OpenAI's own API: reasoning models take `reasoning_effort`. Gateways are never sent it. */
+      reasoningEffort?: boolean
       /** Test hook; production uses FIRST_DATA_TIMEOUT_MS. */
       firstDataTimeoutMs?: number
       /** Test hook; production uses STREAM_INACTIVITY_MS. */
@@ -193,11 +196,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
       defaultHeaders: { ...options.defaultHeaders, ...(options.anonymous ? { Authorization: null } : {}) }
     })
     this.maxTokensField = options.maxTokensField
+    this.reasoningEffort = options.reasoningEffort === true
     this.firstDataTimeoutMs = options.firstDataTimeoutMs ?? FIRST_DATA_TIMEOUT_MS
     this.streamInactivityMs = options.streamInactivityMs ?? STREAM_INACTIVITY_MS
   }
 
   private readonly maxTokensField: 'max_completion_tokens' | 'max_tokens'
+  private readonly reasoningEffort: boolean
   private readonly firstDataTimeoutMs: number
   private readonly streamInactivityMs: number
 
@@ -274,6 +279,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       ? new ProviderRequestError('Provider stream stalled mid-turn. The run stopped so nothing is duplicated', 503)
       : Object.assign(new Error('Provider stream stalled before any data arrived'), { status: 503 })
 
+    const effort = this.reasoningEffort ? requestEffort('openai', this.model) : undefined
     try {
       const open = (maxTokens: number) => this.client.chat.completions.create(
         {
@@ -282,7 +288,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
           ...(tools !== undefined ? { tools } : {}),
           stream: true,
           stream_options: { include_usage: true },
-          [this.maxTokensField]: maxTokens
+          [this.maxTokensField]: maxTokens,
+          ...(effort !== undefined ? { reasoning_effort: effort } : {})
         },
         { signal: watchdog.signal }
       )

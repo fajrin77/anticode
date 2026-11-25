@@ -81,7 +81,9 @@ describe('CheckpointStore', () => {
     await rm(at('gone.txt'))
     await mkdir(at('gen/sub'), { recursive: true })
     await writeFile(at('gen/sub/out.txt'), 'generated')
-    await store.afterCommand(before)
+    const commandDiff = await store.afterCommand(before)
+    expect(commandDiff).toContain('+++ b/change.txt')
+    expect(commandDiff).toContain('+++ b/gen/sub/out.txt')
 
     store.restoreFrom(0)
     expect(await readFile(at('change.txt'), 'utf8')).toBe('original')

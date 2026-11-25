@@ -179,3 +179,14 @@ it('counts only typed prompts: a resume reads as its marker and a follow-up ride
   store.dropFrom(id, messages[1]!.id)
   expect(useSessionStore.getState().sessions[0]!.messages).toHaveLength(1)
 })
+
+it('adds a pending reply to its owner when a different tab is selected', () => {
+  const store = useSessionStore.getState()
+  const owner = store.openSession('chat', null)
+  const foreground = store.openSession('chat', null)
+  store.addMessage({ id: 'owned-reply', role: 'assistant', parts: [], pending: true }, owner)
+  const { activeSessionId, sessions } = useSessionStore.getState()
+  expect(activeSessionId).toBe(foreground)
+  expect(sessions.find(session => session.id === foreground)?.messages).toEqual([])
+  expect(sessions.find(session => session.id === owner)?.messages.map(message => message.id)).toEqual(['owned-reply'])
+})

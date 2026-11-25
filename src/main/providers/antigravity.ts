@@ -1,3 +1,5 @@
+import { requestEffort } from '../effort'
+import { thinkingConfig } from './geminiThinking'
 import { randomUUID } from 'node:crypto'
 import { ANTIGRAVITY_BASE, ANTIGRAVITY_CHAT_MODEL, antigravityHeaders, antigravityProject } from '../auth/antigravity'
 import { toContents, toDeclarations } from './google'
@@ -26,7 +28,7 @@ export class AntigravityProvider implements LLMProvider {
     const project = this.tokens.meta?.project ?? await antigravityProject(this.tokens.accessToken, params.signal)
     const response = await fetch(`${ANTIGRAVITY_BASE}/v1internal:generateContent`, {
       method: 'POST', headers: antigravityHeaders(this.tokens.accessToken), signal: params.signal,
-      body: JSON.stringify({ project, model: this.model, userAgent: 'anticode', requestType: 'agent', requestId: randomUUID(), request: { contents: toContents(params.messages), systemInstruction: { parts: [{ text: params.system }] }, generationConfig: { maxOutputTokens: params.maxTokens }, ...(params.tools.length ? { tools: [{ functionDeclarations: toDeclarations(params.tools) }] } : {}) } })
+      body: JSON.stringify({ project, model: this.model, userAgent: 'anticode', requestType: 'agent', requestId: randomUUID(), request: { contents: toContents(params.messages), systemInstruction: { parts: [{ text: params.system }] }, generationConfig: { maxOutputTokens: params.maxTokens, ...(this.model.startsWith('gemini-') ? thinkingConfig(requestEffort('gemini', this.model)) : {}) }, ...(params.tools.length ? { tools: [{ functionDeclarations: toDeclarations(params.tools) }] } : {}) } })
     })
     if (!response.ok) {
       // Keep the provider's own reason (never the request) so a 400 is diagnosable.

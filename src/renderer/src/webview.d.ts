@@ -15,6 +15,7 @@ export interface WebviewElement extends HTMLElement {
   goForward: () => void
   reload: () => void
   stop: () => void
+  openDevTools: () => void
   loadURL: (url: string) => Promise<void>
 }
 

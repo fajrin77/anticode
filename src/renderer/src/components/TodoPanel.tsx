@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import type { JSX } from 'react'
 import { useSessionStore } from '../store/session'
 import type { Message } from '../store/session'
@@ -17,10 +18,9 @@ export interface TodoItem {
 export function latestPlan(messages: Message[]): TodoItem[] | null {
   // A new typed prompt starts a new run. Never borrow the checklist from a
   // previous run while the new reply is still empty or creating its own plan.
-  const boundary = messages.findLastIndex((message) =>
-    message.role === 'user' && message.followUp !== true && message.parts.some((part) => part.kind === 'text')
-  )
-  for (let i = messages.length - 1; i >= Math.max(0, boundary); i--) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role === 'user' && message.followUp !== true && message.parts.some(part => part.kind === 'text')) break
     const parts = messages[i]?.parts ?? []
     for (let j = parts.length - 1; j >= 0; j--) {
       const part = parts[j]
@@ -55,10 +55,10 @@ function Mark({ status }: { status: TodoItem['status'] }): JSX.Element {
  * covering three or more user outcomes, and only while its run is alive.
  * The header opens and closes it while that work is in progress.
  */
-export function TodoPanel({ sessionId, messages, working }: { sessionId: string; messages: Message[]; working: boolean }): JSX.Element | null {
+export function TodoPanel({ sessionId, working }: { sessionId: string; working: boolean }): JSX.Element | null {
+  const plan = useSessionStore(useShallow(state => latestPlan(state.sessions.find(session => session.id === sessionId)?.messages ?? [])))
   const open = useSessionStore((state) => state.planOpenBySession[sessionId])
   const setPlanOpen = useSessionStore((state) => state.setPlanOpen)
-  const plan = latestPlan(messages)
   if (plan === null || plan.length < 3 || (!working && !plan.some((item) => item.status === 'blocked'))) return null
   const done = plan.filter((item) => item.status === 'completed').length
   const finished = done === plan.length

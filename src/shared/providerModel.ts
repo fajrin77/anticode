@@ -5,6 +5,9 @@ export function providerModelIssue(provider: ProviderInfo, model: string, catalo
   if (!provider.authKind) return null // Custom endpoints keep explicit hand-configured ids.
   const models = catalogue ?? provider.models ?? []
   const wrongFamily = provider.authKind === 'claude' && !model.startsWith('claude-')
+  if (models.length === 0 && !wrongFamily) {
+    return `No model catalogue is available for ${provider.label}. Refresh this account in Settings → Auth provider.`
+  }
   return wrongFamily || !models.includes(model)
     ? `Model “${model}” is not offered by ${provider.label}. This route is skipped; choose a model from this account’s catalogue.`
     : null

@@ -69,6 +69,8 @@ function General({
   providers: ProviderInfo[]
   onToggleAutoApprove: (enabled: boolean) => void
 }): JSX.Element {
+  const [cleaning, setCleaning] = useState(false)
+  const [cleaned, setCleaned] = useState<string | null>(null)
   const [preferences, setPreferences] = useState<AppPreferences | null>(null)
   useEffect(() => {
     void window.anticode.getPreferences().then(setPreferences)
@@ -99,6 +101,18 @@ function General({
           hint="New sessions start on the model picked last. Each session keeps its own, changing it in one tab leaves the others alone."
         >
           <span className="font-mono text-[12.5px]">{status === null || status.model !== '' || status.provider === ROTATE_PROVIDER ? modelLabel(status) : 'not set'}</span>
+        </SettingRow>
+      </div>
+
+      <div className="glass-surface mb-8 overflow-hidden rounded-xl border border-line">
+        <SettingRow title="Storage" hint={cleaned ?? 'Clear browser data from deleted sessions and trim checkpoints over 2 GB.'}>
+          <button type="button" disabled={cleaning} className="glass-ghost rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:text-brand disabled:opacity-50"
+            onClick={() => {
+              setCleaning(true)
+              void window.anticode.cleanStorage().then(result => {
+                setCleaned(`Freed ${(result.bytes / 1024 ** 2).toFixed(1)} MB · ${result.checkpoints} checkpoints · ${result.browserPartitions} browser partitions`)
+              }).catch(error => setCleaned(String(error))).finally(() => setCleaning(false))
+            }}>{cleaning ? 'Cleaning…' : 'Clean up storage'}</button>
         </SettingRow>
       </div>
 
@@ -246,6 +260,7 @@ function ProviderForm({
   }
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.nativeEvent.isComposing) return
     if (event.key === 'Escape') onCancel()
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.target instanceof HTMLInputElement)) {
       event.preventDefault()
@@ -678,6 +693,7 @@ function ProviderDropdown({
         aria-controls="rotation-provider-options"
         aria-activedescendant={`rotation-provider-option-${active}`}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
             const step = event.key === 'ArrowDown' ? 1 : -1
@@ -831,6 +847,7 @@ function ModelCombo({
           setOpen(true)
         }}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
             setOpen(true)
@@ -1337,6 +1354,7 @@ function RotateUsage({
                   onChange={(event) => setName(event.target.value)}
                   onBlur={rename}
                   onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                    if (event.nativeEvent.isComposing) return
                     if (event.key === 'Enter') event.currentTarget.blur()
                     if (event.key === 'Escape') {
                       setName(viewed.name)
@@ -1535,6 +1553,7 @@ function RotateUsage({
               <div
                 className="flex items-center gap-2 border-t border-line-soft px-5 py-3"
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return
                   if (event.key === 'Escape') setAdding(null)
                   if (event.key === 'Enter') void add()
                 }}
@@ -1842,6 +1861,7 @@ function Models({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
             if (event.key === 'Enter' && canAddTyped) {
               setPicked(typed, true)
               setQuery('')

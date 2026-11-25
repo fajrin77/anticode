@@ -1,4 +1,5 @@
 import type { AgentEvent, AgentRequest, AttachmentRef, ProviderSelection } from '@shared/ipc'
+import { scheduleCheckpointCleanup } from './storageCleanup'
 import { ROTATE_PROVIDER } from '@shared/ipc'
 import type { ApprovalGate } from './approval/types'
 import type { ContentBlock } from './providers/types'
@@ -24,12 +25,16 @@ export function submitPrompt(
   req: AgentRequest,
   gate: ApprovalGate,
   prepared?: Prepared
-): Promise<{ runId: string; steered: boolean }> {
-  const previous = admissions.get(req.sessionId) ?? Promise.resolve()
-  const pending = previous.catch(() => undefined).then(() => admit(req, gate, prepared))
-  admissions.set(req.sessionId, pending)
+): Promise<{ runId: string; steered: boolean; queued?: boolean }> {
+  return admitInOrder(req.sessionId, () => admit(req, gate, prepared))
+}
+
+function admitInOrder<T>(id: string, action: () => Promise<T>): Promise<T> {
+  const previous = admissions.get(id) ?? Promise.resolve()
+  const pending = previous.catch(() => undefined).then(action)
+  admissions.set(id, pending)
   void pending.finally(() => {
-    if (admissions.get(req.sessionId) === pending) admissions.delete(req.sessionId)
+    if (admissions.get(id) === pending) admissions.delete(id)
   }).catch(() => undefined)
   return pending
 }
@@ -38,7 +43,7 @@ async function admit(
   req: AgentRequest,
   gate: ApprovalGate,
   prepared?: Prepared
-): Promise<{ runId: string; steered: boolean }> {
+): Promise<{ runId: string; steered: boolean; queued?: boolean }> {
   if (typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > 200_000) {
     throw new Error('Enter a prompt of at most 200,000 characters')
   }
@@ -50,11 +55,11 @@ async function admit(
   // gives a fast-finishing run time to close and turns the instruction into a
   // separate run (or makes it appear that Steer did nothing).
   const runningNow = runForSession(req.sessionId)
+  if (runningNow !== null && (req.followUp === 'queue' || isPaused(req.sessionId))) {
+    enqueue(req.sessionId, req.prompt, req.attachmentIds, stagedRefs(req.attachmentIds), req.plan === true)
+    return { runId: runningNow, steered: false, queued: true }
+  }
   if (runningNow !== null && req.attachmentIds.length === 0) {
-    if (isPaused(req.sessionId)) {
-      const queued = await queuePrompt(req, gate)
-      return { runId: queued.runId, steered: false }
-    }
     const agent = getSession(req.sessionId, gate)
     if (!agent.steer(req.prompt, [])) throw new Error('Wait for this session to finish stopping')
     forward({ type: 'steer', runId: runningNow, text: req.prompt, attachments: [] })
@@ -72,9 +77,9 @@ async function admit(
     // A session the user paused is not really working: a prompt typed now is
     // next in line, not a mid-flight instruction, steer would refuse it with
     // "finish stopping". Line it up so the send never dead-ends.
-    if (isPaused(req.sessionId)) {
-      const queued = await queuePrompt(req, gate)
-      return { runId: queued.runId, steered: false }
+    if (req.followUp === 'queue' || isPaused(req.sessionId)) {
+      enqueue(req.sessionId, req.prompt, req.attachmentIds, stagedRefs(req.attachmentIds), req.plan === true)
+      return { runId: existing, steered: false, queued: true }
     }
     const agent = getSession(req.sessionId, gate)
     if (!agent.steer(req.prompt, blocks)) throw new Error('Wait for this session to finish stopping')
@@ -111,7 +116,8 @@ async function admit(
     finishRun(req.runId)
     const ended = terminal ?? { type: 'end', runId: req.runId, reason: 'complete' }
     forward(ended)
-    persistSessions()
+    persistSessions(req.sessionId)
+    scheduleCheckpointCleanup()
     // A run that finished hands over to the next queued prompt. One that was
     // paused or failed leaves the queue waiting, for a resume or a fix.
     if (ended.type === 'end' && ended.reason === 'complete') sendNextQueued(req.sessionId, gate)
@@ -119,6 +125,7 @@ async function admit(
   // The run records its prompt before its first await, so the history already
   // holds it here, and an antichat's first prompt is what names it.
   announceTitle(req.sessionId)
+  persistSessions(req.sessionId)
   return { runId: req.runId, steered: false }
 }
 
@@ -136,31 +143,33 @@ export async function regenerate(
   choice: ProviderSelection | null,
   gate: ApprovalGate,
   from: 'desktop' | 'phone'
-): Promise<{ runId: string; steered: boolean }> {
-  if (runForSession(sessionId) !== null) throw new Error('Pause this session before retrying')
-  if (choice !== null) {
-    selectProviderOnce(choice, sessionId)
-    announceStatus()
-  }
-  try {
-    // Checked before anything is taken back: a retry that cannot start must
-    // leave the answer it would have replaced where it is.
-    const status = getStatus(sessionId)
-    if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
-    const taken = takeBackPrompt(sessionId, 1)
-    if (taken === null) throw new Error('There is no prompt to answer again')
-    announceHistory(sessionId, from)
-    return await submitPrompt(
-      { sessionId, runId, prompt: taken.prompt, attachmentIds: [] },
-      gate,
-      { blocks: taken.blocks, attachments: taken.attachments }
-    )
-  } catch (error) {
-    // A retry that never started leaves no one-shot pick behind for the next prompt.
-    forgetOneShotChoice(sessionId)
-    announceStatus()
-    throw error
-  }
+): Promise<{ runId: string; steered: boolean; queued?: boolean }> {
+  return admitInOrder(sessionId, async () => {
+    if (runForSession(sessionId) !== null) throw new Error('Pause this session before retrying')
+    if (choice !== null) {
+      selectProviderOnce(choice, sessionId)
+      announceStatus()
+    }
+    try {
+      // Checked before anything is taken back: a retry that cannot start must
+      // leave the answer it would have replaced where it is.
+      const status = getStatus(sessionId)
+      if (!status.providerReady) throw new Error(status.blockedReason ?? 'Agent is not ready')
+      const taken = takeBackPrompt(sessionId, 1)
+      if (taken === null) throw new Error('There is no prompt to answer again')
+      announceHistory(sessionId, from)
+      return await admit(
+        { sessionId, runId, prompt: taken.prompt, attachmentIds: [] },
+        gate,
+        { blocks: taken.blocks, attachments: taken.attachments }
+      )
+    } catch (error) {
+      // A retry that never started leaves no one-shot pick behind for the next prompt.
+      forgetOneShotChoice(sessionId)
+      announceStatus()
+      throw error
+    }
+  })
 }
 
 /**
@@ -168,19 +177,8 @@ export async function regenerate(
  * nothing running there is nothing to wait for, and it is sent at once.
  */
 export async function queuePrompt(req: AgentRequest, gate: ApprovalGate): Promise<{ runId: string; queued: boolean }> {
-  if (typeof req.prompt !== 'string' || !req.prompt.trim() || req.prompt.length > 200_000) {
-    throw new Error('Enter a prompt of at most 200,000 characters')
-  }
-  if (!Array.isArray(req.attachmentIds) || req.attachmentIds.some((id) => typeof id !== 'string')) {
-    throw new Error('Invalid attachment IDs')
-  }
-  const running = runForSession(req.sessionId)
-  if (running === null) {
-    const started = await submitPrompt(req, gate)
-    return { runId: started.runId, queued: false }
-  }
-  enqueue(req.sessionId, req.prompt, req.attachmentIds, stagedRefs(req.attachmentIds), req.plan === true)
-  return { runId: running, queued: true }
+  const result = await submitPrompt({ ...req, followUp: 'queue' }, gate)
+  return { runId: result.runId, queued: result.queued === true }
 }
 
 /**
@@ -215,7 +213,7 @@ function sendNextQueued(sessionId: string, gate: ApprovalGate): void {
   const next = dequeue(sessionId)
   if (next === undefined) return
   const { attachmentIds, ...shown } = next
-  void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds, plan: next.plan }, gate).catch(() => {
+  void submitPrompt({ sessionId, runId: randomUUID(), prompt: next.text, attachmentIds, plan: next.plan, followUp: 'queue' }, gate).catch(() => {
     if (loadSessionMessages(sessionId) === null) {
       releaseAttachments(attachmentIds)
       return

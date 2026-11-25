@@ -15,6 +15,7 @@ export const IpcChannel = {
   PROVIDER_MODELS: 'provider:models',
   POLICY_SET: 'policy:set',
   FOLLOW_UP_SET: 'followUp:set',
+  EFFORT_SET: 'effort:set',
   SESSION_LIST: 'session:list',
   SESSION_CREATE: 'session:create',
   SESSION_CLONE: 'session:clone',
@@ -26,6 +27,12 @@ export const IpcChannel = {
   ATTACH_DATA: 'attachment:data',
   ARTIFACT_OPEN: 'artifact:open',
   ARTIFACT_SAVE: 'artifact:save',
+  WORKSPACE_FILE_SEARCH: 'workspace:files',
+  WORKSPACE_GIT_STATUS: 'workspace:git-status',
+  WORKSPACE_GIT_DIFF: 'workspace:git-diff',
+  WORKSPACE_GIT_REVERT: 'workspace:git-revert',
+  WORKSPACE_EDITOR: 'workspace:editor',
+  STORAGE_CLEAN: 'storage:clean',
   ARTIFACT_REVEAL: 'artifact:reveal',
   RUN_LIST: 'agent:runs',
   AGENT_SEND: 'agent:send',
@@ -289,6 +296,7 @@ export function maxOutputFor(model: string): number {
 }
 
 export interface AppInfo {
+  storageWarning: string | null
   name: string
   version: string
   electron: string
@@ -357,6 +365,8 @@ export interface ProviderInfo {
   /** A key is saved for it. The key itself never leaves the main process. */
   hasKey?: boolean
   keyCount?: number
+  /** Reasoning levels this account reported per model; missing models fall back to known rules. */
+  efforts?: Record<string, import('./effort').ModelEffort>
 }
 
 /** A change made in Settings. Blank or missing fields keep what is there. */
@@ -545,6 +555,8 @@ export interface ToolPreview {
 
 export interface ApprovalRequest {
   requestId: string
+  sessionId: string
+  workspaceRoot: string | null
   runId: string
   toolName: string
   risk: RiskTier
@@ -557,6 +569,7 @@ export type ApprovalDecision = 'approve' | 'reject' | 'always'
 
 export interface ApprovalResponse {
   requestId: string
+  sessionId: string
   decision: ApprovalDecision
 }
 
@@ -674,6 +687,8 @@ export interface SessionStatus {
   /** What a prompt sent while a run works does: add to it or line it up. One
    * source for both screens, the desktop chip and the phone chip read this. */
   followUpMode: 'steer' | 'queue'
+  /** Reasoning effort picked per model id; a model missing here runs at its provider default. */
+  efforts: Record<string, import('./effort').EffortLevel>
   /** Whether the selected provider has credentials and a model name. */
   providerReady: boolean
   blockedReason: string | null
@@ -797,8 +812,15 @@ export interface AttachmentInfo extends AttachmentRef {
   preview: string
 }
 
+export interface WorkspaceChanges {
+  branch: string
+  dirty: boolean
+  files: { path: string; status: string }[]
+}
+
 export interface AgentRequest {
   sessionId: string
+  followUp?: 'queue' | 'steer'
   runId: string
   prompt: string
   attachmentIds: string[]
@@ -1407,7 +1429,7 @@ export interface AnticodeApi {
     sessionId: string,
     runId: string,
     choice: ProviderSelection | null
-  ) => Promise<{ runId: string; steered: boolean }>
+  ) => Promise<{ runId: string; steered: boolean; queued?: boolean }>
   /** Instructions for one session, from its next request on; answers the settled spec. */
   setSessionInstructions: (sessionId: string, instructions: string) => Promise<SessionSpec>
   /** Drops the last exchange and returns its prompt, for retyping. */
@@ -1468,6 +1490,8 @@ export interface AnticodeApi {
   selectRotationGroup: (id: string | null, sessionId?: string | null) => Promise<SessionStatus>
   setAutoApprove: (enabled: boolean) => Promise<SessionStatus>
   setFollowUpMode: (mode: 'steer' | 'queue') => Promise<SessionStatus>
+  /** Reasoning effort for one model id, from its next request on; null returns it to the provider default. */
+  setModelEffort: (model: string, effort: import('./effort').EffortLevel | null) => Promise<SessionStatus>
   /** Answers with the spec as the main process settled it, colour included. */
   createSession: (spec: SessionSpec) => Promise<SessionSpec>
   /**
@@ -1493,6 +1517,12 @@ export interface AnticodeApi {
   openArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   /** Save-a-copy dialog for a produced file; resolves to the chosen path. */
   saveArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
+  workspaceChanges: (sessionId: string) => Promise<WorkspaceChanges | null>
+  workspacePatch: (sessionId: string, file: string) => Promise<{ patch: string; revision: string; hunkRevert: boolean }>
+  revertWorkspacePatch: (sessionId: string, file: string, revision: string, hunk: number | null) => Promise<boolean>
+  searchWorkspaceFiles: (root: string, query: string) => Promise<string[]>
+  openInEditor: (sessionId: string, file: string, editor: 'code' | 'cursor', line: number) => Promise<void>
+  cleanStorage: () => Promise<{ bytes: number; checkpoints: number; browserPartitions: number }>
   revealArtifact: (sessionId: string, relativePath: string) => Promise<string | null>
   /**
    * Renders a file for the in-app viewer: a produced one by its path inside
@@ -1505,7 +1535,7 @@ export interface AnticodeApi {
    * prompt to that run as a follow-up. `steered` says which happened; a steer
    * answers with the run that was already going.
    */
-  sendPrompt: (req: AgentRequest) => Promise<{ runId: string; steered: boolean }>
+  sendPrompt: (req: AgentRequest) => Promise<{ runId: string; steered: boolean; queued?: boolean }>
   /** Recurring prompts: the scheduler reuses one session and its model. */
   listSchedules: () => Promise<ScheduleEntry[]>
   addSchedule: (input: ScheduleInput) => Promise<ScheduleEntry>

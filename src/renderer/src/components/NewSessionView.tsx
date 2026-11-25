@@ -1,3 +1,4 @@
+import { useFileMention } from './FileMention'
 import { providerModelIssue } from '@shared/providerModel'
 import { useAttachmentFocus } from '../useAttachmentFocus'
 import { DASHBOARD_DRAFT, stageDraftAttachments, useAttachmentJobs, fileAttachmentJob } from '../draftAttachments'
@@ -5,11 +6,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { modelCannotSeeImages, modelLabel, ROTATE_PROVIDER, statusFor } from '@shared/ipc'
 import type { AttachmentInfo, ProviderId, ProviderInfo, SessionStatus } from '@shared/ipc'
-import { useSessionStore } from '../store/session'
+import { restoreRejectedDraft, useSessionStore } from '../store/session'
 import type { MessagePart, Session } from '../store/session'
 import { Composer } from './Composer'
 import { fileTag, formatBytes, ImageViewer, openAttachment } from './Attachments'
 import { ModelPicker } from './ModelPicker'
+import { EffortLabel, EffortMenu, effortTarget } from './EffortPicker'
 import { SessionRow } from './SessionRow'
 import { LogoMark } from './LogoMark'
 
@@ -99,12 +101,14 @@ function DashboardComposer({
   }
   const pickVersion = useRef(0)
   const [error, setError] = useState<string | null>(null)
-  const [menu, setMenu] = useState<'none' | 'model' | 'mode'>('none')
+  const [menu, setMenu] = useState<'none' | 'model' | 'mode' | 'effort'>('none')
   const [shake, setShake] = useState(false)
   const [glow, setGlow] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  const mention = useFileMention(folder, draft, setDraft, promptRef)
   useAttachmentFocus(DASHBOARD_DRAFT, attached, promptRef)
+  const effort = effortTarget(status, providers)
 
   const openSession = useSessionStore((state) => state.openSession)
   const addMessage = useSessionStore((state) => state.addMessage)
@@ -164,7 +168,10 @@ function DashboardComposer({
     // Escape dismisses the model/mode menu, matching the approval modal and
     // the model picker; without it the only way out was a click elsewhere.
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setMenu('none')
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && document.querySelector('.menu-glass:not([popover])')) {
+        event.preventDefault()
+        setMenu('none')
+      }
     }
     document.addEventListener('mousedown', onOutside)
     document.addEventListener('keydown', onKey)
@@ -207,15 +214,16 @@ function DashboardComposer({
 
     setDraft('')
     setAttached([])
+    const userMessageId = crypto.randomUUID()
     addMessage({
-      id: crypto.randomUUID(),
+      id: userMessageId,
       role: 'user',
       parts,
       pending: false
-    })
+    }, sessionId)
     const messageId = crypto.randomUUID()
     const runId = crypto.randomUUID()
-    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+    addMessage({ id: messageId, role: 'assistant', parts: [], pending: true }, sessionId)
     setActiveRun({ runId, messageId, sessionId, startedAt: Date.now() })
 
     try {
@@ -223,11 +231,9 @@ function DashboardComposer({
       if (status !== null) await window.anticode.selectProvider({ provider: status.provider, model: status.model }, sessionId)
       await window.anticode.sendPrompt({ sessionId, runId, prompt, attachmentIds })
     } catch (failure) {
-      // A refused send must not leave a ghost run blocking the hero.
-      setError((failure as Error).message)
-      useSessionStore.getState().updateDraft(sessionId, { text: prompt, attachments: attached })
-      useSessionStore.getState().appendText(sessionId, messageId, (failure as Error).message)
-      useSessionStore.getState().settleMessage(messageId)
+      const store = useSessionStore.getState()
+      store.removeMessages(sessionId, [userMessageId, messageId])
+      restoreRejectedDraft(sessionId, { text: draft, attachments: attached }, failure instanceof Error ? failure.message : String(failure))
       setActiveRun(null, runId)
     } finally {
       setSending(false)
@@ -270,6 +276,8 @@ function DashboardComposer({
               onClose={() => setMenu('none')}
             />
           )}
+
+          {menu === 'effort' && effort !== null && <EffortMenu target={effort} onPicked={() => setMenu('none')} />}
 
           {menu === 'mode' && (
             <div className="menu-glass absolute bottom-full left-3 z-20 mb-2 w-72 rounded-xl border p-1.5">
@@ -345,12 +353,14 @@ function DashboardComposer({
               </div>
             )}
 
+            {mention.menu}
             <textarea
               ref={promptRef}
               rows={1}
               value={draft}
               placeholder="Don't work today, just vibes."
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={event => { mention.track(event.currentTarget); setDraft(event.target.value) }}
+              onSelect={event => mention.track(event.currentTarget)}
               onPaste={event => {
                 const files = Array.from(event.clipboardData.files)
                 if (files.length) {
@@ -359,6 +369,7 @@ function DashboardComposer({
                 }
               }}
               onKeyDown={(event) => {
+                if (mention.onKey(event)) return
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   void send()
@@ -383,6 +394,12 @@ function DashboardComposer({
                   {modelLabel(status)}
                 </span>
               </Chip>
+
+              {effort !== null && (
+                <Chip onClick={() => setMenu(menu === 'effort' ? 'none' : 'effort')} active={menu === 'effort'}>
+                  <EffortLabel target={effort} />
+                </Chip>
+              )}
 
               <Chip onClick={() => setMenu(menu === 'mode' ? 'none' : 'mode')} active={menu === 'mode'}>
                 {status?.autoApprove === true ? 'Auto' : 'Default'}
@@ -568,12 +585,18 @@ export function NewSessionView({
 
   // Deleting wipes the session everywhere: cancel its run if one is live,
   // free the main-process side, then drop it from the store.
-  function removeSession(id: string): void {
+  // The row only goes once the main process has removed the session from disk;
+  // a failed delete keeps it listed and says why instead of hiding it until restart.
+  async function removeSession(id: string): Promise<void> {
     for (const [runId, run] of [...Object.entries(activeRuns), ...Object.entries(mirrorRuns)]) {
       if (run.sessionId === id) void window.anticode.cancelRun(runId)
     }
-    void window.anticode.closeSession(id)
-    deleteSession(id)
+    try {
+      await window.anticode.closeSession(id)
+      deleteSession(id)
+    } catch (failure) {
+      setDuplicateError(failure instanceof Error ? failure.message : String(failure))
+    }
   }
 
   const [duplicateError, setDuplicateError] = useState<string | null>(null)
@@ -727,7 +750,7 @@ export function NewSessionView({
             sessions={chatSessions}
             query={query}
             onSelect={onSelectSession}
-            onDelete={removeSession}
+            onDelete={(id) => void removeSession(id)}
             onDuplicate={startSameProject}
             runningIds={runningIds}
           />
@@ -736,7 +759,7 @@ export function NewSessionView({
             sessions={codeSessions}
             query={query}
             onSelect={onSelectSession}
-            onDelete={removeSession}
+            onDelete={(id) => void removeSession(id)}
             onDuplicate={startSameProject}
             runningIds={runningIds}
           />

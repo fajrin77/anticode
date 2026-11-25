@@ -57,6 +57,7 @@ export default defineConfig({
     }
   },
   preload: {
+    build: { rollupOptions: { output: { format: 'cjs', entryFileNames: '[name].cjs', inlineDynamicImports: true } } },
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {

@@ -4,6 +4,7 @@ import { restoreDraftAttachments, DASHBOARD_DRAFT } from './draftAttachments'
 import { useSessionSwipe } from './hooks/useSessionSwipe'
 import { SessionSidebar } from './components/SessionSidebar'
 import { TabBar } from './components/TabBar'
+import { SessionPicker } from './components/SessionPicker'
 import { SessionView } from './components/SessionView'
 import { NewSessionView } from './components/NewSessionView'
 import { Composer } from './components/Composer'
@@ -139,21 +140,6 @@ export function App(): JSX.Element {
     }
   }, [openSession, status])
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent): void {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
-      if (event.key.toLowerCase() === 'n') {
-        event.preventDefault()
-        showDashboard()
-      } else if (event.key.toLowerCase() === 'b') {
-        event.preventDefault()
-        toggleSidebar()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [toggleSidebar, showDashboard])
-
   // Selecting the already-active session changes no store state, so
   // the effect below never fires, the view switch happens here explicitly.
   // Reopening a saved session also clears its archived state.
@@ -174,6 +160,7 @@ export function App(): JSX.Element {
     ]).then(([info, sessionStatus, providerList]) => {
       if (!active) return
       setAppInfo(info)
+      if (info.storageWarning !== null) setAppError(info.storageWarning)
       setStatus(sessionStatus)
       setProviders(providerList)
 
@@ -276,12 +263,6 @@ export function App(): JSX.Element {
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); unsubscribe(); unsubscribeProviders() }
   }, [])
 
-  useEffect(() => {
-    return window.anticode.onApprovalRequest((request) => {
-      setApprovals((queue) => [...queue, request])
-    })
-  }, [])
-
   // The agent's questions wait for a clicked answer the same way approvals
   // wait for a decision; answering from the phone removes the card here too.
   useEffect(() => {
@@ -368,9 +349,21 @@ export function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = window.anticode.onApprovalDismissed((id) => setApprovals((queue) => queue.filter((request) => request.requestId !== id)))
-    void window.anticode.pendingApprovals().then((pending) => setApprovals((queue) => [...queue, ...pending.filter((request) => !queue.some((entry) => entry.requestId === request.requestId))]))
-    return unsubscribe
+    let active = true
+    let dismissed: Set<string> | undefined = new Set()
+    const remove = window.anticode.onApprovalDismissed(id => {
+      dismissed?.add(id)
+      setApprovals(queue => queue.filter(request => request.requestId !== id))
+    })
+    const add = window.anticode.onApprovalRequest(request => {
+      setApprovals(queue => queue.some(entry => entry.requestId === request.requestId) ? queue : [...queue, request])
+    })
+    void window.anticode.pendingApprovals().then(pending => {
+      if (!active) return
+      const visible = pending.filter(request => !dismissed?.has(request.requestId))
+      setApprovals(queue => [...queue, ...visible.filter(request => !queue.some(entry => entry.requestId === request.requestId))])
+    }).catch(error => { if (active) setAppError(String(error)) }).finally(() => { dismissed = undefined })
+    return () => { active = false; add(); remove() }
   }, [])
 
   // Sessions created on the phone land in the desktop immediately, with their
@@ -429,7 +422,36 @@ export function App(): JSX.Element {
   }
 
   useEffect(() => {
+    // Tokens arrive far faster than the screen redraws. They are gathered per
+    // message and written once a frame, so a long transcript re-renders at
+    // display rate instead of once per token. Any other event writes what was
+    // gathered first, which keeps text and tool steps in their real order.
+    const gathered = new Map<string, { sessionId: string; messageId: string; text: string }>()
+    let frame: number | null = null
+    let timer: number | null = null
+    const writeGathered = (): void => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      if (timer !== null) window.clearTimeout(timer)
+      frame = null
+      timer = null
+      if (gathered.size === 0) return
+      const items = [...gathered.values()]
+      gathered.clear()
+      const store = useSessionStore.getState()
+      for (const item of items) store.appendText(item.sessionId, item.messageId, item.text)
+    }
+    const gather = (sessionId: string, messageId: string, text: string): void => {
+      const key = `${sessionId}\0${messageId}`
+      const item = gathered.get(key)
+      if (item !== undefined) item.text += text
+      else gathered.set(key, { sessionId, messageId, text })
+      if (frame !== null || timer !== null) return
+      // A hidden window gets no animation frames; a short timer keeps it current.
+      if (document.hidden) timer = window.setTimeout(writeGathered, 200)
+      else frame = requestAnimationFrame(writeGathered)
+    }
     receiveEvent.current = (event) => {
+      if (event.type !== 'text_delta') writeGathered()
       if (event.type === 'end' || event.type === 'error') {
         setApprovals((queue) => queue.filter((request) => request.runId !== event.runId))
       }
@@ -469,7 +491,7 @@ export function App(): JSX.Element {
             store.takeSteer(event.runId, run.sessionId)
             break
           case 'text_delta':
-            store.appendText(run.sessionId, run.messageId, event.text)
+            gather(run.sessionId, run.messageId, event.text)
             break
           case 'tool_start':
             store.startTool(run.sessionId, run.messageId, event.toolUseId, event.name, event.input)
@@ -539,7 +561,7 @@ export function App(): JSX.Element {
           store.takeSteer(event.runId, event.sessionId)
           break
         case 'text_delta':
-          store.appendText(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
+          gather(event.sessionId, store.mirrorStart(event.runId, event.sessionId), event.text)
           break
         case 'tool_start': {
           const messageId = store.mirrorStart(event.runId, event.sessionId)
@@ -593,10 +615,11 @@ export function App(): JSX.Element {
         }
       }
     }
-    return window.anticode.onAgentEvent((event) => {
+    const unsubscribe = window.anticode.onAgentEvent((event) => {
       if (hydrating.current) bufferedEvents.current.push(event)
       else receiveEvent.current(event)
     })
+    return () => { unsubscribe(); writeGathered() }
   }, [])
 
   // With no session left the dashboard is the view, it creates nothing on
@@ -627,11 +650,46 @@ export function App(): JSX.Element {
     })
   }, [activeSessionId])
 
-  const decide = useCallback((requestId: string, decision: ApprovalDecision) => {
-    setApprovals((queue) => queue.filter((request) => request.requestId !== requestId))
-    void window.anticode.respondToApproval({ requestId, decision }).then(() => {
+  const [picker, setPicker] = useState(false)
+  const [search, setSearch] = useState(0)
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+      const mod = event.metaKey || event.ctrlKey
+      const key = event.key.toLowerCase()
+      if (event.altKey || event.shiftKey || (!mod && key !== 'escape')) return
+      const state = useSessionStore.getState()
+      const id = state.activeSessionId
+      if (key === 'escape' || (mod && key === '.')) {
+        if (picker || view !== 'session' || id === null || event.repeat) return
+        if (key === 'escape' && document.querySelector('[data-transcript-search], [data-image-viewer], .menu-glass:not([popover]), :popover-open, [data-approval], [data-question]')) return
+        if (![...Object.values(state.activeRuns), ...Object.values(state.mirrorRuns)].some(run => run.sessionId === id)) return
+        event.preventDefault()
+        void window.anticode.pauseSession(id).catch(error => setAppError(String(error)))
+        return
+      }
+      if (key === 'n') showDashboard()
+      else if (key === 'b') toggleSidebar()
+      else if (key === ',') toggleSettings()
+      else if (key === 'f' && view === 'session') setSearch(value => value + 1)
+      else if (key === 'k') setPicker(value => !value)
+      else if (key === 'w' && view === 'session' && id !== null) state.closeSession(id)
+      else if (/^[1-9]$/.test(key)) {
+        const session = state.sessions.filter(entry => !entry.closed)[Number(key) - 1]
+        if (session === undefined) return
+        openExistingSession(session.id)
+      } else return
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openExistingSession, picker, showDashboard, toggleSettings, toggleSidebar, view])
+
+  const decide = useCallback((request: ApprovalRequest, decision: ApprovalDecision) => {
+    void window.anticode.respondToApproval({ requestId: request.requestId, sessionId: request.sessionId, decision }).then(() => {
       if (decision === 'always') void window.anticode.getStatus().then(setStatus)
-    })
+    }).catch(error => setAppError(String(error)))
   }, [])
 
   const answerQuestion = useCallback((requestId: string, answer: Omit<QuestionAnswer, 'requestId'>) => {
@@ -659,14 +717,7 @@ export function App(): JSX.Element {
 
   // Popups belong to a session screen, never to Settings or the dashboard.
   const onSession = view === 'session'
-  // An approval belongs to the session whose run asked for it. A run that
-  // is not known yet still shows, so a request can never get stuck unseen.
-  // Selected as the request itself, so token and phase updates of runs do
-  // not re-render the whole app.
-  const pending = useSessionStore((state) => !onSession ? undefined : approvals.find((request) => {
-    const owner = (state.activeRuns[request.runId] ?? state.mirrorRuns[request.runId])?.sessionId
-    return owner === undefined || owner === state.activeSessionId
-  }))
+  const pending = onSession ? approvals.find(request => request.sessionId === activeSessionId) : undefined
   // A question belongs to the session that asked it; other tabs stay clean.
   const pendingQuestion = onSession ? questions.find((request) => request.sessionId === activeSessionId) : undefined
   // Only an empty session is needed here; a streaming one must not re-render App per token.
@@ -719,7 +770,12 @@ export function App(): JSX.Element {
         </div>
       )}
       <FileViewer />
+      {picker && <SessionPicker onClose={() => setPicker(false)} onSelect={openExistingSession} />}
       <TabBar
+        waitingForApproval={approvals.some(request => request.sessionId !== activeSessionId) ? () => {
+          const first = approvals.find(request => request.sessionId !== activeSessionId)
+          if (first) openExistingSession(first.sessionId)
+        } : undefined}
         dashboardActive={view === 'dashboard'}
         settingsActive={view === 'settings'}
         scheduleActive={view === 'schedule'}
@@ -740,7 +796,8 @@ export function App(): JSX.Element {
           onPointerEnter={keepSidebarPreview}
           onPointerLeave={hideSidebarPreview}
           onKeyDown={(event) => {
-            if (event.key === 'Escape' && !sidebarOpen) {
+            if (event.key === 'Escape' && !sidebarOpen && !event.nativeEvent.isComposing) {
+              event.preventDefault()
               setSidebarPreview(false)
               document.querySelector<HTMLButtonElement>('[aria-controls="session-sidebar"]')?.focus()
             }
@@ -748,6 +805,7 @@ export function App(): JSX.Element {
           className={sidebarOpen ? 'flex shrink-0' : 'absolute inset-y-0 left-0 z-30 flex shadow-xl'}
         ><SessionSidebar
           preview={!sidebarOpen}
+          approvalSessions={new Set(approvals.map(request => request.sessionId))}
           collapsed={collapsedProjects}
           onToggleProject={(root) => setCollapsedProjects((current) => {
             const next = new Set(current)
@@ -834,7 +892,7 @@ export function App(): JSX.Element {
                 />
               ) : (
                 <>
-                  <SessionView />
+                  <SessionView searchPulse={search} />
                   <Composer
                     key={activeSessionId}
                     status={status}
@@ -859,8 +917,8 @@ export function App(): JSX.Element {
       )}
         </main>
       </div>
-      {pending && <ApprovalModal key={pending.requestId} request={pending} onDecide={(decision) => decide(pending.requestId, decision)} />}
-      {pendingQuestion !== undefined && <QuestionModal key={pendingQuestion.requestId} request={pendingQuestion} onAnswer={(answer) => answerQuestion(pendingQuestion.requestId, answer)} />}
+      {pending && <ApprovalModal key={pending.requestId} request={pending} sessionTitle={useSessionStore.getState().sessions.find(session => session.id === pending.sessionId)?.title} onDecide={(decision) => decide(pending, decision)} />}
+      {pending === undefined && pendingQuestion !== undefined && <QuestionModal key={pendingQuestion.requestId} request={pendingQuestion} onAnswer={(answer) => answerQuestion(pendingQuestion.requestId, answer)} />}
     </div>
   )
 }

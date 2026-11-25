@@ -26,7 +26,7 @@ it('shares the same model across independent accounts, skips cooldowns and busy 
 it('starts a new monthly accounting period without inventing provider quota', () => {
   settings.accountRoutingUsage = { month: '2000-01', accounts: { 'auth:cline': 99999 } }
   recordAccountUsage('auth:cline-2', 3, 2)
-  expect(settings.accountRoutingUsage).toEqual({ month: new Date().toISOString().slice(0, 7), accounts: { 'auth:cline-2': 5 } })
+  expect(settings.accountRoutingUsage).toEqual({ month: new Date().toLocaleDateString('sv-SE').slice(0, 7), accounts: { 'auth:cline-2': 5 } })
 })
 it.each<AuthKind>(['codex', 'claude', 'clinepass', 'cline', 'codebuddy', 'opencode-go', 'minimax-plan', 'kilo', 'openrouter'])('distributes 25 prompts evenly over five %s accounts before any account is exhausted', (authKind) => {
   const model = authKind === 'claude' ? 'claude-fixture' : 'free-model'

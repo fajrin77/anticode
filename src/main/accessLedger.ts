@@ -32,5 +32,5 @@ export function observeAccessSuccess(id: string, model: string, now = Date.now()
   // Every reply lands here; rewrite settings only when a mark clears or the
   // last-success time is a minute stale.
   if (observations.length === (previous?.observations ?? []).length && previous?.lastSuccessAt !== undefined && now - previous.lastSuccessAt < 60_000) return
-  savePersistedSettings({ accessObservations: { ...all, [id]: { lastSuccessAt: now, observations } } })
+  savePersistedSettings({ accessObservations: { ...all, [id]: { lastSuccessAt: now, observations } } }, true)
 }

@@ -23,6 +23,7 @@ export class ApprovalCoordinator implements ApprovalGate {
 
   resolve(requestId: string, decision: ApprovalDecision): void {
     if (!['approve', 'reject', 'always'].includes(decision)) return
+    if (decision === 'always' && this.requests.get(requestId)?.allowAlways !== true) return
     this.pending.get(requestId)?.(decision)
   }
 
@@ -41,13 +42,13 @@ export class ApprovalCoordinator implements ApprovalGate {
     const payload: ApprovalRequest = {
       requestId: randomUUID(),
       runId: request.runId,
+      sessionId: request.sessionId,
+      workspaceRoot: request.workspaceRoot ?? null,
       toolName: request.toolName,
       risk: request.risk,
       preview,
       allowAlways
     }
-
-    this.onRequested?.(payload)
 
     const decision = await this.awaitDecision(payload, target, request.signal)
     if (decision === 'always' && allowAlways) {
@@ -86,6 +87,7 @@ export class ApprovalCoordinator implements ApprovalGate {
       signal.addEventListener('abort', onAbort, { once: true })
       target?.once('destroyed', onDestroyed)
       target?.send(IpcChannel.APPROVAL_REQUEST, payload)
+      this.onRequested?.(payload)
     })
   }
 }

@@ -12,6 +12,7 @@ import { CODEX_BASE_URL, CODEX_CLIENT_VERSION } from './codexConfig'
 import { FIRST_DATA_TIMEOUT_MS, STREAM_INACTIVITY_MS } from './openai'
 import { ProviderRequestError } from './requestError'
 import { dropInvalidToolCalls, normalizeToolIds } from './history'
+import { requestEffort } from '../effort'
 
 /*
  * ChatGPT (Codex) over an OAuth account. The subscription is reached through
@@ -160,6 +161,7 @@ export class CodexProvider implements LLMProvider {
     const usage: { inputTokens: number; outputTokens: number; cachedTokens?: number } = { inputTokens: 0, outputTokens: 0 }
     let reason: string | null = null
     let finished = false
+    const effort = requestEffort('openai', this.model)
 
     try {
       const response = await fetch(ENDPOINT, {
@@ -183,7 +185,8 @@ export class CodexProvider implements LLMProvider {
           tool_choice: 'auto',
           parallel_tool_calls: false,
           store: false,
-          stream: true
+          stream: true,
+          ...(effort !== undefined ? { reasoning: { effort } } : {})
         }),
         signal: watchdog.signal
       })

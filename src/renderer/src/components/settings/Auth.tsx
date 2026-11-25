@@ -298,6 +298,7 @@ export function Auth({
                   setCodes((current) => ({ ...current, [state.id]: event.target.value }))
                 }
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return
                   if (event.key === 'Enter' && (codes[state.id] ?? '').trim() !== '') void submit(state.id)
                 }}
                 placeholder={state.kind === 'opencode-go' ? 'OpenCode Go plan key' : state.kind === 'minimax-plan' ? 'MiniMax Token Plan sk-cp key' : state.kind === 'claude' ? 'Paste the complete code#state or callback URL' : state.kind === 'orcarouter' ? 'Paste the OrcaRouter authorization code' : 'Paste the authorization code'}
@@ -450,6 +451,7 @@ export function Auth({
                       maxLength={80}
                       onChange={(event) => setDraft(event.target.value)}
                       onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing) return
                         if (event.key === 'Escape') setOpen(null)
                         if (event.key === 'Enter' && draft.trim() !== '') {
                           void act(row.id, 'rename', async () => {

@@ -11,21 +11,8 @@ const RISK_LABEL: Record<RiskTier, string> = {
 
 interface ApprovalModalProps {
   request: ApprovalRequest
+  sessionTitle: string | undefined
   onDecide: (decision: ApprovalDecision) => void
-}
-
-/**
- * Escape rejects only when nothing else wants it. Pressed in a text field or
- * with a menu open, it means "close this", and throwing away the pending
- * change with it would be a decision nobody made.
- */
-export function escapeRejects(event: Pick<KeyboardEvent, 'key' | 'defaultPrevented' | 'target'>): boolean {
-  if (event.key !== 'Escape' || event.defaultPrevented) return false
-  const target = event.target
-  if (target instanceof HTMLElement) {
-    if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return false
-  }
-  return document.querySelector('.menu-glass') === null
 }
 
 /**
@@ -33,27 +20,17 @@ export function escapeRejects(event: Pick<KeyboardEvent, 'key' | 'defaultPrevent
  * pushing the window down: the conversation and the pending action stay
  * visible together, and nothing under it moves.
  */
-export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.Element {
-  useEffect(() => {
-    // Capture phase: decided before a menu's own Escape closes it, so an open
-    // menu is still there to be seen.
-    const onKey = (event: KeyboardEvent): void => {
-      if (escapeRejects(event)) onDecide('reject')
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onDecide])
-
+export function ApprovalModal({ request, sessionTitle, onDecide }: ApprovalModalProps): JSX.Element {
   // The card covers the end of the transcript, so the transcript makes room
   // for it: the prompt that asked for this stays readable above the card.
   const cardRef = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState<{ left: number; width: number; bottom: number } | null>(null)
-  const approveRef = useRef<HTMLButtonElement>(null)
+  const rejectRef = useRef<HTMLButtonElement>(null)
   // A dialog that blocks a risky action must be announced and reachable: the
   // decision moves into the card, and the reader's place comes back after.
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    approveRef.current?.focus()
+    rejectRef.current?.focus()
     return () => previous?.focus()
   }, [])
   useLayoutEffect(() => {
@@ -147,7 +124,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
         role="dialog"
         aria-modal="true"
         aria-label={`${request.toolName} needs approval`}
-        className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl"
+        className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl 2xl:max-w-5xl overflow-hidden rounded-xl border border-line shadow-2xl"
       >
         <header className="flex items-baseline gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">
@@ -167,6 +144,9 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
           </span>
         </header>
 
+        <div className="truncate px-5 pb-3 text-xs text-dim" title={request.workspaceRoot ?? undefined}>
+          {sessionTitle ?? request.sessionId} · {request.workspaceRoot ?? 'Chat workspace'}
+        </div>
         {preview.kind === 'diff' ? (
           <div className="border-y border-line-soft px-5 py-3">
             <DiffView patch={preview.detail} path={preview.subject} maxHeight="max-h-[45vh]" />
@@ -186,6 +166,7 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
           <button
             type="button"
+            ref={rejectRef}
             onClick={() => onDecide('reject')}
             className={`rounded-md px-3 py-1.5 text-[12.5px] text-dim transition-colors hover:bg-raised hover:text-brand ${
               request.risk === 'high' ? '' : 'ml-auto'
@@ -206,7 +187,6 @@ export function ApprovalModal({ request, onDecide }: ApprovalModalProps): JSX.El
 
           <button
             type="button"
-            ref={approveRef}
             onClick={() => onDecide('approve')}
             className="glass-control rounded-md border px-4 py-1.5 text-[12.5px] text-text transition-colors hover:text-brand"
           >

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { isTypedPrompt, useActiveSession, useSessionStore } from '../store/session'
@@ -9,6 +10,7 @@ import { activitySummary } from './activity'
 import { RichText, linkify } from './RichText'
 import { Attachments } from './Attachments'
 import { Artifacts, documentsProduced } from './Artifacts'
+import { WorkspaceFileContext } from './WorkspaceFile'
 import { DiffView } from './DiffView'
 import { parseUnifiedDiff } from '../diff'
 import { formatUsd } from '../money'
@@ -433,7 +435,7 @@ async function retryLastPrompt(sessionId: string, choice: ProviderSelection | nu
   store.dropAfter(sessionId, prompt.id)
   const runId = crypto.randomUUID()
   const messageId = crypto.randomUUID()
-  store.addMessage({ id: messageId, role: 'assistant', parts: [], pending: true })
+  store.addMessage({ id: messageId, role: 'assistant', parts: [], pending: true }, sessionId)
   store.setActiveRun({ runId, messageId, sessionId, startedAt: Date.now() })
   try {
     await window.anticode.regenerate(sessionId, runId, choice)
@@ -447,7 +449,7 @@ async function retryLastPrompt(sessionId: string, choice: ProviderSelection | nu
   }
 }
 
-function MessageView({
+const MessageView = memo(function MessageView({
   message,
   sessionId,
   lastAnswer,
@@ -626,7 +628,7 @@ function MessageView({
       )}
     </div>
   )
-}
+})
 
 function outcomeLabel(outcome: string): string {
   return outcome === 'error' ? 'Stopped by an error' : outcome === 'max_tokens' ? 'Response limit reached' : outcome === 'refusal' ? 'Refused by the provider' : 'Paused'
@@ -653,22 +655,24 @@ function formatDuration(ms: number): string {
  * not on one message. Unfolds in place; failures and errors stay visible even
  * folded, so a step that did not happen never looks done.
  */
-function OldTurn({
+const OldTurn = memo(function OldTurn({
   prompt,
   replies,
   sessionId,
   lastAnswerId,
-  pausedIds
+  pausedIds,
+  searchTarget
 }: {
   prompt: Message | null
   replies: Message[]
   sessionId: string
   lastAnswerId: string | undefined
   pausedIds: Set<string>
+  searchTarget: string | undefined
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const renderFull = (message: Message): JSX.Element => (
-    <div key={message.id} className="message-visibility">
+    <div key={message.id} data-message-id={message.id} className="message-visibility">
       <MessageView
         message={message}
         sessionId={sessionId}
@@ -677,7 +681,7 @@ function OldTurn({
       />
     </div>
   )
-  if (expanded) {
+  if (expanded || searchTarget !== undefined) {
     return (
       <>
         {prompt !== null && renderFull(prompt)}
@@ -764,7 +768,12 @@ function OldTurn({
       <SessionChangedFiles messages={prompt !== null ? [prompt, ...replies] : replies} />
     </>
   )
-}
+}, (previous, next) =>
+  previous.searchTarget === next.searchTarget && previous.prompt === next.prompt && previous.sessionId === next.sessionId &&
+  previous.lastAnswerId === next.lastAnswerId && previous.replies.length === next.replies.length &&
+  previous.replies.every((reply, index) => reply === next.replies[index] &&
+    previous.pausedIds.has(reply.id) === next.pausedIds.has(reply.id))
+)
 
 interface FileStat {
   path: string
@@ -790,8 +799,8 @@ function fileStats(parts: MessagePart[]): FileStat[] {
     }
   }
   for (const part of parts) {
-    if (part.kind !== 'tool' || part.status !== 'ok') continue
-    if (part.name === 'apply_patch') {
+    if (part.kind !== 'tool') continue
+    if (part.name === 'apply_patch' || part.name === 'run_command') {
       if (part.diff !== undefined && part.diff.trim() !== '') {
         for (const chunk of part.diff.split(/(?=^--- a\/)/m)) {
           if (chunk.trim() === '') continue
@@ -804,7 +813,7 @@ function fileStats(parts: MessagePart[]): FileStat[] {
       }
       continue
     }
-    if (!['edit_file', 'write_file', 'delete_file'].includes(part.name)) continue
+    if (part.status !== 'ok' || !['edit_file', 'write_file', 'delete_file'].includes(part.name)) continue
     const path =
       part.input !== null &&
       typeof part.input === 'object' &&
@@ -848,10 +857,8 @@ function formatNumber(value: number): string {
 
 /** What the copy button puts on the clipboard: the reply, nothing else. */
 function summaryText(message: Message): string {
-  return message.parts
-    .map((part) => (part.kind === 'text' ? part.text : ''))
-    .join('')
-    .trim()
+  const final = message.parts.findLast(part => part.kind === 'text' && part.text.trim() !== '')
+  return final?.kind === 'text' ? final.text.trim() : ''
 }
 
 /**
@@ -1157,7 +1164,7 @@ function SessionChangedFiles({ messages }: { messages: Message[] }): JSX.Element
   const added = files.reduce((total, file) => total + file.added, 0)
   const removed = files.reduce((total, file) => total + file.removed, 0)
   return (
-    <div className="mx-auto max-w-3xl py-2" data-changed-files>
+    <div className="mx-auto max-w-3xl 2xl:max-w-5xl py-2" data-changed-files>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -1210,12 +1217,33 @@ function SessionChangedFiles({ messages }: { messages: Message[] }): JSX.Element
   )
 }
 
-export function SessionView(): JSX.Element {
+export function SessionView({ searchPulse = 0 }: { searchPulse?: number }): JSX.Element {
+  const initialPulse = useRef(searchPulse)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [matchIndex, setMatchIndex] = useState(0)
+  const searchInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (initialPulse.current === searchPulse) return
+    initialPulse.current = searchPulse
+    setSearchOpen(true)
+    searchInput.current?.focus()
+    searchInput.current?.select()
+  }, [searchPulse])
   const session = useActiveSession()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scrolled, setScrolled] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const messages = session?.messages ?? []
+  const needle = searchOpen ? query.trim().toLowerCase() : ''
+  const matches = needle === '' ? [] : messages.filter(message => message.parts.some(
+    part => part.kind !== 'tool' && part.kind !== 'attachments' && part.text.toLowerCase().includes(needle)
+  ))
+  const match = matches[matchIndex % Math.max(1, matches.length)]
   // The latest finished reply with no prompt after it is the one Retry answers.
+  const commands = terminalOpen ? messages.flatMap(message => message.parts.filter(
+    (part): part is ToolPart => part.kind === 'tool' && part.name === 'run_command'
+  )).slice(-50) : []
   const lastPrompt = messages.findLastIndex(isTypedPrompt)
   const sessionPaused = useSessionStore((state) => session !== undefined && state.pausedSessions[session.id] === true)
   const pausedIds = pausedTurns(messages, sessionPaused)
@@ -1258,7 +1286,7 @@ export function SessionView(): JSX.Element {
     return found === -1 ? turns.length - 1 : found
   })()
   const renderMessage = (message: Message): JSX.Element => (
-    <div key={message.id} className="message-visibility">
+    <div key={message.id} data-message-id={message.id} className="message-visibility">
       <MessageView
         message={message}
         sessionId={session?.id ?? ''}
@@ -1272,14 +1300,7 @@ export function SessionView(): JSX.Element {
     const id = session?.id
     if (!box || !id) return
     const saved = useSessionStore.getState().readPositions[id]
-    const runs = useSessionStore.getState()
-    const busy =
-      Object.values(runs.activeRuns).some((run) => run.sessionId === id) ||
-      Object.values(runs.mirrorRuns).some((run) => run.sessionId === id)
-    // A working session has no "where I stopped": its end moves every second.
-    // Coming back to the tab lands on the live tail, the saved top belongs
-    // to an idle session only.
-    following.current = busy || (saved?.following ?? true)
+    following.current = saved?.following ?? true
     seenPrompts.current = saved?.prompts ?? promptCount
     box.scrollTop = following.current ? box.scrollHeight : (saved?.top ?? box.scrollHeight)
     const restoring = !following.current && saved !== undefined
@@ -1313,7 +1334,6 @@ export function SessionView(): JSX.Element {
       window.removeEventListener('beforeunload', savePosition)
       savePosition()
     }
-    // Busy is read once per tab switch, which is all it decides for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id])
 
@@ -1351,8 +1371,68 @@ export function SessionView(): JSX.Element {
     }
   }, [])
 
+  useLayoutEffect(() => {
+    if (match === undefined) return
+    const row = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(match.id)}"]`)
+    if (row === undefined || row === null) return
+    following.current = false
+    settleUntil.current = 0
+    row.scrollIntoView({ block: 'center' })
+    row.dataset.searchMatch = 'true'
+    return () => { delete row.dataset.searchMatch }
+  }, [match?.id])
+
   return (
+    <WorkspaceFileContext.Provider value={session?.mode === 'code' ? session.id : null}>
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {searchOpen && <div data-transcript-search role="search" aria-label="Find in transcript"
+        className="glass-surface absolute top-3 right-4 z-40 flex items-center gap-2 rounded-lg border border-line p-2 text-xs">
+        <input ref={searchInput} autoFocus aria-label="Find in transcript" value={query} placeholder="Find in transcript"
+          onChange={event => { setQuery(event.target.value); setMatchIndex(0) }}
+          onKeyDown={event => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'Escape') { event.preventDefault(); setSearchOpen(false); scrollRef.current?.focus() }
+            if (event.key === 'Enter' && matches.length) {
+              event.preventDefault()
+              setMatchIndex(index => (index + (event.shiftKey ? -1 : 1) + matches.length) % matches.length)
+            }
+          }}
+          className="rounded bg-raised px-2 py-1 text-text" />
+        <span aria-live="polite" className="min-w-[4.5rem] text-center tabular-nums text-dim">{match ? `${matchIndex % matches.length + 1}/${matches.length}` : '0 results'}</span>
+        <button type="button" aria-label="Previous match" disabled={!matches.length}
+          className="flex h-6 w-6 items-center justify-center rounded text-dim transition-colors hover:bg-raised hover:text-brand disabled:opacity-40"
+          onClick={() => setMatchIndex(index => (index + matches.length - 1) % matches.length)}>↑</button>
+        <button type="button" aria-label="Next match" disabled={!matches.length}
+          className="flex h-6 w-6 items-center justify-center rounded text-dim transition-colors hover:bg-raised hover:text-brand disabled:opacity-40"
+          onClick={() => setMatchIndex(index => (index + 1) % matches.length)}>↓</button>
+        <button type="button" aria-label="Close search"
+          className="flex h-6 w-6 items-center justify-center rounded text-dim transition-colors hover:bg-raised hover:text-brand"
+          onClick={() => { setSearchOpen(false); scrollRef.current?.focus() }}>×</button>
+      </div>}
+      {session?.mode === 'code' && <div className="absolute top-3 left-4 z-30">
+        <button type="button" aria-expanded={terminalOpen} aria-label="Terminal output"
+          className={`rounded border px-2 py-1 font-mono text-xs transition-colors hover:text-brand ${terminalOpen ? 'glass-control text-text' : 'glass-ghost text-dim'}`}
+          onClick={() => setTerminalOpen(value => !value)}>Terminal</button>
+      </div>}
+      {terminalOpen && <section aria-label="Terminal output"
+        className="menu-glass absolute inset-x-4 top-12 z-40 flex max-h-[50vh] flex-col rounded-xl border p-3 shadow-xl"
+        onKeyDown={event => {
+          if (event.key === 'Escape' && !event.nativeEvent.isComposing) { event.preventDefault(); setTerminalOpen(false) }
+        }}>
+        <div className="mb-2 flex justify-between text-xs text-dim">
+          <span>Terminal output</span>
+          <button type="button" aria-label="Close terminal output"
+            className="flex h-5 w-5 items-center justify-center rounded text-dim transition-colors hover:bg-raised hover:text-brand"
+            onClick={() => setTerminalOpen(false)}>×</button>
+        </div>
+        <div className="min-h-0 overflow-auto" tabIndex={0}>
+          {commands.length === 0 && <p className="text-xs text-dim">No commands in this session.</p>}
+          {commands.map(part => <pre key={part.toolUseId} className="border-b border-line-soft py-2 font-mono text-xs whitespace-pre-wrap text-dim">
+            <span className="text-text">$ {String((part.input as { command?: unknown } | null)?.command ?? '')}</span>
+            {'\n'}{part.output || (part.status === 'running' ? 'Running…' : '')}
+          </pre>)}
+        </div>
+      </section>}
       <ReplyToSelection sessionId={session?.id ?? ''} />
       {/* Right above the composer: where the eye already is when reading. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
@@ -1361,8 +1441,9 @@ export function SessionView(): JSX.Element {
             type="button"
             onClick={() => {
               const box = scrollRef.current
-              if (box !== null) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' })
               following.current = true
+              settleUntil.current = Date.now() + 500
+              if (box !== null) box.scrollTop = box.scrollHeight
               setScrolled(false)
             }}
             title="Back to the latest message"
@@ -1383,11 +1464,16 @@ export function SessionView(): JSX.Element {
           if (atEnd || Date.now() >= settleUntil.current) following.current = atEnd
           setScrolled(box.scrollTop > 4 && !following.current)
         }}
+        onPointerDown={() => { settleUntil.current = 0 }}
+        onKeyDown={event => {
+          if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '].includes(event.key)) settleUntil.current = 0
+        }}
+        tabIndex={0}
         onWheel={() => { settleUntil.current = 0 }}
         onTouchMove={() => { settleUntil.current = 0 }}
         className="transcript-scroll under-header min-h-0 flex-1 overflow-y-auto px-4 @min-[640px]:px-10 [scrollbar-gutter:stable_both-edges]"
       >
-        <div data-transcript className="session-transcript mx-auto max-w-3xl">
+        <div data-transcript className="session-transcript mx-auto max-w-3xl 2xl:max-w-5xl">
           {prelude.map((message) => renderMessage(message))}
           {turns.map((turn, turnIndex) => {
             const old = turnIndex < latestTurnIndex
@@ -1410,11 +1496,13 @@ export function SessionView(): JSX.Element {
                 sessionId={session?.id ?? ''}
                 lastAnswerId={lastAnswerId}
                 pausedIds={pausedIds}
+                searchTarget={match !== undefined && turn.replies.includes(match) ? match.id : undefined}
               />
             )
           })}
         </div>
       </div>
     </div>
+    </WorkspaceFileContext.Provider>
   )
 }

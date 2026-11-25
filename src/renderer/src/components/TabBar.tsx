@@ -1,3 +1,5 @@
+import { WorkspaceReview } from './WorkspaceReview'
+import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useRef, useState } from 'react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useSessionStore } from '../store/session'
@@ -52,7 +54,7 @@ function UsageButton({
   selectedModel,
   activeProvider
 }: {
-  session: Session
+  session: Pick<Session, 'id' | 'title' | 'model' | 'inputTokens' | 'outputTokens' | 'lastInputTokens'> & { messageCount: number; instructions: string | undefined; costUsd: number | undefined; costPartial: boolean | undefined }
   selectedModel: string | null
   activeProvider: string | null
 }): JSX.Element {
@@ -175,7 +177,7 @@ function UsageButton({
             </div>
             <div className="flex items-baseline justify-between gap-4 py-1.5">
               <span className="text-[12px] text-faint">Messages</span>
-              <span className="text-[12.5px] text-text">{formatNumber(session.messages.length)}</span>
+              <span className="text-[12.5px] text-text">{formatNumber(session.messageCount)}</span>
             </div>
             <div
               className="col-span-2 flex items-baseline justify-between gap-4 py-1.5"
@@ -275,6 +277,7 @@ interface TabBarProps {
   selectedProvider: string | null
   selectedModel?: string | null
   lastUsedProvider?: string | null
+  waitingForApproval: (() => void) | undefined
 }
 
 /** Plan limits of the account behind the model in use; API-key routes have none to show. */
@@ -390,12 +393,15 @@ function BrowserButton({ sessionId }: { sessionId: string }): JSX.Element {
 }
 
 export function TabBar({
-  onDashboard, onOpenSettings, onOpenSchedule,
+  onDashboard, onOpenSettings, onOpenSchedule, waitingForApproval,
   sidebarOpen, onToggleSidebar, onSidebarPointerEnter, onSidebarPointerLeave, dashboardActive, settingsActive, scheduleActive, selectedProvider, selectedModel = null, lastUsedProvider = null
 }: TabBarProps): JSX.Element {
-  const activeSession = useSessionStore((state) =>
-    state.sessions.find((session) => session.id === state.activeSessionId && !session.closed)
-  )
+  const activeSession = useSessionStore(useShallow(state => {
+    const session = state.sessions.find(entry => entry.id === state.activeSessionId && !entry.closed)
+    if (!session) return undefined
+    const { id, title, provider, model, inputTokens, outputTokens, lastInputTokens, costUsd, costPartial, instructions, mode } = session
+    return { id, title, provider, model, inputTokens, outputTokens, lastInputTokens, costUsd, costPartial, instructions, mode, messageCount: session.messages.length }
+  }))
   // Rotate has no single model; the account of the latest turn stands in for it.
   const activeProvider =
     selectedProvider === null || selectedProvider === ROTATE_PROVIDER
@@ -429,6 +435,10 @@ export function TabBar({
       </span>
       {/* Keep session tools in the header so popovers stay outside sidebar scrolling. */}
       <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
+        {waitingForApproval && <button type="button" title="Open the session that is waiting for your approval"
+          className="glass-ghost region-no-drag rounded px-2 py-1 text-xs text-del transition-colors hover:text-brand"
+          onClick={waitingForApproval}>Waiting for approval</button>}
+        {activeSession?.mode === 'code' && <WorkspaceReview key={activeSession.id} sessionId={activeSession.id} />}
         {activeSession !== undefined && <BrowserButton sessionId={activeSession.id} />}
         {activeSession !== undefined && <PlanUsageButton provider={activeProvider} />}
         {activeSession !== undefined && <UsageButton session={activeSession} selectedModel={selectedModel} activeProvider={activeProvider} />}

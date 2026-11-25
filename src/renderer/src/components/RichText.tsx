@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { JSX, ReactNode } from 'react'
+import { WorkspaceFile, looksLikeFile } from './WorkspaceFile'
 import { fenceLanguageOf, highlightLines } from '../highlight'
 import type { TokenKind } from '../highlight'
 
@@ -69,7 +70,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
           key={key}
           className="rounded bg-raised px-1.5 py-0.5 font-mono text-[0.86em] text-text [box-decoration-break:clone]"
         >
-          {token.slice(1, -1)}
+          {looksLikeFile(token.slice(1, -1)) ? <WorkspaceFile location={token.slice(1, -1)} /> : token.slice(1, -1)}
         </code>
       )
     } else if (token.startsWith('**')) {
@@ -106,7 +107,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
       }
       nodes.push(
         <span key={key} title={label?.[2]}>
-          {inline(label?.[1] ?? token, key)}
+          {label && looksLikeFile(label[2]!) ? <WorkspaceFile location={label[2]!} label={label[1]!} /> : inline(label?.[1] ?? token, key)}
         </span>
       )
     }
@@ -253,7 +254,7 @@ function Table({ rows, keyPrefix }: { rows: string[]; keyPrefix: string }): JSX.
   )
 }
 
-export function RichText({ text }: { text: string }): JSX.Element {
+export const RichText = memo(function RichText({ text }: { text: string }): JSX.Element {
   const lines = text.split('\n')
   const blocks: ReactNode[] = []
   let index = 0
@@ -387,4 +388,4 @@ export function RichText({ text }: { text: string }): JSX.Element {
   }
 
   return <div>{blocks}</div>
-}
+})

@@ -15,6 +15,7 @@ import type { LLMProvider } from './types'
 import { listAuthAccounts, readAuthTokens } from '../auth/store'
 import { authModelsFor } from '../auth/catalogue'
 import { authProvider, AUTH_DEFAULT_MODELS } from '../auth/provider'
+import { loadPersistedSettings } from '../settings'
 
 const OLLAMA_FALLBACK_URL = 'http://127.0.0.1:11434/v1'
 /** Where an Anthropic provider starts when no model id was typed for it. */
@@ -61,7 +62,9 @@ export function listProviders(): ProviderInfo[] {
   const auth = listAuthAccounts().map((account): ProviderInfo => {
     const tokens = readAuthTokens(account.id)
     const models = authModelsFor(account.id, account.kind)
+    const efforts = loadPersistedSettings().authModelCatalogues?.[account.id]?.efforts
     return {
+      ...(efforts ? { efforts } : {}),
       id: account.id,
       label: account.label,
       defaultModel: models[0] ?? AUTH_DEFAULT_MODELS[account.kind],
@@ -102,7 +105,8 @@ export function createProvider(id: ProviderId, model: string, onlyKeys?: string[
       ...(headers ? { defaultHeaders: headers } : {}),
       // OpenAI's own API refuses max_tokens on its current models; gateways
       // and local servers mostly only know the older name.
-      maxTokensField: config.kind === 'openai-api' ? 'max_completion_tokens' : 'max_tokens'
+      maxTokensField: config.kind === 'openai-api' ? 'max_completion_tokens' : 'max_tokens',
+      reasoningEffort: config.kind === 'openai-api'
     }))
     return keyringProvider(id, model, onlyKeys ?? [config.apiKey, ...(config.apiKeys ?? [])], create)
   }
@@ -118,7 +122,8 @@ export function createProvider(id: ProviderId, model: string, onlyKeys?: string[
       if (apiKey === null) throw new Error('OPENAI_API_KEY is not set')
       return new OpenAICompatibleProvider('openai', model, {
         apiKey,
-        maxTokensField: 'max_completion_tokens'
+        maxTokensField: 'max_completion_tokens',
+        reasoningEffort: true
       })
     }
     case 'google': {

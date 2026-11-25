@@ -107,6 +107,7 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.POLICY_SET, enabled) as Promise<SessionStatus>,
   setFollowUpMode: (mode: 'steer' | 'queue') =>
     ipcRenderer.invoke(IpcChannel.FOLLOW_UP_SET, mode) as Promise<SessionStatus>,
+  setModelEffort: (model, effort) => ipcRenderer.invoke(IpcChannel.EFFORT_SET, model, effort) as Promise<SessionStatus>,
   addProvider: (input: CustomProviderInput) =>
     ipcRenderer.invoke(IpcChannel.PROVIDER_ADD, input) as Promise<ProviderInfo[]>,
   getRemoteStatus: () => ipcRenderer.invoke(IpcChannel.REMOTE_STATUS) as Promise<RemoteStatus>,
@@ -184,6 +185,12 @@ const api: AnticodeApi = {
     ipcRenderer.invoke(IpcChannel.ARTIFACT_OPEN, sessionId, relativePath) as Promise<string | null>,
   saveArtifact: (sessionId: string, relativePath: string) =>
     ipcRenderer.invoke(IpcChannel.ARTIFACT_SAVE, sessionId, relativePath) as Promise<string | null>,
+  workspaceChanges: sessionId => ipcRenderer.invoke(IpcChannel.WORKSPACE_GIT_STATUS, sessionId),
+  workspacePatch: (sessionId, file) => ipcRenderer.invoke(IpcChannel.WORKSPACE_GIT_DIFF, sessionId, file),
+  revertWorkspacePatch: (sessionId, file, revision, hunk) => ipcRenderer.invoke(IpcChannel.WORKSPACE_GIT_REVERT, sessionId, file, revision, hunk),
+  searchWorkspaceFiles: (root, query) => ipcRenderer.invoke(IpcChannel.WORKSPACE_FILE_SEARCH, root, query),
+  openInEditor: (sessionId, file, editor, line) => ipcRenderer.invoke(IpcChannel.WORKSPACE_EDITOR, sessionId, file, editor, line),
+  cleanStorage: () => ipcRenderer.invoke(IpcChannel.STORAGE_CLEAN),
   revealArtifact: (sessionId: string, relativePath: string) =>
     ipcRenderer.invoke(IpcChannel.ARTIFACT_REVEAL, sessionId, relativePath) as Promise<string | null>,
   previewFile: (sessionId: string | null, target: string) =>

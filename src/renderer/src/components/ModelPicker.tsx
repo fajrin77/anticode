@@ -251,18 +251,24 @@ export function ModelPicker({
             placeholder="Search models, or type an id"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return
               if (event.key === 'Escape') {
+                event.preventDefault()
                 onClose()
                 return
               }
-              if (event.key === 'ArrowDown' && matches.length > 0) {
-                event.preventDefault()
-                setActiveIndex((idx) => (idx + 1) % matches.length)
-                return
-              }
-              if (event.key === 'ArrowUp' && matches.length > 0) {
-                event.preventDefault()
-                setActiveIndex((idx) => (idx <= 0 ? matches.length - 1 : idx - 1))
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                const step = event.key === 'ArrowDown' ? 1 : -1
+                const box = event.currentTarget.parentElement
+                for (let offset = 1; offset <= matches.length; offset++) {
+                  const start = activeIndex < 0 && step < 0 ? 0 : activeIndex
+                  const index = (start + step * offset + matches.length) % matches.length
+                  if (manualRoute(matches[index]!).reason !== null) continue
+                  event.preventDefault()
+                  setActiveIndex(index)
+                  box?.querySelector(`[data-model-index="${index}"]`)?.scrollIntoView({ block: 'nearest' })
+                  break
+                }
                 return
               }
               if (event.key === 'Enter') {
@@ -308,6 +314,7 @@ export function ModelPicker({
               <button
                 key={id}
                 data-picker-model={id}
+                data-model-index={index}
                 type="button"
                 disabled={manualRoute(id).reason !== null}
                 title={manualRoute(id).reason ?? undefined}

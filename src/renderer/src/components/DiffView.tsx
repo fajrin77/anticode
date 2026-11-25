@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from 'react'
 import type { JSX } from 'react'
+import { WorkspaceFile } from './WorkspaceFile'
 import { parseUnifiedDiff, splitRows } from '../diff'
 import type { DiffLine, Hunk } from '../diff'
 import { highlightLines, languageOf } from '../highlight'
@@ -69,7 +70,7 @@ const NUMBER_CELL = 'w-[1%] select-none px-2 text-right align-top tabular-nums t
  * syntax colour, and a choice of one column or old beside new. The choice is
  * remembered for every diff, in the transcript and in approvals alike.
  */
-export function DiffView({ patch, path, maxHeight = 'max-h-96' }: { patch: string; path: string; maxHeight?: string }): JSX.Element {
+export function DiffView({ patch, path, maxHeight = 'max-h-96', onRevertHunk }: { patch: string; path: string; maxHeight?: string; onRevertHunk?: ((index: number) => void) | undefined }): JSX.Element {
   const layout = useSessionStore((state) => state.diffLayout)
   const setLayout = useSessionStore((state) => state.setDiffLayout)
   const parsed = useMemo(() => parseUnifiedDiff(patch), [patch])
@@ -79,7 +80,7 @@ export function DiffView({ patch, path, maxHeight = 'max-h-96' }: { patch: strin
   return (
     <div className="overflow-hidden rounded-lg border border-line bg-surface" data-diff-view>
       <div className="flex items-center gap-3 border-b border-line-soft px-3 py-1.5 text-[12px]">
-        <span className="min-w-0 flex-1 truncate font-mono text-dim">{path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-dim"><WorkspaceFile location={path} line={parsed.hunks[0]?.newStart} known /></span>
         <span className="shrink-0 tabular-nums">
           <span className="text-add">+{parsed.added}</span> <span className="text-del">−{parsed.removed}</span>
         </span>
@@ -114,6 +115,8 @@ export function DiffView({ patch, path, maxHeight = 'max-h-96' }: { patch: strin
                       <td colSpan={4} className="bg-raised/50 px-3 py-0.5 text-[11px] text-faint">
                         @@ −{hunk.oldStart} +{hunk.newStart}
                         {hunk.header !== '' ? ` · ${hunk.header}` : ''}
+                        {onRevertHunk && <button type="button" className="float-right text-dim transition-colors hover:text-del"
+                          onClick={() => onRevertHunk(hunkIndex)}>Revert hunk</button>}
                       </td>
                     </tr>
                     {layout === 'unified'

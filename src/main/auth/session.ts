@@ -19,8 +19,6 @@ interface Running {
   resolveCode: ((code: string) => void) | null
   /** Rejects the parked promptForCode so Cancel unblocks a paste-code flow. */
   rejectCode: ((error: Error) => void) | null
-  /** Set by cancelAuthLogin so the flow's own failure is not re-broadcast. */
-  cancelled: boolean
 }
 
 const running = new Map<string, Running>()
@@ -67,8 +65,7 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
     state: initial,
     abort: controller,
     resolveCode: null,
-    rejectCode: null,
-    cancelled: false
+    rejectCode: null
   }
   running.set(id, entry)
 
@@ -77,13 +74,23 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
     broadcast(entry.state)
   }
 
+  const timeoutError = new Error('Sign-in timed out. Start a new sign-in to try again.')
+  const timeout = setTimeout(() => {
+    controller.abort(timeoutError)
+    entry.rejectCode?.(timeoutError)
+    entry.rejectCode = null
+    entry.resolveCode = null
+    update({ status: timeoutError.message, error: timeoutError.message, done: false, needsCode: false })
+  }, 10 * 60_000)
+  timeout.unref()
+
   void (async () => {
     try {
       const existingIds = new Set(listAuthAccounts().map((account) => account.id))
       let reconnectNote: string | null = null
       const account = await loginAuthAccount(kind, {
         onUpdate: (u) => {
-          if (entry.cancelled) return
+          if (controller.signal.aborted) return
           if (u.message.includes('is already connected')) reconnectNote = u.message
           const url = u.url ?? entry.state.url
           update({
@@ -95,14 +102,14 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
         },
         promptForCode: (message) =>
           new Promise<string>((resolve, reject) => {
-            if (entry.cancelled) { reject(new Error('Login cancelled')); return }
+            if (controller.signal.aborted) { reject(controller.signal.reason); return }
             entry.resolveCode = resolve
             entry.rejectCode = reject
             update({ status: message, needsCode: true })
           }),
         signal: controller.signal
       })
-      if (entry.cancelled) return
+      if (controller.signal.aborted) return
       const added = !existingIds.has(account.id)
       accountSink?.(account, added)
       update({
@@ -115,14 +122,15 @@ export function startAuthLogin(kind: AuthKind): AuthLoginState {
     } catch (error) {
       // Cancel already said what happened; an AbortError on top of it would
       // replace "Cancelled" with a stack-shaped message.
-      if (!entry.cancelled) {
+      if (!controller.signal.aborted) {
         const message = error instanceof Error ? error.message : String(error)
         update({ status: message, error: message, done: false, needsCode: false })
       }
     } finally {
+      clearTimeout(timeout)
       // Keep the final state around briefly so a late window can read it; a
       // fresh login of the same kind still works because it keys on `done`.
-      setTimeout(() => running.delete(id), 30_000).unref?.()
+      setTimeout(() => { if (running.get(id) === entry) running.delete(id) }, 30_000).unref?.()
     }
   })()
 
@@ -148,7 +156,6 @@ export function submitAuthCode(id: string, code: string): void {
 export function cancelAuthLogin(id: string): void {
   const entry = running.get(id)
   if (entry === undefined) return
-  entry.cancelled = true
   // The signal reaches the flow itself: the localhost listener closes, the
   // CodeBuddy poll stops, and any in-flight token exchange is dropped.
   entry.abort.abort()
@@ -162,7 +169,7 @@ export function cancelAuthLogin(id: string): void {
 
 /** Active or recently finished login flows so remounting Settings keeps live cards. */
 export function listAuthLogins(): AuthLoginState[] {
-  return [...running.values()].filter((entry) => !entry.cancelled).map((entry) => entry.state)
+  return [...running.values()].map((entry) => entry.state)
 }
 
 /** For tests: forget every running flow. */

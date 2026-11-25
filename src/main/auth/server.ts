@@ -76,7 +76,9 @@ export function waitForCallback(options: LocalServerOptions): Promise<CallbackRe
       if (aborted) return
       if (index >= options.ports.length) {
         options.signal?.removeEventListener('abort', onAbort)
-        if (!settled) { settled = true; reject(new Error('No free callback port was available')) }
+        if (!settled) { settled = true; reject(new Error(options.ports.length === 1 && options.ports[0] !== 0
+          ? 'Sign-in needs localhost port ' + options.ports[0] + '. Close the other sign-in or app using that port and retry.'
+          : 'No free callback port was available')) }
         return
       }
       const port = options.ports[index]

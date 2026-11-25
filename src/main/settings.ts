@@ -25,7 +25,9 @@ export interface PersistedSettings {
   remote?: RemoteSettings
   rotation?: PersistedRotation
   /** Last observed model ids only; no credentials. Used when offline after restart. */
-  authModelCatalogues?: Record<string, { models: string[]; checkedAt: number; freeOnly?: boolean; unavailable?: Record<string, { reason: string; until: number }> }>
+  authModelCatalogues?: Record<string, { models: string[]; checkedAt: number; freeOnly?: boolean; unavailable?: Record<string, { reason: string; until: number }>; efforts?: Record<string, import('@shared/effort').ModelEffort> }>
+  /** Reasoning effort picked in the composer, by model id. Absent means the provider default. */
+  effortByModel?: Record<string, import('@shared/effort').EffortLevel>
   updates?: { source: string; autoCheck: boolean; autoDownload: boolean }
   preferences?: Partial<Omit<import('@shared/ipc').AppPreferences, 'notifications'>> & {
     notifications?: Partial<import('@shared/ipc').NotificationSettings>
@@ -67,12 +69,29 @@ export function loadPersistedSettings(): PersistedSettings {
   return cache
 }
 
-export function savePersistedSettings(patch: PersistedSettings): void {
+let dirty = false
+let writeTimer: ReturnType<typeof setTimeout> | undefined
+
+export function savePersistedSettings(patch: PersistedSettings, deferred = false): void {
   cache = { ...loadPersistedSettings(), ...patch }
+  dirty = true
+  if (deferred) {
+    writeTimer ??= setTimeout(flushPersistedSettings, 1500)
+    writeTimer.unref()
+  } else {
+    flushPersistedSettings()
+  }
+}
+
+export function flushPersistedSettings(): void {
+  clearTimeout(writeTimer)
+  writeTimer = undefined
+  if (cache === null || !dirty) return
   try {
     mkdirSync(path.dirname(file()), { recursive: true })
     writeFileSync(`${file()}.tmp`, JSON.stringify(cache, null, 2), { mode: 0o600 })
     renameSync(`${file()}.tmp`, file())
+    dirty = false
   } catch {
     // Persistence is best-effort; the app works with defaults without it.
   }

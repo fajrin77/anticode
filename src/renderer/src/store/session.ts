@@ -1,3 +1,4 @@
+import { shallow } from 'zustand/shallow'
 import { create } from 'zustand'
 import { createJSONStorage, persist, type PersistStorage, type StorageValue } from 'zustand/middleware'
 import type {
@@ -62,6 +63,7 @@ function debounced<S>(storage: PersistStorage<S> | undefined): PersistStorage<S>
   if (storage === undefined || typeof window === 'undefined') return storage
   let pending: { name: string; value: StorageValue<S> } | undefined
   let timer: number | undefined
+  let last: S | undefined
   const flush = (): void => {
     window.clearTimeout(timer)
     timer = undefined
@@ -74,8 +76,10 @@ function debounced<S>(storage: PersistStorage<S> | undefined): PersistStorage<S>
   window.addEventListener('pagehide', flush)
   return {
     getItem: (name) => storage.getItem(name),
-    removeItem: (name) => { pending = undefined; return storage.removeItem(name) },
+    removeItem: (name) => { pending = undefined; last = undefined; return storage.removeItem(name) },
     setItem: (name, value) => {
+      if (last === value.state) return
+      last = value.state
       pending = { name, value }
       timer ??= window.setTimeout(flush, 400)
     }
@@ -176,10 +180,10 @@ interface SessionPreset {
 interface SessionState {
   readPositions: Record<string, { top: number; following: boolean; prompts: number }>
   /** `quote` is a passage from the transcript the next prompt answers. */
-  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null; selection?: ProviderSelection }>
+  drafts: Record<string, { text: string; attachments: AttachmentInfo[]; quote?: string; sendError?: string | null; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null; selection?: ProviderSelection }>
   updateDraft: (
     id: string,
-    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null; selection?: ProviderSelection }>
+    patch: Partial<{ text: string; attachments: AttachmentInfo[]; quote?: string; sendError?: string | null; attachmentErrors?: string[]; mode?: 'chat' | 'code'; folder?: string | null; selection?: ProviderSelection }>
   ) => void
   /** Named prompt starters, saved by the user and listed on the dashboard. */
   presets: SessionPreset[]
@@ -294,7 +298,7 @@ interface SessionState {
   ) => void
   closeSession: (id: string) => void
 
-  addMessage: (message: Message) => void
+  addMessage: (message: Message, sessionId?: string) => void
   /**
    * An instruction joined a run that was already working. It is written under
    * the reply in progress, with the app's reaction to it; the reply itself
@@ -367,7 +371,7 @@ function baseName(root: string): string {
   return parts.at(-1) ?? root
 }
 
-export function sidebarProjectOrder(state: Pick<SessionState, 'projectOrder' | 'sessions'>): string[] {
+export function sidebarProjectOrder(state: { projectOrder: string[]; sessions: Pick<Session, 'mode' | 'projectRoot'>[] }): string[] {
   return [...new Set([...state.projectOrder, ...state.sessions.map((session) =>
     session.mode === 'chat' ? 'antichat' : session.projectRoot ?? ''
   )])]
@@ -389,10 +393,6 @@ function newSession(mode: SessionMode, projectRoot: string | null, colour: numbe
     closed: false,
     colour
   }
-}
-
-function mapActive(state: SessionState, change: (session: Session) => Session): Session[] {
-  return mapSession(state, state.activeSessionId, change)
 }
 
 function mapSession(
@@ -423,6 +423,31 @@ function summarySignature(message: Message): string {
     .join('\n')
   return `${message.role}|${message.parts.length}|${texts.slice(0, 500)}|${texts.length}`
 }
+
+const EMPTY_MESSAGES: Message[] = []
+let previousSessions: Session[] = []
+let draftSource: SessionState['drafts'] | undefined
+let previousDrafts: SessionState['drafts'] = {}
+
+function metadataOf(state: SessionState) {
+  const sessions = state.sessions.map((session, index) => {
+    const meta = { ...session, messages: EMPTY_MESSAGES }
+    return shallow(previousSessions[index], meta) ? previousSessions[index]! : meta
+  })
+  if (!shallow(previousSessions, sessions)) previousSessions = sessions
+  if (state.drafts !== draftSource) {
+    draftSource = state.drafts
+    previousDrafts = Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [
+      id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }
+    ]))
+  }
+  const { readPositions, followUpMode, diffLayout, presets, projects, usage, seenUsageEvents, nextColour,
+    planModeBySession, planOpenBySession, projectOrder, activeSessionId } = state
+  return { readPositions, followUpMode, diffLayout, presets, projects, usage, seenUsageEvents, nextColour,
+    planModeBySession, planOpenBySession, projectOrder, activeSessionId, sessions: previousSessions, drafts: previousDrafts }
+}
+
+let persisted: ReturnType<typeof metadataOf> | undefined
 
 export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   readPositions: {},
@@ -975,11 +1000,11 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       return { sessions, activeSessionId }
     }),
 
-  addMessage: (message) =>
+  addMessage: (message, sessionId) =>
     set((state) => ({
       // The name is not decided here: the main process names an antichat
       // from this prompt once it has it, and tells every viewer.
-      sessions: mapActive(state, (session) => ({
+      sessions: mapSession(state, sessionId ?? state.activeSessionId ?? '', (session) => ({
         ...session,
         messages: [...session.messages, message]
       }))
@@ -1307,10 +1332,28 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   name: 'anticode-session-metadata',
   storage: debounced(createJSONStorage(() => (typeof window === 'undefined' ? sessionStoreMemoryStorage : window.localStorage))),
   skipHydration: typeof window === 'undefined',
-  partialize: (state) => ({ readPositions: state.readPositions, followUpMode: state.followUpMode, diffLayout: state.diffLayout, presets: state.presets, drafts: Object.fromEntries(Object.entries(state.drafts).map(([id, draft]) => [id, { ...draft, attachments: draft.attachments.map(item => ({ ...item, thumbnail: null })) }])), projects: state.projects, usage: state.usage, seenUsageEvents: state.seenUsageEvents, nextColour: state.nextColour, planModeBySession: state.planModeBySession, planOpenBySession: state.planOpenBySession,
-    projectOrder: state.projectOrder,
-    sessions: state.sessions.map((session) => ({ ...session, messages: [] })), activeSessionId: state.activeSessionId })
+  partialize: (state) => {
+    const next = metadataOf(state)
+    if (persisted !== undefined && shallow(persisted, next)) return persisted
+    persisted = next
+    return persisted
+  }
 }))
+
+export function restoreRejectedDraft(
+  id: string, draft: { text: string; attachments: AttachmentInfo[]; quote?: string }, error: string
+): void {
+  const state = useSessionStore.getState()
+  if (!state.sessions.some(session => session.id === id)) return
+  const current = state.drafts[id]
+  const attachments = new Map([...draft.attachments, ...(current?.attachments ?? [])].map(item => [item.id, item]))
+  state.updateDraft(id, {
+    text: [draft.text, current?.text].filter(Boolean).join('\n\n'),
+    quote: [draft.quote, current?.quote].filter(Boolean).join('\n\n'),
+    attachments: [...attachments.values()],
+    sendError: error
+  })
+}
 
 export function useActiveSession(): Session | undefined {
   return useSessionStore((state) =>

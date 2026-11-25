@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import type { MessagePart } from '../store/session'
+import { WorkspaceFile } from './WorkspaceFile'
 import { DiffView } from './DiffView'
 import { parseUnifiedDiff } from '../diff'
 
@@ -40,9 +41,10 @@ function label(name: string): string {
   return 'Explore'
 }
 
-export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
+export const ToolBlock = memo(function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
   const [open, setOpen] = useState(false)
   const line = subject(part)
+  const file = (part.input as { path?: unknown } | null)?.path
   const isShell = part.name === 'run_command'
   const stats = useMemo(() => (part.diff === undefined ? null : parseUnifiedDiff(part.diff)), [part.diff])
 
@@ -77,6 +79,8 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
         </span>
       </button>
 
+      {open && typeof file === 'string' && part.diff === undefined &&
+        <div className="font-mono text-xs text-dim"><WorkspaceFile location={file} known /></div>}
       {open && part.diff !== undefined && (
         <div className="mt-2">
           <DiffView patch={part.diff} path={line} />
@@ -92,4 +96,4 @@ export function ToolBlock({ part }: { part: ToolPart }): JSX.Element {
       )}
     </div>
   )
-}
+})

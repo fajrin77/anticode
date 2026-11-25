@@ -23,6 +23,9 @@ const pages = new Map<string, WebRecord>()
  */
 const histories = new Map<string, { entries: string[]; index: number }>()
 let sink: ((sessions: WebSession[]) => void) | null = null
+let persistence: ((sessionId: string) => void) | undefined
+export function setWebPersistence(save: (sessionId: string) => void): void { persistence = save }
+
 let closer: ((sessionId: string) => void) | null = null
 let counter = 0
 
@@ -162,6 +165,7 @@ function commit(sessionId: string, record: WebRecord): void {
   }
   if (same(existing, record)) return
   pages.set(sessionId, record)
+  persistence?.(sessionId)
   announce()
 }
 
@@ -343,6 +347,7 @@ export function clearWeb(sessionId: string): void {
   for (const tab of pages.get(sessionId)?.tabs ?? []) histories.delete(tab.id)
   if (!pages.delete(sessionId)) return
   closer?.(sessionId)
+  persistence?.(sessionId)
   announce()
 }
 

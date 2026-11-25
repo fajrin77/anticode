@@ -1,10 +1,14 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { shallow } from 'zustand/shallow'
+import { useShallow } from 'zustand/react/shallow'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { sidebarProjectOrder, useSessionStore } from '../store/session'
 import type { Session } from '../store/session'
 import { Badge } from './Badge'
 
-function SessionActions({ session, onNewSession }: { session: Session; onNewSession: (id: string) => void }): JSX.Element {
+type SessionLabel = Pick<Session, 'id' | 'title' | 'mode' | 'projectRoot' | 'closed' | 'colour'>
+
+function SessionActions({ session, onNewSession }: { session: SessionLabel; onNewSession: (id: string) => void }): JSX.Element {
   const id = useId()
   const popover = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ top: 0, left: 0 })
@@ -72,7 +76,8 @@ function SessionActions({ session, onNewSession }: { session: Session; onNewSess
   </>
 }
 
-export function SessionSidebar({ preview = false, collapsed, onToggleProject, active, dashboardActive, onDashboard, onSelectSession, onNewSession }: {
+export function SessionSidebar({ preview = false, collapsed, onToggleProject, active, dashboardActive, onDashboard, onSelectSession, onNewSession, approvalSessions }: {
+  approvalSessions: ReadonlySet<string>
   preview?: boolean
   collapsed: ReadonlySet<string>
   onToggleProject: (root: string) => void
@@ -82,21 +87,30 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
   onSelectSession: (id: string) => void
   onNewSession: (id: string) => void
 }): JSX.Element {
-  const sessions = useSessionStore((state) => state.sessions)
+  const labels = useMemo(() => {
+    let previous: SessionLabel[] = []
+    return (sessions: Session[]): SessionLabel[] => {
+      const next = sessions.map(({ id, title, mode, projectRoot, closed, colour }, index) => {
+        const label = { id, title, mode, projectRoot, closed, colour }
+        return shallow(previous[index], label) ? previous[index]! : label
+      })
+      if (!shallow(previous, next)) previous = next
+      return previous
+    }
+  }, [])
+  const sessions = useSessionStore(state => labels(state.sessions))
   const projectOrder = useSessionStore((state) => state.projectOrder)
   const syncProjectOrder = useSessionStore((state) => state.syncProjectOrder)
   const moveProject = useSessionStore((state) => state.moveProject)
   const draggedProject = useRef<string | null>(null)
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const cancelHover = (): void => { clearTimeout(hoverTimer.current) }
-  useLayoutEffect(() => () => clearTimeout(hoverTimer.current), [preview])
   const [dropTarget, setDropTarget] = useState<{ root: string; after: boolean } | null>(null)
   useLayoutEffect(() => { syncProjectOrder() }, [sessions, syncProjectOrder])
   const activeId = useSessionStore((state) => state.activeSessionId)
-  const activeRuns = useSessionStore((state) => state.activeRuns)
-  const mirrorRuns = useSessionStore((state) => state.mirrorRuns)
+  const running = useSessionStore(useShallow(state =>
+    new Set([...Object.values(state.activeRuns), ...Object.values(state.mirrorRuns)].map(run => run.sessionId))
+  ))
   const [showArchived, setShowArchived] = useState(false)
-  const groups = new Map<string, Session[]>()
+  const groups = new Map<string, SessionLabel[]>()
   for (const session of sessions) {
     if (session.closed && !showArchived) continue
     const key = session.mode === 'chat' ? 'antichat' : session.projectRoot ?? ''
@@ -104,11 +118,10 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
     group.push(session)
     groups.set(key, group)
   }
-  const running = new Set([...Object.values(activeRuns), ...Object.values(mirrorRuns)].map((run) => run.sessionId))
   const orderedGroups = sidebarProjectOrder({ projectOrder, sessions }).filter((root) => groups.has(root))
 
   return (
-    <aside id="session-sidebar" aria-label="Session list" className={`flex w-64 max-w-[40vw] shrink-0 flex-col border-r border-line-soft p-3 ${preview ? 'bg-raised/80' : 'bg-raised/40'}`}>
+    <aside id="session-sidebar" aria-label="Session list" className={`flex w-64 min-w-44 max-w-[40vw] shrink-0 resize-x flex-col overflow-hidden border-r border-line-soft p-3 ${preview ? 'bg-raised/80' : 'bg-raised/40'}`}>
       <button type="button" onClick={onDashboard} aria-pressed={dashboardActive}
         className={`mb-5 rounded-lg px-3 py-2 text-left text-[14px] transition-colors hover:bg-raised hover:text-brand ${dashboardActive ? 'bg-raised text-brand' : 'text-text'}`}>
         + New Session
@@ -167,16 +180,11 @@ export function SessionSidebar({ preview = false, collapsed, onToggleProject, ac
                 {entries.map((session) => (
                   <div key={session.id} className={`group flex items-center rounded-lg hover:bg-raised ${active && session.id === activeId ? 'bg-raised' : ''}`} >
                   <button type="button" title={session.title} data-session-id={session.id}
-                    onPointerEnter={(event) => {
-                      cancelHover()
-                      if (!preview || event.pointerType !== 'mouse' || event.buttons !== 0 || (active && session.id === activeId)) return
-                      hoverTimer.current = setTimeout(() => onSelectSession(session.id), 1000)
-                    }}
-                    onPointerLeave={cancelHover} onPointerCancel={cancelHover} onPointerDown={cancelHover}
-                    onClick={() => { cancelHover(); onSelectSession(session.id) }} aria-current={active && session.id === activeId ? 'page' : undefined}
+                    onClick={() => onSelectSession(session.id)} aria-current={active && session.id === activeId ? 'page' : undefined}
                     className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left text-[14px] transition-colors hover:bg-raised hover:text-brand ${active && session.id === activeId ? 'bg-raised text-text' : 'text-dim'}`}>
-                    <Badge label={label} colour={session.colour} size="sm" spinning={running.has(session.id)} />
+                    <Badge label={label} colour={session.colour} size="sm" spinning={running.has(session.id) && !approvalSessions.has(session.id)} />
                     <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                    {approvalSessions.has(session.id) && <span title="Waiting for approval" aria-label="Waiting for approval" className="text-del">!</span>}
                   </button>
                   <SessionActions session={session} onNewSession={onNewSession} />
                   </div>

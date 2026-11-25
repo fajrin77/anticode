@@ -155,7 +155,7 @@ function captureWindow(): BrowserWindow {
     transparent: mac,
     backgroundColor: mac ? '#00000000' : '#1f1f1f',
     ...(mac ? { vibrancy: 'hud' as const, visualEffectState: 'active' as const } : {}),
-    webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: false }
+    webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
   capture.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   // Like Spotlight: clicking anywhere else puts it away.

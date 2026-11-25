@@ -17,6 +17,8 @@ import type { AuthKind } from './types'
 import { loadPersistedSettings, savePersistedSettings } from '../settings'
 import { checkClaudeSubscription } from './claudeAccess'
 import { CLAUDE_CODE_HEADERS } from '../providers/anthropic'
+import { parseClaudeEffort, parseCodexEfforts } from '../effort'
+import type { ModelEffort } from '@shared/effort'
 export async function fetchDirectAccountCatalogue(id: string): Promise<string[]> {
   const tokens = await ensureFreshAuthTokens(id)
   const kind = getAuthAccount(id)?.kind
@@ -93,6 +95,7 @@ export async function fetchClaudeModels(id: string): Promise<string[]> {
   const tokens = await ensureFreshAuthTokens(id)
   try {
     const models: string[] = []
+    const efforts: Record<string, ModelEffort> = {}
     let after: string | undefined
     for (let page = 0; page < 10; page++) {
       const url = new URL('https://api.anthropic.com/v1/models')
@@ -103,11 +106,15 @@ export async function fetchClaudeModels(id: string): Promise<string[]> {
       const data = await response.json() as { data?: { id?: unknown }[]; has_more?: boolean; last_id?: string }
       if (!Array.isArray(data.data)) throw new Error('Invalid Claude catalogue')
       models.push(...data.data.flatMap(entry => typeof entry.id === 'string' && entry.id.startsWith('claude-') ? [entry.id] : []))
+      for (const entry of data.data) {
+        const effort = typeof entry.id === 'string' ? parseClaudeEffort(entry) : null
+        if (effort !== null) efforts[entry.id as string] = effort
+      }
       if (!data.has_more) break
       if (!data.last_id || data.last_id === after || page === 9) throw new Error('Incomplete Claude catalogue')
       after = data.last_id
     }
-    if (models.length) savePersistedSettings({ authModelCatalogues: { ...loadPersistedSettings().authModelCatalogues, [id]: { models: [...new Set(models)], checkedAt: Date.now() } } })
+    if (models.length) savePersistedSettings({ authModelCatalogues: { ...loadPersistedSettings().authModelCatalogues, [id]: { models: [...new Set(models)], checkedAt: Date.now(), ...(Object.keys(efforts).length ? { efforts } : {}) } } })
   } catch { /* Retain the last successful account catalogue while offline. */ }
   try { await checkClaudeSubscription(id, tokens) } catch { /* Inference checks again and explains blocked billing. */ }
   return authModelsFor(id, 'claude')
@@ -162,11 +169,13 @@ export async function fetchCodexModels(id: string): Promise<string[]> {
       signal: AbortSignal.timeout(10_000)
     })
     if (!response.ok) throw new Error('Account catalogue unavailable')
-    const models = parseCodexModels(await response.json())
+    const body: unknown = await response.json()
+    const models = parseCodexModels(body)
     if (models.length) {
+      const efforts = parseCodexEfforts(body)
       savePersistedSettings({ authModelCatalogues: {
         ...loadPersistedSettings().authModelCatalogues,
-        [id]: { models, checkedAt: Date.now() }
+        [id]: { models, checkedAt: Date.now(), ...(Object.keys(efforts).length ? { efforts } : {}) }
       } })
       return authModelsFor(id, 'codex')
     }

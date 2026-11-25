@@ -1,3 +1,6 @@
+import { revertWorkspacePatch, workspaceChanges, workspacePatch } from '../workspaceGit'
+import { openInEditor, searchWorkspaceFiles } from '../workspaceFiles'
+import { cleanStorage } from '../storageCleanup'
 import { getAccessReport } from '../accessReport'
 import { getConnectorSettings, setConnectorSettings } from '../mcp/connectorSettings'
 import { testAllAccess } from '../accessProbe'
@@ -8,7 +11,6 @@ import { setAttachmentStorage } from '../attachments'
 import {
   cancelRun,
   runForSession,
-  sessionOfRun,
   listActiveRuns,
   listPausedSessions,
   pauseSession,
@@ -44,6 +46,7 @@ import { isSubscriptionProvider } from '../subscriptions'
 import { getSubscriptionQuotas } from '../subscriptionQuotas'
 import { resetRotationUsage, setRotationChangeSink } from '../rotation'
 import { setFollowUpMode } from '../followUp'
+import { setModelEffort } from '../effort'
 import {
   deleteSession,
   compactSession,
@@ -53,12 +56,17 @@ import {
   getStatus,
   listModels,
   listSessionSpecs,
-  loadSessionMessages,
+  persistSessions,
+  sessionMode,
+  sessionStorageWarning,
+  hasWorkspaceRoot,
   forgetCatalogue,
   syncAuthAccountRoutes,
   forgetProvider,
   providerInUse,
   sessionFileRoot,
+  sessionWorkspaceRoot,
+  isSessionAttachmentPath,
   revertLastTurn,
   takeBackPrompt,
   setSessionInstructions,
@@ -134,12 +142,12 @@ import type { AttachmentInfo } from '@shared/ipc'
 let lastSender: WebContents | null = null
 
 
-const approvals = new ApprovalCoordinator(policy, () => lastSender && !lastSender.isDestroyed() ? lastSender : mainWindow()?.webContents ?? null, (requestId) => {
+const approvals = new ApprovalCoordinator(policy, () => mainWindow()?.webContents ?? null, (requestId) => {
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IpcChannel.APPROVAL_DISMISSED, requestId)
 }, (request) => notify('approval', {
   title: 'anticode needs approval',
   body: `${request.toolName.replace(/^mcp__(.+?)__(.+)$/, '$2 (MCP $1)')} is waiting for your decision.`,
-  sessionId: sessionOfRun(request.runId)
+  sessionId: request.sessionId
 }), (grants) => savePersistedSettings({ alwaysAllowed: grants }), () => isRemoteActive())
 
 /** The remote server reuses the same gate and targets the desktop window. */
@@ -181,16 +189,11 @@ function isAllowedRendererFile(target: string): boolean {
   if (typeof target !== 'string' || target.trim() === '') return false
   if (isRegisteredAttachmentPath(target)) return true
   const resolved = path.resolve(target)
+  if (isSessionAttachmentPath(resolved)) return true
   for (const spec of listSessionSpecs()) {
     const root = sessionFileRoot(spec.sessionId)
-    if (root !== null) {
-      const rel = path.relative(root, resolved)
-      if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) return true
-    }
-    const messages = loadSessionMessages(spec.sessionId) ?? []
-    if (messages.some((m) => m.blocks.some((b) => b.type === 'attachment' && path.resolve(b.attachment.path) === resolved))) {
-      return true
-    }
+    if (root === null || path.resolve(root) === resolved) continue
+    try { resolveInWorkspace(root, resolved); return true } catch { /* Check the next workspace. */ }
   }
   return false
 }
@@ -371,6 +374,52 @@ export function pickModel(selection: ProviderSelection, sessionId?: string | nul
 }
 
 export function registerIpcHandlers(): void {
+  ipcMain.handle(IpcChannel.WORKSPACE_GIT_STATUS, (_event, id: string) => {
+    const root = sessionWorkspaceRoot(id)
+    return root === null ? null : workspaceChanges(root)
+  })
+  ipcMain.handle(IpcChannel.WORKSPACE_GIT_DIFF, (_event, id: string, file: unknown) => {
+    const root = sessionWorkspaceRoot(id)
+    if (root === null || typeof file !== 'string') throw new Error('Choose a workspace file')
+    return workspacePatch(root, file)
+  })
+  ipcMain.handle(IpcChannel.WORKSPACE_GIT_REVERT, async (event, id: string, file: unknown, revision: unknown, hunk: unknown) => {
+    const root = sessionWorkspaceRoot(id)
+    if (root === null || typeof file !== 'string' || typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision) ||
+      (hunk !== null && (typeof hunk !== 'number' || !Number.isSafeInteger(hunk) || hunk < 0))) throw new Error('Choose a workspace change')
+    const target = resolveInWorkspace(root, file)
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    if (!owner) return false
+    const { response } = await dialog.showMessageBox(owner, {
+      type: 'warning', defaultId: 0, cancelId: 0, buttons: ['Cancel', 'Revert'],
+      message: hunk === null ? 'Revert unstaged changes in this file?' : 'Revert this unstaged hunk?',
+      detail: target
+    })
+    if (response !== 1) return false
+    return revertWorkspacePatch(root, file, revision, hunk, () => {
+      if (sessionWorkspaceRoot(id) !== root) return false
+      return listActiveRuns().every(run => {
+        const other = sessionWorkspaceRoot(run.sessionId)
+        if (other === null) return true
+        const rel = path.relative(other, target)
+        return rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)
+      })
+    })
+  })
+  ipcMain.handle(IpcChannel.WORKSPACE_FILE_SEARCH, (_event, root: unknown, query: unknown) => {
+    if (typeof root !== 'string' || typeof query !== 'string' || query.length > 160) throw new Error('Invalid file search')
+    if (!hasWorkspaceRoot(root)) return []
+    return searchWorkspaceFiles(root, query)
+  })
+  ipcMain.handle(IpcChannel.WORKSPACE_EDITOR, (_event, sessionId: string, file: unknown, editor: unknown, line: unknown) => {
+    const root = sessionWorkspaceRoot(sessionId)
+    if (root === null || typeof file !== 'string' || /[\x00-\x1f]/.test(file) ||
+      (editor !== 'code' && editor !== 'cursor') || typeof line !== 'number' || !Number.isSafeInteger(line) || line < 1) {
+      throw new Error('Invalid workspace file location')
+    }
+    return openInEditor(root, file, editor, line)
+  })
+  ipcMain.handle(IpcChannel.STORAGE_CLEAN, () => cleanStorage(() => listSessionSpecs().map(spec => spec.sessionId)))
   setAttachmentStorage(path.join(app.getPath('userData'), 'draft-attachments'))
   // Recurring runs: the entry owns a session and reuses its model, so a
   // schedule never needs a provider picker of its own.
@@ -438,7 +487,10 @@ export function registerIpcHandlers(): void {
   })
 
   // Paused on one screen, resumable from the other: the pause lives here.
-  setPauseSink(announcePause)
+  setPauseSink((id, paused) => {
+    if (sessionMode(id) !== null) persistSessions(id)
+    announcePause(id, paused)
+  })
   ipcMain.handle(IpcChannel.SESSION_PAUSE, (_event, sessionId: string) => pauseSession(sessionId))
   ipcMain.handle(IpcChannel.SESSION_PAUSED_LIST, () => listPausedSessions())
 
@@ -449,6 +501,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     IpcChannel.APP_INFO,
     (): AppInfo => ({
+      storageWarning: sessionStorageWarning() ?? null,
       name: app.getName(),
       version: APP_VERSION,
       electron: process.versions.electron ?? 'unknown',
@@ -515,6 +568,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.POLICY_SET, (_event, enabled: boolean): SessionStatus =>
     setApprovalMode(enabled === true)
   )
+
+  ipcMain.handle(IpcChannel.EFFORT_SET, (_event, model: unknown, effort: unknown): SessionStatus => {
+    setModelEffort(model, effort)
+    announceStatus()
+    return getStatus()
+  })
 
   ipcMain.handle(IpcChannel.FOLLOW_UP_SET, (_event, mode: string): SessionStatus => {
     setFollowUpMode(mode === 'queue' ? 'queue' : 'steer')
@@ -736,6 +795,7 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(IpcChannel.APPROVAL_RESPOND, (_event, response: ApprovalResponse): void => {
+    if (!approvals.listPending().some(request => request.requestId === response?.requestId && request.sessionId === response.sessionId)) return
     approvals.resolve(response.requestId, response.decision)
   })
 
@@ -857,9 +917,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannel.SESSION_CLOSE, (_event, sessionId: string): void => {
-    deleteSession(sessionId)
-  })
+  ipcMain.handle(IpcChannel.SESSION_CLOSE, (_event, sessionId: string) => deleteSession(sessionId))
 
   ipcMain.handle(IpcChannel.AGENT_SEND, async (event, req: AgentRequest): Promise<{ runId: string; steered: boolean }> => {
     lastSender = event.sender

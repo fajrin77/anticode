@@ -1,3 +1,4 @@
+import { scheduleCheckpointCleanup, noteBrowserPartition } from './storageCleanup'
 import { app, shell, BrowserWindow, nativeImage, globalShortcut, session } from 'electron'
 import type { WebContents } from 'electron'
 import { join } from 'node:path'
@@ -7,7 +8,7 @@ import { loadEnvFile } from './config'
 import { cancelAllRuns } from './runs'
 import { initPersistedState, flushPersistedSessions } from './runtime'
 import { flushRotationUsage } from './rotation'
-import { flushAccountUsage } from './auth/sharing'
+import { flushPersistedSettings } from './settings'
 import { closeRemoteServer, restoreRemoteServer } from './remote/server'
 import { closeBrowser } from './browser'
 import { initUpdates } from './updates'
@@ -31,17 +32,19 @@ function createWindow(): BrowserWindow {
     backgroundColor: '#0b0e14',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
-      preload: join(import.meta.dirname, '../preload/index.mjs'),
+      preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       // The browser pane beside the transcript is a <webview>; the guest gets
       // no preload and no Node of its own (see the guard in whenReady).
       webviewTag: true,
-      // Required for ESM preload scripts; the renderer stays isolated from Node.
-      sandbox: false
+      sandbox: true
     }
   })
 
+  window.webContents.on('before-input-event', (_event, input) => {
+    window.webContents.setIgnoreMenuShortcuts((input.meta || input.control) && input.key.toLowerCase() === 'w')
+  })
   window.on('ready-to-show', () => window.show())
 
   // The renderer sets the pane's src from a URL the agent reached, so it is
@@ -54,6 +57,12 @@ function createWindow(): BrowserWindow {
     preferences.webSecurity = true
     preferences.allowRunningInsecureContent = false
     preferences.experimentalFeatures = false
+    const partition = String(params['partition'] ?? '')
+    if (!/^persist:anticode-web-[A-Za-z0-9_-]{1,100}$/.test(partition)) {
+      event.preventDefault()
+      return
+    }
+    noteBrowserPartition(partition)
     const source = String(params['src'] ?? '')
     if (source !== '' && !source.startsWith('http://') && !source.startsWith('https://')) {
       event.preventDefault()
@@ -143,6 +152,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     loadEnvFile()
     await initPersistedState()
+    scheduleCheckpointCleanup()
     registerIpcHandlers()
     startScheduler()
     void restoreRemoteServer()
@@ -156,7 +166,7 @@ if (!app.requestSingleInstanceLock()) {
     initPlugins()
     initAccountConnectors()
     configureQuickCapture({
-      preload: join(import.meta.dirname, '../preload/index.mjs'),
+      preload: join(import.meta.dirname, '../preload/index.cjs'),
       url: !app.isPackaged && process.env['ELECTRON_RENDERER_URL'] ? process.env['ELECTRON_RENDERER_URL'] : null,
       file: join(import.meta.dirname, '../renderer/index.html')
     })
@@ -192,16 +202,15 @@ app.on('window-all-closed', () => {
 
 let quitting = false
 app.on('before-quit', (event) => {
+  event.preventDefault()
   if (quitting) return
   quitting = true
-  event.preventDefault()
   globalShortcut.unregisterAll()
   stopScheduler()
   destroyTray()
   cancelAllRuns()
-  flushPersistedSessions()
   flushRotationUsage()
-  flushAccountUsage()
+  flushPersistedSettings()
   const teardown = Promise.allSettled([
     closeRemoteServer(),
     closeBrowser(),
@@ -210,5 +219,5 @@ app.on('before-quit', (event) => {
     closePlugins()
   ])
   const deadline = new Promise((resolve) => setTimeout(resolve, 3_000))
-  void Promise.race([teardown, deadline]).finally(() => app.exit(0))
+  void Promise.race([teardown, deadline]).then(() => flushPersistedSessions()).finally(() => app.exit(0))
 })

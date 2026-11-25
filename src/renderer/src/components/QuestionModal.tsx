@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { QuestionAnswer, QuestionRequest } from '@shared/ipc'
-import { escapeRejects } from './ApprovalModal'
 
 interface QuestionModalProps {
   request: QuestionRequest
@@ -17,17 +16,6 @@ interface QuestionModalProps {
 export function QuestionModal({ request, onAnswer }: QuestionModalProps): JSX.Element {
   const [custom, setCustom] = useState('')
   const firstRef = useRef<HTMLButtonElement>(null)
-
-  // Escape outside the custom field skips the question; inside it, Escape
-  // only leaves the field. A skip is an answer too, the run proceeds on its
-  // own judgement instead of hanging.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (escapeRejects(event)) onAnswer({ optionId: null, text: '' })
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onAnswer])
 
   // Announced and reachable like the approval card; focus returns after.
   useEffect(() => {
@@ -130,7 +118,7 @@ export function QuestionModal({ request, onAnswer }: QuestionModalProps): JSX.El
         role="dialog"
         aria-modal="true"
         aria-label="The agent has a question"
-        className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-line shadow-2xl"
+        className="glass-surface pointer-events-auto mx-auto w-full max-w-3xl 2xl:max-w-5xl overflow-hidden rounded-xl border border-line shadow-2xl"
       >
         <header className="flex items-center justify-between gap-2.5 px-5 py-3">
           <span className="text-[14px] text-text">Question</span>
@@ -184,7 +172,7 @@ export function QuestionModal({ request, onAnswer }: QuestionModalProps): JSX.El
                 value={custom}
                 onChange={(event) => setCustom(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') sendCustom()
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) sendCustom()
                 }}
                 placeholder="Or type your own answer…"
                 aria-label="Custom answer"

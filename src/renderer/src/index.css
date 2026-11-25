@@ -448,3 +448,8 @@ body {
   mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
   animation: spin 1.2s linear infinite;
 }
+
+[data-search-match] {
+  outline: 1px solid var(--color-brand);
+  border-radius: 0.5rem;
+}

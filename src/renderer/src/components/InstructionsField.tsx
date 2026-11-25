@@ -44,6 +44,7 @@ export function InstructionsField({
         rows={rows}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && changed && !tooLong) {
             event.preventDefault()
             void save()
