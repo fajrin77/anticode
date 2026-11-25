@@ -71,13 +71,14 @@ export const AUTH_MODELS: Record<AuthKind, readonly [string, ...string[]]> = {
   // Free DeepSeek routes are the reason to connect; the live catalogue adds the rest.
   orcarouter: ['deepseek/deepseek-v4.1-flash-free', 'deepseek/deepseek-v4-flash-free'],
   // Offline fallback only; the signed-in account catalogue takes precedence.
-  codex: ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
+  codex: ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
   claude: [
     'claude-sonnet-5-5',
     'claude-opus-5-5',
     'claude-haiku-5-5',
     'claude-sonnet-5',
     'claude-opus-5',
+    'claude-fable-5-2',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-haiku-4-5'

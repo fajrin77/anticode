@@ -187,6 +187,8 @@ const KNOWN_CONTEXT_WINDOWS: ReadonlyArray<readonly [string, number]> = [
   ['gemini-pro', 1_000_000],
   ['gemini', 1_000_000],
   // GPT / Codex backend: GPT-5/6 family ships 400k; 4o/4.1 family 128k-1M.
+  // Codex serves 6.2 Astra with a 272k default window (developers.openai.com/codex/models).
+  ['gpt-6.2-astra', 272_000],
   ['gpt-6', 400_000],
   ['gpt-5.6', 400_000],
   ['gpt-5.5', 400_000],
